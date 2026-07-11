@@ -2,8 +2,8 @@
 
 ## 1. Fundación del repositorio
 
-- [ ] 1.1 Inicializar git, `.gitignore` de Rust, `LICENSE` (Apache-2.0), `NOTICE` y política de cabeceras SPDX, más la estructura del monorepo (`core/`, `proto/`, `docs/`; `brand/` ya existe)
-- [ ] 1.2 Ratificar `meltemi.md` (v0.2 → v1.0), `constitution.md` y los archivos de `.meltemi/rumbo/` (los borradores ya están redactados), registrando fecha y ratificador en cada documento
+- [x] 1.1 Inicializar git, `.gitignore` de Rust, `LICENSE` (Apache-2.0), `NOTICE` y política de cabeceras SPDX, más la estructura del monorepo (`core/`, `proto/`, `docs/`; `brand/` ya existe)
+- [x] 1.2 Ratificar `meltemi.md` (v0.2 → v1.0), `constitution.md` y los archivos de `.meltemi/rumbo/` (los borradores ya están redactados), registrando fecha y ratificador en cada documento
 - [ ] 1.3 Crear workspace Cargo raíz con crates `core/meltemid`, `core/mock-agent` y `proto/meltemi-proto`
 - [ ] 1.4 CI en GitHub Actions con matriz {ubuntu, macos, windows}: build + clippy (-D warnings) + fmt + test + cargo-deny (licencias y advisories), con `rust-toolchain.toml` pineado
 - [ ] 1.5 Revisar la proyección de contexto de la raíz (`AGENTS.md`, `CLAUDE.md`) tras la ratificación, manteniéndola sincronizada con constitución y rumbo

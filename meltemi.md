@@ -1,7 +1,7 @@
 # Meltemi — Documento Fundacional
 
 > **"Un rumbo, muchas velas."**
-> Versión 0.2 — 10 de julio de 2026
+> Versión 1.0 — ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2)
 > Este documento practica lo que predica: define **qué** se construirá y **por qué**, antes de escribir una sola línea de código.
 
 ---

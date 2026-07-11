@@ -1,6 +1,6 @@
 # Constitución de Meltemi
 
-> **Estado: BORRADOR v0.1 — pendiente de ratificación** (tarea 1.2 de `fase-0-fundacion`).
+> **Estado: RATIFICADA v1.0** — 11 de julio de 2026, por Guillmar Ortiz (`fase-0-fundacion` 1.2).
 > Estos son los principios no negociables del proyecto. Se inyectan como contexto en toda propuesta de cambio y en toda sesión de agente que trabaje sobre este repositorio. Toda modificación de este documento requiere una propuesta de cambio aprobada.
 
 ## Principios

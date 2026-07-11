@@ -1,5 +1,7 @@
 ---
 inclusion: siempre
+ratificado: 2026-07-11
+ratificador: Guillmar Ortiz
 ---
 
 # Rumbo: Stack técnico y restricciones
