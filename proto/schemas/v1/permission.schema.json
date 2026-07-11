@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/permission.schema.json",
+  "title": "permission/request & permission/timeout",
+  "description": "Request `permission/request` (daemon -> client): passthrough of an ACP `session/request_permission` emitted by the agent. The client answers allow/deny by selecting one of the offered options. If no client is connected to the session, the daemon denies by default. If the client does not answer within the configured timeout, the daemon denies and emits the `permission/timeout` notification.",
+  "$defs": {
+    "permissionOptionKind": {
+      "type": "string",
+      "enum": ["allow_once", "allow_always", "reject_once", "reject_always"],
+      "description": "Hint about the nature of a permission option (mirrors ACP)."
+    },
+    "permissionOption": {
+      "type": "object",
+      "required": ["optionId", "name", "kind"],
+      "properties": {
+        "optionId": { "type": "string", "minLength": 1 },
+        "name": {
+          "type": "string",
+          "description": "Human-readable label to display to the user."
+        },
+        "kind": { "$ref": "#/$defs/permissionOptionKind" }
+      }
+    },
+    "requestParams": {
+      "type": "object",
+      "required": ["sessionId", "toolCall", "options"],
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The Meltemi session this request belongs to."
+        },
+        "toolCall": {
+          "type": "object",
+          "required": ["toolCallId"],
+          "properties": {
+            "toolCallId": { "type": "string" }
+          },
+          "description": "ACP ToolCallUpdate describing the tool or operation to authorize: title, kind, affected command or path (rawInput/locations), and external-effect classification when the agent provides it. Shape owned by the ACP contract (forwarded verbatim)."
+        },
+        "options": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/permissionOption" },
+          "minItems": 1
+        }
+      }
+    },
+    "outcome": {
+      "description": "The decision, mirroring ACP RequestPermissionOutcome.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["outcome"],
+          "properties": {
+            "outcome": { "const": "cancelled" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["outcome", "optionId"],
+          "properties": {
+            "outcome": { "const": "selected" },
+            "optionId": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "result": {
+      "type": "object",
+      "required": ["outcome"],
+      "properties": {
+        "outcome": { "$ref": "#/$defs/outcome" }
+      }
+    },
+    "timeoutParams": {
+      "type": "object",
+      "description": "Notification `permission/timeout` (daemon -> client): a permission request expired without an answer and was denied.",
+      "required": ["sessionId"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "toolCallId": { "type": "string" }
+      }
+    }
+  }
+}

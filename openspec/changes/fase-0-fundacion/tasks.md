@@ -10,7 +10,7 @@
 
 ## 2. Contrato `proto/`
 
-- [ ] 2.1 JSON Schemas del protocolo daemon↔cliente: `status`, `shutdown`, `propose`, eventos de sesión y permisos, incluidos el catálogo de códigos de error (D11: `{kind, detail, remedy}`) y el esquema versionado del evento de sesión JSONL (D12)
+- [x] 2.1 JSON Schemas del protocolo daemon↔cliente: `status`, `shutdown`, `propose`, eventos de sesión y permisos, incluidos el catálogo de códigos de error (D11: `{kind, detail, remedy}`) y el esquema versionado del evento de sesión JSONL (D12)
 - [ ] 2.2 Tipos serde equivalentes en el crate `meltemi-proto`
 - [ ] 2.3 Test de conformidad que valida que los tipos serializan conforme a los schemas
 

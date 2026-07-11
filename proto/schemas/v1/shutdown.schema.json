@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/shutdown.schema.json",
+  "title": "shutdown",
+  "description": "Method `shutdown`: orderly daemon termination. All agent sessions are ended (subprocesses terminated, no orphans), session logs are closed, and the daemon process exits after responding.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "description": "No parameters."
+    },
+    "result": {
+      "type": "object",
+      "description": "Empty object; the daemon exits after this response is delivered."
+    }
+  }
+}

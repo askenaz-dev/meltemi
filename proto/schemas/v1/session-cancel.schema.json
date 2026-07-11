@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/session-cancel.schema.json",
+  "title": "session/cancel",
+  "description": "Notification `session/cancel` (client -> daemon): cancel an active agent session. The daemon forwards the ACP cancellation to the agent subprocess and terminates it if it does not stop within a reasonable grace period; no orphan processes remain.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": ["sessionId"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

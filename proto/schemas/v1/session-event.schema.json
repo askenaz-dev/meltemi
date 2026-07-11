@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/session-event.schema.json",
+  "title": "session event (JSONL record & session/event notification)",
+  "description": "Versioned session event envelope. The same shape is (a) appended as one JSON line per event to the session's append-only JSONL log in the user data directory, and (b) streamed to the connected client as params of the `session/event` notification (wrapped with the session id).",
+  "$defs": {
+    "turnStatus": {
+      "type": "string",
+      "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"]
+    },
+    "sessionEvent": {
+      "type": "object",
+      "required": ["v", "ts", "type", "payload"],
+      "properties": {
+        "v": {
+          "const": 1,
+          "description": "Session event schema version. Independent from the protocolVersion; bumped only on breaking changes to this envelope."
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Event timestamp, RFC 3339 / ISO 8601, UTC."
+        },
+        "type": { "type": "string" },
+        "payload": { "type": "object" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "session_started" },
+            "payload": {
+              "type": "object",
+              "required": ["sessionId", "agentCommand", "projectRoot"],
+              "properties": {
+                "sessionId": { "type": "string", "minLength": 1 },
+                "agentCommand": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "minItems": 1
+                },
+                "projectRoot": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "prompt_sent" },
+            "payload": {
+              "type": "object",
+              "required": ["text"],
+              "properties": {
+                "text": { "type": "string" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "agent_update" },
+            "payload": {
+              "type": "object",
+              "required": ["update"],
+              "properties": {
+                "update": {
+                  "type": "object",
+                  "description": "ACP SessionUpdate forwarded verbatim, in emission order (agent_message_chunk, tool_call, plan, ...). Shape owned by the ACP contract."
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "permission_requested" },
+            "payload": {
+              "type": "object",
+              "required": ["request"],
+              "properties": {
+                "request": {
+                  "type": "object",
+                  "description": "The forwarded permission request (see permission.schema.json#/$defs/requestParams)."
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "permission_decided" },
+            "payload": {
+              "type": "object",
+              "required": ["outcome", "decidedBy"],
+              "properties": {
+                "outcome": {
+                  "type": "object",
+                  "description": "The decision returned to the agent (see permission.schema.json#/$defs/outcome)."
+                },
+                "decidedBy": {
+                  "type": "string",
+                  "enum": ["client", "default_deny", "timeout"],
+                  "description": "client: the connected client answered; default_deny: no client connected; timeout: the client did not answer in time."
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "turn_completed" },
+            "payload": {
+              "type": "object",
+              "required": ["stopReason"],
+              "properties": {
+                "stopReason": { "$ref": "#/$defs/turnStatus" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "session_cancelled" },
+            "payload": { "type": "object" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "session_ended" },
+            "payload": {
+              "type": "object",
+              "required": ["reason"],
+              "properties": {
+                "reason": { "type": "string" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "error" },
+            "payload": {
+              "type": "object",
+              "required": ["kind", "detail"],
+              "properties": {
+                "kind": { "type": "string" },
+                "detail": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "notificationParams": {
+      "type": "object",
+      "description": "Params of the `session/event` notification (daemon -> client).",
+      "required": ["sessionId", "event"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "event": { "$ref": "#/$defs/sessionEvent" }
+      }
+    }
+  }
+}

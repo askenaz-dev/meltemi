@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/status.schema.json",
+  "title": "status",
+  "description": "Method `status`: daemon version, uptime and the list of active agent sessions.",
+  "$defs": {
+    "sessionState": {
+      "type": "string",
+      "enum": ["starting", "active", "waiting_permission", "ended"],
+      "description": "Lifecycle state of an agent session."
+    },
+    "sessionSummary": {
+      "type": "object",
+      "required": ["sessionId", "agentCommand", "state"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "agentCommand": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "The official agent binary and arguments this session runs (program first)."
+        },
+        "state": { "$ref": "#/$defs/sessionState" }
+      }
+    },
+    "params": {
+      "type": "object",
+      "description": "No parameters."
+    },
+    "result": {
+      "type": "object",
+      "required": ["daemonVersion", "uptimeSeconds", "sessions"],
+      "properties": {
+        "daemonVersion": { "type": "string", "minLength": 1 },
+        "uptimeSeconds": { "type": "integer", "minimum": 0 },
+        "sessions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sessionSummary" }
+        }
+      }
+    }
+  }
+}

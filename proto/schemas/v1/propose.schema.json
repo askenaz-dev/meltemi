@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/propose.schema.json",
+  "title": "propose",
+  "description": "Method `propose`: scaffold a change proposal under `.meltemi/changes/<name>/` deterministically, then delegate the content of proposal.md to the configured ACP agent (cwd at the project root). Session progress streams via `session/event`; agent permission requests flow via `permission/request`.",
+  "$defs": {
+    "turnStatus": {
+      "type": "string",
+      "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"],
+      "description": "Final status of the agent turn, mapped from the ACP stop reason (end_turn -> completed)."
+    },
+    "params": {
+      "type": "object",
+      "required": ["idea", "projectRoot"],
+      "properties": {
+        "idea": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Free-form description of the change to propose. The change name is derived from it deterministically (kebab-case)."
+        },
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path to the root of the target repository. `.meltemi/changes/` is created here if missing."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["changeName", "proposalPath", "status"],
+      "properties": {
+        "changeName": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "description": "Kebab-case change name derived from the idea."
+        },
+        "proposalPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of the created proposal.md."
+        },
+        "status": { "$ref": "#/$defs/turnStatus" }
+      }
+    }
+  }
+}

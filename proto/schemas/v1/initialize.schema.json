@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/initialize.schema.json",
+  "title": "initialize",
+  "description": "Method `initialize`: the first request on every daemon<->client connection. The client declares the proto/ contract version it speaks; the daemon accepts it or fails with error 1000 (protocol_version_unsupported) carrying both versions.",
+  "$defs": {
+    "peerInfo": {
+      "type": "object",
+      "description": "Identification of one side of the connection, for logs and diagnostics.",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "params": {
+      "type": "object",
+      "required": ["protocolVersion", "client"],
+      "properties": {
+        "protocolVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The proto/ contract version the client speaks. Current version: 1."
+        },
+        "client": { "$ref": "#/$defs/peerInfo" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["protocolVersion", "daemon"],
+      "properties": {
+        "protocolVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The negotiated contract version both sides operate under."
+        },
+        "daemon": { "$ref": "#/$defs/peerInfo" }
+      }
+    }
+  }
+}

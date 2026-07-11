@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/error.schema.json",
+  "title": "application errors",
+  "description": "Application error shape and code catalog. Application codes live outside the JSON-RPC reserved range (-32768..-32000), grouped by domain: 1xxx daemon, 2xxx ACP session, 3xxx propose. Contract messages are in English; the remedy field lets surfaces translate or expand.",
+  "$defs": {
+    "errorData": {
+      "type": "object",
+      "required": ["kind", "detail"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Machine-readable error kind, stable across daemon versions."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Human-readable English detail of what went wrong."
+        },
+        "remedy": {
+          "type": "string",
+          "description": "Actionable English suggestion for how to fix it."
+        }
+      }
+    },
+    "errorObject": {
+      "type": "object",
+      "description": "JSON-RPC 2.0 error object with structured data.",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "integer" },
+        "message": { "type": "string" },
+        "data": { "$ref": "#/$defs/errorData" }
+      }
+    },
+    "errorCode": {
+      "type": "integer",
+      "enum": [1000, 1001, 1002, 2000, 2001, 2002, 2003, 2004, 3000, 3001, 3002],
+      "x-catalog": {
+        "1000": {
+          "kind": "protocol_version_unsupported",
+          "description": "The client declared a proto/ contract version the daemon does not support. detail carries both the requested and the supported versions; the connection is closed after the response."
+        },
+        "1001": {
+          "kind": "not_initialized",
+          "description": "A method other than initialize was called before a successful initialize on this connection."
+        },
+        "1002": {
+          "kind": "shutting_down",
+          "description": "The daemon is shutting down and no longer accepts work."
+        },
+        "2000": {
+          "kind": "agent_command_not_configured",
+          "description": "No agent.command is configured. remedy points to the user or project config file."
+        },
+        "2001": {
+          "kind": "agent_command_not_found",
+          "description": "The configured agent command does not exist on this system. detail names the missing command; remedy explains how to configure it."
+        },
+        "2002": {
+          "kind": "agent_spawn_failed",
+          "description": "The agent subprocess could not be started."
+        },
+        "2003": {
+          "kind": "agent_handshake_failed",
+          "description": "The ACP initialize negotiation with the agent failed. On version incompatibility, detail carries both protocol versions; the subprocess is terminated."
+        },
+        "2004": {
+          "kind": "session_not_found",
+          "description": "The given sessionId does not correspond to an active session."
+        },
+        "3000": {
+          "kind": "change_already_exists",
+          "description": "The derived change name already exists under .meltemi/changes/. detail includes the conflicting name; remedy suggests an available alternative. Nothing is modified."
+        },
+        "3001": {
+          "kind": "invalid_idea",
+          "description": "No change name can be derived from the given idea."
+        },
+        "3002": {
+          "kind": "project_root_invalid",
+          "description": "projectRoot does not exist or is not a directory."
+        }
+      }
+    }
+  }
+}
