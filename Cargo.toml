@@ -15,3 +15,29 @@ rust-version = "1.97"
 
 [workspace.dependencies]
 meltemi-proto = { path = "proto/meltemi-proto" }
+
+# All third-party dependencies are pinned exactly (constitution §10) and
+# justified in the design of the change that introduces them.
+agent-client-protocol = "=1.2.0"
+anyhow = "=1.0.103"
+directories = "=6.0.0"
+jsonschema = { version = "=0.47.0", default-features = false }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+sha2 = "=0.11.0"
+thiserror = "=2.0.18"
+tokio = "=1.52.3"
+toml = "=1.1.2"
+tracing = "=0.1.44"
+tracing-appender = "=0.2.5"
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
+uuid = { version = "=1.23.4", features = ["v4"] }
+
+[workspace.dependencies.windows-sys]
+version = "=0.61.2"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Threading",
+]

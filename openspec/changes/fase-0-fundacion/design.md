@@ -69,6 +69,9 @@ Todo e2e — automatizado o manual — se ejecuta contra un repositorio fixture 
 ### D15 — La CLI de prueba es desechable
 El cliente de la tarea 5.4 se llama `meltemi-devclient`, es tooling de desarrollo no distribuible, y será reemplazado por la CLI especificada en la change `cli-contrato` de fase 1.
 
+### D16 — Dependencias concretas (registro de implementación)
+Todas pineadas exactas (`=`) en `[workspace.dependencies]`; el Cargo.lock va commiteado. Justificación por crate: `agent-client-protocol` 1.2.0 (D3, crate oficial ACP); `tokio` 1.52.3 (D8, runtime); `serde`/`serde_json` (D1, tipos del contrato); `thiserror`/`anyhow` (errores de lib/bins); `tracing` + `tracing-subscriber` + `tracing-appender` (D12, log operacional con rotación); `directories` 6.0.0 (D13, rutas por plataforma); `toml` (D13, config); `sha2` (D13, hash de la ruta canónica del proyecto); `uuid` v4 (identificadores de sesión); `jsonschema` sin features por defecto (solo dev-dependency del test de conformidad D1; las features por defecto arrastran reqwest/rustls para resolución HTTP que no se usa); `libc` (permisos UDS en Unix); `windows-sys` (ACL del named pipe en Windows, D2).
+
 ## Risks / Trade-offs
 
 - **[Churn del protocolo/crate ACP]** → versión pineada + los tipos que tocamos quedan encapsulados en un módulo `acp/` único; el test e2e con mock-agent actúa como suite de conformidad temprana (semilla de la "suite de conformidad" del roadmap).
