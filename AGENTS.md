@@ -4,7 +4,9 @@ Proyección manual de `.meltemi/constitution.md` y `.meltemi/rumbo/` (dogfooding
 
 ## Qué es este proyecto
 
-Meltemi: plano de control spec-driven open source (Apache 2.0) que orquesta agentes de codificación externos vía ACP. Daemon headless `meltemid` (Rust) + TUI `meltemi` + GUI Tauri (fase 2). Documento fundacional: `meltemi.md`. Backlog maestro: `docs/plan-de-cambios.md`.
+Meltemi: plano de control spec-driven open source (Apache 2.0) que orquesta agentes de codificación externos vía ACP. Daemon headless `meltemid` (Rust) + TUI `meltemi` + GUI Tauri (fase 2). Documento fundacional: `meltemi.md` (v1.0, ratificado 2026-07-11; constitución y rumbo ratificados en la misma fecha). Backlog maestro: `docs/plan-de-cambios.md`.
+
+Workspace Cargo en la raíz: `core/meltemid` (daemon), `core/mock-agent` (agente ACP simulado para e2e), `proto/meltemi-proto` (tipos del contrato). Toolchain pineado en `rust-toolchain.toml` (1.97.0).
 
 ## Reglas no negociables (constitución — resumen operativo)
 
@@ -19,7 +21,8 @@ Meltemi: plano de control spec-driven open source (Apache 2.0) que orquesta agen
 
 - **Idiomas**: artefactos del método en español neutro; código, identificadores, strings del contrato `proto/` y mensajes de commit en inglés.
 - **Commits**: atómicos, uno por tarea, con referencia `(<change> <tarea>)`. **Sin trailers de co-autoría.**
-- **Dependencias**: mínimas, pineadas, justificadas en el design de su change.
+- **Dependencias**: mínimas, pineadas, justificadas en el design de su change (auditoría con cargo-deny en CI).
+- **Licencia**: Apache-2.0; todo archivo fuente lleva cabecera SPDX (`docs/politica-spdx.md`).
 - **Tests e2e**: siempre contra repos fixture temporales, nunca contra la raíz de este repo. En CI se usa `mock-agent`, nunca agentes reales ni red.
 
 ## Bootstrap del método (dos etapas)

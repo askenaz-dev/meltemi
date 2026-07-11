@@ -6,7 +6,7 @@
 - [x] 1.2 Ratificar `meltemi.md` (v0.2 → v1.0), `constitution.md` y los archivos de `.meltemi/rumbo/` (los borradores ya están redactados), registrando fecha y ratificador en cada documento
 - [x] 1.3 Crear workspace Cargo raíz con crates `core/meltemid`, `core/mock-agent` y `proto/meltemi-proto`
 - [x] 1.4 CI en GitHub Actions con matriz {ubuntu, macos, windows}: build + clippy (-D warnings) + fmt + test + cargo-deny (licencias y advisories), con `rust-toolchain.toml` pineado
-- [ ] 1.5 Revisar la proyección de contexto de la raíz (`AGENTS.md`, `CLAUDE.md`) tras la ratificación, manteniéndola sincronizada con constitución y rumbo
+- [x] 1.5 Revisar la proyección de contexto de la raíz (`AGENTS.md`, `CLAUDE.md`) tras la ratificación, manteniéndola sincronizada con constitución y rumbo
 
 ## 2. Contrato `proto/`
 
