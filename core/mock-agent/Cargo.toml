@@ -1,0 +1,11 @@
+[package]
+name = "mock-agent"
+description = "Scripted ACP agent used by Meltemi's automated end-to-end tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
