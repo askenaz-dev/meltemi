@@ -1,0 +1,34 @@
+# cargo-deny configuration: license and advisory gates for the workspace.
+# Constitution: minimal, pinned, justified dependencies; license and
+# vulnerability auditing in CI.
+
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    # option-ext (pulled in by `directories`) is MPL-2.0; file-level
+    # copyleft is compatible with Apache-2.0 distribution.
+    "MPL-2.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,0 +1,4 @@
+[toolchain]
+# Pinned per constitution: reproducible builds on all three platforms.
+channel = "1.97.0"
+components = ["rustfmt", "clippy"]
