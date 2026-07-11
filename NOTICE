@@ -1,0 +1,8 @@
+Meltemi
+Copyright 2026 Guillmar Ortiz and the Meltemi contributors
+
+This product includes software developed as part of the Meltemi project
+(https://github.com/meltemi), a spec-driven control plane that orchestrates
+external coding agents via the Agent Client Protocol (ACP).
+
+Licensed under the Apache License, Version 2.0.

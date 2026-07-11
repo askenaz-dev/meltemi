@@ -1,0 +1,8 @@
+# Normalize all text files to LF in the repository and in checkouts.
+# Windows is a first-class platform: the Rust toolchain, editors and CI
+# all handle LF correctly, and `cargo fmt --check` requires consistency.
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.ico binary

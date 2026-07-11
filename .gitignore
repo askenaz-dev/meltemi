@@ -1,0 +1,15 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# IDE / editor
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local environment
+*.local.toml

@@ -1,0 +1,32 @@
+schema: spec-driven
+
+context: |
+  Proyecto: Meltemi — plano de control spec-driven open source (Apache 2.0) que orquesta
+  agentes de codificación externos vía ACP. Documento fundacional: meltemi.md (raíz).
+  Principios no negociables: .meltemi/constitution.md. Rumbo: .meltemi/rumbo/{product,tech,structure}.md.
+
+  Stack: Rust estable (toolchain pineado), tokio, crate oficial ACP, Tauri (GUI, fase 2).
+  Arquitectura: daemon headless `meltemid` + clientes finos vía JSON-RPC 2.0 line-delimited
+  sobre socket local (UDS 0700 / named pipe con ACL). Sin puertos de red. Windows es
+  plataforma de primera clase (plataforma primaria de desarrollo).
+
+  Convenciones: artefactos del método (proposals, designs, specs, tasks) en español neutro;
+  código, identificadores, mensajes del contrato proto/ y commits en inglés. Commits
+  atómicos por tarea con referencia "(<change> <tarea>)"; sin trailers de co-autoría.
+  Requisitos en notación EARS; cabeceras estructurales de specs en el formato OpenSpec
+  (## ADDED Requirements / ### Requirement: / #### Scenario: / WHEN / THEN).
+
+  Método propio (bootstrap en dos etapas): openspec/ gobierna el desarrollo de Meltemi
+  hasta que el motor de specs de fase 1 permita migrar a .meltemi/ (ver design D9 de
+  fase-0-fundacion). El research de integración de agentes vive en
+  docs/research/integracion-agentes.md. El backlog maestro en docs/plan-de-cambios.md.
+
+rules:
+  proposal:
+    - Incluir siempre la sección de fuera-de-alcance de la fase
+    - Ninguna mención a productos de terceros en artefactos que puedan hacerse públicos; estándares abiertos y dependencias propias sí
+  specs:
+    - Todo requisito debe ser verificable; cada escenario se convierte en el nombre de un test
+    - Acciones con efectos externos irreversibles requieren siempre aprobación explícita (constitución §3)
+  tasks:
+    - Tareas de tamaño máximo una sesión; orden por dependencias; un commit por tarea
