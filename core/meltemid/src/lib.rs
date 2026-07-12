@@ -7,6 +7,7 @@
 //! protocol server and the client-side bootstrap helpers. The binary in
 //! `main.rs` is a thin wrapper over [`run`].
 
+pub mod acp;
 pub mod bootstrap;
 pub mod clock;
 pub mod config;

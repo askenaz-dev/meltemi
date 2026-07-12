@@ -25,12 +25,12 @@
 
 ## 4. Capa ACP
 
-- [ ] 4.1 Módulo `acp/` sobre el crate oficial (versión pineada): lanzamiento del binario configurado como subproceso stdio
-- [ ] 4.2 Handshake `initialize` + creación de sesión, con negociación de versión y errores informativos
-- [ ] 4.3 Envío de prompt y reenvío en orden del streaming de `session/update` al cliente
-- [ ] 4.4 Passthrough de `session/request_permission` al cliente, con denegación por defecto sin cliente conectado
-- [ ] 4.5 Cancelación y terminación de sesión sin procesos huérfanos (incluido el apagado del daemon)
-- [ ] 4.6 `mock-agent`: agente ACP de guion fijo (incluye una petición de permiso) para el e2e automatizado
+- [x] 4.1 Módulo `acp/` sobre el crate oficial (versión pineada): lanzamiento del binario configurado como subproceso stdio
+- [x] 4.2 Handshake `initialize` + creación de sesión, con negociación de versión y errores informativos
+- [x] 4.3 Envío de prompt y reenvío en orden del streaming de `session/update` al cliente
+- [x] 4.4 Passthrough de `session/request_permission` al cliente, con denegación por defecto sin cliente conectado
+- [x] 4.5 Cancelación y terminación de sesión sin procesos huérfanos (incluido el apagado del daemon)
+- [x] 4.6 `mock-agent`: agente ACP de guion fijo (incluye una petición de permiso) para el e2e automatizado
 
 ## 5. Flujo `/propose`
 
