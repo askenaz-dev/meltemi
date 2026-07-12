@@ -82,6 +82,11 @@ impl RpcError {
         Self::new(codes::INVALID_PARAMS, format!("invalid params: {detail}"))
     }
 
+    /// Internal failure from an underlying I/O or system error.
+    pub fn internal(error: impl std::fmt::Display) -> Self {
+        Self::new(codes::INTERNAL_ERROR, format!("internal error: {error}"))
+    }
+
     fn to_json(&self) -> Value {
         let mut err = json!({ "code": self.code, "message": self.message });
         if let Some(data) = &self.data {

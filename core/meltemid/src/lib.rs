@@ -13,6 +13,7 @@ pub mod clock;
 pub mod config;
 pub mod logging;
 pub mod paths;
+pub mod propose;
 pub mod rpc;
 pub mod server;
 pub mod session;

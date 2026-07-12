@@ -187,13 +187,14 @@ fn handle_initialize(params: &Value, state: &DaemonState) -> Result<Value, RpcEr
 
 async fn dispatch_request(
     method: &str,
-    _params: Value,
+    params: Value,
     state: &Arc<DaemonState>,
-    _peer: &Peer,
+    peer: &Peer,
 ) -> Result<Value, RpcError> {
     match method {
         methods::STATUS => handle_status(state).await,
         methods::SHUTDOWN => handle_shutdown(state).await,
+        methods::PROPOSE => crate::propose::handle_propose(params, state, peer).await,
         other => Err(RpcError::method_not_found(other)),
     }
 }

@@ -34,10 +34,10 @@
 
 ## 5. Flujo `/propose`
 
-- [ ] 5.1 Inicialización de `.meltemi/changes/` si falta + andamiaje determinista de `proposal.md` con manejo de colisiones
-- [ ] 5.2 Delegación del contenido al agente ACP con CWD en la raíz del repositorio
-- [ ] 5.3 Resultado estructurado (nombre, ruta, estado) y streaming de progreso hacia el cliente
-- [ ] 5.4 CLI de prueba mínima (cliente JSON-RPC) que ejercita `status`, `propose` con aprobación interactiva de permisos y `shutdown`
+- [x] 5.1 Inicialización de `.meltemi/changes/` si falta + andamiaje determinista de `proposal.md` con manejo de colisiones
+- [x] 5.2 Delegación del contenido al agente ACP con CWD en la raíz del repositorio
+- [x] 5.3 Resultado estructurado (nombre, ruta, estado) y streaming de progreso hacia el cliente
+- [x] 5.4 CLI de prueba mínima (cliente JSON-RPC) que ejercita `status`, `propose` con aprobación interactiva de permisos y `shutdown`
 
 ## 6. Verificación y cierre
 
