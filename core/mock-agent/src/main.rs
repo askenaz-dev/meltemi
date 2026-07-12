@@ -20,7 +20,7 @@ use agent_client_protocol::schema::v1::{
     SessionNotification, SessionUpdate, StopReason, TextContent, ToolCallUpdate,
     ToolCallUpdateFields,
 };
-use agent_client_protocol::{Agent, Client, ConnectionTo, Dispatch, Result, Stdio};
+use agent_client_protocol::{Agent, Client, ConnectionTo, Result, Stdio};
 
 /// Fixed session id the scripted agent hands back from `session/new`.
 const SESSION_ID: &str = "mock-session";
@@ -49,19 +49,20 @@ async fn main() -> Result<()> {
         )
         .on_receive_request(
             async move |prompt: PromptRequest, responder, cx: ConnectionTo<Client>| {
-                run_scripted_turn(prompt, cx).await;
-                responder.respond(PromptResponse::new(StopReason::EndTurn))
+                // Run the turn on a spawned task: it sends a permission request
+                // and awaits it, which must NOT happen on the dispatch loop —
+                // the loop has to stay free to deliver that very response
+                // (a `block_task` inside a handler deadlocks by design).
+                cx.spawn({
+                    let cx = cx.clone();
+                    async move {
+                        run_scripted_turn(&prompt, &cx).await;
+                        responder.respond(PromptResponse::new(StopReason::EndTurn))
+                    }
+                })?;
+                Ok(())
             },
             agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_dispatch(
-            async move |message: Dispatch, cx: ConnectionTo<Client>| {
-                message.respond_with_error(
-                    agent_client_protocol::util::internal_error("unhandled message"),
-                    cx,
-                )
-            },
-            agent_client_protocol::on_receive_dispatch!(),
         )
         .connect_to(Stdio::new())
         .await
@@ -69,7 +70,7 @@ async fn main() -> Result<()> {
 
 /// Plays the fixed script: stream a message, ask one permission, and — if
 /// granted — write the proposal marker into the path from the prompt.
-async fn run_scripted_turn(prompt: PromptRequest, cx: ConnectionTo<Client>) {
+async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
     let session_id = prompt.session_id.clone();
 
     // 1. Stream a chunk of the agent's "response".
@@ -93,7 +94,7 @@ async fn run_scripted_turn(prompt: PromptRequest, cx: ConnectionTo<Client>) {
 
     // 3. If explicitly allowed, write the marker into the proposal path.
     if granted(&decision)
-        && let Some(path) = proposal_path(&prompt)
+        && let Some(path) = proposal_path(prompt)
     {
         let _ = std::fs::write(
             &path,
