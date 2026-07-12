@@ -12,7 +12,7 @@
 
 use std::path::PathBuf;
 
-use serde_json::{Value, json};
+use serde_json::json;
 use tokio::sync::mpsc;
 
 use meltemi_proto::{
@@ -159,11 +159,20 @@ async fn propose_end_to_end_writes_proposal_via_agent() {
     );
 
     // The proposal lives under the fixture's .meltemi/changes tree.
-    assert!(
-        Value::from(proposal_path)
-            .as_str()
-            .unwrap()
-            .contains(".meltemi")
+    assert!(proposal_path.contains(".meltemi"));
+
+    // Proposing the same idea again is refused before any agent runs
+    // (propose-flow: name collision).
+    let duplicate = peer
+        .request(
+            methods::PROPOSE,
+            &json!({ "idea": "add greeting", "projectRoot": fixture.display().to_string() }),
+        )
+        .await;
+    let error = duplicate.expect_err("a second identical propose must fail");
+    assert_eq!(
+        error.code, 3000,
+        "expected change_already_exists, got: {error}"
     );
 
     approver.abort();

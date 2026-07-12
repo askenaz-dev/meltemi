@@ -42,5 +42,5 @@
 ## 6. Verificación y cierre
 
 - [x] 6.1 Test e2e automatizado en CI: CLI de prueba → `meltemid` → `mock-agent` → permiso → proposal.md generado
-- [ ] 6.2 E2E manual documentado en `docs/` con un agente ACP real instalado — el hito de la Fase 0
-- [ ] 6.3 Verificación de la implementación contra las specs de esta change (escenario por escenario) y ajustes finales
+- [x] 6.2 E2E manual documentado en `docs/` con un agente ACP real instalado — el hito de la Fase 0
+- [x] 6.3 Verificación de la implementación contra las specs de esta change (escenario por escenario) y ajustes finales
