@@ -6,14 +6,14 @@
 
 | Prerequisito | Estado |
 |---|---|
-| Documento fundacional (meltemi.md v0.2) | ✅ Escrito; ratificación → tarea 1.2 |
-| Constitución + rumbo (`.meltemi/`) | ✅ Borradores escritos; ratificación → tarea 1.2 |
+| Documento fundacional (meltemi.md v1.0) | ✅ Ratificado 2026-07-11 |
+| Constitución + rumbo (`.meltemi/`) | ✅ Ratificados 2026-07-11 |
 | Change de Fase 0 completa (4 artefactos + enmiendas de auditoría) | ✅ |
 | Proyección de contexto raíz (`AGENTS.md`/`CLAUDE.md`) | ✅ |
 | Research de integración de agentes persistido | ✅ `docs/research/integracion-agentes.md` |
 | Plan maestro de cambios | ✅ Este documento |
-| **Ratificación humana (Guillermo)** de meltemi.md, constitución y rumbo | ⬜ Pendiente — bloquea el primer commit |
-| **Registros operativos** (dominios, org GitHub, crates.io/npm/PyPI) | ⬜ Pendiente — solo el arquitecto; ver checklist al final |
+| **Ratificación humana (Guillermo)** de meltemi.md, constitución y rumbo | ✅ 2026-07-11 |
+| **Registros operativos** (org GitHub, org npm, dominio, crates) | 🟡 org GitHub y npm hechas (`askenaz-dev`); dominio `meltemi.dev` en compra; crates por reservar |
 
 ## Fase 0 (en curso)
 
@@ -84,8 +84,14 @@
 
 `gui-tauri-paridad` (con `docs/ux/design-system.md` como insumo) · `motor-propio-byok` · `sandbox-propio` · `hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` · `metricas-sdd-locales` · `lsp-superficie-revision`.
 
+## Namespaces del proyecto
+
+- **Organización** (identidad paraguas): `askenaz-dev` — [GitHub](https://github.com/askenaz-dev), [npm](https://www.npmjs.com/org/askenaz-dev). Paquetes npm futuros (SDK, fase 2): `@askenaz-dev/<pkg>`.
+- **Producto**: `meltemi` — dominio `meltemi.dev`, binarios `meltemid`/`meltemi`, crates `meltemi`/`meltemid`/`meltemi-proto` (crates.io es namespace plano, sin org).
+- Repositorio: `github.com/askenaz-dev/meltemi`.
+
 ## Pendientes exclusivos del arquitecto (ningún agente debe hacerlos)
 
-1. **Ratificar** meltemi.md, `constitution.md` y `rumbo/` (tarea 1.2) — bloquea el primer commit.
-2. **Registrar**: meltemi.dev/.io/.ai; org de GitHub; `meltemi`, `meltemid`, `meltemi-proto` en crates.io; `meltemi` en npm/PyPI (placeholders). Cada semana sin registrar es riesgo (ver docs/research/integracion-agentes.md, censo de competidores).
+1. ✅ **Ratificar** meltemi.md, `constitution.md` y `rumbo/` — hecho 2026-07-11.
+2. **Registrar**: ✅ org GitHub `askenaz-dev` · ✅ org npm `askenaz-dev` · 🟡 dominio `meltemi.dev` (en compra) · ⬜ crates `meltemi`, `meltemid`, `meltemi-proto` en crates.io (verificados LIBRES el 2026-07-11 — reservar con un `cargo publish` placeholder o en el primer release para evitar squatting).
 3. **Decidir** el mecanismo de firma del CLA cuando llegue #21.
