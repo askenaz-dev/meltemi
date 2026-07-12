@@ -1,7 +1,7 @@
 # Meltemi — Documento Fundacional
 
 > **"Un rumbo, muchas velas."**
-> Versión 1.0 — ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2)
+> Versión 1.1 — enmendada el 12 de julio de 2026 (`enmiendas-fundacionales-v1`); ratificación de la v1.1 pendiente del mantenedor fundador. Base v1.0 ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2).
 > Este documento practica lo que predica: define **qué** se construirá y **por qué**, antes de escribir una sola línea de código.
 
 ---
@@ -16,10 +16,12 @@ Esa es exactamente la relación que queremos entre las personas y los agentes de
 
 ### La marca
 
-Una sola línea continua dibuja una *m* minúscula y sale de ella convertida en ráfaga ascendente: **el viento que escribe**.
+Una *m* minúscula trazada con confianza que se lee, a la vez, como un pequeño velero — **el viento que escribe**: dos arcos que son **velas asimétricas** sobre una curva mínima que es el **casco**, y un extremo derecho que es **proa y ráfaga** a la vez.
 
-- **Una línea**, porque una especificación es un solo rumbo compartido.
-- **La ráfaga**, porque los agentes son velocidad pura que necesita dirección.
+- **Primera lectura** — una *m* en movimiento: una especificación es un solo rumbo compartido.
+- **Segunda lectura** — un velero impulsado por el viento: los agentes son velocidad pura que necesita dirección.
+
+El detalle de construcción y uso de la marca vive en `brand/README.md`.
 
 Paleta: *Aegean Night* `#0A1B33` · *Meltemi Blue* `#2563EB` · *Cyan Foam* `#22D3EE` · *Sea Salt* `#F2F7FB`. Tipografía de marca: sans-serif geométrica, minúsculas: **meltemi**.
 
@@ -242,7 +244,7 @@ Las cinco promesas de la misión, hechas producto:
 9. **Gestión de contexto**: mapa del repositorio, referencias `@archivo`/`@carpeta`, compilación de contexto por agente (proyección).
 10. **MCP**: passthrough de servidores MCP hacia los agentes que lo soporten *(fase 1)*; cliente MCP nativo en el motor propio *(fase 2)*.
 11. **Sesiones persistentes e inspeccionables**: cada conversación de agente queda registrada, reanudable y auditable.
-12. **Métricas SDD locales**: panel de métricas del proyecto calculadas íntegramente en local; compartición agregada solo mediante telemetría opt-in, desactivada por defecto.
+12. **Métricas SDD locales** *(fase 2)*: panel de métricas del proyecto calculadas íntegramente en local; compartición agregada solo mediante telemetría opt-in, desactivada por defecto.
 
 ---
 
@@ -286,6 +288,8 @@ El daemon arranca bajo demanda y puede ejecutarse en remoto: la TUI o la GUI se 
 - **TUI**: el ecosistema de interfaces de terminal en Rust es maduro y de altísimo rendimiento, y comparte el 100% de los tipos con el núcleo, sin FFI.
 
 *Alternativas evaluadas*: Go (excelente para daemons, pero sin SDK oficial de ACP: obligaría a mantener una implementación propia del protocolo central de la arquitectura) y TypeScript (el ecosistema de SDKs de agentes es rico, pero un runtime empaquetado multiplica el peso y debilita la historia de daemon de sistema). La decisión se revisará solo si la primera propuesta de cambio de implementación revela un bloqueo material.
+
+**Windows es plataforma primaria de desarrollo**, no un puerto posterior (constitución §7): toda la abstracción de plataforma se diseña y prueba primero allí, donde el aislamiento de procesos y sockets es más restrictivo.
 
 ### 7.4 Decisión 4 — Escritorio: **Tauri**
 
@@ -361,7 +365,7 @@ meltemi/                       (Apache-2.0)
 - **Dogfooding radical**: Meltemi se construye con Meltemi. El `.meltemi/` del propio repositorio — su constitución, sus specs, sus cambios archivados — es la mejor demo y el mejor tutorial.
 - **Distribución**: binario único (instalador de una línea, gestores de paquetes de cada plataforma, releases firmadas).
 - **Contribuciones vía el propio método**: toda funcionalidad entra como una propuesta de cambio spec-driven. La barrera de entrada es leer una spec, no navegar doscientos archivos.
-- **Este documento se gobierna con el mismo método que predica**: vive en el repositorio y se versiona con él; su ratificación inicial corresponde a los mantenedores fundadores, y toda modificación posterior entra como propuesta de cambio en `.meltemi/changes/` con la aprobación definida en `GOVERNANCE.md`.
+- **Este documento se gobierna con el mismo método que predica**: vive en el repositorio y se versiona con él; su ratificación inicial corresponde a los mantenedores fundadores, y toda modificación posterior entra como propuesta de cambio con la aprobación definida en `GOVERNANCE.md`. **Excepción interina (bootstrap en dos etapas)**: hasta que el motor de specs de Fase 1 permita a Meltemi hospedar sus propios cambios, las enmiendas a este documento se tramitan con OpenSpec en `openspec/changes/`; la migración a `.meltemi/changes/` es la change `migracion-openspec-a-meltemi`. Esta excepción quedó ratificada en `enmiendas-fundacionales-v1`.
 - **Canales**: repositorio público con discusiones abiertas + chat comunitario + desarrollo en vivo periódico.
 
 ---
@@ -413,7 +417,7 @@ meltemi/                       (Apache-2.0)
 
 ## 12. Métricas de Éxito
 
-Las métricas de producto y flota se calculan **íntegramente en local** (§6.12) y solo se agregan mediante telemetría opt-in, desactivada por defecto; las de adopción y ecosistema provienen de señales públicas.
+Las métricas de producto y flota se calculan **íntegramente en local** (§6.12) y solo se agregan mediante telemetría opt-in, desactivada por defecto; las de adopción y ecosistema provienen de señales públicas. La telemetría agregada es **post-v1**: la operaría la entidad custodio sin ánimo de lucro (§9.3), con los datos y la política de privacidad especificados y publicados antes de existir (constitución §9); hasta entonces, todo se calcula y queda en local.
 
 **Adopción**: estrellas y contribuidores externos del repositorio; descargas de releases; instalaciones por gestores de paquetes; proyectos con `.meltemi/` públicos en GitHub.
 
