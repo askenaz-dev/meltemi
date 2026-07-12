@@ -17,11 +17,11 @@
 ## 3. Daemon `meltemid`
 
 - [x] 3.1 Abstracción de transporte local: UDS con permisos 0700 (macOS/Linux) y named pipe con ACL de usuario (Windows), con tests por plataforma
-- [ ] 3.2 Bucle servidor JSON-RPC 2.0 con delimitación por líneas y errores estándar ante mensajes malformados
+- [x] 3.2 Bucle servidor JSON-RPC 2.0 con delimitación por líneas y errores estándar ante mensajes malformados
 - [ ] 3.3 Instancia única y arranque bajo demanda desde el cliente (spawn desacoplado + reconexión)
-- [ ] 3.4 Métodos `status` (versión, uptime, sesiones) y `shutdown` (terminación ordenada de subprocesos y logs)
-- [ ] 3.5 Registro JSONL apend-only por sesión en el directorio de datos del usuario
-- [ ] 3.6 Configuración mínima (`agent.command`) en TOML de usuario, con override por proyecto
+- [x] 3.4 Métodos `status` (versión, uptime, sesiones) y `shutdown` (terminación ordenada de subprocesos y logs)
+- [x] 3.5 Registro JSONL apend-only por sesión en el directorio de datos del usuario
+- [x] 3.6 Configuración mínima (`agent.command`) en TOML de usuario, con override por proyecto
 
 ## 4. Capa ACP
 
