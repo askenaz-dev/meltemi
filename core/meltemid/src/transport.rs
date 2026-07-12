@@ -267,11 +267,25 @@ mod imp {
         }
     }
 
+    /// Overall budget for retrying `ERROR_PIPE_BUSY` while waiting for a free
+    /// pipe instance. Bounded on purpose: a busy-but-unserved pipe (e.g. right
+    /// after the daemon stops accepting) would otherwise spin this loop
+    /// forever. A client that cannot connect within the budget gets a
+    /// `TimedOut` error instead of hanging.
+    const CONNECT_RETRY_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+
     pub async fn connect(endpoint: &str) -> io::Result<Stream> {
+        let deadline = std::time::Instant::now() + CONNECT_RETRY_BUDGET;
         loop {
             match ClientOptions::new().open(endpoint) {
                 Ok(client) => return Ok(Box::new(client)),
                 Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "pipe is busy: no daemon instance became available in time",
+                        ));
+                    }
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 }
                 Err(e) => return Err(e),
