@@ -49,6 +49,9 @@ pub fn validate_spec(spec: &Spec) -> Vec<Diagnostic> {
         }
     }
 
+    // Semantic EARS rules (design D2/D6), after the structural ones.
+    crate::ears::validate_ears(spec, &mut out);
+
     out
 }
 
@@ -136,7 +139,7 @@ mod tests {
     fn conformant_spec_has_no_diagnostics() {
         let spec = parse_spec(
             "my-cap",
-            "### Requirement: R\n#### Scenario: S\n- **WHEN** a\n- **THEN** b\n",
+            "### Requirement: R\nThe system SHALL do it.\n#### Scenario: S\n- **WHEN** a\n- **THEN** b\n",
             "spec.md",
         );
         assert!(validate_spec(&spec).is_empty());
@@ -146,7 +149,7 @@ mod tests {
     fn requirement_without_scenario_is_flagged() {
         let spec = parse_spec(
             "my-cap",
-            "### Requirement: R\nsolo prosa, sin escenario\n",
+            "### Requirement: R\nThe system SHALL do it, con prosa y sin escenario.\n",
             "spec.md",
         );
         let diags = validate_spec(&spec);

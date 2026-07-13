@@ -63,6 +63,22 @@ pub enum Rule {
     MissingFrontMatter,
     /// `inclusion: por-patrón` without a non-empty `fileMatch`.
     OnMatchWithoutFileMatch,
+    /// A scenario has no step with a recognized EARS marker.
+    ScenarioWithoutEarsMarker,
+    /// A requirement's description uses no normative verb (`SHALL`/`MUST`).
+    RequirementWithoutNormativeVerb,
+    /// An `ADDED` requirement name already exists in the living spec.
+    AddedRequirementExists,
+    /// A `MODIFIED` requirement does not exist in the living spec.
+    ModifiedRequirementMissing,
+    /// A `REMOVED` requirement does not exist in the living spec.
+    RemovedRequirementMissing,
+    /// A `REMOVED` operation lacks `Reason` or `Migration`.
+    RemovedWithoutReasonOrMigration,
+    /// A `RENAMED` `FROM` requirement does not exist.
+    RenamedFromMissing,
+    /// A `RENAMED` `TO` name is already in use.
+    RenamedToExists,
 }
 
 impl Rule {
@@ -75,6 +91,14 @@ impl Rule {
             Self::NonKebabCapability => "non-kebab-capability",
             Self::MissingFrontMatter => "missing-front-matter",
             Self::OnMatchWithoutFileMatch => "on-match-without-file-match",
+            Self::ScenarioWithoutEarsMarker => "scenario-without-ears-marker",
+            Self::RequirementWithoutNormativeVerb => "requirement-without-normative-verb",
+            Self::AddedRequirementExists => "added-requirement-exists",
+            Self::ModifiedRequirementMissing => "modified-requirement-missing",
+            Self::RemovedRequirementMissing => "removed-requirement-missing",
+            Self::RemovedWithoutReasonOrMigration => "removed-without-reason-or-migration",
+            Self::RenamedFromMissing => "renamed-from-missing",
+            Self::RenamedToExists => "renamed-to-exists",
         }
     }
 }

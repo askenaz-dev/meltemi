@@ -15,13 +15,16 @@
 //! assert!(diagnostics.is_empty(), "artifacts are non-conformant: {diagnostics:?}");
 //! ```
 
+pub mod delta;
 pub mod diagnostic;
+pub mod ears;
 pub mod frontmatter;
 pub mod model;
 pub mod spec_parser;
 pub mod tree;
 pub mod validate;
 
+pub use delta::{DeltaOp, DeltaSpec, apply_delta, parse_delta};
 pub use diagnostic::{Diagnostic, Rule};
 pub use model::{
     ChangeDir, DeltaOperation, DeltaSection, Inclusion, MeltemiTree, Ratification, Requirement,
