@@ -1055,6 +1055,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "meltemi-spec"
+version = "0.1.0"
+
+[[package]]
 name = "meltemid"
 version = "0.1.0"
 dependencies = [

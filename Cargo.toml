@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "core/meltemid",
+    "core/meltemi-spec",
     "core/mock-agent",
     "proto/meltemi-proto",
 ]
