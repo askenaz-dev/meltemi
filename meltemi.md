@@ -1,7 +1,7 @@
 # Meltemi — Documento Fundacional
 
 > **"Un rumbo, muchas velas."**
-> Versión 1.1 — enmendada el 12 de julio de 2026 (`enmiendas-fundacionales-v1`); ratificación de la v1.1 pendiente del mantenedor fundador. Base v1.0 ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2).
+> Versión 1.2 — enmendada el 12 de julio de 2026 (`formato-artefactos-meltemi`); ratificación de la v1.2 pendiente del mantenedor fundador. Enmiendas previas: v1.1 (`enmiendas-fundacionales-v1`). Base v1.0 ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2).
 > Este documento practica lo que predica: define **qué** se construirá y **por qué**, antes de escribir una sola línea de código.
 
 ---
@@ -100,13 +100,13 @@ Este documento no compara productos: destila los **patrones que la industria ya 
 
 ### 2.1 La especificación como artefacto persistente
 
-El chat se evapora; los artefactos permanecen. Cada cambio se define en un conjunto de **artefactos versionados junto al código** — propuesta, requisitos, diseño, deltas y tareas — cuyo corazón son tres documentos: **requisitos, diseño y tareas**. Los requisitos se escriben en **notación EARS** (*Easy Approach to Requirements Syntax*, presentada en la conferencia IEEE RE'09), que elimina la ambigüedad con un conjunto pequeño de patrones:
+El chat se evapora; los artefactos permanecen. Cada cambio se define en un conjunto de **artefactos versionados junto al código** — propuesta, requisitos, diseño, deltas y tareas — cuyo corazón son tres documentos: **requisitos, diseño y tareas**. Los requisitos se escriben en **notación EARS** (*Easy Approach to Requirements Syntax*, presentada en la conferencia IEEE RE'09), que elimina la ambigüedad con un conjunto pequeño de patrones. Las **palabras clave estructurales y de EARS van en inglés** (el canon internacional y lo que el motor de specs reconoce); la **prosa descriptiva, en español neutro**:
 
-- **Ubicuo**: "El sistema deberá…"
-- **Dirigido por estado**: "**Mientras** ⟨estado⟩, el sistema deberá…"
-- **Dirigido por evento**: "**Cuando** ⟨disparador⟩, el sistema deberá…"
-- **Comportamiento no deseado**: "**Si** ⟨condición⟩, **entonces** el sistema deberá…"
-- **Opcional**: "**Donde** ⟨capacidad⟩, el sistema deberá…"
+- **Ubicuo**: "The system SHALL …"
+- **Dirigido por estado**: "**WHILE** ⟨estado⟩, the system SHALL …"
+- **Dirigido por evento**: "**WHEN** ⟨disparador⟩, the system SHALL …"
+- **Comportamiento no deseado**: "**IF** ⟨condición⟩, **THEN** the system SHALL …"
+- **Opcional**: "**WHERE** ⟨capacidad⟩, the system SHALL …"
 
 Los artefactos estructurados sobreviven a la sesión y dan a cualquier agente futuro un contexto muy superior al historial de commits.
 
@@ -116,7 +116,7 @@ Un archivo de **constitución** establece los principios no negociables del proy
 
 ### 2.3 Verdad viva y cambios como deltas
 
-Separación estricta entre **la verdad viva** (cómo funciona el sistema hoy) y **las propuestas de cambio**. Cada cambio describe solo sus **deltas** — requisitos `AÑADIDOS`, `MODIFICADOS`, `ELIMINADOS` — en lugar de reescribir specs completas. Al archivar un cambio aprobado e implementado, sus deltas se funden en la verdad viva y el andamiaje (propuesta, diseño, tareas) pasa al histórico. Este enfoque hace al método tan útil en bases de código maduras (*brownfield*) como en proyectos nuevos.
+Separación estricta entre **la verdad viva** (cómo funciona el sistema hoy) y **las propuestas de cambio**. Cada cambio describe solo sus **deltas** — requisitos `ADDED`, `MODIFIED`, `REMOVED` (`RENAMED` para renombres) — en lugar de reescribir specs completas. Al archivar un cambio aprobado e implementado, sus deltas se funden en la verdad viva y el andamiaje (propuesta, diseño, tareas) pasa al histórico. Este enfoque hace al método tan útil en bases de código maduras (*brownfield*) como en proyectos nuevos.
 
 ### 2.4 Orquestación paralela con worktrees
 
@@ -202,7 +202,7 @@ Las cinco promesas de la misión, hechas producto:
 │   │   ├── proposal.md        #   por qué y qué cambia
 │   │   ├── requirements.md    #   historias + criterios de aceptación (EARS)
 │   │   ├── design.md          #   arquitectura, modelos de datos, interfaces
-│   │   ├── specs/             #   DELTAS: ## AÑADIDO / ## MODIFICADO / ## ELIMINADO
+│   │   ├── specs/             #   DELTAS: ## ADDED / ## MODIFIED / ## REMOVED Requirements
 │   │   └── tasks.md           #   tareas secuenciadas por dependencias
 │   └── archive/               #   cambios completados (histórico + ADRs opcionales)
 └── hooks/                     # automatizaciones por evento (fase 2)
@@ -233,7 +233,7 @@ Las cinco promesas de la misión, hechas producto:
 
 ## 6. Funcionalidades Clave
 
-1. **Editor de specs** con vista Markdown enriquecida, diff de deltas AÑADIDO/MODIFICADO/ELIMINADO, validación EARS en vivo y detección de contradicciones y huecos.
+1. **Editor de specs** con vista Markdown enriquecida, diff de deltas ADDED/MODIFIED/REMOVED, validación EARS en vivo y detección de contradicciones y huecos.
 2. **Flota de agentes**: catálogo de agentes detectados en la máquina (vía el registro público de ACP y detección local), con estado, nivel de integración y controles por agente.
 3. **Orquestación paralela**: N agentes sobre M tareas en worktrees aislados; carreras de agentes sobre la misma tarea. La mezcla de resultados es un **merge asistido por humano**: los diffs en competencia se presentan lado a lado, el usuario elige una base y aplica parches selectivos; los conflictos se minimizan secuenciando en `tasks.md` las tareas que comparten archivos.
 4. **Modos planificar/actuar y supervisado/autónomo**, con guardarraíles configurables por proyecto y por agente.
