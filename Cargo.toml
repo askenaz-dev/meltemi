@@ -5,6 +5,7 @@ members = [
     "core/meltemi-spec",
     "core/mock-agent",
     "proto/meltemi-proto",
+    "tui",
 ]
 
 [workspace.package]
@@ -16,6 +17,10 @@ rust-version = "1.97"
 
 [workspace.dependencies]
 meltemi-proto = { path = "proto/meltemi-proto" }
+# The terminal client reuses the daemon's client-side helpers (local transport,
+# on-demand bootstrap, JSON-RPC peer) exposed as a library; see cli-contrato
+# design D6. A dedicated `meltemi-client` crate can be extracted later.
+meltemid = { path = "core/meltemid" }
 
 # All third-party dependencies are pinned exactly (constitution §10) and
 # justified in the design of the change that introduces them.

@@ -1046,6 +1046,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "meltemi"
+version = "0.1.0"
+dependencies = [
+ "meltemi-proto",
+ "meltemid",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "meltemi-proto"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "meltemi"
+description = "Meltemi terminal client: scriptable CLI now, interactive TUI later"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "meltemi"
+path = "src/main.rs"
+
+[lib]
+name = "meltemi"
+path = "src/lib.rs"
+
+[dependencies]
+meltemi-proto.workspace = true
+meltemid.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+    "net",
+    "io-util",
+] }
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
