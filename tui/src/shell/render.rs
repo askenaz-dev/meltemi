@@ -86,23 +86,105 @@ impl ShellCtx {
     }
 }
 
+/// Minimum usable terminal size; below it the shell shows a floor state.
+const MIN_WIDTH: u16 = 80;
+const MIN_HEIGHT: u16 = 24;
+
 /// Draws the whole shell frame.
 pub fn render(frame: &mut Frame, state: &ShellState, live: &LiveData, ctx: &ShellCtx) {
-    let areas = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(0),
-        Constraint::Length(1),
-    ])
-    .split(frame.area());
-    let (header, body, footer) = (areas[0], areas[1], areas[2]);
+    let area = frame.area();
+    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+        render_size_floor(frame, area, live, ctx);
+        return;
+    }
+
+    // An alert banner surfaces the top-priority signal from any view (design D3):
+    // daemon-down over pending-permission over a recent notice.
+    let banner = alert_banner(live, ctx);
+    let areas = if banner.is_some() {
+        Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(area)
+    } else {
+        Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(area)
+    };
+    let (header, body, footer) = if banner.is_some() {
+        (areas[0], areas[2], areas[3])
+    } else {
+        (areas[0], areas[1], areas[2])
+    };
 
     render_header(frame, header, live, ctx);
+    if let Some(text) = banner {
+        frame.render_widget(Paragraph::new(Line::styled(text, ctx.emphasis())), areas[1]);
+    }
     render_body(frame, body, state, live, ctx);
     render_footer(frame, footer, state, ctx);
 
     if let Some(overlay) = state.top_overlay() {
-        render_overlay(frame, frame.area(), overlay, ctx);
+        render_overlay(frame, area, overlay, ctx);
     }
+}
+
+/// The highest-priority signal to show in the alert banner, if any.
+fn alert_banner(live: &LiveData, ctx: &ShellCtx) -> Option<String> {
+    match &live.conn {
+        ConnState::Unreachable { .. } => Some(format!(
+            "{} {}",
+            glyphs::ERROR.text(&ctx.present),
+            ctx.msg(Msg::DisconnectBanner)
+        )),
+        _ if live.pending_permissions > 0 => Some(format!(
+            "{} {} {} - a",
+            glyphs::PERMISSION.text(&ctx.present),
+            live.pending_permissions,
+            if ctx.lang == Lang::Es {
+                "permisos esperando"
+            } else {
+                "permissions waiting"
+            }
+        )),
+        _ => live.notices.last().cloned(),
+    }
+}
+
+/// The floor state when the terminal is below the minimum usable size: the
+/// connection status and permission count are the last things sacrificed.
+fn render_size_floor(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let conn_glyph = match &live.conn {
+        ConnState::Connected { .. } => glyphs::OK,
+        ConnState::Connecting => glyphs::PENDING,
+        ConnState::Unreachable { .. } => glyphs::ERROR,
+    };
+    let critical = format!(
+        "{} | {} {}",
+        conn_glyph.text(&ctx.present),
+        glyphs::PERMISSION.text(&ctx.present),
+        live.pending_permissions
+    );
+    let body = if area.height >= 2 {
+        format!(
+            "{}\n{}x{}\n{critical}",
+            ctx.msg(Msg::SizeFloor),
+            area.width,
+            area.height
+        )
+    } else {
+        critical
+    };
+    frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: true }), area);
 }
 
 fn render_header(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
@@ -431,9 +513,18 @@ fn render_overlay(frame: &mut Frame, area: Rect, overlay: &Overlay, ctx: &ShellC
                 what,
             )
         }
+        Overlay::Onboarding => (
+            ctx.msg(Msg::OnboardingTitle).to_string(),
+            ctx.msg(Msg::OnboardingBody).to_string(),
+        ),
     };
 
-    let popup = centered(area, 60, 30);
+    let (pct_w, pct_h) = match overlay {
+        Overlay::Onboarding => (72, 72),
+        Overlay::Help => (60, 50),
+        _ => (60, 30),
+    };
+    let popup = centered(area, pct_w, pct_h);
     frame.render_widget(Clear, popup);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -598,5 +689,62 @@ mod tests {
         let out = draw(&ShellState::new(), &live, &ctx(default_present()), 80, 24);
         assert!(out.contains("inalcanzable"));
         assert!(out.contains("reconectando"));
+    }
+
+    #[test]
+    fn below_minimum_size_shows_the_floor_with_critical_indicators() {
+        // Scenario: Aviso de tamaño insuficiente; el contador crítico sobrevive.
+        let mut live = LiveData::new();
+        live.apply(Update::Pending(2));
+        let out = draw(&ShellState::new(), &live, &ctx(default_present()), 40, 10);
+        assert!(out.contains("80x24"), "the floor states the required size");
+        assert!(out.contains('2'), "the pending count survives at the floor");
+    }
+
+    #[test]
+    fn disconnect_banner_outranks_pending_in_the_alert() {
+        // Scenario: Orden de prioridad — daemon caído por encima del permiso.
+        let mut live = LiveData::new();
+        live.apply(Update::Pending(5));
+        live.apply(Update::Conn(ConnState::Unreachable {
+            detail: "closed".into(),
+        }));
+        let out = draw(&ShellState::new(), &live, &ctx(default_present()), 80, 24);
+        assert!(
+            out.contains("reconectando"),
+            "the disconnect banner outranks pending permissions"
+        );
+    }
+
+    #[test]
+    fn permission_banner_surfaces_from_any_view() {
+        let mut live = LiveData::new();
+        live.apply(Update::Conn(ConnState::Connected {
+            version: "0.1.0".into(),
+            uptime_s: 1,
+            sessions: 0,
+        }));
+        live.apply(Update::Pending(4));
+        let mut s = ShellState::new();
+        s.reduce(crate::shell::keymap::Action::SwitchView(2)); // Project view
+        let out = draw(&s, &live, &ctx(default_present()), 80, 24);
+        assert!(
+            out.contains("permisos esperando"),
+            "pending permissions surface from any view"
+        );
+    }
+
+    #[test]
+    fn onboarding_overlay_teaches_navigation_and_exit() {
+        // Scenario: Primer uso enseña navegación y salida.
+        let mut s = ShellState::new();
+        s.show_onboarding();
+        let out = draw(&s, &LiveData::new(), &ctx(default_present()), 80, 24);
+        assert!(out.contains("Bienvenido"));
+        assert!(
+            out.contains("Esc"),
+            "it teaches how to escape a capture context"
+        );
+        assert!(out.contains('q'), "it teaches how to quit");
     }
 }

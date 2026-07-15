@@ -27,10 +27,10 @@
 
 ## 5. Endurecimiento (paridad y seguridad)
 
-- [ ] 5.1 Prioridad de señales del shell + desconexión ruidosa con aviso de deny-by-default y reconexión con backoff + reconciliación de vencimientos de permiso _(Req: Indicador de bandeja y prioridad de señales; Desconexión ruidosa y reconexión con backoff; Reconciliación de vencimientos de permisos)_
-- [ ] 5.2 Control de ciclo de vida: cancelar la sesión activa con `x` (`session/cancel`) y apagar el daemon (`shutdown`), ambos con confirmación y superficiados al menos por la paleta _(Req: Control de ciclo de vida de sesión y daemon)_
-- [ ] 5.3 Pérdida de daemon en vivo (congelar transcript con marca de corte, honestidad al reconectar) y suelo duro de tamaño de terminal con degradación automática que preserva los indicadores críticos _(Req: Pérdida de daemon durante una sesión en vivo; Suelo duro de tamaño de terminal)_
-- [ ] 5.4 Onboarding de primer uso: overlay saltable y persistente que enseña navegación, cómo salir (`q`) y cómo escapar de la captura (Esc), con checklist contextual, sin red ni telemetría _(Req: Onboarding de primer uso)_
+- [x] 5.1 Prioridad de señales del shell + desconexión ruidosa con aviso de deny-by-default y reconexión con backoff + reconciliación de vencimientos de permiso _(Req: Indicador de bandeja y prioridad de señales; Desconexión ruidosa y reconexión con backoff; Reconciliación de vencimientos de permisos)_
+- [x] 5.2 Control de ciclo de vida: cancelar la sesión activa con `x` (`session/cancel`) y apagar el daemon (`shutdown`), ambos con confirmación y superficiados al menos por la paleta _(Req: Control de ciclo de vida de sesión y daemon)_
+- [x] 5.3 Pérdida de daemon en vivo (congelar transcript con marca de corte, honestidad al reconectar) y suelo duro de tamaño de terminal con degradación automática que preserva los indicadores críticos _(Req: Pérdida de daemon durante una sesión en vivo; Suelo duro de tamaño de terminal)_
+- [x] 5.4 Onboarding de primer uso: overlay saltable y persistente que enseña navegación, cómo salir (`q`) y cómo escapar de la captura (Esc), con checklist contextual, sin red ni telemetría _(Req: Onboarding de primer uso)_
 
 ## 6. Tests y calidad
 

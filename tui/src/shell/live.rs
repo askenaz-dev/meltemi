@@ -81,7 +81,18 @@ impl LiveData {
     /// Applies an update from the connection actor.
     pub fn apply(&mut self, update: Update) {
         match update {
-            Update::Conn(conn) => self.conn = conn,
+            Update::Conn(conn) => {
+                // Daemon lost while we had a live transcript: freeze it honestly
+                // with a cut marker instead of pretending the turn will resume.
+                let was_up = matches!(self.conn, ConnState::Connected { .. });
+                let now_down = matches!(conn, ConnState::Unreachable { .. });
+                if was_up && now_down && !self.transcript.is_empty() {
+                    self.transcript
+                        .push("--- sesión cortada: daemon inalcanzable ---".into());
+                    self.follow_tail = false;
+                }
+                self.conn = conn;
+            }
             Update::Sessions(rows) => {
                 self.sessions = rows;
                 if self.selected >= self.sessions.len() {
@@ -204,5 +215,26 @@ mod tests {
         assert_eq!(live.pending_permissions, 3);
         live.apply(Update::Notice("permiso vencido".into()));
         assert_eq!(live.notices, vec!["permiso vencido".to_string()]);
+    }
+
+    #[test]
+    fn daemon_loss_freezes_the_transcript_with_a_cut_marker() {
+        // Scenario: Caída durante el streaming — marca de corte, sin auto-follow.
+        let mut live = LiveData::new();
+        live.apply(Update::Conn(ConnState::Connected {
+            version: "0.1.0".into(),
+            uptime_s: 1,
+            sessions: 1,
+        }));
+        live.apply(Update::TranscriptLine("[s1] agent_message".into()));
+        live.apply(Update::Conn(ConnState::Unreachable {
+            detail: "closed".into(),
+        }));
+        assert!(!live.follow_tail, "auto-follow stops on daemon loss");
+        assert!(
+            live.transcript.last().unwrap().contains("cortada"),
+            "a cut marker is appended: {:?}",
+            live.transcript
+        );
     }
 }

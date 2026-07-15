@@ -38,6 +38,10 @@ pub enum Msg {
     QuitConfirm,
     HelpTitle,
     PaletteTitle,
+    OnboardingTitle,
+    OnboardingBody,
+    DisconnectBanner,
+    SizeFloor,
 }
 
 /// The text of a message in a language. Never empty.
@@ -68,6 +72,28 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         (Msg::HelpTitle, Lang::En) => "Help — key map",
         (Msg::PaletteTitle, Lang::Es) => "Paleta de comandos",
         (Msg::PaletteTitle, Lang::En) => "Command palette",
+        (Msg::OnboardingTitle, Lang::Es) => "Bienvenido a meltemi",
+        (Msg::OnboardingTitle, Lang::En) => "Welcome to meltemi",
+        (Msg::OnboardingBody, Lang::Es) => {
+            "meltemi dirige tus agentes de codificacion; no es un editor ni un agente.\n\n\
+             Teclas: 1-4 vistas | : paleta | ? ayuda | a permisos | q salir | Esc cierra overlays y campos de texto.\n\n\
+             Pasos: daemon | proyecto .meltemi | agente (Flota) | propose (proximamente).\n\n\
+             Esc o q para empezar."
+        }
+        (Msg::OnboardingBody, Lang::En) => {
+            "meltemi drives your coding agents; it is not an editor nor an agent.\n\n\
+             Keys: 1-4 views | : palette | ? help | a permissions | q quit | Esc closes overlays and text fields.\n\n\
+             Steps: daemon | .meltemi project | agent (Fleet) | propose (coming soon).\n\n\
+             Esc or q to start."
+        }
+        (Msg::DisconnectBanner, Lang::Es) => {
+            "daemon inalcanzable - reconectando; los permisos pendientes se denegaran"
+        }
+        (Msg::DisconnectBanner, Lang::En) => {
+            "daemon unreachable - reconnecting; pending permissions will be denied"
+        }
+        (Msg::SizeFloor, Lang::Es) => "terminal demasiado pequena; se requiere 80x24",
+        (Msg::SizeFloor, Lang::En) => "terminal too small; 80x24 required",
     }
 }
 
@@ -85,6 +111,10 @@ pub const ALL: &[Msg] = &[
     Msg::QuitConfirm,
     Msg::HelpTitle,
     Msg::PaletteTitle,
+    Msg::OnboardingTitle,
+    Msg::OnboardingBody,
+    Msg::DisconnectBanner,
+    Msg::SizeFloor,
 ];
 
 #[cfg(test)]

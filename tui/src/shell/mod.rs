@@ -12,6 +12,7 @@ pub mod glyphs;
 pub mod keymap;
 pub mod live;
 pub mod messages;
+pub mod onboarding;
 pub mod present;
 pub mod render;
 pub mod state;
@@ -42,6 +43,13 @@ pub async fn run(endpoint: &str) -> io::Result<()> {
     };
     let mut state = ShellState::new();
     let mut live = LiveData::new();
+
+    // First run teaches the navigation model; the marker is written now so it
+    // shows once regardless of how it is dismissed.
+    if onboarding::is_first_run() {
+        onboarding::mark_seen();
+        state.show_onboarding();
+    }
 
     // The connection actor keeps a live, reconnecting connection.
     let (cmd_tx, cmd_rx) = unbounded_channel::<Command>();

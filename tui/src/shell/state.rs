@@ -54,8 +54,14 @@ pub enum ConfirmAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Overlay {
     Help,
-    Palette { input: String },
-    Confirm { action: ConfirmAction },
+    Palette {
+        input: String,
+    },
+    Confirm {
+        action: ConfirmAction,
+    },
+    /// First-run welcome, teaching the navigation model.
+    Onboarding,
 }
 
 /// A side effect the event loop must perform after a transition.
@@ -116,12 +122,18 @@ impl ShellState {
         }
     }
 
+    /// Pushes the first-run onboarding overlay.
+    pub fn show_onboarding(&mut self) {
+        self.overlays.push(Overlay::Onboarding);
+    }
+
     /// Applies an action, mutating state and returning an effect to perform.
     pub fn reduce(&mut self, action: Action) -> Option<Effect> {
         match self.overlays.last() {
             Some(Overlay::Confirm { .. }) => self.reduce_confirm(action),
             Some(Overlay::Palette { .. }) => self.reduce_palette(action),
-            Some(Overlay::Help) => self.reduce_help(action),
+            // Help and onboarding are passive overlays: Back closes them.
+            Some(Overlay::Help | Overlay::Onboarding) => self.reduce_passive(action),
             None => self.reduce_navigation(action),
         }
     }
@@ -207,23 +219,45 @@ impl ShellState {
     }
 
     fn reduce_palette(&mut self, action: Action) -> Option<Effect> {
-        if let Some(Overlay::Palette { input }) = self.overlays.last_mut() {
-            match action {
-                Action::InsertChar(c) => input.push(c),
-                Action::DeleteBack => {
+        match action {
+            Action::InsertChar(c) => {
+                if let Some(Overlay::Palette { input }) = self.overlays.last_mut() {
+                    input.push(c);
+                }
+            }
+            Action::DeleteBack => {
+                if let Some(Overlay::Palette { input }) = self.overlays.last_mut() {
                     input.pop();
                 }
-                Action::Back | Action::Submit => {
-                    // MVP: submit closes the palette; execution wires in later waves.
-                    self.overlays.pop();
-                }
-                _ => {}
             }
+            Action::Back => {
+                self.overlays.pop();
+            }
+            Action::Submit => {
+                // Execute a known command; unknown input just closes the palette.
+                // The palette is the core-parity catch-all (design D7).
+                let command = match self.overlays.last() {
+                    Some(Overlay::Palette { input }) => input.trim().to_ascii_lowercase(),
+                    _ => String::new(),
+                };
+                self.overlays.pop();
+                match command.as_str() {
+                    "shutdown" | "apagar" => self.overlays.push(Overlay::Confirm {
+                        action: ConfirmAction::Shutdown,
+                    }),
+                    "quit" | "salir" => self.overlays.push(Overlay::Confirm {
+                        action: ConfirmAction::Quit,
+                    }),
+                    _ => {}
+                }
+            }
+            _ => {}
         }
         None
     }
 
-    fn reduce_help(&mut self, action: Action) -> Option<Effect> {
+    /// Passive overlays (help, onboarding) close on Back and ignore the rest.
+    fn reduce_passive(&mut self, action: Action) -> Option<Effect> {
         if matches!(action, Action::Back) {
             self.overlays.pop();
         }
@@ -328,6 +362,45 @@ mod tests {
         press(&mut s, Key::Char('?'));
         assert!(matches!(s.top_overlay(), Some(Overlay::Help)));
         press(&mut s, Key::Esc);
+        assert!(s.top_overlay().is_none());
+    }
+
+    #[test]
+    fn palette_shutdown_command_asks_to_confirm_then_effects_shutdown() {
+        // Scenario: Apagado del daemon superficiado — desde la paleta, con confirmación.
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "shutdown".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        press(&mut s, Key::Enter); // submit
+        assert!(matches!(
+            s.top_overlay(),
+            Some(Overlay::Confirm {
+                action: ConfirmAction::Shutdown
+            })
+        ));
+        assert_eq!(press(&mut s, Key::Enter), Some(Effect::ShutdownDaemon));
+    }
+
+    #[test]
+    fn palette_unknown_command_just_closes() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "frobnicate".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        press(&mut s, Key::Enter);
+        assert!(s.top_overlay().is_none());
+    }
+
+    #[test]
+    fn onboarding_shows_and_dismisses() {
+        // Scenario: Saltable — Esc/`q` descarta el onboarding.
+        let mut s = ShellState::new();
+        s.show_onboarding();
+        assert!(matches!(s.top_overlay(), Some(Overlay::Onboarding)));
+        press(&mut s, Key::Char('q'));
         assert!(s.top_overlay().is_none());
     }
 }
