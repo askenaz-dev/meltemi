@@ -1,7 +1,7 @@
 # Meltemi — Documento Fundacional
 
 > **"Un rumbo, muchas velas."**
-> Versión 1.2 — enmendada el 12 de julio de 2026 (`formato-artefactos-meltemi`); ratificación de la v1.2 pendiente del mantenedor fundador. Enmiendas previas: v1.1 (`enmiendas-fundacionales-v1`). Base v1.0 ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2).
+> Versión 1.3 — enmendada el 14 de julio de 2026 (`enmienda-edicion-movil`); ratificación de la v1.3 pendiente del mantenedor fundador. Enmiendas previas: v1.2 (`formato-artefactos-meltemi`, ratificación pendiente), v1.1 (`enmiendas-fundacionales-v1`). Base v1.0 ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2).
 > Este documento practica lo que predica: define **qué** se construirá y **por qué**, antes de escribir una sola línea de código.
 
 ---
@@ -74,7 +74,7 @@ Nadie une las tres cosas. Ese es el hueco de Meltemi.
 
 Tan importante como lo que Meltemi es, es lo que deliberadamente **no** es:
 
-1. **No es un editor de código de propósito general ni un IDE clásico**: la edición manual de código ocurre en el editor que cada usuario ya usa. La superficie de código de Meltemi es de *revisión*, no de edición.
+1. **No es un editor de código de propósito general ni un IDE clásico**: la autoría sostenida de código ocurre en el editor que cada usuario ya usa, siempre a un salto de distancia ("Abrir con…" con archivo:línea exacto). La superficie de código de Meltemi es de *revisión y edición utilitaria* al servicio del bucle agéntico (revisar → retocar → dirigir): Meltemi optimiza para que salir sea **infrecuente, no imposible**. La cerca normativa de lo que la edición incluye y excluye vive en la spec `edit-surface`.
 2. **No es otro agente de codificación**: hasta la fase 2 no existe motor propio, y cuando exista será opcional — jamás un requisito ni un canal privilegiado.
 3. **No es un servicio en la nube ni un backend gestionado**: todo corre en las máquinas del usuario.
 4. **No es una plataforma de CI/CD ni de despliegue.**
@@ -245,6 +245,7 @@ Las cinco promesas de la misión, hechas producto:
 10. **MCP**: passthrough de servidores MCP hacia los agentes que lo soporten *(fase 1)*; cliente MCP nativo en el motor propio *(fase 2)*.
 11. **Sesiones persistentes e inspeccionables**: cada conversación de agente queda registrada, reanudable y auditable.
 12. **Métricas SDD locales** *(fase 2)*: panel de métricas del proyecto calculadas íntegramente en local; compartición agregada solo mediante telemetría opt-in, desactivada por defecto.
+13. **Edición utilitaria in situ** *(GUI en fase 2; TUI vía `$EDITOR` o mini-edición de hunks)*: retoques y ajustes en contexto con inteligencia LSP (autocompletado, diagnósticos, navegación), edición de hunks en el diff y "Abrir con…" hacia el editor del usuario con archivo:línea. Toda edición in situ pasa por el daemon y queda registrada como evento `human_edit` en el log de sesión.
 
 ---
 
@@ -385,13 +386,13 @@ meltemi/                       (Apache-2.0)
 - **Hito v0.1**: un desarrollador lleva una funcionalidad de idea a código íntegramente en terminal, con specs revisables, usando dos agentes de proveedores distintos en paralelo. Métricas objetivo: primeras 1.000 estrellas, 20 contribuidores externos.
 
 ### Fase 2 — v1.0: paridad de escritorio y motor propio (mes 6-10)
-- GUI Tauri con paridad de núcleo: editor de specs enriquecido, revisión de diffs línea a línea con inteligencia LSP, bandeja de permisos, panel de flota.
+- GUI Tauri con paridad de núcleo: editor de specs enriquecido, revisión de diffs línea a línea y edición utilitaria in situ con inteligencia LSP, bandeja de permisos, panel de flota. El design de esta fase resuelve la política de concurrencia humano↔agente sobre un mismo worktree.
 - Motor agéntico propio (BYOK, multi-proveedor, modelos locales) como un agente más de la flota.
 - Sandbox de ejecución propio por plataforma. Hooks. Sistema de plugins/skills sobre el SDK.
 - **Hito v1.0**: paridad de núcleo verificada por CI; instalable en macOS/Windows/Linux (núcleo y TUI como binario único autocontenido; GUI con instalador mínimo); funciona headless por SSH.
 
 ### Fase 3 — Horizonte (mes 11+)
-- Compañero móvil (Tauri móvil) para supervisar la flota.
+- Compañero móvil (Tauri móvil): superficie compañera reducida para **monitorear, aprobar y dirigir** la flota — sin edición; acceso únicamente vía túnel SSH; regla de subconjunto respecto de TUI/GUI (spec `mobile-companion`).
 - Funciones de equipo: specs compartidas multi-repo, archivos de rumbo gobernados por políticas de la organización.
 - Esquemas SDD personalizados (research-first, ADR-first). Verificación automática y continua spec↔código — más allá del `/verify` bajo demanda — y property-based testing derivado de requisitos EARS.
 - Registro comunitario de skills, hooks y perfiles de agente.
