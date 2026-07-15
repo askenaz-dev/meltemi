@@ -2,14 +2,15 @@
 
 //! The interactive TUI shell (`tui-shell`).
 //!
-//! This is the shell foundation (waves 1–3 of the change): the persistent
-//! chrome, the keyboard navigation contract, the empty states and the
-//! accessibility baseline. Live daemon wiring (streaming sessions, the live
-//! permission tray) and hardening are later waves; here the chrome reflects a
-//! one-shot connection snapshot ([`probe`]).
+//! Wave 4: an async event loop drives a persistent chrome over live daemon data.
+//! A background [`conn::connection_actor`] keeps a reconnecting connection and
+//! pushes [`live::Update`]s; a dedicated blocking thread reads terminal input
+//! and forwards it, so the async loop never blocks on either source.
 
+pub mod conn;
 pub mod glyphs;
 pub mod keymap;
+pub mod live;
 pub mod messages;
 pub mod present;
 pub mod render;
@@ -19,94 +20,125 @@ pub mod terminal;
 use std::io;
 
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
-use crate::run::connect_and_init;
-use keymap::Key;
+use conn::{Command, connection_actor};
+use keymap::{Action, Direction, Key};
+use live::LiveData;
 use messages::Lang;
 use present::Presentation;
-use render::{ConnState, ShellCtx};
-use state::{Effect, ShellState};
+use render::ShellCtx;
+use state::{Effect, ShellState, View};
 use terminal::TerminalGuard;
 
-use meltemi_proto::{StatusResult, methods};
-use serde_json::json;
-
-/// Takes a one-shot snapshot of the daemon connection for the chrome. A live,
-/// reconnecting connection is a later wave; this is honest about the moment it
-/// was taken.
-pub async fn probe(endpoint: &str) -> ConnState {
-    match connect_and_init(endpoint).await {
-        Err(error) => ConnState::Unreachable {
-            detail: error.message,
-        },
-        Ok((peer, background)) => {
-            let response = peer.request(methods::STATUS, &json!({})).await;
-            peer.close();
-            background.abort();
-            match response
-                .ok()
-                .and_then(|value| serde_json::from_value::<StatusResult>(value).ok())
-            {
-                Some(status) => ConnState::Connected {
-                    version: status.daemon_version,
-                    uptime_s: status.uptime_seconds,
-                    sessions: status.sessions.len(),
-                },
-                None => ConnState::Unreachable {
-                    detail: "status unavailable".into(),
-                },
-            }
-        }
-    }
-}
-
-/// Runs the interactive shell against a connection snapshot until the user
+/// Runs the interactive shell against the daemon at `endpoint` until the user
 /// quits. The [`TerminalGuard`] restores the terminal on every exit path,
 /// including panic.
-pub fn run(conn: ConnState, project: bool, pending_permissions: usize) -> io::Result<()> {
-    let lang = Lang::from_locale(std::env::var("LANG").ok().as_deref());
+pub async fn run(endpoint: &str) -> io::Result<()> {
     let ctx = ShellCtx {
         present: Presentation::from_env(),
-        lang,
-        conn,
-        pending_permissions,
-        project,
+        lang: Lang::from_locale(std::env::var("LANG").ok().as_deref()),
+        project: std::path::Path::new(".meltemi").is_dir(),
     };
     let mut state = ShellState::new();
+    let mut live = LiveData::new();
+
+    // The connection actor keeps a live, reconnecting connection.
+    let (cmd_tx, cmd_rx) = unbounded_channel::<Command>();
+    let (upd_tx, mut upd_rx) = unbounded_channel();
+    tokio::spawn(connection_actor(endpoint.to_string(), cmd_rx, upd_tx));
+
     let mut guard = TerminalGuard::enter()?;
+
+    // Read input on a dedicated blocking thread (raw mode is already on) and
+    // forward it to the async loop; it exits when the receiver drops on quit.
+    let (key_tx, mut key_rx) = unbounded_channel::<Event>();
+    std::thread::spawn(move || {
+        while let Ok(ev) = event::read() {
+            if key_tx.send(ev).is_err() {
+                break;
+            }
+        }
+    });
 
     loop {
         guard
             .terminal()
-            .draw(|frame| render::render(frame, &state, &ctx))?;
+            .draw(|frame| render::render(frame, &state, &live, &ctx))?;
 
-        let Some(key) = next_key()? else { continue };
-        let action = keymap::resolve(key, state.input_mode());
-        if let Some(effect) = state.reduce(action) {
-            match effect {
-                Effect::Quit => break,
-                // Cancelling a session and shutting down the daemon are wired to
-                // the daemon in a later wave; the confirmation flow is in place.
-                Effect::CancelActiveSession | Effect::ShutdownDaemon => {}
+        tokio::select! {
+            input = key_rx.recv() => {
+                let Some(event) = input else { break };
+                if let Event::Key(key) = event
+                    && key.kind == KeyEventKind::Press
+                    && let Some(mapped) = map_key(key)
+                {
+                    let action = keymap::resolve(mapped, state.input_mode());
+                    if handle_action(&mut state, &mut live, action, &cmd_tx) {
+                        break;
+                    }
+                }
+            }
+            update = upd_rx.recv() => {
+                if let Some(update) = update {
+                    live.apply(update);
+                }
             }
         }
     }
     Ok(())
 }
 
-/// Reads the next key press, mapping it to the robust key set and dropping keys
-/// outside it (Alt/Meta, Ctrl, F1–F12) — design D2.
-fn next_key() -> io::Result<Option<Key>> {
-    match event::read()? {
-        Event::Key(key) if key.kind == KeyEventKind::Press => Ok(map_key(key)),
-        _ => Ok(None),
+/// Applies an action across the navigation state and the live data, issuing
+/// commands to the connection actor. Returns `true` if the shell should quit.
+fn handle_action(
+    state: &mut ShellState,
+    live: &mut LiveData,
+    action: Action,
+    commands: &UnboundedSender<Command>,
+) -> bool {
+    // Selection and transcript scroll are live concerns, handled only in the
+    // Sessions view with no overlay open.
+    if state.top_overlay().is_none() && state.view() == View::Sessions {
+        match (&action, state.is_drilled()) {
+            (Action::Move(Direction::Down) | Action::Local('j'), false) => {
+                live.move_selection(true);
+                return false;
+            }
+            (Action::Move(Direction::Up) | Action::Local('k'), false) => {
+                live.move_selection(false);
+                return false;
+            }
+            (Action::Move(Direction::Down) | Action::Local('j'), true) => {
+                live.scroll_down();
+                return false;
+            }
+            (Action::Move(Direction::Up) | Action::Local('k'), true) => {
+                live.scroll_up();
+                return false;
+            }
+            _ => {}
+        }
     }
+
+    match state.reduce(action) {
+        Some(Effect::Quit) => return true,
+        Some(Effect::CancelActiveSession) => {
+            if let Some(row) = live.selected_session() {
+                let _ = commands.send(Command::CancelSession(row.id.clone()));
+            }
+        }
+        Some(Effect::ShutdownDaemon) => {
+            let _ = commands.send(Command::Shutdown);
+        }
+        None => {}
+    }
+    false
 }
 
-/// Maps a raw key event to a [`Key`], rejecting keys outside the robust set.
+/// Maps a raw key event to a [`Key`], rejecting keys outside the robust set
+/// (Alt/Meta, Ctrl, F1–F12) — design D2.
 fn map_key(key: KeyEvent) -> Option<Key> {
-    // Reject Alt/Meta and Ctrl (SSH and the TTY eat them); Shift is allowed
-    // (it produces BackTab and uppercase characters).
     if key
         .modifiers
         .intersects(KeyModifiers::ALT | KeyModifiers::CONTROL | KeyModifiers::SUPER)
@@ -124,7 +156,6 @@ fn map_key(key: KeyEvent) -> Option<Key> {
         KeyCode::Down => Some(Key::Down),
         KeyCode::Left => Some(Key::Left),
         KeyCode::Right => Some(Key::Right),
-        // Function keys and everything else are outside the robust set.
         _ => None,
     }
 }

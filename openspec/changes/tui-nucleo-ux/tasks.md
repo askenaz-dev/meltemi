@@ -20,9 +20,9 @@
 
 ## 4. Vistas cableadas al daemon
 
-- [ ] 4.1 Conexión asíncrona: chrome inmediato y conexión/arranque en segundo plano, distinguiendo "conectando…" (transitorio) de "inalcanzable" (código 10) con diagnóstico _(Req: Estado vacío sin daemon)_
-- [ ] 4.2 Vista Sesiones (tabla desde `status`) y drill-in Sesión con región append-only del stream `session/event` y seguimiento de cola suspendible al desplazar _(Req: Modelo de vistas; Reflow, streaming y seguimiento de cola)_
-- [ ] 4.3 Vistas Proyecto (artefactos `.meltemi/`, verbos SDD reservados no-error), Permisos (casa) y Flota (casa) con sus estados vacíos y el launchpad de Sesiones _(Req: Estado vacío sin sesiones; Estado vacío sin proyecto y desacople de ámbito)_
+- [x] 4.1 Conexión asíncrona: chrome inmediato y conexión/arranque en segundo plano, distinguiendo "conectando…" (transitorio) de "inalcanzable" (código 10) con diagnóstico _(Req: Estado vacío sin daemon)_
+- [x] 4.2 Vista Sesiones (tabla desde `status`) y drill-in Sesión con región append-only del stream `session/event` y seguimiento de cola suspendible al desplazar _(Req: Modelo de vistas; Reflow, streaming y seguimiento de cola)_
+- [x] 4.3 Vistas Proyecto (artefactos `.meltemi/`, verbos SDD reservados no-error), Permisos (casa) y Flota (casa) con sus estados vacíos y el launchpad de Sesiones _(Req: Estado vacío sin sesiones; Estado vacío sin proyecto y desacople de ámbito)_
 - [ ] 4.4 Reflow en SIGWINCH: colapso a modo lineal bajo ancho mínimo, descarte ordenado de columnas y scroll horizontal en vez de truncar-y-ocultar _(Req: Reflow, streaming y seguimiento de cola sobre SSH)_
 
 ## 5. Endurecimiento (paridad y seguridad)
@@ -36,5 +36,5 @@
 
 - [x] 6.1 Tests de navegación (reductores puros, sin terminal): consistencia del keymap, split dígitos/letras, equivalencia Esc/`q`, la captura de texto no filtra dígitos, reserva global respetada
 - [x] 6.2 Tests de accesibilidad: lint "glifo sin gemelo ASCII" falla, render con `NO_COLOR` sin ANSI de color, snapshots en 80x24 / ASCII / monocromo (por plataforma)
-- [ ] 6.3 Tests de estados contra un daemon efímero en proceso donde aplique: sin daemon (transitorio vs inalcanzable), sin sesiones, sin proyecto, suelo de tamaño, pérdida de daemon en vivo
+- [x] 6.3 Tests de estados contra un daemon efímero en proceso donde aplique: sin daemon (transitorio vs inalcanzable), sin sesiones, sin proyecto, suelo de tamaño, pérdida de daemon en vivo
 - [x] 6.4 `cargo clippy -- -D warnings`, `cargo fmt --check` y `cargo test` verdes en el workspace; verificar que el terminal se restaura en salida y en pánico

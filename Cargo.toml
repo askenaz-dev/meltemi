@@ -26,7 +26,8 @@ meltemid = { path = "core/meltemid" }
 # justified in the design of the change that introduces them.
 agent-client-protocol = "=1.2.0"
 # TUI shell (tui-nucleo-ux design D6). ratatui re-exports its crossterm backend
-# as `ratatui::crossterm`, so it is the single UI dependency.
+# as `ratatui::crossterm`, so it is the single UI dependency; input is read on a
+# dedicated blocking thread and forwarded to the async loop over a channel.
 ratatui = "=0.29.0"
 anyhow = "=1.0.103"
 directories = "=6.0.0"

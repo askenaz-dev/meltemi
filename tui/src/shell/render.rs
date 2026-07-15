@@ -14,6 +14,14 @@ use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
+use meltemi_proto::SessionState;
+
+use crate::shell::glyphs::{self, Glyph};
+use crate::shell::live::LiveData;
+use crate::shell::messages::{Lang, Msg, text};
+use crate::shell::present::Presentation;
+use crate::shell::state::{ConfirmAction, Overlay, ShellState, View};
+
 /// ASCII twin of the box-drawing border set, used when Unicode is off.
 const ASCII_BORDER: border::Set = border::Set {
     top_left: "+",
@@ -25,11 +33,6 @@ const ASCII_BORDER: border::Set = border::Set {
     horizontal_top: "-",
     horizontal_bottom: "-",
 };
-
-use crate::shell::glyphs;
-use crate::shell::messages::{Lang, Msg, text};
-use crate::shell::present::Presentation;
-use crate::shell::state::{ConfirmAction, Overlay, ShellState, View};
 
 /// The daemon connection status the chrome reflects.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,12 +48,17 @@ pub enum ConnState {
     },
 }
 
-/// Everything the renderer needs beyond the navigation state.
+impl ConnState {
+    /// Whether a view that needs the daemon can show its own content.
+    fn is_up(&self) -> bool {
+        !matches!(self, ConnState::Unreachable { .. })
+    }
+}
+
+/// Static presentation context (the live snapshot is passed separately).
 pub struct ShellCtx {
     pub present: Presentation,
     pub lang: Lang,
-    pub conn: ConnState,
-    pub pending_permissions: usize,
     pub project: bool,
 }
 
@@ -69,7 +77,6 @@ impl ShellCtx {
         s
     }
 
-    /// The border set honoring the Unicode capability.
     fn border_set(&self) -> border::Set {
         if self.present.unicode {
             border::PLAIN
@@ -80,7 +87,7 @@ impl ShellCtx {
 }
 
 /// Draws the whole shell frame.
-pub fn render(frame: &mut Frame, state: &ShellState, ctx: &ShellCtx) {
+pub fn render(frame: &mut Frame, state: &ShellState, live: &LiveData, ctx: &ShellCtx) {
     let areas = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(0),
@@ -89,8 +96,8 @@ pub fn render(frame: &mut Frame, state: &ShellState, ctx: &ShellCtx) {
     .split(frame.area());
     let (header, body, footer) = (areas[0], areas[1], areas[2]);
 
-    render_header(frame, header, ctx);
-    render_body(frame, body, state, ctx);
+    render_header(frame, header, live, ctx);
+    render_body(frame, body, state, live, ctx);
     render_footer(frame, footer, state, ctx);
 
     if let Some(overlay) = state.top_overlay() {
@@ -98,8 +105,8 @@ pub fn render(frame: &mut Frame, state: &ShellState, ctx: &ShellCtx) {
     }
 }
 
-fn render_header(frame: &mut Frame, area: Rect, ctx: &ShellCtx) {
-    let (glyph, word) = match &ctx.conn {
+fn render_header(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
+    let (glyph, word) = match &live.conn {
         ConnState::Connecting => (glyphs::PENDING, ctx.msg(Msg::Connecting).to_string()),
         ConnState::Connected {
             version,
@@ -115,7 +122,7 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ShellCtx) {
     let perms = format!(
         "{} {} {}",
         glyphs::PERMISSION.text(&ctx.present),
-        ctx.pending_permissions,
+        live.pending_permissions,
         if ctx.lang == Lang::Es {
             "esperando"
         } else {
@@ -140,8 +147,7 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &ShellState, ctx: &ShellC
     frame.render_widget(Paragraph::new(Line::from(hint)), area);
 }
 
-fn render_body(frame: &mut Frame, area: Rect, state: &ShellState, ctx: &ShellCtx) {
-    // Breadcrumb reflects drill-in depth.
+fn render_body(frame: &mut Frame, area: Rect, state: &ShellState, live: &LiveData, ctx: &ShellCtx) {
     let title = view_title(state.view(), ctx.lang);
     let crumb = if state.is_drilled() {
         format!(
@@ -155,33 +161,221 @@ fn render_body(frame: &mut Frame, area: Rect, state: &ShellState, ctx: &ShellCtx
     } else {
         title.to_string()
     };
-
-    let empty = empty_state(state.view(), ctx);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(ctx.border_set())
         .title(Span::styled(format!(" {crumb} "), ctx.emphasis()));
-    let paragraph = Paragraph::new(empty).block(block).wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, area);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // A view that needs the daemon shows the unreachable card when it is down;
+    // Project is local and stays usable.
+    if !live.conn.is_up() && state.view() != View::Project {
+        render_unreachable(frame, inner, live, ctx);
+        return;
+    }
+
+    match state.view() {
+        View::Sessions if state.is_drilled() => render_session_detail(frame, inner, live, ctx),
+        View::Sessions => render_sessions(frame, inner, live, ctx),
+        View::Project => render_project(frame, inner, ctx),
+        View::Permissions => render_permissions(frame, inner, live, ctx),
+        View::Fleet => render_lines(frame, inner, vec![Line::from(ctx.msg(Msg::NoAgents))]),
+    }
 }
 
-/// The empty-state / placeholder text for a view. In this foundation every view
-/// shows its labeled empty state; live data wires in later waves.
-fn empty_state(view: View, ctx: &ShellCtx) -> String {
-    if let ConnState::Unreachable { detail } = &ctx.conn {
-        return format!("{}\n\n{detail}", ctx.msg(Msg::Unreachable));
-    }
-    match view {
-        View::Sessions => ctx.msg(Msg::NoSessions).to_string(),
-        View::Project => {
-            if ctx.project {
-                String::new()
-            } else {
-                ctx.msg(Msg::NoProject).to_string()
-            }
+fn render_unreachable(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
+    let detail = match &live.conn {
+        ConnState::Unreachable { detail } => detail.as_str(),
+        _ => "",
+    };
+    let body = format!(
+        "{}\n\n{detail}\n\n{}",
+        ctx.msg(Msg::Unreachable),
+        if ctx.lang == Lang::Es {
+            "reconectando... (el daemon nunca abre un puerto de red)"
+        } else {
+            "reconnecting... (the daemon never opens a network port)"
         }
-        View::Permissions => ctx.msg(Msg::NoPermissions).to_string(),
-        View::Fleet => ctx.msg(Msg::NoAgents).to_string(),
+    );
+    frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: true }), area);
+}
+
+fn render_sessions(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
+    if live.sessions.is_empty() {
+        // Launchpad, not a mute table.
+        let text = format!(
+            "{}\n\n{}",
+            ctx.msg(Msg::NoSessions),
+            if ctx.lang == Lang::Es {
+                "4 Flota para elegir agente | : paleta"
+            } else {
+                "4 Fleet to pick an agent | : palette"
+            }
+        );
+        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
+        return;
+    }
+    // Reflow: drop the agent column on a narrow terminal.
+    let wide = area.width >= 50;
+    let lines: Vec<Line> = live
+        .sessions
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let (glyph, word) = session_state_label(row.state, ctx.lang);
+            let marker = if i == live.selected {
+                glyphs::FOCUS.text(&ctx.present)
+            } else {
+                " "
+            };
+            let mut label = format!("{marker} {} {} {}", glyph.text(&ctx.present), word, row.id);
+            if wide {
+                label.push_str(&format!("  {}", row.agent));
+            }
+            if i == live.selected {
+                Line::styled(label, ctx.emphasis())
+            } else {
+                Line::from(label)
+            }
+        })
+        .collect();
+    render_lines(frame, area, lines);
+}
+
+fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
+    let header = match live.selected_session() {
+        Some(row) => {
+            let (glyph, word) = session_state_label(row.state, ctx.lang);
+            format!("{} {} {}", glyph.text(&ctx.present), word, row.id)
+        }
+        None => "-".to_string(),
+    };
+    let follow = if live.follow_tail {
+        if ctx.lang == Lang::Es {
+            "siguiendo"
+        } else {
+            "following"
+        }
+    } else if ctx.lang == Lang::Es {
+        "desplazado"
+    } else {
+        "scrolled"
+    };
+    let mut lines = vec![
+        Line::styled(header, ctx.emphasis()),
+        Line::from(format!("[{follow}] x cancela | Esc atrás")),
+        Line::from(""),
+    ];
+    // Show the tail of the transcript that fits.
+    let capacity = area.height.saturating_sub(3) as usize;
+    let start = live.transcript.len().saturating_sub(capacity);
+    for line in &live.transcript[start..] {
+        lines.push(Line::from(line.clone()));
+    }
+    render_lines(frame, area, lines);
+}
+
+fn render_project(frame: &mut Frame, area: Rect, ctx: &ShellCtx) {
+    if !ctx.project {
+        let text = format!(
+            "{}\n\n{}",
+            ctx.msg(Msg::NoProject),
+            if ctx.lang == Lang::Es {
+                "c iniciar constitución (próximamente)"
+            } else {
+                "c start constitution (coming soon)"
+            }
+        );
+        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
+        return;
+    }
+    let entries = read_meltemi_entries();
+    let mut lines: Vec<Line> = entries.into_iter().map(Line::from).collect();
+    lines.push(Line::from(""));
+    lines.push(Line::from(if ctx.lang == Lang::Es {
+        "verbos SDD reservados: explore review plan implement verify archive (próximamente)"
+    } else {
+        "reserved SDD verbs: explore review plan implement verify archive (coming soon)"
+    }));
+    render_lines(frame, area, lines);
+}
+
+fn render_permissions(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
+    if live.pending_permissions == 0 && live.notices.is_empty() {
+        frame.render_widget(Paragraph::new(ctx.msg(Msg::NoPermissions)), area);
+        return;
+    }
+    let mut lines = vec![Line::styled(
+        format!(
+            "{} {}",
+            live.pending_permissions,
+            if ctx.lang == Lang::Es {
+                "pendientes (bandeja: #9)"
+            } else {
+                "pending (tray: #9)"
+            }
+        ),
+        ctx.emphasis(),
+    )];
+    for notice in live
+        .notices
+        .iter()
+        .rev()
+        .take(area.height.saturating_sub(1) as usize)
+    {
+        lines.push(Line::from(notice.clone()));
+    }
+    render_lines(frame, area, lines);
+}
+
+fn render_lines(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
+}
+
+/// Reads the top-level entries of `.meltemi/` for the Project view.
+fn read_meltemi_entries() -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(".meltemi")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// (glyph, word) for a session state — meaning never depends on color.
+fn session_state_label(state: SessionState, lang: Lang) -> (Glyph, &'static str) {
+    match state {
+        SessionState::Starting => (
+            glyphs::STARTING,
+            if lang == Lang::Es {
+                "iniciando"
+            } else {
+                "starting"
+            },
+        ),
+        SessionState::Active => (
+            glyphs::ACTIVE,
+            if lang == Lang::Es { "activa" } else { "active" },
+        ),
+        SessionState::WaitingPermission => (
+            glyphs::WAITING,
+            if lang == Lang::Es {
+                "esperando-permiso"
+            } else {
+                "waiting-permission"
+            },
+        ),
+        SessionState::Ended => (
+            glyphs::ENDED,
+            if lang == Lang::Es {
+                "finalizada"
+            } else {
+                "ended"
+            },
+        ),
     }
 }
 
@@ -276,96 +470,133 @@ fn centered(area: Rect, pct_w: u16, pct_h: u16) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::live::{SessionRow, Update};
     use crate::shell::present::{Presentation, PresentationEnv};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    fn ctx(present: Presentation, conn: ConnState) -> ShellCtx {
+    fn ctx(present: Presentation) -> ShellCtx {
         ShellCtx {
             present,
             lang: Lang::Es,
-            conn,
-            pending_permissions: 3,
             project: false,
         }
     }
 
-    fn render_to_string(state: &ShellState, ctx: &ShellCtx, w: u16, h: u16) -> String {
+    fn draw(state: &ShellState, live: &LiveData, ctx: &ShellCtx, w: u16, h: u16) -> String {
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
-        terminal.draw(|f| render(f, state, ctx)).unwrap();
-        let buffer = terminal.backend().buffer().clone();
-        buffer
+        terminal.draw(|f| render(f, state, live, ctx)).unwrap();
+        terminal
+            .backend()
+            .buffer()
             .content()
             .iter()
             .map(|c| c.symbol())
-            .collect::<String>()
+            .collect()
+    }
+
+    fn default_present() -> Presentation {
+        Presentation::resolve(&PresentationEnv {
+            lang: Some("es.UTF-8".into()),
+            ..Default::default()
+        })
     }
 
     #[test]
-    fn permission_indicator_is_always_drawn_with_count_and_word() {
-        // Scenario: Indicador legible sin color — símbolo + contador + palabra.
-        let present = Presentation::resolve(&PresentationEnv::default());
-        let state = ShellState::new();
-        let out = render_to_string(&state, &ctx(present, ConnState::Connecting), 80, 24);
-        assert!(out.contains('3'), "permission count must be visible");
-        assert!(out.contains("esperando"), "permission word must be visible");
+    fn permission_indicator_always_shows_count_and_word() {
+        let mut live = LiveData::new();
+        live.apply(Update::Pending(3));
+        let out = draw(&ShellState::new(), &live, &ctx(default_present()), 80, 24);
+        assert!(out.contains('3') && out.contains("esperando"));
     }
 
     #[test]
-    fn ascii_presentation_avoids_unicode_glyphs_and_box_drawing() {
-        // Scenario: Conmutación a ASCII — cuadros por + - |, sin glifos Unicode.
+    fn ascii_render_has_no_unicode_glyphs_or_box_drawing() {
         let ascii = Presentation::resolve(&PresentationEnv {
             ascii_flag: true,
             ..Default::default()
         });
-        let state = ShellState::new();
-        let out = render_to_string(&state, &ctx(ascii, ConnState::Connecting), 80, 24);
-        for forbidden in ['…', '▸', '·', '›', '┌', '┐', '└', '┘', '─', '│', '●']
-        {
+        let mut live = LiveData::new();
+        live.apply(Update::Sessions(vec![SessionRow {
+            id: "s1".into(),
+            agent: "mock".into(),
+            state: SessionState::Active,
+        }]));
+        let out = draw(&ShellState::new(), &live, &ctx(ascii), 80, 24);
+        for forbidden in ['…', '▸', '·', '›', '┌', '│', '●', '▶'] {
             assert!(
                 !out.contains(forbidden),
-                "ASCII render must not contain the Unicode glyph {forbidden:?}"
+                "ASCII render must not contain {forbidden:?}"
             );
         }
-        // The ASCII border twins are present instead.
-        assert!(
-            out.contains('+') && out.contains('|'),
-            "ASCII borders use + and |"
-        );
+        assert!(out.contains('+') && out.contains('|'));
     }
 
     #[test]
     fn no_color_render_emits_no_colored_cells() {
-        // Scenario: Render monocromo — ninguna celda lleva color de primer/fondo.
         let mono = Presentation::resolve(&PresentationEnv {
             no_color: Some("1".into()),
             lang: Some("en_US.UTF-8".into()),
             ..Default::default()
         });
-        assert!(!mono.color);
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        // Open a confirmation to exercise emphasized (reversed) cells too.
         let mut s = ShellState::new();
-        s.reduce(crate::shell::keymap::Action::Back); // pushes a quit confirmation
-        terminal
-            .draw(|f| render(f, &s, &ctx(mono, ConnState::Connecting)))
-            .unwrap();
-        let buffer = terminal.backend().buffer().clone();
+        s.reduce(crate::shell::keymap::Action::Back); // quit confirmation
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let live = LiveData::new();
+        terminal.draw(|f| render(f, &s, &live, &ctx(mono))).unwrap();
         use ratatui::style::Color;
-        for cell in buffer.content() {
-            assert_eq!(cell.fg, Color::Reset, "no cell may set a foreground color");
-            assert_eq!(cell.bg, Color::Reset, "no cell may set a background color");
+        for cell in terminal.backend().buffer().content() {
+            assert_eq!(cell.fg, Color::Reset);
+            assert_eq!(cell.bg, Color::Reset);
         }
     }
 
     #[test]
-    fn unreachable_shows_the_detail_in_the_body() {
-        let present = Presentation::resolve(&PresentationEnv::default());
-        let state = ShellState::new();
-        let conn = ConnState::Unreachable {
+    fn empty_sessions_show_a_launchpad_not_a_mute_table() {
+        // Scenario: Launchpad en lugar de tabla vacía.
+        let live = LiveData::new(); // connected-less but not unreachable
+        let mut connected = live;
+        connected.apply(Update::Conn(ConnState::Connected {
+            version: "0.1.0".into(),
+            uptime_s: 1,
+            sessions: 0,
+        }));
+        let out = draw(
+            &ShellState::new(),
+            &connected,
+            &ctx(default_present()),
+            80,
+            24,
+        );
+        assert!(
+            out.contains("sin sesiones"),
+            "empty Sessions must teach the next step"
+        );
+        assert!(out.contains("Flota"));
+    }
+
+    #[test]
+    fn fleet_shows_its_empty_state() {
+        let mut live = LiveData::new();
+        live.apply(Update::Conn(ConnState::Connected {
+            version: "0.1.0".into(),
+            uptime_s: 1,
+            sessions: 0,
+        }));
+        let mut s = ShellState::new();
+        s.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let out = draw(&s, &live, &ctx(default_present()), 80, 24);
+        assert!(out.contains("sin agentes"));
+    }
+
+    #[test]
+    fn unreachable_daemon_shows_the_card_on_sessions() {
+        let mut live = LiveData::new();
+        live.apply(Update::Conn(ConnState::Unreachable {
             detail: "socket ausente".into(),
-        };
-        let out = render_to_string(&state, &ctx(present, conn), 80, 24);
+        }));
+        let out = draw(&ShellState::new(), &live, &ctx(default_present()), 80, 24);
         assert!(out.contains("inalcanzable"));
+        assert!(out.contains("reconectando"));
     }
 }

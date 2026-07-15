@@ -46,11 +46,9 @@ pub async fn dispatch(
             ExitCode::Success.code()
         }
         Action::Interactive => {
-            // Draw the shell immediately over a one-shot connection snapshot.
-            // (Live async reconnection is a later wave.)
-            let conn = shell::probe(endpoint).await;
-            let project = std::path::Path::new(".meltemi").is_dir();
-            match shell::run(conn, project, 0) {
+            // Launch the shell: it draws immediately and connects to the daemon
+            // asynchronously, reconnecting with backoff.
+            match shell::run(endpoint).await {
                 Ok(()) => ExitCode::Success.code(),
                 Err(error) => {
                     let _ = writeln!(err, "meltemi: {error}");
