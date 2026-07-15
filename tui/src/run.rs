@@ -38,7 +38,7 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
 
 /// Connects (starting the daemon on demand), spawns the background handler for
 /// daemon-initiated traffic, and performs the mandatory `initialize`.
-async fn connect_and_init(endpoint: &str) -> Result<(Peer, JoinHandle<()>), CliError> {
+pub(crate) async fn connect_and_init(endpoint: &str) -> Result<(Peer, JoinHandle<()>), CliError> {
     let stream = bootstrap::connect_or_start(endpoint)
         .await
         .map_err(CliError::unreachable)?;

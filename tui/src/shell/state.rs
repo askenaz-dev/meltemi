@@ -1,0 +1,333 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! Shell navigation state and its pure reducer (design D1).
+//!
+//! [`ShellState::reduce`] maps an [`Action`] to a state transition and an
+//! optional [`Effect`] for the event loop to perform. It is pure and fully
+//! unit-testable without a terminal or a daemon.
+
+use crate::shell::keymap::{Action, InputMode};
+
+/// A first-level view. The digit order is the navigation contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    Sessions,
+    Project,
+    Permissions,
+    Fleet,
+}
+
+impl View {
+    /// The view a digit 1–4 selects, if any.
+    #[must_use]
+    pub fn from_digit(d: u8) -> Option<View> {
+        match d {
+            1 => Some(View::Sessions),
+            2 => Some(View::Project),
+            3 => Some(View::Permissions),
+            4 => Some(View::Fleet),
+            _ => None,
+        }
+    }
+
+    /// The digit that selects this view.
+    #[must_use]
+    pub fn digit(self) -> u8 {
+        match self {
+            View::Sessions => 1,
+            View::Project => 2,
+            View::Permissions => 3,
+            View::Fleet => 4,
+        }
+    }
+}
+
+/// What a confirmation dialog will do if confirmed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmAction {
+    Quit,
+    CancelSession,
+    Shutdown,
+}
+
+/// An overlay stacked above the views. Only [`Overlay::Palette`] captures text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Overlay {
+    Help,
+    Palette { input: String },
+    Confirm { action: ConfirmAction },
+}
+
+/// A side effect the event loop must perform after a transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effect {
+    Quit,
+    CancelActiveSession,
+    ShutdownDaemon,
+}
+
+/// The full navigation state of the shell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellState {
+    view: View,
+    /// Whether the Sessions view is drilled into a Session detail (one level).
+    drilled: bool,
+    overlays: Vec<Overlay>,
+}
+
+impl Default for ShellState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ShellState {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            view: View::Sessions,
+            drilled: false,
+            overlays: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn view(&self) -> View {
+        self.view
+    }
+
+    #[must_use]
+    pub fn is_drilled(&self) -> bool {
+        self.drilled
+    }
+
+    #[must_use]
+    pub fn top_overlay(&self) -> Option<&Overlay> {
+        self.overlays.last()
+    }
+
+    /// Text is captured only while a palette overlay is on top; confirmations
+    /// and help navigate modally, not as text.
+    #[must_use]
+    pub fn input_mode(&self) -> InputMode {
+        match self.overlays.last() {
+            Some(Overlay::Palette { .. }) => InputMode::TextInput,
+            _ => InputMode::Navigation,
+        }
+    }
+
+    /// Applies an action, mutating state and returning an effect to perform.
+    pub fn reduce(&mut self, action: Action) -> Option<Effect> {
+        match self.overlays.last() {
+            Some(Overlay::Confirm { .. }) => self.reduce_confirm(action),
+            Some(Overlay::Palette { .. }) => self.reduce_palette(action),
+            Some(Overlay::Help) => self.reduce_help(action),
+            None => self.reduce_navigation(action),
+        }
+    }
+
+    fn reduce_navigation(&mut self, action: Action) -> Option<Effect> {
+        match action {
+            Action::SwitchView(d) => {
+                if let Some(view) = View::from_digit(d) {
+                    self.view = view;
+                    self.drilled = false;
+                }
+                None
+            }
+            Action::DrillIn => {
+                if self.view == View::Sessions && !self.drilled {
+                    self.drilled = true;
+                }
+                None
+            }
+            Action::Back => {
+                if self.drilled {
+                    self.drilled = false;
+                    None
+                } else {
+                    // Top-level Back requests quit, gated by a confirmation.
+                    self.overlays.push(Overlay::Confirm {
+                        action: ConfirmAction::Quit,
+                    });
+                    None
+                }
+            }
+            Action::OpenHelp => {
+                self.overlays.push(Overlay::Help);
+                None
+            }
+            Action::OpenPalette => {
+                self.overlays.push(Overlay::Palette {
+                    input: String::new(),
+                });
+                None
+            }
+            Action::AttendPermissions => {
+                self.view = View::Permissions;
+                self.drilled = false;
+                None
+            }
+            Action::CancelSession => {
+                // Only meaningful inside a live session; gated by confirmation.
+                if self.view == View::Sessions && self.drilled {
+                    self.overlays.push(Overlay::Confirm {
+                        action: ConfirmAction::CancelSession,
+                    });
+                }
+                None
+            }
+            // Filter, focus cycling, movement and local letters are view-local;
+            // the shell skeleton has no effect for them yet.
+            _ => None,
+        }
+    }
+
+    fn reduce_confirm(&mut self, action: Action) -> Option<Effect> {
+        let Some(Overlay::Confirm { action: confirm }) = self.overlays.last().cloned() else {
+            return None;
+        };
+        match action {
+            // Enter or `y` confirms; the non-destructive default is cancel.
+            Action::DrillIn | Action::Local('y') => {
+                self.overlays.pop();
+                Some(match confirm {
+                    ConfirmAction::Quit => Effect::Quit,
+                    ConfirmAction::CancelSession => Effect::CancelActiveSession,
+                    ConfirmAction::Shutdown => Effect::ShutdownDaemon,
+                })
+            }
+            // Esc / q / Backspace / `n` cancel safely without acting.
+            Action::Back | Action::Local('n') => {
+                self.overlays.pop();
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn reduce_palette(&mut self, action: Action) -> Option<Effect> {
+        if let Some(Overlay::Palette { input }) = self.overlays.last_mut() {
+            match action {
+                Action::InsertChar(c) => input.push(c),
+                Action::DeleteBack => {
+                    input.pop();
+                }
+                Action::Back | Action::Submit => {
+                    // MVP: submit closes the palette; execution wires in later waves.
+                    self.overlays.pop();
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn reduce_help(&mut self, action: Action) -> Option<Effect> {
+        if matches!(action, Action::Back) {
+            self.overlays.pop();
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::keymap::{Key, resolve};
+
+    /// Drives the state the way the event loop does: resolve the key in the
+    /// current input mode, then reduce.
+    fn press(state: &mut ShellState, key: Key) -> Option<Effect> {
+        let action = resolve(key, state.input_mode());
+        state.reduce(action)
+    }
+
+    #[test]
+    fn digit_switches_first_level_view_and_clears_drill() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Enter); // drill into Session
+        assert!(s.is_drilled());
+        press(&mut s, Key::Char('2')); // digit switches view globally
+        assert_eq!(s.view(), View::Project);
+        assert!(!s.is_drilled());
+    }
+
+    #[test]
+    fn drill_in_and_back_pop_one_level() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Enter);
+        assert!(s.is_drilled());
+        press(&mut s, Key::Esc); // back closes the drill
+        assert!(!s.is_drilled());
+    }
+
+    #[test]
+    fn top_level_back_asks_to_quit_then_confirm_quits() {
+        let mut s = ShellState::new();
+        assert!(press(&mut s, Key::Char('q')).is_none());
+        assert!(matches!(
+            s.top_overlay(),
+            Some(Overlay::Confirm {
+                action: ConfirmAction::Quit
+            })
+        ));
+        // Esc cancels the confirmation safely (no quit).
+        assert!(press(&mut s, Key::Esc).is_none());
+        assert!(s.top_overlay().is_none());
+        // Ask again and confirm with Enter.
+        press(&mut s, Key::Char('q'));
+        assert_eq!(press(&mut s, Key::Enter), Some(Effect::Quit));
+    }
+
+    #[test]
+    fn attend_permissions_jumps_to_tray_from_any_view() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char('2'));
+        assert_eq!(s.view(), View::Project);
+        press(&mut s, Key::Char('a'));
+        assert_eq!(s.view(), View::Permissions);
+    }
+
+    #[test]
+    fn palette_captures_text_and_digits_do_not_switch_view() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        assert_eq!(s.input_mode(), InputMode::TextInput);
+        press(&mut s, Key::Char('3')); // digit is text, not a view switch
+        assert_eq!(s.view(), View::Sessions);
+        assert!(matches!(s.top_overlay(), Some(Overlay::Palette { input }) if input == "3"));
+        press(&mut s, Key::Esc); // Esc leaves the field
+        assert!(s.top_overlay().is_none());
+    }
+
+    #[test]
+    fn cancel_session_requires_confirmation_and_only_in_a_session() {
+        let mut s = ShellState::new();
+        // Not drilled: no confirmation appears.
+        press(&mut s, Key::Char('x'));
+        assert!(s.top_overlay().is_none());
+        // Drill into a session, then `x` asks to confirm; confirm cancels.
+        press(&mut s, Key::Enter);
+        press(&mut s, Key::Char('x'));
+        assert!(matches!(
+            s.top_overlay(),
+            Some(Overlay::Confirm {
+                action: ConfirmAction::CancelSession
+            })
+        ));
+        assert_eq!(
+            press(&mut s, Key::Char('y')),
+            Some(Effect::CancelActiveSession)
+        );
+    }
+
+    #[test]
+    fn help_opens_and_closes() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char('?'));
+        assert!(matches!(s.top_overlay(), Some(Overlay::Help)));
+        press(&mut s, Key::Esc);
+        assert!(s.top_overlay().is_none());
+    }
+}

@@ -13,6 +13,7 @@ pub mod cli;
 pub mod exit;
 pub mod output;
 pub mod run;
+pub mod shell;
 
 use std::io::Write;
 
@@ -45,14 +46,17 @@ pub async fn dispatch(
             ExitCode::Success.code()
         }
         Action::Interactive => {
-            // Deferred in this change: the dispatch rule is fixed, the TUI (#6)
-            // fills the body. stdout stays clean; the notice goes to stderr.
-            let _ = writeln!(
-                err,
-                "meltemi: the interactive interface arrives in a later release; \
-                 run `meltemi help` for the scriptable commands"
-            );
-            ExitCode::Success.code()
+            // Draw the shell immediately over a one-shot connection snapshot.
+            // (Live async reconnection is a later wave.)
+            let conn = shell::probe(endpoint).await;
+            let project = std::path::Path::new(".meltemi").is_dir();
+            match shell::run(conn, project, 0) {
+                Ok(()) => ExitCode::Success.code(),
+                Err(error) => {
+                    let _ = writeln!(err, "meltemi: {error}");
+                    ExitCode::Internal.code()
+                }
+            }
         }
         Action::Usage(message) => {
             let error = CliError::usage(message);

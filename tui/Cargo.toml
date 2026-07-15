@@ -20,6 +20,7 @@ path = "src/lib.rs"
 [dependencies]
 meltemi-proto.workspace = true
 meltemid.workspace = true
+ratatui.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = [
     "rt-multi-thread",

@@ -1,22 +1,22 @@
 ## 1. Fundamentos del shell y framework
 
-- [ ] 1.1 Añadir el framework de TUI y su backend de terminal (perfil `ratatui` + `crossterm`) pineados al workspace, con features mínimas, cabecera SPDX y auditoría cargo-deny (design D6)
-- [ ] 1.2 Bucle de eventos del shell: entrada/salida de raw mode y alternate screen con restauración garantizada del terminal (RAII) en salida y en pánico, manejo de SIGWINCH, y salida limpia
-- [ ] 1.3 Reemplazar la rama `Interactive` de `dispatch` para lanzar el shell en vez del aviso diferido _(Modified: cli-contract — Regla de despacho CLI↔TUI)_
+- [x] 1.1 Añadir el framework de TUI y su backend de terminal (perfil `ratatui` + `crossterm`) pineados al workspace, con features mínimas, cabecera SPDX y auditoría cargo-deny (design D6)
+- [x] 1.2 Bucle de eventos del shell: entrada/salida de raw mode y alternate screen con restauración garantizada del terminal (RAII) en salida y en pánico, manejo de SIGWINCH, y salida limpia
+- [x] 1.3 Reemplazar la rama `Interactive` de `dispatch` para lanzar el shell en vez del aviso diferido _(Modified: cli-contract — Regla de despacho CLI↔TUI)_
 
 ## 2. Chrome, keymap y navegación
 
-- [ ] 2.1 Chrome persistente (header/footer) con estado de conexión e indicador de bandeja de permisos irrenunciables, breadcrumb de drill-in _(Req: Modelo de vistas y chrome persistente)_
-- [ ] 2.2 Keymap como dato único con contrato de consistencia y split dígitos-global/letras-local; lint de consistencia y de reserva global de teclas transversales _(Req: Navegación por teclado y contrato de consistencia; Reserva global de teclas de acción transversal)_
-- [ ] 2.3 Conjunto de teclas robusto (sin Alt/Meta, F1–F12, Ctrl del TTY) y desambiguación de Esc por timeout con alternativa `q`/Backspace _(Req: Conjunto de teclas robusto y desambiguación de Esc)_
+- [x] 2.1 Chrome persistente (header/footer) con estado de conexión e indicador de bandeja de permisos irrenunciables, breadcrumb de drill-in _(Req: Modelo de vistas y chrome persistente)_
+- [x] 2.2 Keymap como dato único con contrato de consistencia y split dígitos-global/letras-local; lint de consistencia y de reserva global de teclas transversales _(Req: Navegación por teclado y contrato de consistencia; Reserva global de teclas de acción transversal)_
+- [x] 2.3 Conjunto de teclas robusto (sin Alt/Meta, F1–F12, Ctrl del TTY) y desambiguación de Esc por timeout con alternativa `q`/Backspace _(Req: Conjunto de teclas robusto y desambiguación de Esc)_
 - [ ] 2.4 Overlays: ayuda `?` (mapa de teclas) y paleta `:` con captura total de teclado, "Esc para salir" y registro de capacidades del daemon _(Req: Captura de teclado en contextos de entrada de texto; Paridad de núcleo por la paleta de comandos)_
-- [ ] 2.5 Diálogos de confirmación como superficie modal de primera clase (foco atrapado, Esc/`q`/Backspace cancela seguro, opción no destructiva por defecto) _(Req: Diálogos de confirmación como superficie modal de primera clase)_
+- [x] 2.5 Diálogos de confirmación como superficie modal de primera clase (foco atrapado, Esc/`q`/Backspace cancela seguro, opción no destructiva por defecto) _(Req: Diálogos de confirmación como superficie modal de primera clase)_
 
 ## 3. Línea base de accesibilidad (transversal)
 
-- [ ] 3.1 Tabla única de glifos con gemelo ASCII, detección de capacidad Unicode y overrides (`--ascii`, `MELTEMI_ASCII=1`, config); lint "ningún glifo Unicode sin gemelo" _(Req: Accesibilidad — fallback ASCII)_
-- [ ] 3.2 Soporte de `NO_COLOR`/`--no-color`/`TERM=dumb` (render sin color, sin pintar fondo) y codificación redundante símbolo+etiqueta; foco/selección distinguibles sin color y entre sí _(Req: Accesibilidad — nunca solo color; Accesibilidad — NO_COLOR)_
-- [ ] 3.3 Tabla de mensajes ES/EN con lint de hardcodeo; reduce-motion por defecto sobre SSH; reconocer `--json` como ruta accesible garantizada _(Req: Ruta accesible garantizada e internacionalización)_
+- [x] 3.1 Tabla única de glifos con gemelo ASCII, detección de capacidad Unicode y overrides (`--ascii`, `MELTEMI_ASCII=1`, config); lint "ningún glifo Unicode sin gemelo" _(Req: Accesibilidad — fallback ASCII)_
+- [x] 3.2 Soporte de `NO_COLOR`/`--no-color`/`TERM=dumb` (render sin color, sin pintar fondo) y codificación redundante símbolo+etiqueta; foco/selección distinguibles sin color y entre sí _(Req: Accesibilidad — nunca solo color; Accesibilidad — NO_COLOR)_
+- [x] 3.3 Tabla de mensajes ES/EN con lint de hardcodeo; reduce-motion por defecto sobre SSH; reconocer `--json` como ruta accesible garantizada _(Req: Ruta accesible garantizada e internacionalización)_
 
 ## 4. Vistas cableadas al daemon
 
@@ -34,7 +34,7 @@
 
 ## 6. Tests y calidad
 
-- [ ] 6.1 Tests de navegación (reductores puros, sin terminal): consistencia del keymap, split dígitos/letras, equivalencia Esc/`q`, la captura de texto no filtra dígitos, reserva global respetada
-- [ ] 6.2 Tests de accesibilidad: lint "glifo sin gemelo ASCII" falla, render con `NO_COLOR` sin ANSI de color, snapshots en 80x24 / ASCII / monocromo (por plataforma)
+- [x] 6.1 Tests de navegación (reductores puros, sin terminal): consistencia del keymap, split dígitos/letras, equivalencia Esc/`q`, la captura de texto no filtra dígitos, reserva global respetada
+- [x] 6.2 Tests de accesibilidad: lint "glifo sin gemelo ASCII" falla, render con `NO_COLOR` sin ANSI de color, snapshots en 80x24 / ASCII / monocromo (por plataforma)
 - [ ] 6.3 Tests de estados contra un daemon efímero en proceso donde aplique: sin daemon (transitorio vs inalcanzable), sin sesiones, sin proyecto, suelo de tamaño, pérdida de daemon en vivo
-- [ ] 6.4 `cargo clippy -- -D warnings`, `cargo fmt --check` y `cargo test` verdes en el workspace; verificar que el terminal se restaura en salida y en pánico
+- [x] 6.4 `cargo clippy -- -D warnings`, `cargo fmt --check` y `cargo test` verdes en el workspace; verificar que el terminal se restaura en salida y en pánico
