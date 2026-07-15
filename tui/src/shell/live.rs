@@ -54,6 +54,8 @@ pub struct LiveData {
     pub follow_tail: bool,
     /// Scroll offset from the top of the transcript when not following.
     pub scroll: usize,
+    /// Horizontal scroll offset (columns) for wide tables.
+    pub h_scroll: usize,
     pub notices: Vec<String>,
 }
 
@@ -74,8 +76,20 @@ impl LiveData {
             transcript: Vec::new(),
             follow_tail: true,
             scroll: 0,
+            h_scroll: 0,
             notices: Vec::new(),
         }
+    }
+
+    /// Scrolls the table horizontally (columns), offered instead of truncating.
+    pub fn scroll_horizontal(&mut self, right: bool) {
+        const STEP: usize = 4;
+        const MAX: usize = 200;
+        self.h_scroll = if right {
+            (self.h_scroll + STEP).min(MAX)
+        } else {
+            self.h_scroll.saturating_sub(STEP)
+        };
     }
 
     /// Applies an update from the connection actor.
@@ -187,6 +201,18 @@ mod tests {
         live.move_selection(true); // clamps at the bottom
         assert_eq!(live.selected, 1);
         assert_eq!(live.selected_session().unwrap().id, "b");
+    }
+
+    #[test]
+    fn horizontal_scroll_steps_and_clamps_at_zero() {
+        let mut live = LiveData::new();
+        live.scroll_horizontal(false);
+        assert_eq!(live.h_scroll, 0, "cannot scroll left of the origin");
+        live.scroll_horizontal(true);
+        let after = live.h_scroll;
+        assert!(after > 0, "scrolling right advances");
+        live.scroll_horizontal(false);
+        assert!(live.h_scroll < after, "scrolling left retreats");
     }
 
     #[test]

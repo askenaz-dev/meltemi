@@ -298,8 +298,8 @@ fn render_sessions(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCt
         frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
         return;
     }
-    // Reflow: drop the agent column on a narrow terminal.
-    let wide = area.width >= 50;
+    // Reflow: rows are not wrapped; content wider than the area is reached by
+    // horizontal scroll (Left/Right) instead of being truncated-and-hidden.
     let lines: Vec<Line> = live
         .sessions
         .iter()
@@ -311,18 +311,23 @@ fn render_sessions(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCt
             } else {
                 " "
             };
-            let mut label = format!("{marker} {} {} {}", glyph.text(&ctx.present), word, row.id);
-            if wide {
-                label.push_str(&format!("  {}", row.agent));
-            }
+            let label = format!(
+                "{marker} {} {} {}  {}",
+                glyph.text(&ctx.present),
+                word,
+                row.id,
+                row.agent
+            );
+            let shown: String = label.chars().skip(live.h_scroll).collect();
             if i == live.selected {
-                Line::styled(label, ctx.emphasis())
+                Line::styled(shown, ctx.emphasis())
             } else {
-                Line::from(label)
+                Line::from(shown)
             }
         })
         .collect();
-    render_lines(frame, area, lines);
+    // No wrap: long rows clip at the edge and are panned with h_scroll.
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
@@ -480,10 +485,20 @@ fn render_overlay(frame: &mut Frame, area: Rect, overlay: &Overlay, ctx: &ShellC
             ctx.msg(Msg::HelpTitle).to_string(),
             ctx.msg(Msg::HintKeys).to_string(),
         ),
-        Overlay::Palette { input } => (
-            ctx.msg(Msg::PaletteTitle).to_string(),
-            format!(":{input}\n\n{}", ctx.msg(Msg::HintExitField)),
-        ),
+        Overlay::Palette { input } => {
+            // Show the filtered capability registry (core parity, design D7).
+            let mut body = format!(":{input}\n\n");
+            for entry in crate::shell::palette::matches(input) {
+                let mark = if entry.reserved { " (reservado)" } else { "" };
+                body.push_str(&format!(
+                    "  {}{mark} — {}\n",
+                    entry.name,
+                    entry.desc(ctx.lang)
+                ));
+            }
+            body.push_str(&format!("\n{}", ctx.msg(Msg::HintExitField)));
+            (ctx.msg(Msg::PaletteTitle).to_string(), body)
+        }
         Overlay::Confirm { action } => {
             let what = match action {
                 ConfirmAction::Quit => ctx.msg(Msg::QuitConfirm).to_string(),
@@ -521,6 +536,7 @@ fn render_overlay(frame: &mut Frame, area: Rect, overlay: &Overlay, ctx: &ShellC
 
     let (pct_w, pct_h) = match overlay {
         Overlay::Onboarding => (72, 72),
+        Overlay::Palette { .. } => (60, 75),
         Overlay::Help => (60, 50),
         _ => (60, 30),
     };
@@ -746,5 +762,19 @@ mod tests {
             "it teaches how to escape a capture context"
         );
         assert!(out.contains('q'), "it teaches how to quit");
+    }
+
+    #[test]
+    fn palette_lists_the_capability_registry() {
+        // Scenario: Capacidad sin vista dedicada alcanzable por la paleta.
+        let mut s = ShellState::new();
+        s.reduce(crate::shell::keymap::Action::OpenPalette);
+        let out = draw(&s, &LiveData::new(), &ctx(default_present()), 80, 24);
+        assert!(out.contains("status"), "operational commands are listed");
+        assert!(out.contains("archive"), "reserved SDD verbs are listed");
+        assert!(
+            out.contains("reservado"),
+            "reserved verbs are announced, not errors"
+        );
     }
 }

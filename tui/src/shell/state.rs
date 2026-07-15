@@ -70,6 +70,7 @@ pub enum Effect {
     Quit,
     CancelActiveSession,
     ShutdownDaemon,
+    RefreshStatus,
 }
 
 /// The full navigation state of the shell.
@@ -241,15 +242,22 @@ impl ShellState {
                     _ => String::new(),
                 };
                 self.overlays.pop();
-                match command.as_str() {
-                    "shutdown" | "apagar" => self.overlays.push(Overlay::Confirm {
-                        action: ConfirmAction::Shutdown,
-                    }),
-                    "quit" | "salir" => self.overlays.push(Overlay::Confirm {
-                        action: ConfirmAction::Quit,
-                    }),
-                    _ => {}
-                }
+                return match command.as_str() {
+                    "shutdown" | "apagar" => {
+                        self.overlays.push(Overlay::Confirm {
+                            action: ConfirmAction::Shutdown,
+                        });
+                        None
+                    }
+                    "quit" | "salir" => {
+                        self.overlays.push(Overlay::Confirm {
+                            action: ConfirmAction::Quit,
+                        });
+                        None
+                    }
+                    "status" | "refresh" => Some(Effect::RefreshStatus),
+                    _ => None,
+                };
             }
             _ => {}
         }
@@ -391,6 +399,18 @@ mod tests {
             press(&mut s, Key::Char(c));
         }
         press(&mut s, Key::Enter);
+        assert!(s.top_overlay().is_none());
+    }
+
+    #[test]
+    fn palette_status_command_refreshes() {
+        // Scenario: Capacidad alcanzable por la paleta — status refresca.
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "status".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(press(&mut s, Key::Enter), Some(Effect::RefreshStatus));
         assert!(s.top_overlay().is_none());
     }
 

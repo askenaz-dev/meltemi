@@ -9,7 +9,7 @@
 - [x] 2.1 Chrome persistente (header/footer) con estado de conexión e indicador de bandeja de permisos irrenunciables, breadcrumb de drill-in _(Req: Modelo de vistas y chrome persistente)_
 - [x] 2.2 Keymap como dato único con contrato de consistencia y split dígitos-global/letras-local; lint de consistencia y de reserva global de teclas transversales _(Req: Navegación por teclado y contrato de consistencia; Reserva global de teclas de acción transversal)_
 - [x] 2.3 Conjunto de teclas robusto (sin Alt/Meta, F1–F12, Ctrl del TTY) y desambiguación de Esc por timeout con alternativa `q`/Backspace _(Req: Conjunto de teclas robusto y desambiguación de Esc)_
-- [ ] 2.4 Overlays: ayuda `?` (mapa de teclas) y paleta `:` con captura total de teclado, "Esc para salir" y registro de capacidades del daemon _(Req: Captura de teclado en contextos de entrada de texto; Paridad de núcleo por la paleta de comandos)_
+- [x] 2.4 Overlays: ayuda `?` (mapa de teclas) y paleta `:` con captura total de teclado, "Esc para salir" y registro de capacidades del daemon _(Req: Captura de teclado en contextos de entrada de texto; Paridad de núcleo por la paleta de comandos)_
 - [x] 2.5 Diálogos de confirmación como superficie modal de primera clase (foco atrapado, Esc/`q`/Backspace cancela seguro, opción no destructiva por defecto) _(Req: Diálogos de confirmación como superficie modal de primera clase)_
 
 ## 3. Línea base de accesibilidad (transversal)
@@ -23,7 +23,7 @@
 - [x] 4.1 Conexión asíncrona: chrome inmediato y conexión/arranque en segundo plano, distinguiendo "conectando…" (transitorio) de "inalcanzable" (código 10) con diagnóstico _(Req: Estado vacío sin daemon)_
 - [x] 4.2 Vista Sesiones (tabla desde `status`) y drill-in Sesión con región append-only del stream `session/event` y seguimiento de cola suspendible al desplazar _(Req: Modelo de vistas; Reflow, streaming y seguimiento de cola)_
 - [x] 4.3 Vistas Proyecto (artefactos `.meltemi/`, verbos SDD reservados no-error), Permisos (casa) y Flota (casa) con sus estados vacíos y el launchpad de Sesiones _(Req: Estado vacío sin sesiones; Estado vacío sin proyecto y desacople de ámbito)_
-- [ ] 4.4 Reflow en SIGWINCH: colapso a modo lineal bajo ancho mínimo, descarte ordenado de columnas y scroll horizontal en vez de truncar-y-ocultar _(Req: Reflow, streaming y seguimiento de cola sobre SSH)_
+- [x] 4.4 Reflow en SIGWINCH: colapso a modo lineal bajo ancho mínimo, descarte ordenado de columnas y scroll horizontal en vez de truncar-y-ocultar _(Req: Reflow, streaming y seguimiento de cola sobre SSH)_
 
 ## 5. Endurecimiento (paridad y seguridad)
 

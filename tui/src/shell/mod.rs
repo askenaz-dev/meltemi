@@ -13,6 +13,7 @@ pub mod keymap;
 pub mod live;
 pub mod messages;
 pub mod onboarding;
+pub mod palette;
 pub mod present;
 pub mod render;
 pub mod state;
@@ -125,6 +126,14 @@ fn handle_action(
                 live.scroll_up();
                 return false;
             }
+            (Action::Move(Direction::Right), false) => {
+                live.scroll_horizontal(true);
+                return false;
+            }
+            (Action::Move(Direction::Left), false) => {
+                live.scroll_horizontal(false);
+                return false;
+            }
             _ => {}
         }
     }
@@ -138,6 +147,9 @@ fn handle_action(
         }
         Some(Effect::ShutdownDaemon) => {
             let _ = commands.send(Command::Shutdown);
+        }
+        Some(Effect::RefreshStatus) => {
+            let _ = commands.send(Command::Refresh);
         }
         None => {}
     }
