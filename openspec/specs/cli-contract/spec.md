@@ -33,10 +33,10 @@ MUST entrar en modo scriptable de un disparo con independencia del TTY.
 - **THEN** el binario SHALL ejecutar el subcomando en modo scriptable de un disparo
 - **AND** SHALL NOT entrar en modo interactivo
 
-#### Scenario: Invocación desnuda con TTY entra al modo interactivo
+#### Scenario: Invocación desnuda con TTY lanza el shell interactivo
 - **WHEN** se invoca `meltemi` sin subcomando y stdout está conectado a un TTY
-- **THEN** el binario SHALL entrar en el modo interactivo
-- **AND** en esta entrega SHALL emitir por stderr un aviso de que la interfaz interactiva llega en una entrega posterior y terminar con éxito
+- **THEN** el binario SHALL entrar en el modo interactivo y lanzar el shell de la TUI (capacidad `tui-shell`)
+- **AND** SHALL dibujar el chrome de inmediato y conectar con el daemon de forma asíncrona
 
 #### Scenario: Invocación desnuda sin TTY es error de uso
 - **WHEN** se invoca `meltemi` sin subcomando y stdout no está conectado a un TTY
