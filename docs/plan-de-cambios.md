@@ -19,7 +19,7 @@
 
 | # | Change | Alcance | Depende de |
 |---|---|---|---|
-| 0 | `fase-0-fundacion` | Constitución ratificada, contrato `proto/`, esqueleto `meltemid`, sesión ACP e2e, `/propose` mínimo | — |
+| 0 | ✅ `fase-0-fundacion` | Constitución ratificada, contrato `proto/`, esqueleto `meltemid`, sesión ACP e2e, `/propose` mínimo | — |
 
 ## Fase 1 — backlog ordenado (MVP)
 
@@ -27,17 +27,18 @@
 
 | # | Change | Alcance | Depende de |
 |---|---|---|---|
-| 1 | `enmiendas-fundacionales-v1` | Vía rápida: ratifica el bootstrap en dos etapas (excepción a §9.3), actualiza §0 a la marca V2, asigna fase a §6.12 (métricas), aclara telemetría post-v1, añade plataforma primaria de desarrollo | 0 |
-| 2 | `formato-artefactos-meltemi` | Esquema canónico de `.meltemi/`: nombres de artefactos, cabeceras de delta, canon EARS (política bilingüe: estructura en inglés vs prosa en español — resolver la contradicción §5.1/práctica), front-matter de rumbo | 0 |
-| 3 | `motor-specs-artefactos` | Parseo y validación de la estructura `.meltemi/` completa (constitución, rumbo, specs, changes, archive) | 2 |
-| 4 | `motor-ears-deltas` | Validación EARS en vivo, parseo/aplicación de deltas, detección de contradicciones y huecos | 3 |
+| 1 | ✅ `enmiendas-fundacionales-v1` | Vía rápida: ratifica el bootstrap en dos etapas (excepción a §9.3), actualiza §0 a la marca V2, asigna fase a §6.12 (métricas), aclara telemetría post-v1, añade plataforma primaria de desarrollo | 0 |
+| 2 | ✅ `formato-artefactos-meltemi` | Esquema canónico de `.meltemi/`: nombres de artefactos, cabeceras de delta, canon EARS (política bilingüe: estructura en inglés vs prosa en español — resolver la contradicción §5.1/práctica), front-matter de rumbo | 0 |
+| 3 | ✅ `motor-specs-artefactos` | Parseo y validación de la estructura `.meltemi/` completa (constitución, rumbo, specs, changes, archive) | 2 |
+| 4 | ✅ `motor-ears-deltas` | Validación EARS en vivo, parseo/aplicación de deltas; la detección semántica de contradicciones/huecos quedó explícitamente diferida a una change futura | 3 |
+| 4b | ✅ `enmienda-edicion-movil` | Vía rápida (2026-07-15): cerca de la edición utilitaria in situ (spec `edit-surface`) y alcance del compañero móvil monitorear/aprobar/dirigir vía túnel SSH (spec `mobile-companion`); meltemi.md v1.2 → **v1.3** (ratificación pendiente) | 1 |
 
 **Ola 2 — superficies** (en paralelo con Ola 1 tras el #0):
 
 | # | Change | Alcance | Depende de |
 |---|---|---|---|
-| 5 | `cli-contrato` | Gramática de subcomandos, regla de despacho CLI↔TUI, códigos de salida, `--json`, disciplina stdout/stderr; mapeo comando↔RPC junto a `proto/` | 0 |
-| 6 | `tui-nucleo-ux` | Arquitectura de información de la TUI (paneles, navegación), estados vacíos y onboarding de primer uso, accesibilidad terminal (no-solo-color, NO_COLOR, fallback ASCII) | 5 |
+| 5 | ✅ `cli-contrato` | Gramática de subcomandos, regla de despacho CLI↔TUI, códigos de salida, `--json`, disciplina stdout/stderr; mapeo comando↔RPC junto a `proto/` | 0 |
+| 6 | ✅ `tui-nucleo-ux` | Arquitectura de información de la TUI (paneles, navegación), estados vacíos y onboarding de primer uso, accesibilidad terminal (no-solo-color, NO_COLOR, fallback ASCII) | 5 |
 | 7 | `catalogo-flota` | Registro público ACP + detección local de binarios; nivel de integración, permisos y estatus por agente | 0 |
 | 8 | `sesiones-reanudables` | Reanudar sesión ACP, recuperación tras caída, inspección/navegación de sesiones | 0 |
 
@@ -86,6 +87,10 @@
 
 > **Gobernanza de alcance** (change `enmienda-edicion-movil`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) está acotado a monitorear/aprobar/dirigir y al acceso solo por túnel SSH por la spec `mobile-companion`.
 
+## Fase 3 — se planifica al cerrar Fase 2
+
+`companero-movil` (gobernada por la spec `mobile-companion`: monitorear/aprobar/dirigir, sin edición, túnel SSH exclusivamente; su mecanismo de notificaciones es pregunta abierta declarada) · funciones de equipo y organización (meltemi.md §3).
+
 ## Namespaces del proyecto
 
 - **Organización** (identidad paraguas): `askenaz-dev` — [GitHub](https://github.com/askenaz-dev), [npm](https://www.npmjs.com/org/askenaz-dev). Paquetes npm futuros (SDK, fase 2): `@askenaz-dev/<pkg>`.
@@ -95,5 +100,6 @@
 ## Pendientes exclusivos del arquitecto (ningún agente debe hacerlos)
 
 1. ✅ **Ratificar** meltemi.md, `constitution.md` y `rumbo/` — hecho 2026-07-11.
+1b. ⬜ **Ratificar las enmiendas encadenadas de meltemi.md**: v1.1→v1.2 (`formato-artefactos-meltemi`) y v1.2→v1.3 (`enmienda-edicion-movil`). Las tres versiones están aplicadas al documento; falta la firma del mantenedor fundador (`method-bootstrap`: la herramienta no se auto-ratifica).
 2. **Registrar**: ✅ org GitHub `askenaz-dev` · ✅ org npm `askenaz-dev` · 🟡 dominio `meltemi.dev` (en compra) · ⬜ crates `meltemi`, `meltemid`, `meltemi-proto` en crates.io (verificados LIBRES el 2026-07-11 — reservar con un `cargo publish` placeholder o en el primer release para evitar squatting).
 3. **Decidir** el mecanismo de firma del CLA cuando llegue #21.
