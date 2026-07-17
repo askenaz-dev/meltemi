@@ -1,6 +1,8 @@
 # Plan maestro de cambios — de cero al MVP (hito v0.1)
 
 > Backlog ordenado de propuestas de cambio que llevan a Meltemi desde el repositorio vacío hasta el hito v0.1 de Fase 1 (meltemi.md §10). Este documento es el mapa; **cada change escribe sus cuatro artefactos (proposal, design, specs, tasks) inmediatamente antes de implementarse** — nunca durante, y nunca se implementa nada que no esté aquí o en una change aprobada. Producto de la auditoría de planificación del 2026-07-11 (5 lentes, 64 hallazgos).
+>
+> **Desviación aprobada por el mantenedor (2026-07-16)**: el backlog está **materializado** — las 19 changes restantes existen en `openspec/changes/` con su `proposal.md` pre-redactado (why, qué cambia, capacidades, fuera de alcance), para que nada quede por fuera y cualquier sesión pueda retomarlas. **Design, specs y tasks siguen escribiéndose just-in-time** al frente de la cola (la parte que envejece mal), completándolos con `/opsx:continue <change>` antes de aplicar.
 
 ## Estado de "listo para programar"
 
