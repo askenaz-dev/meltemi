@@ -76,6 +76,34 @@
 | 24 | `migracion-openspec-a-meltemi` | El dogfooding definitivo: las specs vivas del propio proyecto migran a `.meltemi/` | 19 |
 | 25 | `hito-v01-aceptacion` | El escenario del hito como spec ejecutable: una feature de idea a código en terminal con dos agentes de proveedores distintos en paralelo | todo lo anterior |
 
+## Orden de abordaje declarado (2026-07-16)
+
+Secuencia canónica de las 19 changes restantes (todas con proposal pre-redactada). Satisface el grafo de dependencias y prioriza: completar la capa de agentes con gobierno de permisos, luego el contexto, luego el ciclo SDD, luego el paralelismo, y al final la salida al mundo. Nada queda por fuera.
+
+| Orden | Change | Por qué aquí |
+|---|---|---|
+| 1º | `catalogo-flota` | Desbloquea #9/#10/#13; sin flota no hay orquesta |
+| 2º | `proxy-permisos` | Agentes reales exigen gobierno real; corrige H1 (QA) y la deuda del contador de pendientes |
+| 3º | `proyeccion-contexto` | Cierra la proyección manual de AGENTS.md; vehículo del nivel 4; independiente |
+| 4º | `niveles-integracion-conformidad` | Cubre el mercado completo (niveles 2/3/4), con la proyección ya disponible |
+| 5º | `mcp-passthrough` | Los agentes llegan con sus herramientas; capa de agentes completa |
+| 6º | `sesiones-reanudables` | Robustez e histórico; puerta del paralelismo (#16) |
+| 7º | `gestion-contexto-repo` | Mapa y `@refs` para dirigir agentes antes de la autoría pesada |
+| 8º | `ciclo-sdd-autoria` | El corazón del método — llega con flota, permisos y contexto ya operativos |
+| 9º | `revision-specs-ux` | La obsesión (§4.9): sin revisión placentera, el método muere |
+| 10º | `orquestacion-worktrees` | N agentes × M tareas sin pisarse; carreras |
+| 11º | `checkpoints-rollback` | Autonomía solo con deshacer barato y honesto |
+| 12º | `git-commit-por-tarea` | Trazabilidad línea→requisito (constitución §8) |
+| 13º | `comandos-verify-archive` | Cierra los verbos del ciclo; el motor ya demostró la fusión |
+| 14º | `comando-implement` | La composición de todo (requiere 2º, 8º, 10º, 11º, 12º ya hechas) |
+| 15º | `gobernanza-comunidad` | Antes de abrir el repositorio al mundo |
+| 16º | `documentacion-inicial` | El quickstart ya describe un producto real, no una promesa |
+| 17º | `distribucion-releases` | Empaquetado, firmado, instalador; materializa reserva de crates y alias `mel` |
+| 18º | `migracion-openspec-a-meltemi` | El dogfooding definitivo: se retira la herramienta prestada |
+| 19º | `hito-v01-aceptacion` | El hito como spec ejecutable; la meta de v0.1 |
+
+> Paralelizable sin romper el orden: 15º–16º (documentos, sin código) pueden avanzar en cualquier momento por una sesión aparte; 3º puede adelantarse en paralelo tras 1º. El orden canónico es el de la tabla; toda desviación se anota aquí.
+
 ## Documentos transversales (se crean durante Fase 1, referenciados por las changes)
 
 - `docs/plataformas.md` — matriz de soporte: SO mínimos, arquitecturas, webviews (antes de #23).
