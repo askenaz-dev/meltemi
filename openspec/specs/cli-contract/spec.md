@@ -4,21 +4,20 @@
 TBD - created by archiving change cli-contrato. Update Purpose after archive.
 ## Requirements
 ### Requirement: Gramática de subcomandos y reserva
-El binario `meltemi` SHALL exponer una gramática de subcomandos estable: los
-subcomandos operativos (`status`, `propose`, `stop`, `fleet`, `project`,
-`sessions`, `explore`, `plan`, `constitution`, `review`, `verify`, `archive`,
-`version`, `help`) y el subcomando del ciclo SDD reservado (`implement`). Un
-subcomando reservado MUST reconocerse como parte de la gramática y no como error
-de uso.
+El binario `meltemi` SHALL exponer una gramática de subcomandos estable, toda
+operativa: `status`, `propose`, `stop`, `fleet`, `project`, `sessions`,
+`explore`, `plan`, `constitution`, `review`, `verify`, `archive`, `implement`,
+`version`, `help`. Un token fuera de la gramática MUST tratarse como error de
+uso.
 
 #### Scenario: Subcomando operativo reconocido
 - **WHEN** se invoca `meltemi status`
 - **THEN** el binario SHALL despachar el subcomando `status` en modo scriptable
 
-#### Scenario: Subcomando reservado no es error de uso
-- **WHEN** se invoca el subcomando reservado aún no implementado (`meltemi implement`)
-- **THEN** el binario SHALL informar por stderr que el subcomando está reservado y aún no implementado
-- **AND** SHALL terminar con un código distinto del de subcomando desconocido
+#### Scenario: El ciclo completo es operativo
+- **WHEN** se invoca `meltemi implement` con el daemon accesible
+- **THEN** el binario SHALL despacharlo como subcomando operativo
+- **AND** ningún subcomando del ciclo SDD SHALL permanecer reservado
 
 #### Scenario: Subcomando desconocido
 - **WHEN** se invoca `meltemi` con un token que no pertenece a la gramática
@@ -97,16 +96,16 @@ luego el método correspondiente: `status`→`status`, `propose`→`propose`,
 `stop`→`shutdown`, `fleet`→`fleet/list`, `project`→`context/project`,
 `sessions`→`session/list`, `explore`→`sdd/explore`, `plan`→`sdd/plan`,
 `constitution`→`sdd/constitution`, `review`→`sdd/review`, `verify`→`sdd/verify`,
-`archive`→`sdd/archive`. Los subcomandos locales (`version`, `help`) MUST NOT
-abrir conexión con el daemon.
+`archive`→`sdd/archive`, `implement`→`sdd/implement`. Los subcomandos locales
+(`version`, `help`) MUST NOT abrir conexión con el daemon.
 
 #### Scenario: initialize precede a todo método RPC
 - **WHEN** un subcomando respaldado por RPC abre una conexión con el daemon
 - **THEN** el binario SHALL enviar `initialize` antes de cualquier otro método
 
-#### Scenario: archive funde la verdad viva
-- **WHEN** se invoca `meltemi archive` con el daemon accesible
-- **THEN** el binario SHALL invocar el método `sdd/archive` y presentar el informe de fusión
+#### Scenario: implement despliega el plan
+- **WHEN** se invoca `meltemi implement` con el daemon accesible
+- **THEN** el binario SHALL invocar el método `sdd/implement` y presentar el progreso por tarea
 
 #### Scenario: Los subcomandos locales no tocan el daemon
 - **WHEN** se invoca `meltemi version` o `meltemi help`
