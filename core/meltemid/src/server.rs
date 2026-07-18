@@ -232,7 +232,7 @@ async fn dispatch_request(
         methods::SHUTDOWN => handle_shutdown(state).await,
         methods::PROPOSE => crate::propose::handle_propose(params, state, peer).await,
         methods::FLEET_LIST => crate::fleet::handle_fleet_list(params, state),
-        methods::CONTEXT_PROJECT => handle_context_project(params).await,
+        methods::CONTEXT_PROJECT => handle_context_project(params, state).await,
         methods::SESSION_LIST => handle_session_list(params, state).await,
         methods::SESSION_LOG => handle_session_log(params, state).await,
         methods::PERMISSION_PENDING => handle_permission_pending(state).await,
@@ -285,6 +285,7 @@ async fn handle_session_list(params: Value, state: &Arc<DaemonState>) -> Result<
                 agent_command: record.agent_command.clone(),
                 project_root: record.project_root.clone(),
                 state: session_state,
+                level: record.level,
                 final_status: record.final_status,
                 started_at: record.started_at.clone(),
                 ended_at: record.ended_at.clone(),
@@ -357,7 +358,10 @@ fn is_safe_session_id(id: &str) -> bool {
 
 /// `context/project`: compile the project's artifacts and write every declared
 /// target inside its managed block, reporting each destination and fingerprint.
-async fn handle_context_project(params: Value) -> Result<Value, RpcError> {
+async fn handle_context_project(
+    params: Value,
+    state: &Arc<DaemonState>,
+) -> Result<Value, RpcError> {
     let params: meltemi_proto::ContextProjectParams = serde_json::from_value(params)
         .map_err(|e| RpcError::invalid_params(format!("context/project: {e}")))?;
     let project_root = PathBuf::from(&params.project_root);
@@ -370,7 +374,12 @@ async fn handle_context_project(params: Value) -> Result<Value, RpcError> {
             Some("Pass the absolute path to an existing repository root.".into()),
         ));
     }
-    let written = crate::context::project_and_write(&project_root).map_err(RpcError::internal)?;
+    // A configured level-4 agent contributes its instruction file as a target
+    // (projection is its only integration channel).
+    let config = crate::config::Config::load(&state.config_dir, Some(&project_root));
+    let l4 = crate::levels::l4_target_for(&config);
+    let written = crate::context::project_and_write_with(&project_root, l4.as_deref())
+        .map_err(RpcError::internal)?;
     let result = meltemi_proto::ContextProjectResult {
         targets: written.into_iter().map(Into::into).collect(),
     };

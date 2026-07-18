@@ -78,12 +78,15 @@ bin = "opencode"
 acp-args = ["acp"]
 candidate-paths = ["~/.opencode/bin/opencode"]
 
+# Level 2: piloted through an official ACP adapter. `bin` is what detection
+# probes (the adapter); `adapter` is what the launcher runs (design D1).
 [[agents]]
 id = "claude-code"
 name = "Claude Code"
 level = 2
 bin = "claude-agent-acp"
-acp-args = []
+adapter = "claude-agent-acp"
+adapter-args = []
 candidate-paths = []
 
 [[agents]]
@@ -91,15 +94,28 @@ id = "codex-cli"
 name = "Codex CLI"
 level = 2
 bin = "codex-acp"
-acp-args = []
+adapter = "codex-acp"
+adapter-args = []
 candidate-paths = []
 
-# No ACP surface (level 4): listed so the catalog states what exists and at
-# which level; it cannot be piloted over ACP.
+# Level 3: structured headless run. No rich permission channel, so it runs
+# inside mandatory guardrails (bounded dir + native controls; design D2).
+[[agents]]
+id = "aider"
+name = "Aider"
+level = 3
+bin = "aider"
+headless = "aider"
+headless-args = ["--no-pretty", "--yes-always"]
+native-controls = ["--no-auto-commits"]
+candidate-paths = []
+
+# No ACP surface (level 4): context projection is the only channel; listed so
+# the catalog states what exists and at which level.
 [[agents]]
 id = "antigravity"
 name = "Antigravity"
 level = 4
 bin = "agy"
-acp-args = []
+l4-target = "AGENTS.md"
 candidate-paths = []

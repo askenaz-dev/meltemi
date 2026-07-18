@@ -163,6 +163,41 @@ pub struct StatusResult {
     pub sessions: Vec<SessionSummary>,
 }
 
+/// Serde default for an integration level field (level 1).
+fn one() -> u8 {
+    1
+}
+
+/// One agent's persisted conformance result: the verified level and per-level
+/// criteria outcomes, stamped with the run date and the agent version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConformanceResult {
+    /// The catalog id the run verified.
+    pub agent_id: String,
+    /// The highest level whose criteria all passed.
+    pub verified_level: u8,
+    /// The agent version reported at handshake, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_version: Option<String>,
+    /// When the run concluded (RFC 3339, UTC).
+    pub run_at: String,
+    /// Per-criterion pass/fail, keyed by a stable criterion name.
+    pub criteria: Vec<ConformanceCriterion>,
+}
+
+/// One conformance criterion outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConformanceCriterion {
+    /// The integration level this criterion belongs to.
+    pub level: u8,
+    /// A stable criterion name (from the scenario it verifies).
+    pub name: String,
+    /// Whether it passed.
+    pub passed: bool,
+}
+
 /// Params of `session/list`: filters over the sessions of a project.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -190,6 +225,9 @@ pub struct SessionInfo {
     pub project_root: String,
     /// Current or final lifecycle state.
     pub state: SessionState,
+    /// The integration level the session ran at (1-4).
+    #[serde(default = "one")]
+    pub level: u8,
     /// The final turn status, when the session ended cleanly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub final_status: Option<TurnStatus>,
@@ -274,9 +312,15 @@ pub struct FleetAgent {
     /// Where this entry comes from.
     pub source: FleetAgentSource,
     /// Declared Meltemi integration level (1 native ACP, 2 adapter,
-    /// 3 structured headless, 4 artifacts). Declared, not verified: the
-    /// conformance suite is a separate change.
+    /// 3 structured headless, 4 artifacts).
     pub integration_level: u8,
+    /// The level verified by the last conformance run, when one is recorded.
+    /// Absent means declared-but-unverified (shown distinctly in surfaces).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_level: Option<u8>,
+    /// The date (RFC 3339) of the conformance run behind `verified_level`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_at: Option<String>,
     /// Whether the agent's binary was found on this system.
     pub detected: bool,
     /// Absolute path of the detected binary; present only when detected.

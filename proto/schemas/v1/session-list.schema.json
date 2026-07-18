@@ -32,6 +32,12 @@
         },
         "projectRoot": { "type": "string", "minLength": 1 },
         "state": { "$ref": "#/$defs/sessionState" },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "The integration level the session ran at."
+        },
         "finalStatus": { "$ref": "#/$defs/turnStatus" },
         "startedAt": { "type": "string", "format": "date-time" },
         "endedAt": { "type": "string", "format": "date-time" },

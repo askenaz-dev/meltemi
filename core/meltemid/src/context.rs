@@ -114,11 +114,28 @@ impl From<Written> for ContextTarget {
 }
 
 /// Compiles once and writes every declared target under `project_root`,
-/// reporting each destination and whether it changed.
+/// reporting each destination and whether it changed. When the project's
+/// configured agent is level 4 (artifacts-only), its declared instruction
+/// file is added to the targets — projection is that agent's only channel
+/// (niveles-integracion-conformidad, integration by artifacts).
 pub fn project_and_write(project_root: &Path) -> std::io::Result<Vec<Written>> {
+    project_and_write_with(project_root, None)
+}
+
+/// As [`project_and_write`], with an optional extra target (the configured
+/// level-4 agent's instruction file).
+pub fn project_and_write_with(
+    project_root: &Path,
+    l4_target: Option<&str>,
+) -> std::io::Result<Vec<Written>> {
     let content = compile(project_root)?;
     let fingerprint = fingerprint(&content);
-    let targets = embedded_targets();
+    let mut targets = embedded_targets();
+    if let Some(extra) = l4_target
+        && !targets.paths.iter().any(|p| p == extra)
+    {
+        targets.paths.push(extra.to_string());
+    }
 
     let mut written = Vec::with_capacity(targets.paths.len());
     for rel in &targets.paths {

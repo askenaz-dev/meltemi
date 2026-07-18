@@ -84,11 +84,29 @@ pub async fn handle_propose(
         .map_err(RpcError::internal)?;
 
     // The agent must be configured before a session can run: a literal
-    // command, or a fleet catalog id resolved to its detected binary (D4).
-    // Resolution only detects; on failure (2000/2001) nothing is launched.
+    // command, or a fleet catalog id resolved by level (D4). Resolution only
+    // detects; on failure (2000/2001) nothing is launched. `propose` is the
+    // interactive SDD flow, so it needs an ACP-capable level (1 or 2); level 3
+    // (headless) and level 4 (artifacts) are exercised by the conformance
+    // suite, not piloted here.
     let config = Config::load(&state.config_dir, Some(&project_root));
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let agent_command = crate::fleet::resolve_agent_command(&config, &path_var)?;
+    let (agent_command, level) = match crate::levels::resolve_launch(&config, &path_var)? {
+        crate::levels::Launch::Acp { argv, level } => (argv, level),
+        crate::levels::Launch::Headless { level, .. }
+        | crate::levels::Launch::Artifacts { level } => {
+            return Err(RpcError::application(
+                error_codes::AGENT_COMMAND_NOT_CONFIGURED,
+                "level not pilotable by propose",
+                "level_not_pilotable",
+                format!(
+                    "the configured agent is level {level}; `propose` needs an ACP-capable \
+                     agent (level 1 or 2)"
+                ),
+                Some("Select a level 1/2 agent for interactive proposals.".into()),
+            ));
+        }
+    };
 
     // Open the session and its log.
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -121,6 +139,7 @@ pub async fn handle_propose(
             session_id: session_id.clone(),
             agent_command: agent_command.clone(),
             project_root: project_root.display().to_string(),
+            level,
             started_at: started_at.clone(),
             ended_at: None,
             final_status: None,
@@ -177,6 +196,7 @@ pub async fn handle_propose(
                     session_id: session_id.clone(),
                     agent_command: agent_command.clone(),
                     project_root: project_root.display().to_string(),
+                    level,
                     started_at: started_at.clone(),
                     ended_at: Some(crate::clock::now_rfc3339()),
                     final_status: Some(status),
@@ -213,6 +233,7 @@ pub async fn handle_propose(
                     session_id: session_id.clone(),
                     agent_command: agent_command.clone(),
                     project_root: project_root.display().to_string(),
+                    level,
                     started_at: started_at.clone(),
                     ended_at: Some(crate::clock::now_rfc3339()),
                     final_status: None,

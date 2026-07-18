@@ -25,6 +25,10 @@ pub struct SessionRecord {
     pub session_id: String,
     pub agent_command: Vec<String>,
     pub project_root: String,
+    /// The integration level the session ran at (1-4); defaults to 1 for
+    /// records written before levels existed.
+    #[serde(default = "one_level")]
+    pub level: u8,
     pub started_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<String>,
@@ -39,6 +43,11 @@ pub struct SessionRecord {
     /// When this session resumed another, the original session id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resumed_from: Option<String>,
+}
+
+/// Serde default for the level field (level 1).
+fn one_level() -> u8 {
+    1
 }
 
 impl SessionRecord {
@@ -192,6 +201,9 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
         session_id,
         agent_command,
         project_root,
+        // The log does not carry the level; a reconstructed record defaults
+        // to 1 (the index carries the real level when present).
+        level: 1,
         started_at,
         ended_at,
         final_status,
@@ -231,6 +243,7 @@ mod tests {
             session_id: id.into(),
             agent_command: vec!["mock-agent".into()],
             project_root: "/repo".into(),
+            level: 1,
             started_at: ts.into(),
             ended_at: None,
             final_status: None,

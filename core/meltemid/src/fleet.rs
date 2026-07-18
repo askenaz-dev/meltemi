@@ -58,6 +58,18 @@ pub struct RegistryAgent {
     pub candidate_paths: Vec<String>,
     /// Arguments that put the binary in ACP mode on stdio.
     pub acp_args: Vec<String>,
+    /// Level 2: the ACP adapter binary that bridges this agent to ACP.
+    pub adapter: Option<String>,
+    /// Level 2: arguments for the adapter.
+    pub adapter_args: Vec<String>,
+    /// Level 3: the headless binary and its invocation arguments.
+    pub headless: Option<String>,
+    pub headless_args: Vec<String>,
+    /// Level 3: native-control arguments Meltemi always adds (approval mode,
+    /// agent sandbox), configured from data in one place (design D2).
+    pub native_controls: Vec<String>,
+    /// Level 4: the projected instruction file this agent reads (design D1).
+    pub l4_target: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +91,18 @@ struct RawRegistryAgent {
     acp_args: Vec<String>,
     #[serde(default)]
     candidate_paths: Vec<String>,
+    #[serde(default)]
+    adapter: Option<BinSpec>,
+    #[serde(default)]
+    adapter_args: Vec<String>,
+    #[serde(default)]
+    headless: Option<BinSpec>,
+    #[serde(default)]
+    headless_args: Vec<String>,
+    #[serde(default)]
+    native_controls: Vec<String>,
+    #[serde(default)]
+    l4_target: Option<String>,
 }
 
 /// The binary name of an entry: one for every OS, or a per-OS table.
@@ -147,6 +171,12 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
             bin: agent.bin.and_then(|b| b.for_current_os()),
             candidate_paths: agent.candidate_paths,
             acp_args: agent.acp_args,
+            adapter: agent.adapter.and_then(|b| b.for_current_os()),
+            adapter_args: agent.adapter_args,
+            headless: agent.headless.and_then(|b| b.for_current_os()),
+            headless_args: agent.headless_args,
+            native_controls: agent.native_controls,
+            l4_target: agent.l4_target,
         });
     }
     Ok(Registry {
@@ -283,6 +313,35 @@ pub struct CatalogEntry {
     pub candidate_paths: Vec<String>,
     /// Arguments appended to the detected binary to speak ACP.
     pub acp_args: Vec<String>,
+    /// Level 2: the ACP adapter binary and its arguments.
+    pub adapter: Option<String>,
+    pub adapter_args: Vec<String>,
+    /// Level 3: the headless binary, its arguments, and the native controls.
+    pub headless: Option<String>,
+    pub headless_args: Vec<String>,
+    pub native_controls: Vec<String>,
+    /// Level 4: the projected instruction file this agent reads.
+    pub l4_target: Option<String>,
+}
+
+impl Default for CatalogEntry {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            source: FleetAgentSource::Custom,
+            level: 1,
+            bin: None,
+            candidate_paths: Vec::new(),
+            acp_args: Vec::new(),
+            adapter: None,
+            adapter_args: Vec::new(),
+            headless: None,
+            headless_args: Vec::new(),
+            native_controls: Vec::new(),
+            l4_target: None,
+        }
+    }
 }
 
 /// The full catalog: registry entries plus the config's custom agents.
@@ -310,6 +369,12 @@ pub fn build_catalog(config: &Config) -> Catalog {
             bin: agent.bin,
             candidate_paths: agent.candidate_paths,
             acp_args: agent.acp_args,
+            adapter: agent.adapter,
+            adapter_args: agent.adapter_args,
+            headless: agent.headless,
+            headless_args: agent.headless_args,
+            native_controls: agent.native_controls,
+            l4_target: agent.l4_target,
         })
         .collect();
     for custom in &config.fleet_custom {
@@ -321,8 +386,8 @@ pub fn build_catalog(config: &Config) -> Catalog {
             // daemon pilots; verification is the conformance suite's job.
             level: 1,
             bin: custom.command.first().cloned(),
-            candidate_paths: Vec::new(),
             acp_args: custom.command.iter().skip(1).cloned().collect(),
+            ..CatalogEntry::default()
         };
         match entries.iter_mut().find(|e| e.id == entry.id) {
             Some(existing) => *existing = entry,
@@ -354,6 +419,9 @@ pub fn list(config: &Config, configured_id: Option<&str>, path_var: &OsStr) -> F
                 display_name: entry.name.clone(),
                 source: entry.source,
                 integration_level: entry.level,
+                // Enriched from persisted conformance in `handle_fleet_list`.
+                verified_level: None,
+                verified_at: None,
                 detected: binary.is_some(),
                 binary_path: binary.map(|p| p.display().to_string()),
                 configured: configured_id == Some(entry.id.as_str()),
@@ -384,7 +452,16 @@ pub fn handle_fleet_list(params: Value, state: &Arc<DaemonState>) -> Result<Valu
         None
     };
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let result = list(&config, configured_id.as_deref(), &path_var);
+    let mut result = list(&config, configured_id.as_deref(), &path_var);
+    // Enrich with the verified level from the last persisted conformance run
+    // (design D4): declared vs verified is visible in the surfaces.
+    let verified = crate::conformance::latest_by_agent(&state.data_dir);
+    for agent in &mut result.agents {
+        if let Some(run) = verified.get(&agent.id) {
+            agent.verified_level = Some(run.verified_level);
+            agent.verified_at = Some(run.run_at.clone());
+        }
+    }
     Ok(serde_json::to_value(result).expect("FleetListResult serializes"))
 }
 

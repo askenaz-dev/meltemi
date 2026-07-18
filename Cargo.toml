@@ -4,6 +4,7 @@ members = [
     "core/meltemid",
     "core/meltemi-spec",
     "core/mock-agent",
+    "core/mock-headless",
     "proto/meltemi-proto",
     "tui",
 ]

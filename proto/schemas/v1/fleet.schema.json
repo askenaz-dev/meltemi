@@ -35,7 +35,18 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 4,
-          "description": "Declared Meltemi integration level (1 native ACP, 2 adapter, 3 structured headless, 4 artifacts). Declared, not verified."
+          "description": "Declared Meltemi integration level (1 native ACP, 2 adapter, 3 structured headless, 4 artifacts)."
+        },
+        "verifiedLevel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "The level verified by the last conformance run; absent means declared-but-unverified."
+        },
+        "verifiedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The date of the conformance run behind verifiedLevel."
         },
         "detected": {
           "type": "boolean",

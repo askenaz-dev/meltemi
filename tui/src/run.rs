@@ -327,9 +327,13 @@ fn render_fleet(fleet: &FleetListResult) -> String {
         } else {
             "not-detected"
         };
+        let verified = match agent.verified_level {
+            Some(v) => format!("verified L{v}"),
+            None => "unverified".to_string(),
+        };
         let _ = write!(
             out,
-            "\n  {word}  L{}  {:<id_width$}  {}",
+            "\n  {word}  L{} ({verified})  {:<id_width$}  {}",
             agent.integration_level, agent.id, agent.display_name
         );
         if let Some(path) = &agent.binary_path {

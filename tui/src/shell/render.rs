@@ -303,8 +303,17 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
     for row in &fleet.rows {
         let (glyph, word) = detection_label(row.detected, ctx.lang);
         let level_word = level_label(row.level, ctx.lang);
+        // Declared vs verified level (design D4): declared is always shown;
+        // verified is shown when a conformance run recorded it, else "sin
+        // verificar" so the distinction is visible, not hidden.
+        let verified = match row.verified_level {
+            Some(v) if ctx.lang == Lang::Es => format!("verif L{v}"),
+            Some(v) => format!("verif L{v}"),
+            None if ctx.lang == Lang::Es => "sin verificar".to_string(),
+            None => "unverified".to_string(),
+        };
         let mut label = format!(
-            "{} {word:<13} L{} {level_word:<10} {:<id_width$}  {}",
+            "{} {word:<13} L{} {level_word:<10} {verified:<13} {:<id_width$}  {}",
             glyph.text(&ctx.present),
             row.level,
             row.id,
@@ -991,6 +1000,7 @@ mod tests {
             id: id.into(),
             name: format!("Agent {id}"),
             level,
+            verified_level: None,
             detected,
             binary_path: detected.then(|| format!("/bin/{id}")),
             configured,
