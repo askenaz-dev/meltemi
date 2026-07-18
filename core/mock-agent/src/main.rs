@@ -15,10 +15,10 @@
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
-    NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind, PromptRequest,
-    PromptResponse, RequestPermissionOutcome, RequestPermissionRequest, SessionId,
-    SessionNotification, SessionUpdate, StopReason, TextContent, ToolCallUpdate,
-    ToolCallUpdateFields,
+    LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse,
+    PermissionOption, PermissionOptionKind, PromptRequest, PromptResponse,
+    RequestPermissionOutcome, RequestPermissionRequest, SessionId, SessionNotification,
+    SessionUpdate, StopReason, TextContent, ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Result, Stdio};
 
@@ -29,14 +29,20 @@ const ALLOW_OPTION: &str = "allow";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // `--load-session` makes the mock announce session-load support and handle
+    // `session/load`, so the resume path can be exercised end to end.
+    let supports_load = std::env::args().any(|a| a == "--load-session");
+
     Agent
         .builder()
         .name("mock-agent")
         .on_receive_request(
             async move |initialize: InitializeRequest, responder, _cx| {
+                let mut capabilities = AgentCapabilities::new();
+                capabilities.load_session = supports_load;
                 responder.respond(
                     InitializeResponse::new(initialize.protocol_version)
-                        .agent_capabilities(AgentCapabilities::new()),
+                        .agent_capabilities(capabilities),
                 )
             },
             agent_client_protocol::on_receive_request!(),
@@ -44,6 +50,14 @@ async fn main() -> Result<()> {
         .on_receive_request(
             async move |_new_session: NewSessionRequest, responder, _cx| {
                 responder.respond(NewSessionResponse::new(SessionId::new(SESSION_ID)))
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            // Loading a prior session succeeds (the mock keeps no real state);
+            // its presence lets the daemon exercise the resume path.
+            async move |_load: LoadSessionRequest, responder, _cx| {
+                responder.respond(LoadSessionResponse::new())
             },
             agent_client_protocol::on_receive_request!(),
         )

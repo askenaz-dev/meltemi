@@ -80,6 +80,140 @@
         "sessionId": { "type": "string", "minLength": 1 },
         "toolCallId": { "type": "string" }
       }
+    },
+    "rule": {
+      "type": "object",
+      "description": "A persistent permission rule, evaluated in the daemon before a request is escalated. Matchers are ANDed; an omitted matcher matches anything on that dimension. A rule never grants an option the agent did not offer.",
+      "required": ["effect", "scope"],
+      "properties": {
+        "effect": {
+          "type": "string",
+          "enum": ["allow", "deny"],
+          "description": "Whether the rule allows or denies the matched request."
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Match on the tool/operation kind (exact)."
+        },
+        "commandPrefix": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Match when the request's command starts with this prefix."
+        },
+        "pathPrefix": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Match when the affected path starts with this prefix."
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["global", "project"],
+          "description": "Where the rule lives: the user's global file or the project's .meltemi/permissions.toml."
+        }
+      }
+    },
+    "pendingPermission": {
+      "type": "object",
+      "description": "One pending permission request as seen in a queue snapshot.",
+      "required": [
+        "requestId",
+        "sessionId",
+        "tool",
+        "summary",
+        "options",
+        "waitingSeconds",
+        "expiresInSeconds",
+        "expired"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable id of this pending request, used by permission/decide."
+        },
+        "sessionId": { "type": "string", "minLength": 1 },
+        "tool": {
+          "type": "string",
+          "description": "Short tool/operation label from the ACP tool call."
+        },
+        "summary": {
+          "type": "string",
+          "description": "One-line human summary of what is being authorized."
+        },
+        "options": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/permissionOption" },
+          "minItems": 1
+        },
+        "waitingSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Seconds the request has been waiting (snapshot at query time)."
+        },
+        "expiresInSeconds": {
+          "type": "integer",
+          "description": "Seconds until it expires; negative once expired (snapshot)."
+        },
+        "expired": {
+          "type": "boolean",
+          "description": "Whether it has already expired but is still shown (never dropped silently)."
+        },
+        "suggestedRule": {
+          "$ref": "#/$defs/rule",
+          "description": "A rule suggested to end repeated identical approvals (anti-fatigue)."
+        }
+      }
+    },
+    "pendingResult": {
+      "type": "object",
+      "description": "Result of `permission/pending`: the current queue snapshot.",
+      "required": ["pending"],
+      "properties": {
+        "pending": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pendingPermission" }
+        }
+      }
+    },
+    "changedParams": {
+      "type": "object",
+      "description": "Notification `permission/changed` (daemon -> client): the full current queue after a change, so every client reconciles to one snapshot without a round-trip.",
+      "required": ["pending"],
+      "properties": {
+        "pending": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pendingPermission" }
+        }
+      }
+    },
+    "decideParams": {
+      "type": "object",
+      "description": "Params of `permission/decide` (client -> daemon): resolve a pending request by id. The first resolution wins; a later one gets `already_resolved`.",
+      "required": ["requestId"],
+      "properties": {
+        "requestId": { "type": "string", "minLength": 1 },
+        "optionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The chosen option id; absent cancels (denies) the request."
+        },
+        "persistRule": {
+          "$ref": "#/$defs/rule",
+          "description": "A rule to persist alongside this decision (allow/deny always)."
+        }
+      }
+    },
+    "decideResult": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["applied", "already_resolved"],
+          "description": "applied: this call resolved the request; already_resolved: another path resolved it first, nothing changed."
+        }
+      }
     }
   }
 }

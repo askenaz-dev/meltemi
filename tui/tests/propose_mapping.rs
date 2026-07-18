@@ -63,6 +63,25 @@ async fn propose_maps_to_the_propose_method() {
         outcome.json
     );
 
+    // Honesty of result (H1): the default-denied permission is declared in the
+    // JSON and warned about in the human output, and the status word is stable
+    // lowercase (not the capitalized Debug form).
+    assert_eq!(
+        outcome.json["deniedPermissions"], 1,
+        "the denied permission must be declared, got: {}",
+        outcome.json
+    );
+    assert!(
+        outcome.human.contains("[completed]"),
+        "status word must be stable lowercase, got: {}",
+        outcome.human
+    );
+    assert!(
+        outcome.human.contains("may be incomplete"),
+        "human output must warn the proposal may be incomplete, got: {}",
+        outcome.human
+    );
+
     handle.abort();
     let _ = std::fs::remove_dir_all(&fixture);
 }

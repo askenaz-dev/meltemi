@@ -51,11 +51,11 @@
         },
         "2000": {
           "kind": "agent_command_not_configured",
-          "description": "No agent.command is configured. remedy points to the user or project config file."
+          "description": "Neither agent.command nor agent.id is configured. remedy points to the user or project config file."
         },
         "2001": {
-          "kind": "agent_command_not_found",
-          "description": "The configured agent command does not exist on this system. detail names the missing command; remedy explains how to configure it."
+          "kind": "agent_not_detected",
+          "description": "The selected agent is not present on this system: the configured catalog id is unknown, or its binary was not detected. detail names the missing id or command; remedy explains how to configure or install it. Nothing is launched."
         },
         "2002": {
           "kind": "agent_spawn_failed",

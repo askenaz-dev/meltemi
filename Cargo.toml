@@ -17,6 +17,9 @@ rust-version = "1.97"
 
 [workspace.dependencies]
 meltemi-proto = { path = "proto/meltemi-proto" }
+# The spec engine: parsing of `.meltemi/` and the pure context-projection
+# compiler the daemon writes into agent instruction files.
+meltemi-spec = { path = "core/meltemi-spec" }
 # The terminal client reuses the daemon's client-side helpers (local transport,
 # on-demand bootstrap, JSON-RPC peer) exposed as a library; see cli-contrato
 # design D6. A dedicated `meltemi-client` crate can be extracted later.

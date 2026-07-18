@@ -48,6 +48,8 @@ pub enum ConfirmAction {
     Quit,
     CancelSession,
     Shutdown,
+    /// Approve the selected permission and persist the proposed rule.
+    CreateRule,
 }
 
 /// An overlay stacked above the views. Only [`Overlay::Palette`] captures text.
@@ -71,6 +73,15 @@ pub enum Effect {
     CancelActiveSession,
     ShutdownDaemon,
     RefreshStatus,
+    RefreshFleet,
+    /// Regenerate the projected context (`context/project`).
+    ProjectContext,
+    /// Approve the selected pending permission (grant option).
+    ApprovePermission,
+    /// Deny the selected pending permission (reject option / cancel).
+    DenyPermission,
+    /// Approve the selected permission and persist the proposed rule.
+    CreateRuleForPermission,
 }
 
 /// The full navigation state of the shell.
@@ -149,8 +160,13 @@ impl ShellState {
                 None
             }
             Action::DrillIn => {
-                if self.view == View::Sessions && !self.drilled {
-                    self.drilled = true;
+                match self.view {
+                    View::Sessions if !self.drilled => self.drilled = true,
+                    // In the tray, Enter approves the selected request.
+                    View::Permissions => return Some(Effect::ApprovePermission),
+                    // In the Project view, Enter regenerates the projection.
+                    View::Project => return Some(Effect::ProjectContext),
+                    _ => {}
                 }
                 None
             }
@@ -190,8 +206,18 @@ impl ShellState {
                 }
                 None
             }
-            // Filter, focus cycling, movement and local letters are view-local;
-            // the shell skeleton has no effect for them yet.
+            // Tray-local letters: deny (`d`) and create-rule (`r`), only in the
+            // Permissions view. Rule creation is gated by a confirmation that
+            // shows the proposed rule (the most specific one).
+            Action::Local('d') if self.view == View::Permissions => Some(Effect::DenyPermission),
+            Action::Local('r') if self.view == View::Permissions => {
+                self.overlays.push(Overlay::Confirm {
+                    action: ConfirmAction::CreateRule,
+                });
+                None
+            }
+            // Filter, focus cycling, movement and other local letters are
+            // view-local; the shell skeleton has no effect for them yet.
             _ => None,
         }
     }
@@ -208,6 +234,7 @@ impl ShellState {
                     ConfirmAction::Quit => Effect::Quit,
                     ConfirmAction::CancelSession => Effect::CancelActiveSession,
                     ConfirmAction::Shutdown => Effect::ShutdownDaemon,
+                    ConfirmAction::CreateRule => Effect::CreateRuleForPermission,
                 })
             }
             // Esc / q / Backspace / `n` cancel safely without acting.
@@ -256,6 +283,23 @@ impl ShellState {
                         None
                     }
                     "status" | "refresh" => Some(Effect::RefreshStatus),
+                    "sessions" | "sesiones" => {
+                        self.view = View::Sessions;
+                        self.drilled = false;
+                        Some(Effect::RefreshStatus)
+                    }
+                    "project" | "proyecto" => {
+                        self.view = View::Project;
+                        self.drilled = false;
+                        Some(Effect::ProjectContext)
+                    }
+                    "fleet" | "flota" => {
+                        // Core parity: the palette reaches the Fleet like the
+                        // digit does, and re-queries the catalog on demand.
+                        self.view = View::Fleet;
+                        self.drilled = false;
+                        Some(Effect::RefreshFleet)
+                    }
                     _ => None,
                 };
             }
@@ -411,6 +455,60 @@ mod tests {
             press(&mut s, Key::Char(c));
         }
         assert_eq!(press(&mut s, Key::Enter), Some(Effect::RefreshStatus));
+        assert!(s.top_overlay().is_none());
+    }
+
+    #[test]
+    fn tray_enter_approves_and_d_denies() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char('3')); // Permissions view
+        assert_eq!(s.view(), View::Permissions);
+        assert_eq!(press(&mut s, Key::Enter), Some(Effect::ApprovePermission));
+        assert_eq!(press(&mut s, Key::Char('d')), Some(Effect::DenyPermission));
+    }
+
+    #[test]
+    fn tray_create_rule_is_gated_by_confirmation() {
+        // Scenario: Aprobar y crear regla — confirmar la regla antes de persistir.
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char('3'));
+        assert!(press(&mut s, Key::Char('r')).is_none());
+        assert!(matches!(
+            s.top_overlay(),
+            Some(Overlay::Confirm {
+                action: ConfirmAction::CreateRule
+            })
+        ));
+        // Enter confirms → the effect approves and persists the rule.
+        assert_eq!(
+            press(&mut s, Key::Enter),
+            Some(Effect::CreateRuleForPermission)
+        );
+        // Esc would have cancelled without acting.
+        press(&mut s, Key::Char('3'));
+        press(&mut s, Key::Char('r'));
+        assert!(press(&mut s, Key::Esc).is_none());
+        assert!(s.top_overlay().is_none());
+    }
+
+    #[test]
+    fn tray_decide_keys_do_nothing_outside_the_permissions_view() {
+        let mut s = ShellState::new(); // Sessions view
+        assert!(press(&mut s, Key::Char('d')).is_none());
+        assert!(press(&mut s, Key::Char('r')).is_none());
+        assert!(s.top_overlay().is_none());
+    }
+
+    #[test]
+    fn palette_fleet_command_switches_view_and_refreshes() {
+        // Scenario: registro de `fleet` en la paleta (obligación de tui-shell).
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "fleet".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(press(&mut s, Key::Enter), Some(Effect::RefreshFleet));
+        assert_eq!(s.view(), View::Fleet);
         assert!(s.top_overlay().is_none());
     }
 

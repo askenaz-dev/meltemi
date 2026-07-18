@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/fleet.schema.json",
+  "title": "fleet/list",
+  "description": "Method `fleet/list`: the fleet catalog — the bundled registry snapshot crossed with passive local detection, plus user-declared custom agents. Populating the catalog never involves the network; detection is re-run on every query and never executes a binary.",
+  "$defs": {
+    "fleetAgentSource": {
+      "type": "string",
+      "enum": ["registry", "custom"],
+      "description": "Where a catalog entry comes from: the bundled registry snapshot or the user's configuration."
+    },
+    "fleetAgent": {
+      "type": "object",
+      "required": [
+        "id",
+        "displayName",
+        "source",
+        "integrationLevel",
+        "detected",
+        "configured"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable catalog identifier, selectable via agent.id in the project config."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable agent name."
+        },
+        "source": { "$ref": "#/$defs/fleetAgentSource" },
+        "integrationLevel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "Declared Meltemi integration level (1 native ACP, 2 adapter, 3 structured headless, 4 artifacts). Declared, not verified."
+        },
+        "detected": {
+          "type": "boolean",
+          "description": "Whether the agent's binary was found on this system (PATH or candidate paths); detection never executes anything."
+        },
+        "binaryPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of the detected binary; present only when detected."
+        },
+        "configured": {
+          "type": "boolean",
+          "description": "Whether the project at projectRoot selects this agent; always false when the request carried no projectRoot."
+        }
+      }
+    },
+    "params": {
+      "type": "object",
+      "properties": {
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of a project root; when given, the response marks the agent that project's configuration selects."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["registryVersion", "agents"],
+      "properties": {
+        "registryVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Version of the registry snapshot the catalog was built from (the substitute's version when the registry override is in effect)."
+        },
+        "agents": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fleetAgent" },
+          "description": "The catalog, in registry order with custom entries appended."
+        }
+      }
+    }
+  }
+}

@@ -35,6 +35,122 @@ async fn status_maps_to_the_status_method() {
 }
 
 #[tokio::test]
+async fn fleet_maps_to_the_fleet_list_method() {
+    // Scenario: fleet consulta el catálogo / Listado humano / para máquinas.
+    let (endpoint, handle) = spawn_daemon("fleet").await;
+
+    let outcome = execute(Command::Fleet, &endpoint)
+        .await
+        .expect("fleet succeeds");
+
+    // The embedded registry answers: a version and well-formed agents. No
+    // assertion depends on what is actually installed on this machine.
+    assert!(
+        outcome.json["registryVersion"].as_str().is_some(),
+        "fleet must report the registry version, got: {}",
+        outcome.json
+    );
+    let agents = outcome.json["agents"].as_array().expect("agents array");
+    assert!(!agents.is_empty(), "the embedded registry lists agents");
+    for agent in agents {
+        assert!(agent["id"].as_str().is_some());
+        assert!(agent["detected"].is_boolean());
+        let level = agent["integrationLevel"].as_i64().expect("level");
+        assert!((1..=4).contains(&level), "declared level in range");
+    }
+    assert!(outcome.human.contains("registry"), "{}", outcome.human);
+    assert!(outcome.human.contains("L1"));
+
+    // Under --json the outcome renders as exactly one JSON object on stdout.
+    let mut out = Vec::new();
+    meltemi::output::render_outcome(&outcome, true, &mut out).unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    assert_eq!(printed.trim().lines().count(), 1, "one line, one object");
+    let parsed: serde_json::Value = serde_json::from_str(printed.trim()).expect("valid JSON");
+    assert_eq!(parsed["registryVersion"], outcome.json["registryVersion"]);
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn project_maps_to_context_project_and_emits_one_json_object() {
+    // Scenario: CLI project (--json un objeto). Uses a temporary fixture repo
+    // as the project root, never this repo.
+    let (endpoint, handle) = spawn_daemon("project").await;
+
+    let fixture = std::env::temp_dir().join(format!("meltemi-cli-ctx-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&fixture);
+    std::fs::create_dir_all(fixture.join(".meltemi").join("rumbo")).unwrap();
+    std::fs::write(
+        fixture.join(".meltemi").join("constitution.md"),
+        "# C\n\nreglas\n",
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.join(".meltemi").join("rumbo").join("product.md"),
+        "---\ninclusion: siempre\n---\nRUMBO\n",
+    )
+    .unwrap();
+
+    let outcome = execute(
+        Command::Project {
+            project_root: Some(fixture.display().to_string()),
+        },
+        &endpoint,
+    )
+    .await
+    .expect("project succeeds");
+
+    let targets = outcome.json["targets"].as_array().expect("targets array");
+    assert!(!targets.is_empty(), "targets reported: {}", outcome.json);
+    assert!(outcome.human.contains("projected context"));
+
+    // Under --json the outcome is exactly one JSON object on stdout.
+    let mut out = Vec::new();
+    meltemi::output::render_outcome(&outcome, true, &mut out).unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    assert_eq!(printed.trim().lines().count(), 1, "one line, one object");
+    let parsed: serde_json::Value = serde_json::from_str(printed.trim()).expect("valid JSON");
+    assert!(parsed["targets"].is_array());
+
+    handle.abort();
+    let _ = std::fs::remove_dir_all(&fixture);
+}
+
+#[tokio::test]
+async fn sessions_maps_to_session_list_and_emits_one_json_object() {
+    // Scenario: CLI sessions (--json un objeto). An empty project lists no
+    // sessions, which is enough to exercise the mapping and output discipline.
+    let (endpoint, handle) = spawn_daemon("sessions").await;
+
+    let fixture = std::env::temp_dir().join(format!("meltemi-cli-sess-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&fixture);
+    std::fs::create_dir_all(&fixture).unwrap();
+
+    let outcome = execute(
+        Command::Sessions {
+            project_root: Some(fixture.display().to_string()),
+        },
+        &endpoint,
+    )
+    .await
+    .expect("sessions succeeds");
+
+    assert!(outcome.json["sessions"].is_array(), "{}", outcome.json);
+    assert!(outcome.human.contains("session(s)"));
+
+    let mut out = Vec::new();
+    meltemi::output::render_outcome(&outcome, true, &mut out).unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    assert_eq!(printed.trim().lines().count(), 1, "one line, one object");
+    let parsed: serde_json::Value = serde_json::from_str(printed.trim()).expect("valid JSON");
+    assert!(parsed["sessions"].is_array());
+
+    handle.abort();
+    let _ = std::fs::remove_dir_all(&fixture);
+}
+
+#[tokio::test]
 async fn stop_maps_to_shutdown_and_stops_the_daemon() {
     // Scenario: stop -> shutdown; the daemon then stops.
     let (endpoint, handle) = spawn_daemon("stop").await;

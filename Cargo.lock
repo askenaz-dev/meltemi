@@ -1201,6 +1201,7 @@ dependencies = [
  "directories",
  "libc",
  "meltemi-proto",
+ "meltemi-spec",
  "serde",
  "serde_json",
  "sha2",

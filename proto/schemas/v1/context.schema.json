@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/context.schema.json",
+  "title": "context/project",
+  "description": "Method `context/project`: compile the project's .meltemi/ artifacts (constitution, rumbo by inclusion rule, active change) and write the result into each declared target file inside a managed block with a content fingerprint. Content outside the block is preserved byte for byte; writes are atomic and idempotent.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": ["projectRoot"],
+      "properties": {
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path to the root of the target repository."
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["path", "fingerprint", "written"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Destination path relative to the project root (AGENTS.md, CLAUDE.md, ...)."
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Hex SHA-256 of the compiled content written into the managed block."
+        },
+        "written": {
+          "type": "boolean",
+          "description": "Whether the file was actually rewritten (false when already current)."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["targets"],
+      "properties": {
+        "targets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/target" },
+          "description": "Every declared target with its fingerprint and whether it changed."
+        }
+      }
+    }
+  }
+}

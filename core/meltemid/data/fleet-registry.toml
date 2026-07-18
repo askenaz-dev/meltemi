@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fleet registry snapshot (design catalogo-flota D1/D6).
+#
+# A versioned snapshot of the public ACP agent registry, curated per release
+# from the public registry plus the internal integration research
+# (docs/research/integracion-agentes.md). It is embedded into `meltemid` at
+# build time (`include_str!`); populating the catalog never touches the
+# network. Advanced users and tests substitute it with a local file via
+# `MELTEMI_FLEET_REGISTRY` or the `fleet.registry` config key.
+#
+# Per entry:
+#   id              stable catalog id, selectable via `agent.id` in config
+#   name            human-readable product name (factual interoperability
+#                   data; third-party names live here, never in specs)
+#   level           declared Meltemi integration level: 1 native ACP,
+#                   2 adapter, 3 structured headless, 4 artifacts. Declared,
+#                   not verified — the conformance suite is a separate change.
+#   bin             binary resolved on PATH; either one name for every OS or
+#                   a per-OS table { default, windows?, macos?, linux? }. On
+#                   Windows the executable extensions .exe/.cmd/.bat are
+#                   probed (npm shims), so names stay extension-less.
+#   acp-args        arguments that put the binary in ACP mode on stdio
+#   candidate-paths well-known install locations probed besides PATH
+#                   (`~/` expands to the user's home directory)
+#
+# For level-2 entries, `bin` names the ACP adapter binary — the entry point
+# meltemid can actually pilot today; the official CLI itself and the finer
+# level semantics arrive with the conformance suite change.
+
+version = "2026-07-09"
+
+[[agents]]
+id = "gemini-cli"
+name = "Gemini CLI"
+level = 1
+bin = "gemini"
+acp-args = ["--acp"]
+candidate-paths = []
+
+[[agents]]
+id = "copilot-cli"
+name = "GitHub Copilot CLI"
+level = 1
+bin = "copilot"
+acp-args = ["--acp", "--stdio"]
+candidate-paths = []
+
+[[agents]]
+id = "cursor-cli"
+name = "Cursor CLI"
+level = 1
+bin = "agent"
+acp-args = ["acp"]
+candidate-paths = []
+
+[[agents]]
+id = "kiro-cli"
+name = "Kiro CLI"
+level = 1
+bin = "kiro-cli"
+acp-args = ["acp"]
+candidate-paths = []
+
+[[agents]]
+id = "kilo-code"
+name = "Kilo Code"
+level = 1
+bin = "kilo"
+acp-args = ["acp"]
+candidate-paths = []
+
+[[agents]]
+id = "opencode"
+name = "OpenCode"
+level = 1
+bin = "opencode"
+acp-args = ["acp"]
+candidate-paths = ["~/.opencode/bin/opencode"]
+
+[[agents]]
+id = "claude-code"
+name = "Claude Code"
+level = 2
+bin = "claude-agent-acp"
+acp-args = []
+candidate-paths = []
+
+[[agents]]
+id = "codex-cli"
+name = "Codex CLI"
+level = 2
+bin = "codex-acp"
+acp-args = []
+candidate-paths = []
+
+# No ACP surface (level 4): listed so the catalog states what exists and at
+# which level; it cannot be piloted over ACP.
+[[agents]]
+id = "antigravity"
+name = "Antigravity"
+level = 4
+bin = "agy"
+acp-args = []
+candidate-paths = []

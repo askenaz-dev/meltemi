@@ -159,9 +159,276 @@ fn propose_conforms() {
                 proposal_path: "C:\\repos\\fixture\\.meltemi\\changes\\add-dark-mode\\proposal.md"
                     .into(),
                 status,
+                denied_permissions: 0,
             },
         );
     }
+    // A turn that suffered denials declares the count (honesty of result).
+    assert_conforms(
+        "propose",
+        "result",
+        &ProposeResult {
+            change_name: "add-dark-mode".into(),
+            proposal_path: "/repo/.meltemi/changes/add-dark-mode/proposal.md".into(),
+            status: TurnStatus::Completed,
+            denied_permissions: 3,
+        },
+    );
+}
+
+#[test]
+fn permission_rules_and_queue_conform() {
+    let rule = PermissionRule {
+        effect: PermissionRuleEffect::Allow,
+        tool: Some("edit".into()),
+        command_prefix: None,
+        path_prefix: Some("/repo/src".into()),
+        scope: PermissionRuleScope::Project,
+    };
+    assert_conforms("permission", "rule", &rule);
+    // A bare deny rule (matches anything of its scope) is valid.
+    assert_conforms(
+        "permission",
+        "rule",
+        &PermissionRule {
+            effect: PermissionRuleEffect::Deny,
+            tool: None,
+            command_prefix: None,
+            path_prefix: None,
+            scope: PermissionRuleScope::Global,
+        },
+    );
+
+    let pending = PendingPermission {
+        request_id: "req-1".into(),
+        session_id: "sess-1".into(),
+        tool: "write-proposal".into(),
+        summary: "Write proposal.md".into(),
+        options: vec![PermissionOption {
+            option_id: "allow".into(),
+            name: "Allow".into(),
+            kind: PermissionOptionKind::AllowOnce,
+        }],
+        waiting_seconds: 12,
+        expires_in_seconds: 108,
+        expired: false,
+        suggested_rule: Some(rule.clone()),
+    };
+    assert_conforms("permission", "pendingPermission", &pending);
+    // An expired entry (negative remaining) is still valid and shown.
+    assert_conforms(
+        "permission",
+        "pendingPermission",
+        &PendingPermission {
+            expires_in_seconds: -4,
+            expired: true,
+            suggested_rule: None,
+            ..pending.clone()
+        },
+    );
+
+    assert_conforms(
+        "permission",
+        "pendingResult",
+        &PermissionPendingResult {
+            pending: vec![pending.clone()],
+        },
+    );
+    assert_conforms(
+        "permission",
+        "changedParams",
+        &PermissionChangedParams {
+            pending: vec![pending],
+        },
+    );
+
+    assert_conforms(
+        "permission",
+        "decideParams",
+        &PermissionDecideParams {
+            request_id: "req-1".into(),
+            option_id: Some("allow".into()),
+            persist_rule: Some(rule),
+        },
+    );
+    // A cancel (deny) carries no option id.
+    assert_conforms(
+        "permission",
+        "decideParams",
+        &PermissionDecideParams {
+            request_id: "req-1".into(),
+            option_id: None,
+            persist_rule: None,
+        },
+    );
+    for status in [
+        PermissionDecideStatus::Applied,
+        PermissionDecideStatus::AlreadyResolved,
+    ] {
+        assert_conforms(
+            "permission",
+            "decideResult",
+            &PermissionDecideResult { status },
+        );
+    }
+}
+
+#[test]
+fn fleet_conforms() {
+    assert_conforms("fleet", "params", &FleetListParams { project_root: None });
+    assert_conforms(
+        "fleet",
+        "params",
+        &FleetListParams {
+            project_root: Some("C:\\repos\\fixture".into()),
+        },
+    );
+    assert_conforms(
+        "fleet",
+        "result",
+        &FleetListResult {
+            registry_version: "2026-07-09".into(),
+            agents: vec![
+                FleetAgent {
+                    id: "native-agent".into(),
+                    display_name: "Native Agent".into(),
+                    source: FleetAgentSource::Registry,
+                    integration_level: 1,
+                    detected: true,
+                    binary_path: Some("C:\\bin\\native-agent.exe".into()),
+                    configured: true,
+                },
+                FleetAgent {
+                    id: "absent-agent".into(),
+                    display_name: "Absent Agent".into(),
+                    source: FleetAgentSource::Registry,
+                    integration_level: 4,
+                    detected: false,
+                    binary_path: None,
+                    configured: false,
+                },
+                FleetAgent {
+                    id: "my-agent".into(),
+                    display_name: "My Agent".into(),
+                    source: FleetAgentSource::Custom,
+                    integration_level: 1,
+                    detected: false,
+                    binary_path: None,
+                    configured: false,
+                },
+            ],
+        },
+    );
+    // An empty catalog (substituted registry) is valid too.
+    assert_conforms(
+        "fleet",
+        "result",
+        &FleetListResult {
+            registry_version: "fixture-1".into(),
+            agents: vec![],
+        },
+    );
+}
+
+#[test]
+fn session_list_and_log_conform() {
+    assert_conforms(
+        "session-list",
+        "params",
+        &SessionListParams {
+            project_root: Some("C:\\repos\\fixture".into()),
+            state: Some(SessionState::Interrupted),
+            limit: Some(50),
+        },
+    );
+    assert_conforms("session-list", "params", &SessionListParams::default());
+
+    let info = SessionInfo {
+        session_id: "sess-1".into(),
+        agent_command: vec!["mock-agent".into()],
+        project_root: "C:\\repos\\fixture".into(),
+        state: SessionState::Ended,
+        final_status: Some(TurnStatus::Completed),
+        started_at: "2026-07-11T12:00:00Z".into(),
+        ended_at: Some("2026-07-11T12:05:00Z".into()),
+        resumable: true,
+    };
+    assert_conforms("session-list", "sessionInfo", &info);
+    // An interrupted session has no end and is not resumable.
+    assert_conforms(
+        "session-list",
+        "sessionInfo",
+        &SessionInfo {
+            state: SessionState::Interrupted,
+            final_status: None,
+            ended_at: None,
+            resumable: false,
+            ..info.clone()
+        },
+    );
+    assert_conforms(
+        "session-list",
+        "result",
+        &SessionListResult {
+            sessions: vec![info],
+        },
+    );
+
+    assert_conforms(
+        "session-log",
+        "params",
+        &SessionLogParams {
+            project_root: "C:\\repos\\fixture".into(),
+            session_id: "sess-1".into(),
+            offset: Some(20),
+            limit: Some(100),
+        },
+    );
+    assert_conforms(
+        "session-log",
+        "result",
+        &SessionLogResult {
+            session_id: "sess-1".into(),
+            total: 42,
+            offset: 20,
+            lines: vec!["{\"v\":1}".into(), "{\"v\":1}".into()],
+        },
+    );
+}
+
+#[test]
+fn context_project_conforms() {
+    assert_conforms(
+        "context",
+        "params",
+        &ContextProjectParams {
+            project_root: "C:\\repos\\fixture".into(),
+        },
+    );
+    assert_conforms(
+        "context",
+        "result",
+        &ContextProjectResult {
+            targets: vec![
+                ContextTarget {
+                    path: "AGENTS.md".into(),
+                    fingerprint: "a".repeat(64),
+                    written: true,
+                },
+                ContextTarget {
+                    path: "CLAUDE.md".into(),
+                    fingerprint: "0".repeat(64),
+                    written: false,
+                },
+            ],
+        },
+    );
+    // A non-hex or wrong-length fingerprint is rejected.
+    assert_rejected(
+        "context",
+        "target",
+        &json!({ "path": "AGENTS.md", "fingerprint": "nothex", "written": true }),
+    );
 }
 
 #[test]
@@ -266,10 +533,24 @@ fn session_events_conform() {
         SessionEventKind::PermissionDecided {
             outcome: json!({"outcome": "selected", "optionId": "opt-0"}),
             decided_by: PermissionDecidedBy::Client,
+            rule: None,
         },
         SessionEventKind::PermissionDecided {
             outcome: json!({"outcome": "cancelled"}),
             decided_by: PermissionDecidedBy::DefaultDeny,
+            rule: None,
+        },
+        // A rule-resolved decision carries the rule for provenance (audit).
+        SessionEventKind::PermissionDecided {
+            outcome: json!({"outcome": "selected", "optionId": "allow"}),
+            decided_by: PermissionDecidedBy::Rule,
+            rule: Some(PermissionRule {
+                effect: PermissionRuleEffect::Allow,
+                tool: Some("edit".into()),
+                command_prefix: None,
+                path_prefix: Some("/repo".into()),
+                scope: PermissionRuleScope::Project,
+            }),
         },
         SessionEventKind::TurnCompleted {
             stop_reason: TurnStatus::Completed,
@@ -304,8 +585,8 @@ fn error_data_conforms() {
         "error",
         "errorData",
         &ErrorData {
-            kind: "agent_command_not_found".into(),
-            detail: "The command `acme-agent` was not found on PATH.".into(),
+            kind: "agent_not_detected".into(),
+            detail: "The agent `acme-agent` is not detected on this system.".into(),
             remedy: Some("Set agent.command in your meltemi config.".into()),
         },
     );
@@ -334,7 +615,7 @@ fn error_codes_match_catalog() {
         error_codes::NOT_INITIALIZED,
         error_codes::SHUTTING_DOWN,
         error_codes::AGENT_COMMAND_NOT_CONFIGURED,
-        error_codes::AGENT_COMMAND_NOT_FOUND,
+        error_codes::AGENT_NOT_DETECTED,
         error_codes::AGENT_SPAWN_FAILED,
         error_codes::AGENT_HANDSHAKE_FAILED,
         error_codes::SESSION_NOT_FOUND,
@@ -403,4 +684,32 @@ fn harness_rejects_invalid_instances() {
         "result",
         &json!({"outcome": {"outcome": "selected"}}),
     );
+    // Integration levels live in 1..=4 (declared scale).
+    assert_rejected(
+        "fleet",
+        "fleetAgent",
+        &json!({
+            "id": "x",
+            "displayName": "X",
+            "source": "registry",
+            "integrationLevel": 5,
+            "detected": false,
+            "configured": false,
+        }),
+    );
+    // Unknown catalog source.
+    assert_rejected(
+        "fleet",
+        "fleetAgent",
+        &json!({
+            "id": "x",
+            "displayName": "X",
+            "source": "marketplace",
+            "integrationLevel": 1,
+            "detected": false,
+            "configured": false,
+        }),
+    );
+    // The registry version is mandatory.
+    assert_rejected("fleet", "result", &json!({ "agents": [] }));
 }

@@ -39,7 +39,12 @@
           "minLength": 1,
           "description": "Absolute path of the created proposal.md."
         },
-        "status": { "$ref": "#/$defs/turnStatus" }
+        "status": { "$ref": "#/$defs/turnStatus" },
+        "deniedPermissions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many of the agent's permission requests were denied during the turn (rule, human, or timeout/default). Greater than zero means the artifact may be incomplete. Absent is equivalent to 0."
+        }
       }
     }
   }

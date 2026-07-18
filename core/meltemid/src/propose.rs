@@ -83,17 +83,12 @@ pub async fn handle_propose(
     std::fs::write(&proposal_path, scaffold(&change_name, &params.idea))
         .map_err(RpcError::internal)?;
 
-    // The agent command must be configured before a session can run.
+    // The agent must be configured before a session can run: a literal
+    // command, or a fleet catalog id resolved to its detected binary (D4).
+    // Resolution only detects; on failure (2000/2001) nothing is launched.
     let config = Config::load(&state.config_dir, Some(&project_root));
-    let agent_command = config.agent_command.ok_or_else(|| {
-        RpcError::application(
-            error_codes::AGENT_COMMAND_NOT_CONFIGURED,
-            "no agent configured",
-            "agent_command_not_configured",
-            "no `agent.command` is configured",
-            Some("Set `agent.command` in .meltemi/config.toml or the user config.".into()),
-        )
-    })?;
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let agent_command = crate::fleet::resolve_agent_command(&config, &path_var)?;
 
     // Open the session and its log.
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -101,12 +96,9 @@ pub async fn handle_propose(
         .sessions
         .register(&session_id, agent_command.clone())
         .await;
-    let mut log = SessionLog::create(
-        &state.data_dir,
-        &paths::project_key(&project_root),
-        &session_id,
-    )
-    .map_err(RpcError::internal)?;
+    let project_key = paths::project_key(&project_root);
+    let mut log = SessionLog::create(&state.data_dir, &project_key, &session_id)
+        .map_err(RpcError::internal)?;
     let _ = log.append(SessionEventKind::SessionStarted {
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
@@ -118,9 +110,38 @@ pub async fn handle_propose(
         .set_state(&session_id, SessionState::Active)
         .await;
 
+    // Persist a start record in the session index; the matching end record is
+    // appended below. A crash before the end leaves it as `interrupted`
+    // (sesiones-reanudables D1).
+    let started_at = crate::clock::now_rfc3339();
+    let _ = crate::session_index::append(
+        &state.data_dir,
+        &project_key,
+        &crate::session_index::SessionRecord {
+            session_id: session_id.clone(),
+            agent_command: agent_command.clone(),
+            project_root: project_root.display().to_string(),
+            started_at: started_at.clone(),
+            ended_at: None,
+            final_status: None,
+            agent_session_id: None,
+            supports_load: false,
+            resumed_from: None,
+        },
+    );
+
+    // Load the permission rules once for the session (proxy-permisos D1).
+    let rules = Arc::new(crate::permissions::load_rules(
+        &state.config_dir,
+        Some(&project_root),
+    ));
+    for diagnostic in &rules.diagnostics {
+        tracing::warn!(diagnostic, "permission rule skipped");
+    }
+
     // Delegate the proposal contents to the agent (5.2).
     let outcome = acp::run_session(SessionParams {
-        agent_command,
+        agent_command: agent_command.clone(),
         project_root: project_root.clone(),
         prompt: build_prompt(&params.idea, &proposal_path),
         meltemi_session_id: session_id.clone(),
@@ -128,12 +149,17 @@ pub async fn handle_propose(
         log: log.clone(),
         cancel,
         permission_timeout: PERMISSION_TIMEOUT,
+        rules,
+        pending: state.pending.clone(),
+        // `propose` always opens a fresh session; resume is a separate flow.
+        load_session_id: None,
     })
     .await;
 
     // Finalize the session log and registry regardless of outcome.
     let result = match outcome {
-        Ok(status) => {
+        Ok(session_outcome) => {
+            let status = session_outcome.status;
             append(
                 &log,
                 SessionEventKind::TurnCompleted {
@@ -142,11 +168,31 @@ pub async fn handle_propose(
             )
             .await;
             append(&log, ended("completed")).await;
+            // The end record carries the resume metadata (agent session id and
+            // load capability) so this session can be resumed later.
+            let _ = crate::session_index::append(
+                &state.data_dir,
+                &project_key,
+                &crate::session_index::SessionRecord {
+                    session_id: session_id.clone(),
+                    agent_command: agent_command.clone(),
+                    project_root: project_root.display().to_string(),
+                    started_at: started_at.clone(),
+                    ended_at: Some(crate::clock::now_rfc3339()),
+                    final_status: Some(status),
+                    agent_session_id: session_outcome.agent_session_id.clone(),
+                    supports_load: session_outcome.supports_load,
+                    resumed_from: None,
+                },
+            );
             state.sessions.deregister(&session_id).await;
             ProposeResult {
                 change_name,
-                proposal_path: proposal_path.display().to_string(),
+                // Normalize the path to the platform separator (honesty D4).
+                proposal_path: normalize_path(&proposal_path),
                 status,
+                // Declared honestly: how many requests the turn denied (H1).
+                denied_permissions: session_outcome.denied_permissions,
             }
         }
         Err(e) => {
@@ -159,6 +205,22 @@ pub async fn handle_propose(
             )
             .await;
             append(&log, ended("error")).await;
+            // Record the end so a failed session is not mislabeled interrupted.
+            let _ = crate::session_index::append(
+                &state.data_dir,
+                &project_key,
+                &crate::session_index::SessionRecord {
+                    session_id: session_id.clone(),
+                    agent_command: agent_command.clone(),
+                    project_root: project_root.display().to_string(),
+                    started_at: started_at.clone(),
+                    ended_at: Some(crate::clock::now_rfc3339()),
+                    final_status: None,
+                    agent_session_id: None,
+                    supports_load: false,
+                    resumed_from: None,
+                },
+            );
             state.sessions.deregister(&session_id).await;
             return Err(RpcError::application(
                 error_codes::AGENT_SPAWN_FAILED,
@@ -181,6 +243,22 @@ async fn append(log: &Arc<Mutex<SessionLog>>, kind: SessionEventKind) {
 fn ended(reason: &str) -> SessionEventKind {
     SessionEventKind::SessionEnded {
         reason: reason.to_string(),
+    }
+}
+
+/// Renders a path with a uniform platform separator (honesty D4, H4/H5). On
+/// Windows both separators are valid, so forward slashes a client may have
+/// sent are unified to backslashes; on Unix a backslash is a legal filename
+/// character and is left untouched.
+fn normalize_path(path: &Path) -> String {
+    let shown = path.display().to_string();
+    #[cfg(windows)]
+    {
+        shown.replace('/', "\\")
+    }
+    #[cfg(not(windows))]
+    {
+        shown
     }
 }
 

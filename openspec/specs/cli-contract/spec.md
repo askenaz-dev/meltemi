@@ -5,10 +5,10 @@ TBD - created by archiving change cli-contrato. Update Purpose after archive.
 ## Requirements
 ### Requirement: Gramática de subcomandos y reserva
 El binario `meltemi` SHALL exponer una gramática de subcomandos estable: los
-subcomandos operativos (`status`, `propose`, `stop`, `version`, `help`) y los
-subcomandos del ciclo SDD reservados (`explore`, `review`, `plan`, `implement`,
-`verify`, `archive`). Un subcomando reservado MUST reconocerse como parte de la
-gramática y no como error de uso.
+subcomandos operativos (`status`, `propose`, `stop`, `fleet`, `project`,
+`sessions`, `version`, `help`) y los subcomandos del ciclo SDD reservados
+(`explore`, `review`, `plan`, `implement`, `verify`, `archive`). Un subcomando
+reservado MUST reconocerse como parte de la gramática y no como error de uso.
 
 #### Scenario: Subcomando operativo reconocido
 - **WHEN** se invoca `meltemi status`
@@ -93,16 +93,17 @@ en error— y MUST NOT mezclar texto humano en stdout.
 ### Requirement: Mapeo comando↔método RPC
 Cada subcomando respaldado por RPC SHALL enviar `initialize` como primer mensaje y
 luego el método correspondiente: `status`→`status`, `propose`→`propose`,
-`stop`→`shutdown`. Los subcomandos locales (`version`, `help`) MUST NOT abrir
-conexión con el daemon.
+`stop`→`shutdown`, `fleet`→`fleet/list`, `project`→`context/project`,
+`sessions`→`session/list`. Los subcomandos locales (`version`, `help`) MUST NOT
+abrir conexión con el daemon.
 
 #### Scenario: initialize precede a todo método RPC
 - **WHEN** un subcomando respaldado por RPC abre una conexión con el daemon
 - **THEN** el binario SHALL enviar `initialize` antes de cualquier otro método
 
-#### Scenario: status consulta el estado del daemon
-- **WHEN** se invoca `meltemi status` con el daemon accesible
-- **THEN** el binario SHALL invocar el método `status` y presentar la versión, el tiempo activo y las sesiones del daemon
+#### Scenario: sessions consulta el histórico
+- **WHEN** se invoca `meltemi sessions` con el daemon accesible
+- **THEN** el binario SHALL invocar el método `session/list` y presentar activas e históricas
 
 #### Scenario: Los subcomandos locales no tocan el daemon
 - **WHEN** se invoca `meltemi version` o `meltemi help`

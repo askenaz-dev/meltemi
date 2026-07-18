@@ -26,6 +26,14 @@ pub mod methods {
     pub const SHUTDOWN: &str = "shutdown";
     /// Request: scaffold a change proposal and delegate it to the agent.
     pub const PROPOSE: &str = "propose";
+    /// Request: the fleet catalog (known agents crossed with local detection).
+    pub const FLEET_LIST: &str = "fleet/list";
+    /// Request: (re)project the compiled context into the declared targets.
+    pub const CONTEXT_PROJECT: &str = "context/project";
+    /// Request: list sessions (active and historical) for a project.
+    pub const SESSION_LIST: &str = "session/list";
+    /// Request: read a session's JSONL log, paginated by line range.
+    pub const SESSION_LOG: &str = "session/log";
     /// Notification (client -> daemon): cancel an active session.
     pub const SESSION_CANCEL: &str = "session/cancel";
     /// Notification (daemon -> client): streamed session event.
@@ -34,6 +42,12 @@ pub mod methods {
     pub const PERMISSION_REQUEST: &str = "permission/request";
     /// Notification (daemon -> client): a permission request timed out.
     pub const PERMISSION_TIMEOUT: &str = "permission/timeout";
+    /// Request (client -> daemon): enumerate the pending permission queue.
+    pub const PERMISSION_PENDING: &str = "permission/pending";
+    /// Request (client -> daemon): resolve a pending permission by id.
+    pub const PERMISSION_DECIDE: &str = "permission/decide";
+    /// Notification (daemon -> client): the pending permission queue changed.
+    pub const PERMISSION_CHANGED: &str = "permission/changed";
 }
 
 /// Application error codes, outside the JSON-RPC reserved range and grouped
@@ -46,10 +60,11 @@ pub mod error_codes {
     pub const NOT_INITIALIZED: i64 = 1001;
     /// The daemon is shutting down and no longer accepts work.
     pub const SHUTTING_DOWN: i64 = 1002;
-    /// No `agent.command` is configured.
+    /// No `agent.command` (nor `agent.id`) is configured.
     pub const AGENT_COMMAND_NOT_CONFIGURED: i64 = 2000;
-    /// The configured agent command does not exist on this system.
-    pub const AGENT_COMMAND_NOT_FOUND: i64 = 2001;
+    /// The selected agent is not present on this system: the configured
+    /// catalog id is unknown, or its binary was not detected.
+    pub const AGENT_NOT_DETECTED: i64 = 2001;
     /// The agent subprocess could not be started.
     pub const AGENT_SPAWN_FAILED: i64 = 2002;
     /// The ACP initialize negotiation with the agent failed.
@@ -119,6 +134,9 @@ pub enum SessionState {
     WaitingPermission,
     /// The session has finished.
     Ended,
+    /// The session had no recorded end (the daemon stopped mid-session): it is
+    /// inspectable, and resumable only if the agent supports session load.
+    Interrupted,
 }
 
 /// One active session, as reported by `status`.
@@ -145,6 +163,140 @@ pub struct StatusResult {
     pub sessions: Vec<SessionSummary>,
 }
 
+/// Params of `session/list`: filters over the sessions of a project.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionListParams {
+    /// Restrict to one project root; when absent, list across projects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+    /// Restrict to one lifecycle state (e.g. only `ended` or `interrupted`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<SessionState>,
+    /// Cap the number returned (most recent first).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// One session (active or historical) as reported by `session/list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInfo {
+    /// Meltemi session identifier.
+    pub session_id: String,
+    /// The agent binary and arguments (program first).
+    pub agent_command: Vec<String>,
+    /// Absolute repository root the session ran in.
+    pub project_root: String,
+    /// Current or final lifecycle state.
+    pub state: SessionState,
+    /// The final turn status, when the session ended cleanly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_status: Option<TurnStatus>,
+    /// Start timestamp (RFC 3339, UTC).
+    pub started_at: String,
+    /// End timestamp, when the session ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<String>,
+    /// Whether the session can be resumed (the agent announced session load
+    /// and the agent session id is known).
+    pub resumable: bool,
+}
+
+/// Result of `session/list`, most recent first.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionListResult {
+    /// The sessions matching the filters.
+    pub sessions: Vec<SessionInfo>,
+}
+
+/// Params of `session/log`: a paginated slice of a session's JSONL log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLogParams {
+    /// The project the session belongs to (locates the log on disk).
+    pub project_root: String,
+    /// The session whose log to read.
+    pub session_id: String,
+    /// First line to return (0-based); defaults to 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u32>,
+    /// Maximum lines to return; defaults to a daemon-chosen page size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// Result of `session/log`: raw JSONL lines plus paging metadata, so a client
+/// can page backward through a long transcript without reading the daemon's
+/// disk.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLogResult {
+    /// The session id echoed back.
+    pub session_id: String,
+    /// Total number of lines in the log.
+    pub total: u32,
+    /// Offset of the first returned line.
+    pub offset: u32,
+    /// The raw JSONL lines in `[offset, offset + lines.len())`.
+    pub lines: Vec<String>,
+}
+
+/// Params of `fleet/list`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FleetListParams {
+    /// Absolute path of a project root; when given, the response marks the
+    /// agent that project's configuration selects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+}
+
+/// Where a fleet catalog entry comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FleetAgentSource {
+    /// The bundled registry snapshot.
+    Registry,
+    /// A user-declared agent (`[[fleet.custom]]` in config).
+    Custom,
+}
+
+/// One agent of the fleet catalog, as reported by `fleet/list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FleetAgent {
+    /// Stable catalog identifier (selectable via `agent.id` in config).
+    pub id: String,
+    /// Human-readable agent name.
+    pub display_name: String,
+    /// Where this entry comes from.
+    pub source: FleetAgentSource,
+    /// Declared Meltemi integration level (1 native ACP, 2 adapter,
+    /// 3 structured headless, 4 artifacts). Declared, not verified: the
+    /// conformance suite is a separate change.
+    pub integration_level: u8,
+    /// Whether the agent's binary was found on this system.
+    pub detected: bool,
+    /// Absolute path of the detected binary; present only when detected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binary_path: Option<String>,
+    /// Whether the project at `projectRoot` selects this agent (always
+    /// `false` when the request carried no `projectRoot`).
+    pub configured: bool,
+}
+
+/// Result of `fleet/list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FleetListResult {
+    /// Version of the registry snapshot the catalog was built from.
+    pub registry_version: String,
+    /// The catalog, in registry order with custom entries appended.
+    pub agents: Vec<FleetAgent>,
+}
+
 /// Final status of an agent turn, mapped from the ACP stop reason
 /// (`end_turn` -> `completed`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,6 +312,34 @@ pub enum TurnStatus {
     MaxTokens,
     /// The agent hit its per-turn request limit.
     MaxTurnRequests,
+}
+
+/// Params of `context/project`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextProjectParams {
+    /// Absolute path to the root of the target repository.
+    pub project_root: String,
+}
+
+/// One target file the projection wrote (or found already current).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextTarget {
+    /// Destination path, relative to the project root (`AGENTS.md`, ...).
+    pub path: String,
+    /// Hex SHA-256 of the compiled content written into the managed block.
+    pub fingerprint: String,
+    /// Whether the file was actually rewritten (false when already current).
+    pub written: bool,
+}
+
+/// Result of `context/project`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextProjectResult {
+    /// Every declared target with its fingerprint and whether it changed.
+    pub targets: Vec<ContextTarget>,
 }
 
 /// Params of `propose`.
@@ -182,6 +362,11 @@ pub struct ProposeResult {
     pub proposal_path: String,
     /// Final status of the agent turn.
     pub status: TurnStatus,
+    /// How many of the agent's permission requests were denied during the
+    /// turn (by rule, by the human, or by timeout/default). When greater than
+    /// zero the artifact may be incomplete (honesty of result, H1/H4/H5).
+    #[serde(default)]
+    pub denied_permissions: u32,
 }
 
 /// Params of the `session/cancel` notification.
@@ -276,6 +461,126 @@ pub enum PermissionDecidedBy {
     DefaultDeny,
     /// The client did not answer within the configured timeout.
     Timeout,
+    /// A persistent rule resolved it before escalation.
+    Rule,
+}
+
+/// The effect of a permission rule: grant or refuse the matched request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionRuleEffect {
+    /// Grant the request (select the agent's allow option).
+    Allow,
+    /// Refuse the request (select a reject option, or cancel).
+    Deny,
+}
+
+/// Where a permission rule persists and how far it reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionRuleScope {
+    /// The user's global rules file.
+    Global,
+    /// The project's `.meltemi/permissions.toml`.
+    Project,
+}
+
+/// A persistent permission rule, evaluated in the daemon before a request is
+/// escalated to the human. The matchers are ANDed; an omitted matcher matches
+/// anything on that dimension. A rule MUST NOT grant an option the agent did
+/// not offer — it only decides among the offered options.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionRule {
+    /// Whether the rule allows or denies.
+    pub effect: PermissionRuleEffect,
+    /// Match on the tool/operation kind (exact).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// Match when the request's command starts with this prefix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_prefix: Option<String>,
+    /// Match when the affected path starts with this prefix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_prefix: Option<String>,
+    /// Where the rule lives.
+    pub scope: PermissionRuleScope,
+}
+
+/// One pending permission request as seen in a queue snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPermission {
+    /// Stable id of this pending request (used by `permission/decide`).
+    pub request_id: String,
+    /// The Meltemi session it belongs to.
+    pub session_id: String,
+    /// Short tool/operation label (from the ACP tool call).
+    pub tool: String,
+    /// One-line human summary of what is being authorized.
+    pub summary: String,
+    /// The options the agent offered.
+    pub options: Vec<PermissionOption>,
+    /// Seconds the request has been waiting (snapshot at query time).
+    pub waiting_seconds: u64,
+    /// Seconds until it expires; negative once expired (snapshot).
+    pub expires_in_seconds: i64,
+    /// Whether it has already expired but is still shown (never dropped
+    /// silently).
+    pub expired: bool,
+    /// A rule suggested to end repeated identical approvals (anti-fatigue);
+    /// present once the human has approved the same shape enough times.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_rule: Option<PermissionRule>,
+}
+
+/// Result of `permission/pending`: the current queue snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionPendingResult {
+    /// The pending requests, oldest first.
+    pub pending: Vec<PendingPermission>,
+}
+
+/// Params of the `permission/changed` notification: the full current queue,
+/// so every client reconciles to one snapshot without a round-trip.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionChangedParams {
+    /// The pending requests after the change, oldest first.
+    pub pending: Vec<PendingPermission>,
+}
+
+/// Params of `permission/decide`: resolve a pending request by id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionDecideParams {
+    /// The pending request to resolve.
+    pub request_id: String,
+    /// The chosen option id; `None` cancels (denies) the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub option_id: Option<String>,
+    /// A rule to persist alongside this decision ("allow/deny always").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persist_rule: Option<PermissionRule>,
+}
+
+/// Whether a `permission/decide` call applied or lost the race.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionDecideStatus {
+    /// This call resolved the request.
+    Applied,
+    /// The request was already resolved by another path; nothing changed.
+    AlreadyResolved,
+}
+
+/// Result of `permission/decide`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionDecideResult {
+    /// The reconciliation outcome (first-wins).
+    pub status: PermissionDecideStatus,
 }
 
 /// Versioned session event envelope (D12). Appended as one JSON line per
@@ -331,6 +636,10 @@ pub enum SessionEventKind {
         outcome: serde_json::Value,
         /// Who resolved it.
         decided_by: PermissionDecidedBy,
+        /// The rule that resolved it, when `decided_by` is `rule` — its scope
+        /// and content, so every grant is traceable to what took it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rule: Option<PermissionRule>,
     },
     /// The agent turn finished.
     TurnCompleted {

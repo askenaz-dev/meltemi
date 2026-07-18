@@ -14,12 +14,15 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::time::interval;
 
 use meltemi_proto::{
-    InitializeParams, PROTOCOL_VERSION, PeerInfo, SessionCancelParams, StatusResult, methods,
+    ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
+    PROTOCOL_VERSION, PeerInfo, PermissionChangedParams, PermissionDecideParams,
+    PermissionPendingResult, PermissionRule, SessionCancelParams, SessionListParams,
+    SessionListResult, SessionLogParams, SessionLogResult, StatusResult, methods,
 };
 use meltemid::bootstrap;
 use meltemid::rpc::{Incoming, Peer, RpcError};
 
-use crate::shell::live::{SessionRow, Update};
+use crate::shell::live::{FleetRow, FleetSnapshot, SessionRow, Update};
 use crate::shell::render::ConnState;
 
 /// A command from the UI to the connection actor.
@@ -31,6 +34,22 @@ pub enum Command {
     Shutdown,
     /// Force a status refresh.
     Refresh,
+    /// Query the fleet catalog (`fleet/list`).
+    FleetList,
+    /// Regenerate the projected context (`context/project`).
+    ProjectContext,
+    /// Fetch a historical session's log (`session/log`) for the detail view.
+    FetchSessionLog {
+        session_id: String,
+        project_root: String,
+    },
+    /// Resolve a pending permission by id (`permission/decide`), optionally
+    /// persisting a rule ("allow/deny always").
+    DecidePermission {
+        request_id: String,
+        option_id: Option<String>,
+        persist_rule: Option<PermissionRule>,
+    },
 }
 
 const MIN_BACKOFF: Duration = Duration::from_millis(200);
@@ -96,8 +115,11 @@ async fn serve_connection(
         return ConnExit::Disconnected;
     }
     refresh_status(&peer, updates).await;
+    refresh_sessions(&peer, updates).await;
+    // Seed the tray from the daemon's queue so it survives reconnection
+    // (the count no longer lives per-connection).
+    refresh_pending(&peer, updates).await;
 
-    let mut pending: usize = 0;
     let mut ticker = interval(REFRESH_EVERY);
     ticker.tick().await; // consume the immediate first tick
 
@@ -109,18 +131,22 @@ async fn serve_connection(
                     return ConnExit::Disconnected;
                 }
                 Some(Incoming::Request { id, method, params }) if method == methods::PERMISSION_REQUEST => {
-                    // Surface the request; do not answer (interactive approval is #9).
-                    pending += 1;
-                    let _ = updates.send(Update::Pending(pending));
+                    // The request also entered the daemon's queue (permission/
+                    // changed drives the tray and the counter). We hold the
+                    // live push unanswered and resolve via `permission/decide`
+                    // from the tray; an unanswered push is denied by timeout.
                     let _ = updates.send(Update::Notice(permission_notice(&params)));
-                    let _ = id; // held: the daemon's timeout denies if unanswered
+                    let _ = id;
                 }
                 Some(Incoming::Request { id, method, .. }) => {
                     peer.respond(id, Err(RpcError::method_not_found(&method)));
                 }
+                Some(Incoming::Notification { method, params }) if method == methods::PERMISSION_CHANGED => {
+                    if let Ok(changed) = serde_json::from_value::<PermissionChangedParams>(params) {
+                        let _ = updates.send(Update::PermissionQueue(changed.pending));
+                    }
+                }
                 Some(Incoming::Notification { method, .. }) if method == methods::PERMISSION_TIMEOUT => {
-                    pending = pending.saturating_sub(1);
-                    let _ = updates.send(Update::Pending(pending));
                     let _ = updates.send(Update::Notice("permiso vencido: denegado por plazo".into()));
                 }
                 Some(Incoming::Notification { method, params }) if method == methods::SESSION_EVENT => {
@@ -141,9 +167,27 @@ async fn serve_connection(
                 Some(Command::Shutdown) => {
                     let _ = peer.request(methods::SHUTDOWN, &json!({})).await;
                 }
-                Some(Command::Refresh) => refresh_status(&peer, updates).await,
+                Some(Command::Refresh) => {
+                    refresh_status(&peer, updates).await;
+                    refresh_sessions(&peer, updates).await;
+                }
+                Some(Command::FleetList) => refresh_fleet(&peer, updates).await,
+                Some(Command::ProjectContext) => project_context(&peer, updates).await,
+                Some(Command::FetchSessionLog { session_id, project_root }) => {
+                    fetch_session_log(&peer, updates, &session_id, &project_root).await;
+                }
+                Some(Command::DecidePermission { request_id, option_id, persist_rule }) => {
+                    let params = PermissionDecideParams { request_id, option_id, persist_rule };
+                    // The daemon broadcasts permission/changed on resolution;
+                    // refresh too so a lost broadcast still updates the tray.
+                    let _ = peer.request(methods::PERMISSION_DECIDE, &params).await;
+                    refresh_pending(&peer, updates).await;
+                }
             },
-            _ = ticker.tick() => refresh_status(&peer, updates).await,
+            _ = ticker.tick() => {
+                refresh_status(&peer, updates).await;
+                refresh_sessions(&peer, updates).await;
+            }
         }
     }
 }
@@ -165,8 +209,6 @@ async fn refresh_status(peer: &Peer, updates: &UnboundedSender<Update>) {
                     uptime_s: status.uptime_seconds,
                     sessions: status.sessions.len(),
                 }));
-                let rows = status.sessions.into_iter().map(SessionRow::from).collect();
-                let _ = updates.send(Update::Sessions(rows));
             }
         }
         Err(error) => {
@@ -174,6 +216,117 @@ async fn refresh_status(peer: &Peer, updates: &UnboundedSender<Update>) {
                 detail: error.to_string(),
             }));
         }
+    }
+}
+
+/// Populates the Sessions table from `session/list` (active and historical) for
+/// the current project, so the table shows history and survives reconnection.
+async fn refresh_sessions(peer: &Peer, updates: &UnboundedSender<Update>) {
+    let params = SessionListParams {
+        project_root: std::env::current_dir()
+            .ok()
+            .map(|root| root.display().to_string()),
+        ..SessionListParams::default()
+    };
+    if let Ok(value) = peer.request(methods::SESSION_LIST, &params).await
+        && let Ok(result) = serde_json::from_value::<SessionListResult>(value)
+    {
+        let rows = result.sessions.into_iter().map(SessionRow::from).collect();
+        let _ = updates.send(Update::Sessions(rows));
+    }
+}
+
+/// Fetches a historical session's log (tail page) and forwards a summarized
+/// transcript for the detail view.
+async fn fetch_session_log(
+    peer: &Peer,
+    updates: &UnboundedSender<Update>,
+    session_id: &str,
+    project_root: &str,
+) {
+    let params = SessionLogParams {
+        project_root: project_root.to_string(),
+        session_id: session_id.to_string(),
+        offset: None,
+        limit: None,
+    };
+    if let Ok(value) = peer.request(methods::SESSION_LOG, &params).await
+        && let Ok(result) = serde_json::from_value::<SessionLogResult>(value)
+    {
+        let lines = result.lines.iter().map(|l| summarize_log_line(l)).collect();
+        let _ = updates.send(Update::SessionLog {
+            session_id: result.session_id,
+            lines,
+        });
+    }
+}
+
+/// Summarizes one raw JSONL session-event line into a transcript row.
+fn summarize_log_line(line: &str) -> String {
+    match serde_json::from_str::<Value>(line) {
+        Ok(event) => {
+            let kind = event.get("type").and_then(Value::as_str).unwrap_or("event");
+            let ts = event.get("ts").and_then(Value::as_str).unwrap_or("");
+            format!("{ts}  {kind}")
+        }
+        Err(_) => line.to_string(),
+    }
+}
+
+/// Queries `fleet/list` and pushes the snapshot. The current directory names
+/// the project whose config marks the configured agent.
+async fn refresh_fleet(peer: &Peer, updates: &UnboundedSender<Update>) {
+    let params = FleetListParams {
+        project_root: std::env::current_dir()
+            .ok()
+            .map(|root| root.display().to_string()),
+    };
+    match peer.request(methods::FLEET_LIST, &params).await {
+        Ok(value) => {
+            if let Ok(result) = serde_json::from_value::<FleetListResult>(value) {
+                let _ = updates.send(Update::Fleet(FleetSnapshot {
+                    registry_version: result.registry_version,
+                    rows: result.agents.into_iter().map(FleetRow::from).collect(),
+                }));
+            }
+        }
+        Err(error) => {
+            let _ = updates.send(Update::Notice(format!("fleet/list: {error}")));
+        }
+    }
+}
+
+/// Regenerates the projected context and reports the result as a notice.
+async fn project_context(peer: &Peer, updates: &UnboundedSender<Update>) {
+    let Ok(root) = std::env::current_dir() else {
+        return;
+    };
+    let params = ContextProjectParams {
+        project_root: root.display().to_string(),
+    };
+    match peer.request(methods::CONTEXT_PROJECT, &params).await {
+        Ok(value) => {
+            if let Ok(result) = serde_json::from_value::<ContextProjectResult>(value) {
+                let written = result.targets.iter().filter(|t| t.written).count();
+                let _ = updates.send(Update::Notice(format!(
+                    "proyección: {} destino(s), {written} escritos",
+                    result.targets.len()
+                )));
+            }
+        }
+        Err(error) => {
+            let _ = updates.send(Update::Notice(format!("context/project: {error}")));
+        }
+    }
+}
+
+/// Queries `permission/pending` and pushes the tray snapshot. Used on connect
+/// (seed) and after a decide (belt-and-suspenders vs the broadcast).
+async fn refresh_pending(peer: &Peer, updates: &UnboundedSender<Update>) {
+    if let Ok(value) = peer.request(methods::PERMISSION_PENDING, &json!({})).await
+        && let Ok(result) = serde_json::from_value::<PermissionPendingResult>(value)
+    {
+        let _ = updates.send(Update::PermissionQueue(result.pending));
     }
 }
 

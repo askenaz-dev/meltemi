@@ -131,7 +131,7 @@ pub fn render(frame: &mut Frame, state: &ShellState, live: &LiveData, ctx: &Shel
     render_footer(frame, footer, state, ctx);
 
     if let Some(overlay) = state.top_overlay() {
-        render_overlay(frame, area, overlay, ctx);
+        render_overlay(frame, area, overlay, live, ctx);
     }
 }
 
@@ -262,7 +262,115 @@ fn render_body(frame: &mut Frame, area: Rect, state: &ShellState, live: &LiveDat
         View::Sessions => render_sessions(frame, inner, live, ctx),
         View::Project => render_project(frame, inner, ctx),
         View::Permissions => render_permissions(frame, inner, live, ctx),
-        View::Fleet => render_lines(frame, inner, vec![Line::from(ctx.msg(Msg::NoAgents))]),
+        View::Fleet => render_fleet(frame, inner, live, ctx),
+    }
+}
+
+/// The Fleet view: the catalog with detection (glyph + word), the declared
+/// level as a textual label, and the configured-agent marker. With zero
+/// detected agents the registry is shown anyway — what could be orchestrated
+/// — together with the BYO-agent hint: content, never a mute screen.
+fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
+    let Some(fleet) = &live.fleet else {
+        let text = format!(
+            "{} {}",
+            glyphs::PENDING.text(&ctx.present),
+            ctx.msg(Msg::FleetLoading)
+        );
+        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
+        return;
+    };
+
+    let detected = fleet.rows.iter().filter(|r| r.detected).count();
+    let header = if ctx.lang == Lang::Es {
+        format!(
+            "registro {} — {} agentes, {} detectados",
+            fleet.registry_version,
+            fleet.rows.len(),
+            detected
+        )
+    } else {
+        format!(
+            "registry {} — {} agents, {} detected",
+            fleet.registry_version,
+            fleet.rows.len(),
+            detected
+        )
+    };
+    let mut lines = vec![Line::styled(header, ctx.emphasis()), Line::from("")];
+
+    let id_width = fleet.rows.iter().map(|r| r.id.len()).max().unwrap_or(0);
+    for row in &fleet.rows {
+        let (glyph, word) = detection_label(row.detected, ctx.lang);
+        let level_word = level_label(row.level, ctx.lang);
+        let mut label = format!(
+            "{} {word:<13} L{} {level_word:<10} {:<id_width$}  {}",
+            glyph.text(&ctx.present),
+            row.level,
+            row.id,
+            row.name,
+        );
+        if row.custom {
+            label.push_str(" [custom]");
+        }
+        if row.configured {
+            label.push_str(&format!(
+                " {} {}",
+                glyphs::SELECT.text(&ctx.present),
+                if ctx.lang == Lang::Es {
+                    "configurado"
+                } else {
+                    "configured"
+                }
+            ));
+            lines.push(Line::styled(label, ctx.emphasis()));
+        } else {
+            lines.push(Line::from(label));
+        }
+    }
+
+    if detected == 0 {
+        lines.push(Line::from(""));
+        lines.push(Line::from(ctx.msg(Msg::NoAgents)));
+        lines.push(Line::from(ctx.msg(Msg::FleetByoHint)));
+    }
+    render_lines(frame, area, lines);
+}
+
+/// (glyph, word) for a fleet detection state — never color alone.
+fn detection_label(detected: bool, lang: Lang) -> (Glyph, &'static str) {
+    if detected {
+        (
+            glyphs::OK,
+            if lang == Lang::Es {
+                "detectado"
+            } else {
+                "detected"
+            },
+        )
+    } else {
+        (
+            glyphs::ABSENT,
+            if lang == Lang::Es {
+                "no-detectado"
+            } else {
+                "not-detected"
+            },
+        )
+    }
+}
+
+/// The word of a declared integration level: the label is `L<n>` plus this.
+fn level_label(level: u8, lang: Lang) -> &'static str {
+    match (level, lang) {
+        (1, Lang::Es) => "nativo",
+        (1, Lang::En) => "native",
+        (2, Lang::Es) => "adaptador",
+        (2, Lang::En) => "adapter",
+        (3, _) => "headless",
+        (4, Lang::Es) => "artefactos",
+        (4, Lang::En) => "artifacts",
+        _ => "?",
     }
 }
 
@@ -349,15 +457,50 @@ fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &S
     } else {
         "scrolled"
     };
+    // A historical session shows its transcript read by `session/log`; a live
+    // one shows the streamed transcript with its follow indicator.
+    let historical = live
+        .selected_session()
+        .is_some_and(|row| row.is_historical());
+    let subtitle = if historical {
+        let resumable = live.selected_session().is_some_and(|r| r.resumable);
+        if ctx.lang == Lang::Es {
+            if resumable {
+                "histórica — reanudable | Esc atrás".to_string()
+            } else {
+                "histórica — inspeccionable, no reanudable | Esc atrás".to_string()
+            }
+        } else if resumable {
+            "historical — resumable | Esc back".to_string()
+        } else {
+            "historical — inspectable, not resumable | Esc back".to_string()
+        }
+    } else {
+        format!("[{follow}] x cancela | Esc atrás")
+    };
+
     let mut lines = vec![
         Line::styled(header, ctx.emphasis()),
-        Line::from(format!("[{follow}] x cancela | Esc atrás")),
+        Line::from(subtitle),
         Line::from(""),
     ];
+
+    let source = if historical {
+        &live.session_log
+    } else {
+        &live.transcript
+    };
+    if historical && source.is_empty() {
+        lines.push(Line::from(if ctx.lang == Lang::Es {
+            "leyendo el registro..."
+        } else {
+            "reading the log..."
+        }));
+    }
     // Show the tail of the transcript that fits.
     let capacity = area.height.saturating_sub(3) as usize;
-    let start = live.transcript.len().saturating_sub(capacity);
-    for line in &live.transcript[start..] {
+    let start = source.len().saturating_sub(capacity);
+    for line in &source[start..] {
         lines.push(Line::from(line.clone()));
     }
     render_lines(frame, area, lines);
@@ -381,6 +524,11 @@ fn render_project(frame: &mut Frame, area: Rect, ctx: &ShellCtx) {
     let mut lines: Vec<Line> = entries.into_iter().map(Line::from).collect();
     lines.push(Line::from(""));
     lines.push(Line::from(if ctx.lang == Lang::Es {
+        "Enter regenera la proyección de contexto (AGENTS.md, ...)"
+    } else {
+        "Enter regenerates the projected context (AGENTS.md, ...)"
+    }));
+    lines.push(Line::from(if ctx.lang == Lang::Es {
         "verbos SDD reservados: explore review plan implement verify archive (próximamente)"
     } else {
         "reserved SDD verbs: explore review plan implement verify archive (coming soon)"
@@ -389,31 +537,97 @@ fn render_project(frame: &mut Frame, area: Rect, ctx: &ShellCtx) {
 }
 
 fn render_permissions(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
-    if live.pending_permissions == 0 && live.notices.is_empty() {
-        frame.render_widget(Paragraph::new(ctx.msg(Msg::NoPermissions)), area);
+    if live.permission_queue.is_empty() {
+        let mut lines = vec![Line::from(ctx.msg(Msg::NoPermissions))];
+        for notice in live.notices.iter().rev().take(3) {
+            lines.push(Line::from(notice.clone()));
+        }
+        render_lines(frame, area, lines);
         return;
     }
-    let mut lines = vec![Line::styled(
-        format!(
-            "{} {}",
-            live.pending_permissions,
-            if ctx.lang == Lang::Es {
-                "pendientes (bandeja: #9)"
-            } else {
-                "pending (tray: #9)"
-            }
-        ),
-        ctx.emphasis(),
-    )];
-    for notice in live
-        .notices
-        .iter()
-        .rev()
-        .take(area.height.saturating_sub(1) as usize)
-    {
+
+    let waiting = live.permission_queue.iter().filter(|p| !p.expired).count();
+    let header = if ctx.lang == Lang::Es {
+        format!("{waiting} esperando decisión")
+    } else {
+        format!("{waiting} awaiting a decision")
+    };
+    let mut lines = vec![
+        Line::styled(header, ctx.emphasis()),
+        Line::from(ctx.msg(Msg::TrayHint)),
+        Line::from(""),
+    ];
+
+    for (i, row) in live.permission_queue.iter().enumerate() {
+        let (glyph, word) = if row.expired {
+            (
+                glyphs::ERROR,
+                if ctx.lang == Lang::Es {
+                    "vencido"
+                } else {
+                    "expired"
+                },
+            )
+        } else {
+            (
+                glyphs::WAITING,
+                if ctx.lang == Lang::Es {
+                    "esperando"
+                } else {
+                    "waiting"
+                },
+            )
+        };
+        let marker = if i == live.permission_selected {
+            glyphs::FOCUS.text(&ctx.present)
+        } else {
+            " "
+        };
+        let timing = tray_timing(
+            row.waiting_seconds,
+            row.expires_in_seconds,
+            row.expired,
+            ctx.lang,
+        );
+        let label = format!(
+            "{marker} {} {word}  {}  {}  [{timing}]",
+            glyph.text(&ctx.present),
+            row.tool,
+            row.summary
+        );
+        if i == live.permission_selected {
+            lines.push(Line::styled(label, ctx.emphasis()));
+        } else {
+            lines.push(Line::from(label));
+        }
+        if row.suggested_rule.is_some() {
+            lines.push(Line::from(format!("    {}", ctx.msg(Msg::TrayFatigueHint))));
+        }
+    }
+
+    for notice in live.notices.iter().rev().take(2) {
         lines.push(Line::from(notice.clone()));
     }
     render_lines(frame, area, lines);
+}
+
+/// The age/deadline label of a tray row, with textual escalation as expiry
+/// nears — never color alone.
+fn tray_timing(waiting: u64, expires_in: i64, expired: bool, lang: Lang) -> String {
+    if expired {
+        return if lang == Lang::Es {
+            "vencido".into()
+        } else {
+            "expired".into()
+        };
+    }
+    let soon = (0..15).contains(&expires_in);
+    match (lang, soon) {
+        (Lang::Es, true) => format!("{waiting}s — ¡vence en {expires_in}s!"),
+        (Lang::Es, false) => format!("{waiting}s esperando — vence en {expires_in}s"),
+        (Lang::En, true) => format!("{waiting}s — expires in {expires_in}s!"),
+        (Lang::En, false) => format!("{waiting}s waiting — expires in {expires_in}s"),
+    }
 }
 
 fn render_lines(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
@@ -463,6 +677,14 @@ fn session_state_label(state: SessionState, lang: Lang) -> (Glyph, &'static str)
                 "ended"
             },
         ),
+        SessionState::Interrupted => (
+            glyphs::ERROR,
+            if lang == Lang::Es {
+                "interrumpida"
+            } else {
+                "interrupted"
+            },
+        ),
     }
 }
 
@@ -479,7 +701,13 @@ fn view_title(view: View, lang: Lang) -> &'static str {
     }
 }
 
-fn render_overlay(frame: &mut Frame, area: Rect, overlay: &Overlay, ctx: &ShellCtx) {
+fn render_overlay(
+    frame: &mut Frame,
+    area: Rect,
+    overlay: &Overlay,
+    live: &LiveData,
+    ctx: &ShellCtx,
+) {
     let (title, content) = match overlay {
         Overlay::Help => (
             ctx.msg(Msg::HelpTitle).to_string(),
@@ -518,6 +746,7 @@ fn render_overlay(frame: &mut Frame, area: Rect, overlay: &Overlay, ctx: &ShellC
                             .into()
                     }
                 }
+                ConfirmAction::CreateRule => create_rule_prompt(live, ctx),
             };
             (
                 if ctx.lang == Lang::Es {
@@ -536,7 +765,7 @@ fn render_overlay(frame: &mut Frame, area: Rect, overlay: &Overlay, ctx: &ShellC
 
     let (pct_w, pct_h) = match overlay {
         Overlay::Onboarding => (72, 72),
-        Overlay::Palette { .. } => (60, 75),
+        Overlay::Palette { .. } => (72, 90),
         Overlay::Help => (60, 50),
         _ => (60, 30),
     };
@@ -553,6 +782,75 @@ fn render_overlay(frame: &mut Frame, area: Rect, overlay: &Overlay, ctx: &ShellC
             .wrap(Wrap { trim: true }),
         popup,
     );
+}
+
+/// The confirmation text for creating a rule from the selected request: names
+/// the proposed (most specific) rule so the human confirms exactly what will
+/// persist.
+fn create_rule_prompt(live: &LiveData, ctx: &ShellCtx) -> String {
+    use meltemi_proto::{PermissionRuleEffect, PermissionRuleScope};
+    let Some(rule) = live.selected_rule_proposal() else {
+        return if ctx.lang == Lang::Es {
+            "No hay petición seleccionada.".into()
+        } else {
+            "No request selected.".into()
+        };
+    };
+    let effect = match rule.effect {
+        PermissionRuleEffect::Allow => {
+            if ctx.lang == Lang::Es {
+                "permitir"
+            } else {
+                "allow"
+            }
+        }
+        PermissionRuleEffect::Deny => {
+            if ctx.lang == Lang::Es {
+                "denegar"
+            } else {
+                "deny"
+            }
+        }
+    };
+    let scope = match rule.scope {
+        PermissionRuleScope::Project => {
+            if ctx.lang == Lang::Es {
+                "este proyecto"
+            } else {
+                "this project"
+            }
+        }
+        // Same word in both languages.
+        PermissionRuleScope::Global => "global",
+    };
+    let mut matchers = Vec::new();
+    if let Some(tool) = &rule.tool {
+        matchers.push(format!("tool={tool}"));
+    }
+    if let Some(cmd) = &rule.command_prefix {
+        matchers.push(format!("cmd~={cmd}"));
+    }
+    if let Some(path) = &rule.path_prefix {
+        matchers.push(format!("path~={path}"));
+    }
+    let matcher_text = if matchers.is_empty() {
+        if ctx.lang == Lang::Es {
+            "(todo)".to_string()
+        } else {
+            "(anything)".to_string()
+        }
+    } else {
+        matchers.join(" ")
+    };
+    if ctx.lang == Lang::Es {
+        format!(
+            "Crear regla: {effect} {matcher_text} en {scope}.\n\nEnter confirma y aprueba - Esc cancela"
+        )
+    } else {
+        format!(
+            "Create rule: {effect} {matcher_text} in {scope}.\n\nEnter confirms and approves - Esc cancels"
+        )
+    }
 }
 
 /// A rectangle centered in `area`, sized to the given width/height percentages.
@@ -577,8 +875,12 @@ fn centered(area: Rect, pct_w: u16, pct_h: u16) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell::live::{SessionRow, Update};
+    use crate::shell::live::{FleetRow, FleetSnapshot, SessionRow, Update};
     use crate::shell::present::{Presentation, PresentationEnv};
+    use meltemi_proto::{
+        PendingPermission, PermissionOption, PermissionOptionKind, PermissionRule,
+        PermissionRuleEffect, PermissionRuleScope,
+    };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
@@ -628,6 +930,8 @@ mod tests {
             id: "s1".into(),
             agent: "mock".into(),
             state: SessionState::Active,
+            project_root: "/repo".into(),
+            resumable: false,
         }]));
         let out = draw(&ShellState::new(), &live, &ctx(ascii), 80, 24);
         for forbidden in ['…', '▸', '·', '›', '┌', '│', '●', '▶'] {
@@ -682,18 +986,103 @@ mod tests {
         assert!(out.contains("Flota"));
     }
 
-    #[test]
-    fn fleet_shows_its_empty_state() {
+    fn fleet_row(id: &str, level: u8, detected: bool, configured: bool) -> FleetRow {
+        FleetRow {
+            id: id.into(),
+            name: format!("Agent {id}"),
+            level,
+            detected,
+            binary_path: detected.then(|| format!("/bin/{id}")),
+            configured,
+            custom: false,
+        }
+    }
+
+    fn connected() -> LiveData {
         let mut live = LiveData::new();
         live.apply(Update::Conn(ConnState::Connected {
             version: "0.1.0".into(),
             uptime_s: 1,
             sessions: 0,
         }));
+        live
+    }
+
+    fn fleet_view() -> ShellState {
         let mut s = ShellState::new();
         s.reduce(crate::shell::keymap::Action::SwitchView(4));
-        let out = draw(&s, &live, &ctx(default_present()), 80, 24);
-        assert!(out.contains("sin agentes"));
+        s
+    }
+
+    #[test]
+    fn fleet_without_data_yet_shows_the_loading_line() {
+        let out = draw(&fleet_view(), &connected(), &ctx(default_present()), 80, 24);
+        assert!(out.contains("consultando la flota"));
+    }
+
+    #[test]
+    fn fleet_table_shows_detection_level_and_configured_marker() {
+        // Scenario: Tabla con detectados y no detectados.
+        let mut live = connected();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "2026-07-09".into(),
+            rows: vec![
+                fleet_row("uno", 1, true, true),
+                fleet_row("dos", 4, false, false),
+            ],
+        }));
+        let out = draw(&fleet_view(), &live, &ctx(default_present()), 80, 24);
+        assert!(out.contains("registro 2026-07-09"), "version is visible");
+        assert!(out.contains("detectado"), "detection carries a word");
+        assert!(out.contains("no-detectado"), "absence carries a word too");
+        assert!(out.contains("L1") && out.contains("nativo"), "level label");
+        assert!(out.contains("L4") && out.contains("artefactos"));
+        assert!(out.contains("configurado"), "configured agent is marked");
+    }
+
+    #[test]
+    fn fleet_with_zero_detected_keeps_the_catalog_and_the_byo_hint() {
+        // Scenario: Cero detectados sigue enseñando el camino.
+        let mut live = connected();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "2026-07-09".into(),
+            rows: vec![
+                fleet_row("uno", 1, false, false),
+                fleet_row("dos", 2, false, false),
+            ],
+        }));
+        let out = draw(&fleet_view(), &live, &ctx(default_present()), 80, 24);
+        assert!(out.contains("uno"), "the registry is still listed");
+        assert!(out.contains("no-detectado"));
+        assert!(out.contains("sin agentes detectados"));
+        assert!(
+            out.contains("fleet.custom"),
+            "the BYO-agent remediation hint survives"
+        );
+    }
+
+    #[test]
+    fn fleet_ascii_render_uses_the_glyph_twins() {
+        let ascii = Presentation::resolve(&PresentationEnv {
+            ascii_flag: true,
+            ..Default::default()
+        });
+        let mut live = connected();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "v".into(),
+            rows: vec![
+                fleet_row("uno", 1, true, true),
+                fleet_row("dos", 2, false, false),
+            ],
+        }));
+        let out = draw(&fleet_view(), &live, &ctx(ascii), 80, 24);
+        for forbidden in ['●', '○', '›', '…', '┌', '│'] {
+            assert!(
+                !out.contains(forbidden),
+                "ASCII fleet render must not contain {forbidden:?}"
+            );
+        }
+        assert!(out.contains("detectado"), "meaning survives in words");
     }
 
     #[test]
@@ -748,6 +1137,115 @@ mod tests {
             out.contains("permisos esperando"),
             "pending permissions surface from any view"
         );
+    }
+
+    fn pending(request_id: &str, tool: &str, expired: bool, suggest: bool) -> PendingPermission {
+        PendingPermission {
+            request_id: request_id.into(),
+            session_id: "sess-1".into(),
+            tool: tool.into(),
+            summary: format!("do {tool}"),
+            options: vec![
+                PermissionOption {
+                    option_id: "allow".into(),
+                    name: "Allow".into(),
+                    kind: PermissionOptionKind::AllowOnce,
+                },
+                PermissionOption {
+                    option_id: "reject".into(),
+                    name: "Reject".into(),
+                    kind: PermissionOptionKind::RejectOnce,
+                },
+            ],
+            waiting_seconds: 5,
+            expires_in_seconds: if expired { -1 } else { 100 },
+            expired,
+            suggested_rule: suggest.then(|| PermissionRule {
+                effect: PermissionRuleEffect::Allow,
+                tool: Some(tool.into()),
+                command_prefix: None,
+                path_prefix: None,
+                scope: PermissionRuleScope::Project,
+            }),
+        }
+    }
+
+    fn permissions_view() -> ShellState {
+        let mut s = ShellState::new();
+        s.reduce(crate::shell::keymap::Action::SwitchView(3));
+        s
+    }
+
+    #[test]
+    fn tray_lists_pending_with_state_word_timing_and_decide_hint() {
+        // Scenario: Bandeja interactiva — lista con edad/plazo y decisión.
+        let mut live = connected();
+        live.apply(Update::PermissionQueue(vec![
+            pending("perm-1", "execute", false, false),
+            pending("perm-2", "edit", true, false),
+        ]));
+        let out = draw(&permissions_view(), &live, &ctx(default_present()), 80, 24);
+        assert!(
+            out.contains("esperando"),
+            "a waiting request carries a word"
+        );
+        assert!(out.contains("vencido"), "an expired request stays visible");
+        assert!(
+            out.contains("execute") && out.contains("edit"),
+            "tools listed"
+        );
+        assert!(out.contains("Enter aprueba"), "the decide hint is shown");
+    }
+
+    #[test]
+    fn tray_shows_the_anti_fatigue_suggestion() {
+        // Scenario: Sugerencia anti-fatiga surfaced in the tray.
+        let mut live = connected();
+        live.apply(Update::PermissionQueue(vec![pending(
+            "perm-1", "execute", false, true,
+        )]));
+        let out = draw(&permissions_view(), &live, &ctx(default_present()), 80, 24);
+        assert!(
+            out.contains("crea una regla"),
+            "the fatigue suggestion is surfaced"
+        );
+    }
+
+    #[test]
+    fn tray_create_rule_confirm_names_the_proposed_rule() {
+        // Scenario: Aprobar y crear regla — confirmar la regla propuesta.
+        let mut live = connected();
+        live.apply(Update::PermissionQueue(vec![pending(
+            "perm-1", "execute", false, false,
+        )]));
+        let mut s = permissions_view();
+        s.reduce(crate::shell::keymap::Action::Local('r')); // open the confirm
+        let out = draw(&s, &live, &ctx(default_present()), 80, 24);
+        assert!(out.contains("Crear regla"), "the confirm names the action");
+        assert!(
+            out.contains("tool=execute"),
+            "the most specific rule is shown for confirmation"
+        );
+    }
+
+    #[test]
+    fn tray_ascii_render_keeps_meaning_in_words() {
+        let ascii = Presentation::resolve(&PresentationEnv {
+            ascii_flag: true,
+            ..Default::default()
+        });
+        let mut live = connected();
+        live.apply(Update::PermissionQueue(vec![pending(
+            "perm-1", "execute", false, false,
+        )]));
+        let out = draw(&permissions_view(), &live, &ctx(ascii), 80, 24);
+        for forbidden in ['‖', '✕', '▸', '…', '│'] {
+            assert!(
+                !out.contains(forbidden),
+                "ASCII tray must not contain {forbidden:?}"
+            );
+        }
+        assert!(out.contains("esperando"), "meaning survives in words");
     }
 
     #[test]

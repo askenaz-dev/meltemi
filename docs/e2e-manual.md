@@ -65,6 +65,6 @@ Detalle de disponibilidad y flags por agente: `docs/research/integracion-agentes
 
 ## Diagnóstico
 
-- **`agent_command_not_found` / el daemon no arranca el agente**: revisa que el comando de `agent.command` esté en el `PATH` y autenticado.
+- **`agent_not_detected` / el daemon no arranca el agente**: revisa que el comando de `agent.command` (o el binario del `agent.id` elegido; `meltemi fleet` muestra qué se detecta) esté en el `PATH` y autenticado.
 - **Ver el tráfico ACP**: exporta `MELTEMI_LOG=debug` antes de lanzar el daemon; el log operacional vive en el directorio de datos del usuario (`<data_dir>/logs/meltemid.log`).
 - **Sesión inspeccionable**: el registro JSONL de la sesión queda en `<data_dir>/projects/<project_key>/sessions/<session_id>.jsonl` (cada evento, incluidas las decisiones de permiso).

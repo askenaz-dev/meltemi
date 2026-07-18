@@ -106,6 +106,22 @@ fn handle_action(
     action: Action,
     commands: &UnboundedSender<Command>,
 ) -> bool {
+    // Tray selection is a live concern, handled in the Permissions view with
+    // no overlay open (Up/Down or j/k move the highlighted request).
+    if state.top_overlay().is_none() && state.view() == View::Permissions {
+        match &action {
+            Action::Move(Direction::Down) | Action::Local('j') => {
+                live.move_permission_selection(true);
+                return false;
+            }
+            Action::Move(Direction::Up) | Action::Local('k') => {
+                live.move_permission_selection(false);
+                return false;
+            }
+            _ => {}
+        }
+    }
+
     // Selection and transcript scroll are live concerns, handled only in the
     // Sessions view with no overlay open.
     if state.top_overlay().is_none() && state.view() == View::Sessions {
@@ -138,6 +154,9 @@ fn handle_action(
         }
     }
 
+    let was_fleet = state.view() == View::Fleet;
+    let was_drilled = state.is_drilled();
+    let mut refresh_fleet = false;
     match state.reduce(action) {
         Some(Effect::Quit) => return true,
         Some(Effect::CancelActiveSession) => {
@@ -151,7 +170,66 @@ fn handle_action(
         Some(Effect::RefreshStatus) => {
             let _ = commands.send(Command::Refresh);
         }
+        Some(Effect::RefreshFleet) => refresh_fleet = true,
+        Some(Effect::ProjectContext) => {
+            let _ = commands.send(Command::ProjectContext);
+        }
+        Some(Effect::ApprovePermission) => {
+            if let Some((request_id, option_id)) = live.selected_allow_option() {
+                let _ = commands.send(Command::DecidePermission {
+                    request_id,
+                    option_id: Some(option_id),
+                    persist_rule: None,
+                });
+            }
+        }
+        Some(Effect::DenyPermission) => {
+            if let Some((request_id, option_id)) = live.selected_deny() {
+                let _ = commands.send(Command::DecidePermission {
+                    request_id,
+                    option_id,
+                    persist_rule: None,
+                });
+            }
+        }
+        Some(Effect::CreateRuleForPermission) => {
+            // Approve the request and persist the proposed rule in one gesture.
+            if let (Some((request_id, option_id)), Some(rule)) =
+                (live.selected_allow_option(), live.selected_rule_proposal())
+            {
+                let _ = commands.send(Command::DecidePermission {
+                    request_id,
+                    option_id: Some(option_id),
+                    persist_rule: Some(rule),
+                });
+            }
+        }
         None => {}
+    }
+    // Entering the Fleet view requests the catalog; the palette's `fleet`
+    // additionally re-queries it on demand (design D5).
+    if refresh_fleet || (!was_fleet && state.view() == View::Fleet) {
+        let _ = commands.send(Command::FleetList);
+    }
+
+    // Drilling into a session: a historical one shows its transcript read by
+    // `session/log`; a live one shows the streamed transcript.
+    let drilled_now = !was_drilled && state.is_drilled() && state.view() == View::Sessions;
+    if drilled_now {
+        match live.selected_session() {
+            Some(row) if row.is_historical() => {
+                let (id, root) = (row.id.clone(), row.project_root.clone());
+                live.observe_session_log(Some(id.clone()));
+                let _ = commands.send(Command::FetchSessionLog {
+                    session_id: id,
+                    project_root: root,
+                });
+            }
+            _ => live.observe_session_log(None),
+        }
+    } else if was_drilled && !state.is_drilled() {
+        // Left the detail view: forget the fetched historical log.
+        live.observe_session_log(None);
     }
     false
 }
@@ -177,5 +255,41 @@ fn map_key(key: KeyEvent) -> Option<Key> {
         KeyCode::Left => Some(Key::Left),
         KeyCode::Right => Some(Key::Right),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entering_the_fleet_view_requests_the_catalog_once() {
+        // Scenario: solicitud al entrar a la vista 4 (design D5).
+        let (tx, mut rx) = unbounded_channel::<Command>();
+        let mut state = ShellState::new();
+        let mut live = LiveData::new();
+
+        assert!(!handle_action(
+            &mut state,
+            &mut live,
+            Action::SwitchView(4),
+            &tx
+        ));
+        assert!(
+            matches!(rx.try_recv(), Ok(Command::FleetList)),
+            "entering the Fleet view must query the catalog"
+        );
+        // Re-selecting the already-open view does not spam the daemon.
+        assert!(!handle_action(
+            &mut state,
+            &mut live,
+            Action::SwitchView(4),
+            &tx
+        ));
+        assert!(rx.try_recv().is_err());
+        // Leaving and coming back re-queries (fresh detection per entry).
+        handle_action(&mut state, &mut live, Action::SwitchView(1), &tx);
+        handle_action(&mut state, &mut live, Action::SwitchView(4), &tx);
+        assert!(matches!(rx.try_recv(), Ok(Command::FleetList)));
     }
 }

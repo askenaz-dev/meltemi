@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/session-list.schema.json",
+  "title": "session/list",
+  "description": "Method `session/list`: the sessions of a project, active and historical, most recent first. Filters by project, state and count. Clients never read the daemon's disk (parity with tunnelled remote access).",
+  "$defs": {
+    "sessionState": {
+      "type": "string",
+      "enum": ["starting", "active", "waiting_permission", "ended", "interrupted"]
+    },
+    "turnStatus": {
+      "type": "string",
+      "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"]
+    },
+    "params": {
+      "type": "object",
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "state": { "$ref": "#/$defs/sessionState" },
+        "limit": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "sessionInfo": {
+      "type": "object",
+      "required": ["sessionId", "agentCommand", "projectRoot", "state", "startedAt", "resumable"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "agentCommand": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "state": { "$ref": "#/$defs/sessionState" },
+        "finalStatus": { "$ref": "#/$defs/turnStatus" },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "endedAt": { "type": "string", "format": "date-time" },
+        "resumable": {
+          "type": "boolean",
+          "description": "Whether the session can be resumed (agent announced session load and the agent session id is known)."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["sessions"],
+      "properties": {
+        "sessions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sessionInfo" }
+        }
+      }
+    }
+  }
+}

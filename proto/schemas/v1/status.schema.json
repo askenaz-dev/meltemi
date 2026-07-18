@@ -6,8 +6,8 @@
   "$defs": {
     "sessionState": {
       "type": "string",
-      "enum": ["starting", "active", "waiting_permission", "ended"],
-      "description": "Lifecycle state of an agent session."
+      "enum": ["starting", "active", "waiting_permission", "ended", "interrupted"],
+      "description": "Lifecycle state of an agent session. `interrupted` marks a session with no recorded end (the daemon stopped mid-session)."
     },
     "sessionSummary": {
       "type": "object",

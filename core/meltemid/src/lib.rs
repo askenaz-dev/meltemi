@@ -11,12 +11,17 @@ pub mod acp;
 pub mod bootstrap;
 pub mod clock;
 pub mod config;
+pub mod context;
+pub mod fleet;
 pub mod logging;
 pub mod paths;
+pub mod pending;
+pub mod permissions;
 pub mod propose;
 pub mod rpc;
 pub mod server;
 pub mod session;
+pub mod session_index;
 pub mod session_log;
 pub mod transport;
 

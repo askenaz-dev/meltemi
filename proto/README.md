@@ -39,10 +39,17 @@ jamás. La conexión es bidireccional: el daemon también envía peticiones
 | `status` | cliente → daemon | request | `status.schema.json` |
 | `shutdown` | cliente → daemon | request | `shutdown.schema.json` |
 | `propose` | cliente → daemon | request | `propose.schema.json` |
+| `fleet/list` | cliente → daemon | request | `fleet.schema.json` |
+| `context/project` | cliente → daemon | request | `context.schema.json` |
+| `session/list` | cliente → daemon | request | `session-list.schema.json` |
+| `session/log` | cliente → daemon | request | `session-log.schema.json` |
 | `session/cancel` | cliente → daemon | notification | `session-cancel.schema.json` |
 | `session/event` | daemon → cliente | notification | `session-event.schema.json` |
 | `permission/request` | daemon → cliente | request | `permission.schema.json` |
 | `permission/timeout` | daemon → cliente | notification | `permission.schema.json` |
+| `permission/pending` | cliente → daemon | request | `permission.schema.json` |
+| `permission/decide` | cliente → daemon | request | `permission.schema.json` |
+| `permission/changed` | daemon → cliente | notification | `permission.schema.json` |
 
 Los errores de aplicación (códigos 1xxx/2xxx/3xxx con `data`
 `{kind, detail, remedy}`) están catalogados en `error.schema.json`.

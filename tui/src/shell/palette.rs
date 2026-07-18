@@ -36,6 +36,24 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "refresh daemon status",
     },
     Entry {
+        name: "fleet",
+        reserved: false,
+        desc_es: "abrir la Flota y refrescar el catálogo",
+        desc_en: "open the Fleet and refresh the catalog",
+    },
+    Entry {
+        name: "project",
+        reserved: false,
+        desc_es: "regenerar el contexto proyectado (AGENTS.md, ...)",
+        desc_en: "regenerate the projected context (AGENTS.md, ...)",
+    },
+    Entry {
+        name: "sessions",
+        reserved: false,
+        desc_es: "ir a Sesiones (activas e históricas)",
+        desc_en: "go to Sessions (active and historical)",
+    },
+    Entry {
         name: "shutdown",
         reserved: false,
         desc_es: "apagar el daemon (confirma)",
@@ -121,5 +139,11 @@ mod tests {
     fn reserved_verbs_are_present_for_discovery() {
         // Core parity: reserved capabilities are reachable/announced, not errors.
         assert!(ENTRIES.iter().any(|e| e.name == "archive" && e.reserved));
+    }
+
+    #[test]
+    fn fleet_is_registered_as_an_operational_command() {
+        // Obligación viva de tui-shell: todo método nuevo se registra.
+        assert!(ENTRIES.iter().any(|e| e.name == "fleet" && !e.reserved));
     }
 }

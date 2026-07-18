@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Context projection targets (proyeccion-contexto D3).
+#
+# A versioned map of the instruction-file names each agent reads, so the
+# projected context reaches every agent in the format it expects. Embedded
+# into `meltemid` at build time (`include_str!`). Like the fleet registry,
+# third-party product names live here in data (factual interoperability),
+# never in the method's specs.
+#
+# `AGENTS.md` is always the base target. Each `[[target]]` adds a destination
+# file that receives the same compiled content inside its own managed block.
+# `path` is relative to the project root; `agents` documents which catalog
+# agents read it (informational).
+
+version = "2026-07-09"
+
+[[target]]
+path = "AGENTS.md"
+agents = ["codex-cli", "opencode", "cursor-cli", "kilo-code", "copilot-cli"]
+
+[[target]]
+path = "CLAUDE.md"
+agents = ["claude-code"]
+
+[[target]]
+path = "GEMINI.md"
+agents = ["gemini-cli", "antigravity"]

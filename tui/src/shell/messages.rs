@@ -33,6 +33,10 @@ pub enum Msg {
     NoProject,
     NoPermissions,
     NoAgents,
+    FleetLoading,
+    FleetByoHint,
+    TrayHint,
+    TrayFatigueHint,
     HintKeys,
     HintExitField,
     QuitConfirm,
@@ -62,6 +66,24 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         (Msg::NoPermissions, Lang::En) => "no pending permissions",
         (Msg::NoAgents, Lang::Es) => "sin agentes detectados",
         (Msg::NoAgents, Lang::En) => "no agents detected",
+        (Msg::FleetLoading, Lang::Es) => "consultando la flota...",
+        (Msg::FleetLoading, Lang::En) => "querying the fleet...",
+        (Msg::FleetByoHint, Lang::Es) => {
+            "trae tu propio agente: instala su CLI oficial (con su propia auth) \
+             o declara uno en config con [[fleet.custom]]"
+        }
+        (Msg::FleetByoHint, Lang::En) => {
+            "bring your own agent: install its official CLI (with its own auth) \
+             or declare one in config with [[fleet.custom]]"
+        }
+        (Msg::TrayHint, Lang::Es) => "Enter aprueba | d deniega | r crear regla | j/k mover",
+        (Msg::TrayHint, Lang::En) => "Enter approves | d denies | r make rule | j/k move",
+        (Msg::TrayFatigueHint, Lang::Es) => {
+            "· sugerencia: r crea una regla para no volver a preguntar esto"
+        }
+        (Msg::TrayFatigueHint, Lang::En) => {
+            "· suggestion: r makes a rule so this is never asked again"
+        }
         (Msg::HintKeys, Lang::Es) => "1-4 vistas | : paleta | ? ayuda | a permisos | q salir",
         (Msg::HintKeys, Lang::En) => "1-4 views | : palette | ? help | a permissions | q quit",
         (Msg::HintExitField, Lang::Es) => "Esc para salir",
@@ -106,6 +128,10 @@ pub const ALL: &[Msg] = &[
     Msg::NoProject,
     Msg::NoPermissions,
     Msg::NoAgents,
+    Msg::FleetLoading,
+    Msg::FleetByoHint,
+    Msg::TrayHint,
+    Msg::TrayFatigueHint,
     Msg::HintKeys,
     Msg::HintExitField,
     Msg::QuitConfirm,

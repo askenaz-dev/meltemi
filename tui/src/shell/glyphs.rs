@@ -43,10 +43,15 @@ pub const PERMISSION: Glyph = Glyph {
     unicode: "!",
     ascii: "!",
 };
-/// Daemon reachable / connected.
+/// Daemon reachable / connected; also a detected fleet entry.
 pub const OK: Glyph = Glyph {
     unicode: "●",
     ascii: "*",
+};
+/// A fleet entry not detected on this system (hollow twin of [`OK`]).
+pub const ABSENT: Glyph = Glyph {
+    unicode: "○",
+    ascii: "o",
 };
 /// Daemon unreachable / error.
 pub const ERROR: Glyph = Glyph {
@@ -81,7 +86,7 @@ pub const ENDED: Glyph = Glyph {
 
 /// Every glyph in the table, for the twin-invariant test and audits.
 pub const ALL: &[Glyph] = &[
-    FOCUS, SELECT, PERMISSION, OK, ERROR, PENDING, STARTING, ACTIVE, WAITING, ENDED,
+    FOCUS, SELECT, PERMISSION, OK, ABSENT, ERROR, PENDING, STARTING, ACTIVE, WAITING, ENDED,
 ];
 
 #[cfg(test)]

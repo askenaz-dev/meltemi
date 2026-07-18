@@ -2,12 +2,12 @@
 
 //! Parity with `openspec archive` (design D5).
 //!
-//! Applying a real archived change's delta onto the previous living spec must
-//! reproduce the current living truth. This anchors the merge semantics to the
-//! tool that performs `/archive` during the bootstrap. `propose-flow` is a
-//! good anchor: it was created by `fase-0-fundacion` with `ADDED` only and has
-//! not been modified since, so folding its delta onto an empty spec must yield
-//! exactly today's living `propose-flow`.
+//! Applying a capability's archived-change deltas, in archive order, onto an
+//! empty living spec must reproduce the current living truth. This anchors the
+//! merge semantics to the tool that performs `/archive` during the bootstrap.
+//! `propose-flow` is a good anchor: `fase-0-fundacion` created it and later
+//! changes only `ADDED` to it, so folding every archived delta in chronological
+//! order must yield exactly today's living `propose-flow`.
 
 use std::path::{Path, PathBuf};
 
@@ -21,39 +21,49 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Finds an archived change's delta spec for `capability`, if any.
-fn archived_delta(capability: &str) -> Option<PathBuf> {
+/// Every archived change's delta spec for `capability`, in archive order
+/// (archives are date-prefixed, so a name sort is chronological).
+fn archived_deltas(capability: &str) -> Vec<PathBuf> {
     let archive = repo_root().join("openspec").join("changes").join("archive");
-    for entry in std::fs::read_dir(&archive).ok()?.filter_map(Result::ok) {
-        let candidate = entry.path().join("specs").join(capability).join("spec.md");
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
+    let mut deltas: Vec<PathBuf> = std::fs::read_dir(&archive)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|e| e.path().join("specs").join(capability).join("spec.md"))
+        .filter(|p| p.is_file())
+        .collect();
+    deltas.sort();
+    deltas
 }
 
 #[test]
 fn folding_propose_flow_delta_matches_the_living_truth() {
     let capability = "propose-flow";
-    let delta_path = archived_delta(capability)
-        .expect("an archived propose-flow delta should exist (fase-0-fundacion)");
+    let delta_paths = archived_deltas(capability);
+    assert!(
+        !delta_paths.is_empty(),
+        "an archived propose-flow delta should exist (fase-0-fundacion)"
+    );
 
-    let content = std::fs::read_to_string(&delta_path).unwrap();
-    let delta = parse_delta(capability, &content, delta_path.clone());
-
-    // Fold the delta onto an empty living spec — reproducing what archive did.
-    let empty = Spec {
+    // Fold every archived delta onto an empty living spec, in archive order —
+    // reproducing what successive `/archive` runs did.
+    let mut merged = Spec {
         capability: capability.to_string(),
         requirements: Vec::new(),
         deltas: Vec::new(),
         source: PathBuf::from(format!("specs/{capability}/spec.md")),
     };
-    let (merged, diagnostics) = apply_delta(&empty, &delta);
-    assert!(
-        diagnostics.is_empty(),
-        "folding the archived delta produced diagnostics: {diagnostics:?}"
-    );
+    for delta_path in &delta_paths {
+        let content = std::fs::read_to_string(delta_path).unwrap();
+        let delta = parse_delta(capability, &content, delta_path.clone());
+        let (next, diagnostics) = apply_delta(&merged, &delta);
+        assert!(
+            diagnostics.is_empty(),
+            "folding {} produced diagnostics: {diagnostics:?}",
+            delta_path.display()
+        );
+        merged = next;
+    }
 
     // Compare against today's living truth.
     let living = parse_spec_file(

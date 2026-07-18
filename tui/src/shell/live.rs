@@ -4,26 +4,77 @@
 //! (design D1, D5). Kept separate from the pure navigation [`ShellState`] so the
 //! reducer stays testable, and so rendering reads one coherent snapshot.
 
-use meltemi_proto::{SessionState, SessionSummary};
+use meltemi_proto::{
+    FleetAgent, FleetAgentSource, PendingPermission, PermissionOptionKind, PermissionRule,
+    PermissionRuleEffect, PermissionRuleScope, SessionInfo, SessionState,
+};
 
 use crate::shell::render::ConnState;
 
-/// One session row materialized from `status`.
+/// One session row materialized from `session/list` (active or historical).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionRow {
     pub id: String,
     pub agent: String,
     pub state: SessionState,
+    /// The project root, needed to read the session's log by contract.
+    pub project_root: String,
+    /// Whether the session can be resumed (agent supports load).
+    pub resumable: bool,
 }
 
-impl From<SessionSummary> for SessionRow {
-    fn from(s: SessionSummary) -> Self {
+impl SessionRow {
+    /// Whether the session is historical (finished or interrupted) rather than
+    /// currently live.
+    #[must_use]
+    pub fn is_historical(&self) -> bool {
+        matches!(self.state, SessionState::Ended | SessionState::Interrupted)
+    }
+}
+
+impl From<SessionInfo> for SessionRow {
+    fn from(s: SessionInfo) -> Self {
         Self {
             id: s.session_id,
             agent: s.agent_command.join(" "),
             state: s.state,
+            project_root: s.project_root,
+            resumable: s.resumable,
         }
     }
+}
+
+/// One fleet catalog row materialized from `fleet/list`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FleetRow {
+    pub id: String,
+    pub name: String,
+    pub level: u8,
+    pub detected: bool,
+    pub binary_path: Option<String>,
+    pub configured: bool,
+    pub custom: bool,
+}
+
+impl From<FleetAgent> for FleetRow {
+    fn from(a: FleetAgent) -> Self {
+        Self {
+            id: a.id,
+            name: a.display_name,
+            level: a.integration_level,
+            detected: a.detected,
+            binary_path: a.binary_path,
+            configured: a.configured,
+            custom: a.source == FleetAgentSource::Custom,
+        }
+    }
+}
+
+/// The fleet catalog as last reported by the daemon.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FleetSnapshot {
+    pub registry_version: String,
+    pub rows: Vec<FleetRow>,
 }
 
 /// An update pushed from the connection actor to the UI.
@@ -33,10 +84,21 @@ pub enum Update {
     Conn(ConnState),
     /// The full session list was refreshed.
     Sessions(Vec<SessionRow>),
+    /// The fleet catalog was (re)queried.
+    Fleet(FleetSnapshot),
+    /// The pending-permission queue snapshot (from `permission/pending` on
+    /// connect, or a `permission/changed` broadcast). Drives the tray and the
+    /// chrome counter, so it survives reconnection.
+    PermissionQueue(Vec<PendingPermission>),
     /// The count of pending permission requests changed.
     Pending(usize),
     /// A streamed transcript line for the observed session.
     TranscriptLine(String),
+    /// The fetched log of a historical session (summarized lines).
+    SessionLog {
+        session_id: String,
+        lines: Vec<String>,
+    },
     /// A persistent, labeled notice (e.g. a permission expiry).
     Notice(String),
 }
@@ -47,7 +109,14 @@ pub enum Update {
 pub struct LiveData {
     pub conn: ConnState,
     pub sessions: Vec<SessionRow>,
+    /// The fleet catalog; `None` until the first `fleet/list` answer arrives.
+    pub fleet: Option<FleetSnapshot>,
     pub selected: usize,
+    /// The pending-permission queue (tray). The daemon owns it, so it survives
+    /// reconnection.
+    pub permission_queue: Vec<PendingPermission>,
+    /// Selection index within the permission tray.
+    pub permission_selected: usize,
     pub pending_permissions: usize,
     pub transcript: Vec<String>,
     /// Whether the transcript auto-follows its tail.
@@ -57,6 +126,10 @@ pub struct LiveData {
     /// Horizontal scroll offset (columns) for wide tables.
     pub h_scroll: usize,
     pub notices: Vec<String>,
+    /// The fetched transcript of a historical session being inspected, and the
+    /// session id it belongs to (so a stale fetch is ignored).
+    pub session_log: Vec<String>,
+    pub session_log_for: Option<String>,
 }
 
 impl Default for LiveData {
@@ -71,13 +144,18 @@ impl LiveData {
         Self {
             conn: ConnState::Connecting,
             sessions: Vec::new(),
+            fleet: None,
             selected: 0,
+            permission_queue: Vec::new(),
+            permission_selected: 0,
             pending_permissions: 0,
             transcript: Vec::new(),
             follow_tail: true,
             scroll: 0,
             h_scroll: 0,
             notices: Vec::new(),
+            session_log: Vec::new(),
+            session_log_for: None,
         }
     }
 
@@ -113,6 +191,16 @@ impl LiveData {
                     self.selected = self.sessions.len().saturating_sub(1);
                 }
             }
+            Update::Fleet(snapshot) => self.fleet = Some(snapshot),
+            Update::PermissionQueue(queue) => {
+                self.permission_queue = queue;
+                if self.permission_selected >= self.permission_queue.len() {
+                    self.permission_selected = self.permission_queue.len().saturating_sub(1);
+                }
+                // The chrome counter reflects the live queue (unexpired).
+                self.pending_permissions =
+                    self.permission_queue.iter().filter(|p| !p.expired).count();
+            }
             Update::Pending(n) => self.pending_permissions = n,
             Update::TranscriptLine(line) => {
                 self.transcript.push(line);
@@ -123,8 +211,23 @@ impl LiveData {
                     self.scroll = self.transcript.len();
                 }
             }
+            Update::SessionLog { session_id, lines } => {
+                // Ignore a fetch for a session we are no longer inspecting.
+                if self.session_log_for.as_deref() == Some(session_id.as_str()) {
+                    self.session_log = lines;
+                }
+            }
             Update::Notice(text) => self.notices.push(text),
         }
+    }
+
+    /// Marks which historical session's log the detail view is showing, so the
+    /// event loop can fetch it and stale answers are dropped.
+    pub fn observe_session_log(&mut self, session_id: Option<String>) {
+        if self.session_log_for != session_id {
+            self.session_log.clear();
+        }
+        self.session_log_for = session_id;
     }
 
     /// Moves the session selection by one row (clamped).
@@ -143,6 +246,75 @@ impl LiveData {
     #[must_use]
     pub fn selected_session(&self) -> Option<&SessionRow> {
         self.sessions.get(self.selected)
+    }
+
+    /// Moves the tray selection by one row (clamped).
+    pub fn move_permission_selection(&mut self, down: bool) {
+        if self.permission_queue.is_empty() {
+            return;
+        }
+        if down {
+            self.permission_selected =
+                (self.permission_selected + 1).min(self.permission_queue.len() - 1);
+        } else {
+            self.permission_selected = self.permission_selected.saturating_sub(1);
+        }
+    }
+
+    /// The currently selected pending permission, if any.
+    #[must_use]
+    pub fn selected_permission(&self) -> Option<&PendingPermission> {
+        self.permission_queue.get(self.permission_selected)
+    }
+
+    /// The option id of the selected request that grants it, if the agent
+    /// offered one (a tray "approve" never invents an option).
+    #[must_use]
+    pub fn selected_allow_option(&self) -> Option<(String, String)> {
+        let row = self.selected_permission()?;
+        let option = row.options.iter().find(|o| {
+            matches!(
+                o.kind,
+                PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
+            )
+        })?;
+        Some((row.request_id.clone(), option.option_id.clone()))
+    }
+
+    /// The option id of the selected request that refuses it (or `None` to
+    /// cancel when the agent offered no reject option).
+    #[must_use]
+    pub fn selected_deny(&self) -> Option<(String, Option<String>)> {
+        let row = self.selected_permission()?;
+        let option = row
+            .options
+            .iter()
+            .find(|o| {
+                matches!(
+                    o.kind,
+                    PermissionOptionKind::RejectOnce | PermissionOptionKind::RejectAlways
+                )
+            })
+            .map(|o| o.option_id.clone());
+        Some((row.request_id.clone(), option))
+    }
+
+    /// The most specific rule to propose for the selected request: the
+    /// daemon's anti-fatigue suggestion when present, else tool + command
+    /// prefix at project scope (never broader than what is known).
+    #[must_use]
+    pub fn selected_rule_proposal(&self) -> Option<PermissionRule> {
+        let row = self.selected_permission()?;
+        if let Some(rule) = &row.suggested_rule {
+            return Some(rule.clone());
+        }
+        Some(PermissionRule {
+            effect: PermissionRuleEffect::Allow,
+            tool: (!row.tool.is_empty()).then(|| row.tool.clone()),
+            command_prefix: None,
+            path_prefix: None,
+            scope: PermissionRuleScope::Project,
+        })
     }
 
     /// Scrolls the transcript up, suspending auto-follow.
@@ -172,6 +344,8 @@ mod tests {
             id: id.into(),
             agent: "mock".into(),
             state,
+            project_root: "/repo".into(),
+            resumable: false,
         }
     }
 
@@ -232,6 +406,27 @@ mod tests {
         live.scroll_down();
         live.scroll_down();
         assert!(live.follow_tail, "returning to the tail resumes following");
+    }
+
+    #[test]
+    fn fleet_update_replaces_the_snapshot() {
+        let mut live = LiveData::new();
+        assert!(live.fleet.is_none(), "no snapshot before the first answer");
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "fixture-1".into(),
+            rows: vec![FleetRow {
+                id: "one".into(),
+                name: "One".into(),
+                level: 1,
+                detected: true,
+                binary_path: Some("/bin/one".into()),
+                configured: false,
+                custom: false,
+            }],
+        }));
+        let snapshot = live.fleet.as_ref().expect("snapshot stored");
+        assert_eq!(snapshot.registry_version, "fixture-1");
+        assert_eq!(snapshot.rows.len(), 1);
     }
 
     #[test]

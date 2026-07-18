@@ -28,6 +28,9 @@ USAGE:
 SUBCOMMANDS:
     status              show daemon version, uptime and active sessions
     propose <idea>      scaffold a change proposal and delegate it to an agent
+    fleet               list the agent fleet catalog (detection and levels)
+    project             regenerate the projected context (AGENTS.md, ...)
+    sessions            list agent sessions (active and historical)
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
@@ -50,6 +53,12 @@ pub enum Command {
         idea: String,
         project_root: Option<String>,
     },
+    /// List the fleet catalog (`fleet/list`).
+    Fleet,
+    /// Regenerate the projected context (`context/project`).
+    Project { project_root: Option<String> },
+    /// List sessions, active and historical (`session/list`).
+    Sessions { project_root: Option<String> },
     /// Request an orderly daemon shutdown.
     Stop,
     /// A reserved subcommand recognized by the grammar but not yet implemented.
@@ -146,6 +155,22 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
         "version" => Action::Version,
         "status" if rest.is_empty() => Action::Run(Command::Status),
         "status" => Action::Usage("`status` takes no arguments".into()),
+        "fleet" if rest.is_empty() => Action::Run(Command::Fleet),
+        "fleet" => Action::Usage("`fleet` takes no arguments".into()),
+        "project" => match rest {
+            [] => Action::Run(Command::Project { project_root: None }),
+            [root] => Action::Run(Command::Project {
+                project_root: Some((*root).to_string()),
+            }),
+            _ => Action::Usage("`project` takes at most a project root".into()),
+        },
+        "sessions" => match rest {
+            [] => Action::Run(Command::Sessions { project_root: None }),
+            [root] => Action::Run(Command::Sessions {
+                project_root: Some((*root).to_string()),
+            }),
+            _ => Action::Usage("`sessions` takes at most a project root".into()),
+        },
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
         "stop" => Action::Usage("`stop` takes no arguments".into()),
         "propose" => match rest {
@@ -234,6 +259,59 @@ mod tests {
     fn status_rejects_extra_arguments() {
         assert!(matches!(
             plan_of(&["status", "x"], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn project_is_operational_with_an_optional_root() {
+        // Scenario: project regenera la proyección.
+        assert_eq!(
+            plan_of(&["project"], false).action,
+            Action::Run(Command::Project { project_root: None })
+        );
+        assert_eq!(
+            plan_of(&["project", "/repo"], false).action,
+            Action::Run(Command::Project {
+                project_root: Some("/repo".into())
+            })
+        );
+        let p = plan_of(&["--json", "project"], false);
+        assert!(p.json);
+        assert!(matches!(
+            plan_of(&["project", "a", "b"], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn sessions_is_operational_with_an_optional_root() {
+        // Scenario: sessions consulta el histórico.
+        assert_eq!(
+            plan_of(&["sessions"], false).action,
+            Action::Run(Command::Sessions { project_root: None })
+        );
+        assert_eq!(
+            plan_of(&["sessions", "/repo"], false).action,
+            Action::Run(Command::Sessions {
+                project_root: Some("/repo".into())
+            })
+        );
+        assert!(plan_of(&["--json", "sessions"], false).json);
+    }
+
+    #[test]
+    fn fleet_is_an_operational_subcommand_without_arguments() {
+        // Scenario: Subcomando operativo reconocido (fleet).
+        let p = plan_of(&["fleet"], false);
+        assert_eq!(p.action, Action::Run(Command::Fleet));
+        assert!(!p.json);
+        // The --json variant is captured like any global flag.
+        let p = plan_of(&["--json", "fleet"], false);
+        assert_eq!(p.action, Action::Run(Command::Fleet));
+        assert!(p.json);
+        assert!(matches!(
+            plan_of(&["fleet", "x"], false).action,
             Action::Usage(_)
         ));
     }

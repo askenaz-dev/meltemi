@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/session-log.schema.json",
+  "title": "session/log",
+  "description": "Method `session/log`: a paginated slice of a session's append-only JSONL log, by line range, so a client can page backward through a long transcript over a tunnel without reading the daemon's disk.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": ["projectRoot", "sessionId"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "sessionId": { "type": "string", "minLength": 1 },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "First line to return (0-based); defaults to 0."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum lines to return; defaults to a daemon-chosen page size."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["sessionId", "total", "offset", "lines"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of lines in the log."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Offset of the first returned line."
+        },
+        "lines": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The raw JSONL lines in [offset, offset + lines.length)."
+        }
+      }
+    }
+  }
+}

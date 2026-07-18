@@ -98,8 +98,12 @@
                 },
                 "decidedBy": {
                   "type": "string",
-                  "enum": ["client", "default_deny", "timeout"],
-                  "description": "client: the connected client answered; default_deny: no client connected; timeout: the client did not answer in time."
+                  "enum": ["client", "default_deny", "timeout", "rule"],
+                  "description": "client: the connected client answered; default_deny: no client connected; timeout: the client did not answer in time; rule: a persistent rule resolved it before escalation."
+                },
+                "rule": {
+                  "type": "object",
+                  "description": "The rule that resolved it, present only when decidedBy is `rule` (see permission.schema.json#/$defs/rule): its effect, scope and matchers, so every grant is traceable."
                 }
               }
             }
