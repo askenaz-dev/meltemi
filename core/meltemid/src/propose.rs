@@ -304,7 +304,7 @@ fn normalize_path(path: &Path) -> String {
 /// Derives a kebab-case change name from a free-form idea: lowercase, runs of
 /// non-alphanumeric characters collapse to a single `-`, trimmed, and capped
 /// to a reasonable length. Returns `None` when nothing usable remains.
-fn derive_change_name(idea: &str) -> Option<String> {
+pub fn derive_change_name(idea: &str) -> Option<String> {
     let mut name = String::new();
     let mut prev_dash = false;
     for ch in idea.chars() {

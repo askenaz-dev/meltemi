@@ -236,6 +236,13 @@ async fn dispatch_request(
         methods::SESSION_LIST => handle_session_list(params, state).await,
         methods::SESSION_LOG => handle_session_log(params, state).await,
         methods::REPO_MAP => handle_repo_map(params).await,
+        methods::SDD_EXPLORE => crate::sdd_flow::handle_explore(params, state, peer).await,
+        methods::SDD_CONSTITUTION => {
+            crate::sdd_flow::handle_constitution(params, state, peer).await
+        }
+        methods::SDD_PROPOSE => crate::sdd_flow::handle_propose(params, state, peer).await,
+        methods::SDD_PLAN => crate::sdd_flow::handle_plan(params, state, peer).await,
+        methods::SDD_GATE => crate::sdd_flow::handle_gate(params, state, peer).await,
         methods::PERMISSION_PENDING => handle_permission_pending(state).await,
         methods::PERMISSION_DECIDE => handle_permission_decide(params, state).await,
         other => Err(RpcError::method_not_found(other)),

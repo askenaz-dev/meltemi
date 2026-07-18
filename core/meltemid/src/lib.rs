@@ -23,6 +23,8 @@ pub mod permissions;
 pub mod propose;
 pub mod repo_map;
 pub mod rpc;
+pub mod sdd;
+pub mod sdd_flow;
 pub mod server;
 pub mod session;
 pub mod session_index;

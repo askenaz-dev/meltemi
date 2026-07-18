@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/sdd.schema.json",
+  "title": "sdd/* authoring cycle",
+  "description": "Methods sdd/explore, sdd/constitution, sdd/propose, sdd/plan and sdd/gate drive the authoring cycle. Gates are scriptable steps: each call advances the cycle and reports the pending gate, never awaiting interactive input; the cycle state persists in the change directory and survives restarts.",
+  "$defs": {
+    "proposeParams": {
+      "type": "object",
+      "required": ["idea", "projectRoot"],
+      "properties": {
+        "idea": { "type": "string", "minLength": 1 },
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "forceMode": { "type": "string", "enum": ["spec_full", "fast_forward"] }
+      }
+    },
+    "exploreParams": {
+      "type": "object",
+      "required": ["projectRoot"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "topic": { "type": "string" }
+      }
+    },
+    "gateParams": {
+      "type": "object",
+      "required": ["projectRoot", "changeName", "decision"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "changeName": { "type": "string", "minLength": 1 },
+        "decision": { "type": "string", "enum": ["approve", "comment", "abort"] },
+        "comment": { "type": "string" }
+      }
+    },
+    "planParams": {
+      "type": "object",
+      "required": ["projectRoot", "changeName"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "changeName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["changeName", "phase"],
+      "properties": {
+        "changeName": { "type": "string" },
+        "phase": {
+          "type": "string",
+          "enum": ["gate_pending", "completed", "aborted", "invalid", "explored"]
+        },
+        "artifact": { "type": "string" },
+        "mode": { "type": "string", "enum": ["spec_full", "fast_forward"] },
+        "diagnostics": { "type": "array", "items": { "type": "string" } },
+        "gateHint": { "type": "string" }
+      }
+    }
+  }
+}

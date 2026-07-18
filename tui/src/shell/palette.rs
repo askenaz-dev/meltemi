@@ -73,21 +73,27 @@ pub const ENTRIES: &[Entry] = &[
     },
     Entry {
         name: "explore",
-        reserved: true,
-        desc_es: "explorar (reservado)",
-        desc_en: "explore (reserved)",
+        reserved: false,
+        desc_es: "deliberar con el agente sin escribir",
+        desc_en: "deliberate with the agent without writing",
+    },
+    Entry {
+        name: "constitution",
+        reserved: false,
+        desc_es: "crear/editar la constitución (gate)",
+        desc_en: "create/edit the constitution (gate)",
+    },
+    Entry {
+        name: "plan",
+        reserved: false,
+        desc_es: "secuenciar tareas de una change (gate)",
+        desc_en: "sequence a change's tasks (gate)",
     },
     Entry {
         name: "review",
         reserved: true,
         desc_es: "revisar specs (reservado)",
         desc_en: "review specs (reserved)",
-    },
-    Entry {
-        name: "plan",
-        reserved: true,
-        desc_es: "planificar (reservado)",
-        desc_en: "plan (reserved)",
     },
     Entry {
         name: "implement",

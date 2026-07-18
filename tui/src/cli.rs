@@ -8,14 +8,7 @@
 
 /// Subcommands reserved for the SDD authoring cycle (#14+): recognized by the
 /// grammar so it stays stable, but not implemented in this change.
-pub const RESERVED: &[&str] = &[
-    "explore",
-    "review",
-    "plan",
-    "implement",
-    "verify",
-    "archive",
-];
+pub const RESERVED: &[&str] = &["review", "implement", "verify", "archive"];
 
 /// Help text for the scriptable surface.
 pub const USAGE: &str = "\
@@ -31,6 +24,9 @@ SUBCOMMANDS:
     fleet               list the agent fleet catalog (detection and levels)
     project             regenerate the projected context (AGENTS.md, ...)
     sessions            list agent sessions (active and historical)
+    explore <topic>     deliberate with the agent without writing
+    plan <change>       refine design and sequence a change's tasks
+    constitution        create or edit the project constitution
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
@@ -41,7 +37,7 @@ GLOBAL FLAGS:
     -V, --version       print the client version
 
 RESERVED (not yet implemented):
-    explore, review, plan, implement, verify, archive";
+    review, implement, verify, archive";
 
 /// An RPC-backed or local subcommand to run in scriptable mode.
 #[derive(Debug, PartialEq, Eq)]
@@ -59,6 +55,12 @@ pub enum Command {
     Project { project_root: Option<String> },
     /// List sessions, active and historical (`session/list`).
     Sessions { project_root: Option<String> },
+    /// Deliberate with the agent without writing (`sdd/explore`).
+    Explore { topic: String },
+    /// Refine design and sequence a change's tasks (`sdd/plan`).
+    Plan { change: String },
+    /// Create/edit the project constitution (`sdd/constitution`).
+    Constitution { topic: String },
     /// Request an orderly daemon shutdown.
     Stop,
     /// A reserved subcommand recognized by the grammar but not yet implemented.
@@ -171,6 +173,22 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
             }),
             _ => Action::Usage("`sessions` takes at most a project root".into()),
         },
+        "explore" => match rest {
+            [] => Action::Usage("`explore` requires a topic: meltemi explore \"<topic>\"".into()),
+            [topic] => Action::Run(Command::Explore {
+                topic: (*topic).to_string(),
+            }),
+            _ => Action::Usage("`explore` takes a single quoted topic".into()),
+        },
+        "plan" => match rest {
+            [change] => Action::Run(Command::Plan {
+                change: (*change).to_string(),
+            }),
+            _ => Action::Usage("`plan` requires a change name: meltemi plan <change>".into()),
+        },
+        "constitution" => Action::Run(Command::Constitution {
+            topic: rest.first().map(|s| (*s).to_string()).unwrap_or_default(),
+        }),
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
         "stop" => Action::Usage("`stop` takes no arguments".into()),
         "propose" => match rest {

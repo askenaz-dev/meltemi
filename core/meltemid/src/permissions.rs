@@ -88,6 +88,26 @@ pub struct RuleSet {
 }
 
 impl RuleSet {
+    /// A rule set that denies every request (used by `explore`, which must
+    /// never let the agent write).
+    #[must_use]
+    pub fn deny_all() -> Self {
+        Self {
+            rules: vec![bare_rule(PermissionRuleEffect::Deny)],
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// A rule set that allows every request (used by SDD authoring turns, where
+    /// writing into the change directory is expected).
+    #[must_use]
+    pub fn allow_all() -> Self {
+        Self {
+            rules: vec![bare_rule(PermissionRuleEffect::Allow)],
+            diagnostics: Vec::new(),
+        }
+    }
+
     /// Evaluates a request: project over global, `deny` over `allow` on a tie,
     /// else `ask`.
     #[must_use]
@@ -127,6 +147,18 @@ impl RuleSet {
                 .expect("a non-empty scope has an allow if no deny")
                 .clone(),
         )
+    }
+}
+
+/// A bare rule (no matchers) of the given effect, at project scope — matches
+/// every request.
+fn bare_rule(effect: PermissionRuleEffect) -> PermissionRule {
+    PermissionRule {
+        effect,
+        tool: None,
+        command_prefix: None,
+        path_prefix: None,
+        scope: PermissionRuleScope::Project,
     }
 }
 

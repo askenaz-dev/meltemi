@@ -31,6 +31,13 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
         Command::Fleet => fleet(endpoint).await,
         Command::Project { project_root } => project(project_root, endpoint).await,
         Command::Sessions { project_root } => sessions(project_root, endpoint).await,
+        Command::Explore { topic } => sdd_verb(endpoint, methods::SDD_EXPLORE, topic, None).await,
+        Command::Plan { change } => {
+            sdd_verb(endpoint, methods::SDD_PLAN, String::new(), Some(change)).await
+        }
+        Command::Constitution { topic } => {
+            sdd_verb(endpoint, methods::SDD_CONSTITUTION, topic, None).await
+        }
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -214,6 +221,47 @@ async fn sessions(project_root: Option<String>, endpoint: &str) -> Result<Outcom
         human: render_sessions(&result),
         json: value,
     })
+}
+
+/// Drives an SDD verb (`explore`/`plan`/`constitution`) using the current
+/// directory as the project root. Gates are reported, never awaited.
+async fn sdd_verb(
+    endpoint: &str,
+    method: &str,
+    topic: String,
+    change: Option<String>,
+) -> Result<Outcome, CliError> {
+    let project_root = std::env::current_dir()
+        .map_err(CliError::internal)?
+        .display()
+        .to_string();
+    let params = match &change {
+        Some(change) => json!({ "projectRoot": project_root, "changeName": change }),
+        None => json!({ "projectRoot": project_root, "topic": topic }),
+    };
+
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer.request(method, &params).await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let phase = value["phase"].as_str().unwrap_or("done");
+    let mut human = format!("sdd: {phase}");
+    if let Some(artifact) = value["artifact"].as_str() {
+        human.push_str(&format!(" — artifact `{artifact}`"));
+    }
+    if let Some(hint) = value["gateHint"].as_str() {
+        human.push_str(&format!("\n{hint}"));
+    }
+    if let Some(diags) = value["diagnostics"].as_array() {
+        for d in diags {
+            if let Some(d) = d.as_str() {
+                human.push_str(&format!("\n  diagnostic: {d}"));
+            }
+        }
+    }
+    Ok(Outcome { human, json: value })
 }
 
 async fn stop(endpoint: &str) -> Result<Outcome, CliError> {

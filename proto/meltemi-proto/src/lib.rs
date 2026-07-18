@@ -36,6 +36,16 @@ pub mod methods {
     pub const SESSION_LOG: &str = "session/log";
     /// Request: the repository tree honoring gitignore, with sizes.
     pub const REPO_MAP: &str = "repo/map";
+    /// Request: create/edit the project constitution with a final gate.
+    pub const SDD_CONSTITUTION: &str = "sdd/constitution";
+    /// Request: deliberate with the agent, never writing (streaming).
+    pub const SDD_EXPLORE: &str = "sdd/explore";
+    /// Request: start the SDD authoring cycle for a change.
+    pub const SDD_PROPOSE: &str = "sdd/propose";
+    /// Request: refine design and sequence tasks by dependencies.
+    pub const SDD_PLAN: &str = "sdd/plan";
+    /// Request: decide a pending authoring gate (approve/comment/abort).
+    pub const SDD_GATE: &str = "sdd/gate";
     /// Notification (client -> daemon): cancel an active session.
     pub const SESSION_CANCEL: &str = "session/cancel";
     /// Notification (daemon -> client): streamed session event.
@@ -361,6 +371,79 @@ pub enum TurnStatus {
     MaxTokens,
     /// The agent hit its per-turn request limit.
     MaxTurnRequests,
+}
+
+/// Params of `sdd/propose`: start the authoring cycle for a change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddProposeParams {
+    /// Free-form description of the change.
+    pub idea: String,
+    /// Absolute path to the project root.
+    pub project_root: String,
+    /// Force a mode against the eligibility criterion (`spec_full` or
+    /// `fast_forward`); absent lets the daemon choose by the criterion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force_mode: Option<String>,
+}
+
+/// Params of `sdd/explore` and `sdd/constitution`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddExploreParams {
+    /// Absolute path to the project root.
+    pub project_root: String,
+    /// The topic/question to deliberate (explore) or guidance (constitution).
+    #[serde(default)]
+    pub topic: String,
+}
+
+/// Params of `sdd/gate`: decide a pending authoring gate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddGateParams {
+    /// Absolute path to the project root.
+    pub project_root: String,
+    /// The change whose gate is being decided.
+    pub change_name: String,
+    /// `approve` | `comment` | `abort`.
+    pub decision: String,
+    /// The rework comment, when `decision` is `comment`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+/// Params of `sdd/plan`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddPlanParams {
+    /// Absolute path to the project root.
+    pub project_root: String,
+    /// The change to plan.
+    pub change_name: String,
+}
+
+/// Result of an SDD cycle step: where the cycle now stands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddResult {
+    /// The change name.
+    pub change_name: String,
+    /// The cycle phase: `gate_pending` | `completed` | `aborted` | `invalid` |
+    /// `explored`.
+    pub phase: String,
+    /// The artifact awaiting a gate (when `phase` is `gate_pending`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<String>,
+    /// The authoring mode in effect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Validation diagnostics returned to the agent (when `phase` is `invalid`).
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
+    /// How to decide the pending gate (scriptable guidance, never a hang).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate_hint: Option<String>,
 }
 
 /// Params of `repo/map`.
