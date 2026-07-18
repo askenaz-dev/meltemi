@@ -14,8 +14,8 @@ use tokio::task::JoinHandle;
 
 use meltemi_proto::{
     CheckpointListParams, CheckpointListResult, CheckpointRevertParams, CheckpointRevertResult,
-    CommitTaskParams, CommitTaskResult, SddArchiveParams, SddArchiveResult, SddVerifyParams,
-    SddVerifyResult,
+    CommitTaskParams, CommitTaskResult, SddArchiveParams, SddArchiveResult, SddImplementParams,
+    SddImplementResult, SddVerifyParams, SddVerifyResult,
 };
 use meltemi_proto::{
     ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
@@ -74,6 +74,11 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
         } => commit(change, task, agent, title, confirm, endpoint).await,
         Command::Verify { change } => verify(change, endpoint).await,
         Command::Archive { change, confirm } => archive(change, confirm, endpoint).await,
+        Command::Implement {
+            change,
+            agent,
+            plan_only,
+        } => implement(change, agent, plan_only, endpoint).await,
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -601,6 +606,38 @@ async fn archive(change: String, confirm: bool, endpoint: &str) -> Result<Outcom
     })
 }
 
+async fn implement(
+    change: String,
+    agent: String,
+    plan_only: bool,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::SDD_IMPLEMENT,
+            &SddImplementParams {
+                project_root,
+                change,
+                agent,
+                plan_only,
+                autonomous: false,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: SddImplementResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_implement(&result),
+        json: value,
+    })
+}
+
 async fn stop(endpoint: &str) -> Result<Outcome, CliError> {
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(methods::SHUTDOWN, &json!({})).await;
@@ -792,6 +829,31 @@ fn render_assign(result: &WorktreeAssignResult) -> String {
     for w in &result.worktrees {
         let marker = if w.competitor { "race " } else { "solo " };
         let _ = write!(out, "\n  {marker} {}  {}  {}", w.agent, w.branch, w.path);
+    }
+    out
+}
+
+/// Human rendering of a deployment: the mode, an autonomy/degradation notice,
+/// and each task's outcome.
+fn render_implement(result: &SddImplementResult) -> String {
+    use std::fmt::Write;
+    let mut out = format!(
+        "implement ({} mode) — {} task(s) committed this run",
+        result.mode,
+        result.committed.len()
+    );
+    if let Some(reason) = &result.degraded {
+        let _ = write!(out, "\n  ! autonomy degraded to supervised: {reason}");
+    } else if result.autonomous {
+        let _ = write!(out, "\n  autonomous");
+    }
+    for t in &result.tasks {
+        let sha = t
+            .sha
+            .as_deref()
+            .map(|s| format!(" ({})", &s[..s.len().min(12)]))
+            .unwrap_or_default();
+        let _ = write!(out, "\n  [{}] {} {}{sha}", t.status, t.id, t.description);
     }
     out
 }

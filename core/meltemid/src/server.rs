@@ -262,6 +262,7 @@ async fn dispatch_request(
         methods::SDD_VERIFY => handle_sdd_verify(params).await,
         methods::SDD_VERIFY_MARK => handle_sdd_verify_mark(params).await,
         methods::SDD_ARCHIVE => handle_sdd_archive(params).await,
+        methods::SDD_IMPLEMENT => handle_sdd_implement(params, state, peer).await,
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -993,6 +994,270 @@ async fn handle_sdd_archive(params: Value) -> Result<Value, RpcError> {
         excepted: params.exceptions.into_iter().map(|e| e.scenario).collect(),
     };
     Ok(serde_json::to_value(result).expect("SddArchiveResult serializes"))
+}
+
+/// How long a per-task deployment turn waits for a human permission decision.
+const IMPLEMENT_PERMISSION_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Appends an event to a session log guarded by a mutex (implement progress).
+async fn append(
+    log: &std::sync::Arc<tokio::sync::Mutex<crate::session_log::SessionLog>>,
+    kind: meltemi_proto::SessionEventKind,
+) {
+    let _ = log.lock().await.append(kind);
+}
+
+/// `sdd/implement`: deploy an agent over a change's `tasks.md`, task by task,
+/// composing checkpoint (#17) → turn in the worktree (#16) → per-task commit
+/// (#18) → tick. Progress is the ticked `tasks.md` (a restart resumes at the
+/// first undone task). Plan mode returns the sequence without acting; autonomy
+/// needs permission rules or it degrades to supervised with a notice (D3).
+async fn handle_sdd_implement(
+    params: Value,
+    state: &Arc<DaemonState>,
+    peer: &Peer,
+) -> Result<Value, RpcError> {
+    use meltemi_proto::{ImplementTask, SddImplementParams, SddImplementResult, SessionEventKind};
+
+    let params: SddImplementParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("sdd/implement: {e}")))?;
+    let root = require_git_root(&params.project_root)?;
+
+    // Load the change's task list.
+    let tasks_path = root
+        .join(".meltemi")
+        .join("changes")
+        .join(&params.change)
+        .join("tasks.md");
+    let tasks_md = std::fs::read_to_string(&tasks_path).map_err(|_| {
+        RpcError::application(
+            error_codes::PROJECT_ROOT_INVALID,
+            "no tasks.md for the change",
+            "project_root_invalid",
+            format!("`{}` does not exist", tasks_path.display()),
+            Some("Plan the change first so its tasks.md exists.".into()),
+        )
+    })?;
+    let tasks = crate::implement::parse_tasks(&tasks_md);
+
+    // Autonomy needs applicable permission rules; without them it degrades to
+    // supervised with a visible notice — never autonomy by accident (D3).
+    let rules = crate::permissions::load_rules(&state.config_dir, Some(&root));
+    let (autonomous, degraded) = if params.autonomous && rules.rules.is_empty() {
+        (
+            false,
+            Some("no permission rules apply to this project; running supervised".to_string()),
+        )
+    } else {
+        (params.autonomous, None)
+    };
+
+    // Plan mode: report the eligible sequence, touching nothing (D2 gate).
+    if params.plan_only {
+        let planned = tasks
+            .into_iter()
+            .map(|t| ImplementTask {
+                id: t.id,
+                description: t.description,
+                status: if t.done { "already-done" } else { "planned" }.to_string(),
+                sha: None,
+            })
+            .collect();
+        let result = SddImplementResult {
+            mode: "plan".to_string(),
+            autonomous,
+            degraded,
+            tasks: planned,
+            committed: Vec::new(),
+        };
+        return Ok(serde_json::to_value(result).expect("SddImplementResult serializes"));
+    }
+
+    // Act mode. One deployment session log carries the per-task progress.
+    let config = crate::config::Config::load(&state.config_dir, Some(&root));
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let agent_command = match crate::levels::resolve_launch(&config, &path_var)? {
+        crate::levels::Launch::Acp { argv, .. } => argv,
+        crate::levels::Launch::Headless { level, .. }
+        | crate::levels::Launch::Artifacts { level } => {
+            return Err(RpcError::application(
+                error_codes::AGENT_COMMAND_NOT_CONFIGURED,
+                "level not pilotable by implement",
+                "level_not_pilotable",
+                format!("the configured agent is level {level}; implement needs an ACP agent"),
+                Some("Select a level 1/2 agent to deploy tasks.".into()),
+            ));
+        }
+    };
+
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let cancel = state
+        .sessions
+        .register(&session_id, agent_command.clone())
+        .await;
+    let project_key = crate::paths::project_key(&root);
+    let mut log =
+        crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)
+            .map_err(RpcError::internal)?;
+    let _ = log.append(SessionEventKind::SessionStarted {
+        session_id: session_id.clone(),
+        agent_command: agent_command.clone(),
+        project_root: root.display().to_string(),
+    });
+    let log = std::sync::Arc::new(tokio::sync::Mutex::new(log));
+    let rules = std::sync::Arc::new(rules);
+
+    let base = crate::git::head_rev(&root).ok_or_else(|| {
+        RpcError::application(
+            error_codes::WORKTREE_UNAVAILABLE,
+            "the repository has no commit to deploy from",
+            "worktree_unavailable",
+            "make an initial commit before deploying tasks",
+            Some("Commit something first.".into()),
+        )
+    })?;
+
+    let mut current_md = tasks_md.clone();
+    let mut result_tasks: Vec<ImplementTask> = Vec::new();
+    let mut committed: Vec<String> = Vec::new();
+    let mut interrupted = false;
+
+    for task in &tasks {
+        if task.done {
+            result_tasks.push(ImplementTask {
+                id: task.id.clone(),
+                description: task.description.clone(),
+                status: "already-done".to_string(),
+                sha: None,
+            });
+            continue;
+        }
+        // Interruption leaves a consistent state: completed tasks are already
+        // committed and ticked; once a turn is cancelled (its commit produces
+        // nothing) no further task starts (D4).
+        if interrupted {
+            result_tasks.push(ImplementTask {
+                id: task.id.clone(),
+                description: task.description.clone(),
+                status: "pending".to_string(),
+                sha: None,
+            });
+            continue;
+        }
+
+        // checkpoint → turn → commit → tick.
+        let wt = crate::worktrees::create(&root, &params.change, &task.id, &params.agent, &base)
+            .map_err(|e| {
+                RpcError::application(
+                    error_codes::WORKTREE_UNAVAILABLE,
+                    "could not create the task worktree",
+                    "worktree_unavailable",
+                    e,
+                    Some("Check the git version and the base revision.".into()),
+                )
+            })?;
+        let worktree = PathBuf::from(&wt.path);
+        let _ =
+            crate::checkpoints::create(&root, &worktree, &params.change, &task.id, &params.agent);
+
+        append(
+            &log,
+            SessionEventKind::TaskStarted {
+                change: params.change.clone(),
+                task: task.id.clone(),
+                agent: params.agent.clone(),
+            },
+        )
+        .await;
+
+        // The turn: the agent works in the worktree. The prompt points it at a
+        // per-task artifact so the mock (and a real agent) leave committable work.
+        let artifact = worktree.join(format!("task-{}.md", task.id.replace('.', "-")));
+        let prompt = format!(
+            "Implement task {} of change {}: {}\nPROPOSAL_PATH: {}",
+            task.id,
+            params.change,
+            task.description,
+            artifact.display()
+        );
+        let _ = crate::acp::run_session(crate::acp::SessionParams {
+            agent_command: agent_command.clone(),
+            project_root: worktree.clone(),
+            prompt,
+            meltemi_session_id: session_id.clone(),
+            peer: peer.clone(),
+            log: log.clone(),
+            cancel: cancel.clone(),
+            permission_timeout: IMPLEMENT_PERMISSION_TIMEOUT,
+            rules: rules.clone(),
+            pending: state.pending.clone(),
+            load_session_id: None,
+            mcp_servers: config.mcp_servers.clone(),
+        })
+        .await;
+
+        // Commit the task with traceability. If nothing was produced (e.g. the
+        // turn was denied), the commit fails and the task is left pending.
+        let message =
+            crate::commit::build_message(&params.change, &task.id, &task.description, None, &[]);
+        let cp_ref = crate::checkpoints::ref_for(&params.change, &task.id, &params.agent);
+        match crate::commit::commit(&worktree, &message, &cp_ref) {
+            Ok(done) => {
+                current_md = crate::implement::tick_task(&current_md, &task.id);
+                let _ = std::fs::write(&tasks_path, &current_md);
+                append(
+                    &log,
+                    SessionEventKind::TaskCommitted {
+                        change: params.change.clone(),
+                        task: task.id.clone(),
+                        agent: params.agent.clone(),
+                        sha: done.sha.clone(),
+                        requirements: Vec::new(),
+                    },
+                )
+                .await;
+                committed.push(task.id.clone());
+                result_tasks.push(ImplementTask {
+                    id: task.id.clone(),
+                    description: task.description.clone(),
+                    status: "committed".to_string(),
+                    sha: Some(done.sha),
+                });
+            }
+            Err(_) => {
+                // The task produced nothing to commit; stop here, leaving it and
+                // the rest pending — a visible, consistent state.
+                interrupted = true;
+                result_tasks.push(ImplementTask {
+                    id: task.id.clone(),
+                    description: task.description.clone(),
+                    status: "pending".to_string(),
+                    sha: None,
+                });
+            }
+        }
+    }
+
+    append(
+        &log,
+        SessionEventKind::SessionEnded {
+            reason: "implement finished".to_string(),
+        },
+    )
+    .await;
+    state
+        .sessions
+        .set_state(&session_id, meltemi_proto::SessionState::Ended)
+        .await;
+
+    let result = SddImplementResult {
+        mode: "act".to_string(),
+        autonomous,
+        degraded,
+        tasks: result_tasks,
+        committed,
+    };
+    Ok(serde_json::to_value(result).expect("SddImplementResult serializes"))
 }
 
 /// `session/list`: active sessions (live state from the registry) plus the

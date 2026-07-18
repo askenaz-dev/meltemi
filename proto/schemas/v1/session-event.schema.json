@@ -206,6 +206,20 @@
         },
         {
           "properties": {
+            "type": { "const": "task_started" },
+            "payload": {
+              "type": "object",
+              "required": ["change", "task", "agent"],
+              "properties": {
+                "change": { "type": "string" },
+                "task": { "type": "string" },
+                "agent": { "type": "string" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "type": { "const": "task_committed" },
             "payload": {
               "type": "object",

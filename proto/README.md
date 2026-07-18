@@ -56,6 +56,7 @@ jamás. La conexión es bidireccional: el daemon también envía peticiones
 | `checkpoint/create` · `checkpoint/list` · `checkpoint/revert` · `checkpoint/record-op` | cliente → daemon | request | `checkpoint.schema.json` |
 | `commit/task` | cliente → daemon | request | `commit.schema.json` |
 | `sdd/verify` · `sdd/verify-mark` · `sdd/archive` | cliente → daemon | request | `verify-archive.schema.json` |
+| `sdd/implement` | cliente → daemon | request | `implement.schema.json` |
 
 Los errores de aplicación (códigos 1xxx/2xxx/3xxx/4xxx con `data`
 `{kind, detail, remedy}`) están catalogados en `error.schema.json`.

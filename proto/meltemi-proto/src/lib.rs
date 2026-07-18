@@ -96,6 +96,9 @@ pub mod methods {
     /// Request: fold a change's deltas into the living truth atomically and
     /// preserve it in the dated history (gated by verification).
     pub const SDD_ARCHIVE: &str = "sdd/archive";
+    /// Request: deploy agents over a change's `tasks.md`, task by task, with
+    /// the full composed cycle (checkpoint → turn → commit → tick).
+    pub const SDD_IMPLEMENT: &str = "sdd/implement";
 }
 
 /// Application error codes, outside the JSON-RPC reserved range and grouped
@@ -967,6 +970,16 @@ pub enum SessionEventKind {
         /// Approved out-of-tree operations that remain in effect.
         irreversible: Vec<String>,
     },
+    /// A task's deployment turn began (comando-implement progress). Emitted
+    /// before the agent runs in the task's worktree.
+    TaskStarted {
+        /// The change the task belongs to.
+        change: String,
+        /// The task label starting.
+        task: String,
+        /// The agent deployed on the task.
+        agent: String,
+    },
     /// An atomic per-task commit was applied with traceability trailers
     /// (git-commit-por-tarea). Never carries co-authorship — the author is the
     /// user's own git identity.
@@ -1488,4 +1501,56 @@ pub struct SddArchiveResult {
     /// The scenarios that passed the gate as recorded exceptions.
     #[serde(default)]
     pub excepted: Vec<String>,
+}
+
+/// Params of `sdd/implement`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddImplementParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change whose `tasks.md` to deploy.
+    pub change: String,
+    /// The agent to deploy on each task.
+    pub agent: String,
+    /// Plan only: return the eligible sequence without touching anything.
+    #[serde(default)]
+    pub plan_only: bool,
+    /// Request autonomous mode (direct commits within permission rules). Without
+    /// applicable rules the deployment degrades to supervised, with a notice.
+    #[serde(default)]
+    pub autonomous: bool,
+}
+
+/// One task's outcome in a deployment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImplementTask {
+    /// The task id.
+    pub id: String,
+    /// The task description.
+    pub description: String,
+    /// `planned` (plan mode), `committed` (done this run), `already-done`
+    /// (ticked before), or `pending` (not reached — e.g. after interruption).
+    pub status: String,
+    /// The commit SHA, when the task was committed this run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha: Option<String>,
+}
+
+/// Result of `sdd/implement`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddImplementResult {
+    /// The deployment mode actually run: `plan` or `act`.
+    pub mode: String,
+    /// Whether the run was autonomous (false when supervised or degraded).
+    pub autonomous: bool,
+    /// Why autonomy was degraded to supervised, when it was (e.g. no rules).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degraded: Option<String>,
+    /// The tasks and their outcomes, in order.
+    pub tasks: Vec<ImplementTask>,
+    /// The ids committed this run.
+    pub committed: Vec<String>,
 }

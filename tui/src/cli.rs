@@ -6,10 +6,10 @@
 //! the whole grammar and the CLI↔TUI dispatch rule are unit-testable without a
 //! terminal or a daemon. It never performs I/O.
 
-/// Subcommands reserved for the SDD authoring cycle: recognized by the grammar
-/// so it stays stable, but not implemented yet. `verify`/`archive` are now
-/// operative (comandos-verify-archive); only `implement` remains reserved.
-pub const RESERVED: &[&str] = &["implement"];
+/// Subcommands reserved for the SDD authoring cycle. The cycle is now fully
+/// operative (comando-implement un-reserved `implement`), so nothing remains
+/// reserved; the list is kept for the grammar's forward-compatibility.
+pub const RESERVED: &[&str] = &[];
 
 /// Help text for the scriptable surface.
 pub const USAGE: &str = "\
@@ -46,6 +46,9 @@ SUBCOMMANDS:
     verify <change>     the per-requirement verification checklist of a change
     archive <change> [confirm]
                         fold a verified change's deltas into the living truth
+    implement <change> <agent> [plan]
+                        deploy the agent over the change's tasks.md task by task
+                        (checkpoint → turn → commit → tick); `plan` previews
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
@@ -53,10 +56,7 @@ SUBCOMMANDS:
 GLOBAL FLAGS:
     --json              emit machine-readable JSON on stdout
     -h, --help          print this help
-    -V, --version       print the client version
-
-RESERVED (not yet implemented):
-    implement";
+    -V, --version       print the client version";
 
 /// An RPC-backed or local subcommand to run in scriptable mode.
 #[derive(Debug, PartialEq, Eq)]
@@ -122,6 +122,13 @@ pub enum Command {
     /// Fold a verified change's deltas into the living truth (`sdd/archive`);
     /// `confirm` allows folding over a dirty specs tree.
     Archive { change: String, confirm: bool },
+    /// Deploy an agent over a change's `tasks.md` (`sdd/implement`); `plan_only`
+    /// previews the sequence without acting.
+    Implement {
+        change: String,
+        agent: String,
+        plan_only: bool,
+    },
     /// Request an orderly daemon shutdown.
     Stop,
     /// A reserved subcommand recognized by the grammar but not yet implemented.
@@ -366,6 +373,23 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
                 "`archive` requires: meltemi archive <change> [confirm]".into(),
             ),
         },
+        "implement" => match rest {
+            [change, agent] | [change, agent, _] => {
+                let plan_only = rest.get(2).is_some_and(|w| *w == "plan");
+                if rest.len() == 3 && !plan_only {
+                    Action::Usage("`implement` accepts only `plan` as its 3rd argument".into())
+                } else {
+                    Action::Run(Command::Implement {
+                        change: (*change).to_string(),
+                        agent: (*agent).to_string(),
+                        plan_only,
+                    })
+                }
+            }
+            _ => Action::Usage(
+                "`implement` requires: meltemi implement <change> <agent> [plan]".into(),
+            ),
+        },
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
         "stop" => Action::Usage("`stop` takes no arguments".into()),
         "propose" => match rest {
@@ -438,17 +462,34 @@ mod tests {
     }
 
     #[test]
-    fn reserved_subcommand_is_recognized_not_usage_error() {
-        // Scenario: Subcomando reservado no es error de uso (`implement`).
-        for reserved in RESERVED {
-            let p = plan_of(&[reserved], false);
-            assert_eq!(
-                p.action,
-                Action::Run(Command::Reserved((*reserved).to_string())),
-                "`{reserved}` must be recognized as reserved"
-            );
-        }
-        assert_eq!(RESERVED, &["implement"], "only implement stays reserved");
+    fn the_sdd_cycle_grammar_has_no_reserved_subcommands() {
+        // Scenario: El ciclo completo es operativo — nothing stays reserved.
+        assert!(RESERVED.is_empty(), "the whole SDD cycle is operative");
+    }
+
+    #[test]
+    fn implement_is_operative_with_an_optional_plan_preview() {
+        // Scenario: implement despliega el plan.
+        assert_eq!(
+            plan_of(&["implement", "add-thing", "claude"], false).action,
+            Action::Run(Command::Implement {
+                change: "add-thing".into(),
+                agent: "claude".into(),
+                plan_only: false,
+            })
+        );
+        assert_eq!(
+            plan_of(&["implement", "add-thing", "claude", "plan"], false).action,
+            Action::Run(Command::Implement {
+                change: "add-thing".into(),
+                agent: "claude".into(),
+                plan_only: true,
+            })
+        );
+        assert!(matches!(
+            plan_of(&["implement", "add-thing"], false).action,
+            Action::Usage(_)
+        ));
     }
 
     #[test]

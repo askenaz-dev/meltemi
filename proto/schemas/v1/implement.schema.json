@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/implement.schema.json",
+  "title": "sdd/implement",
+  "description": "Method `sdd/implement`: deploy agents over a change's tasks.md, task by task, composing the full cycle — checkpoint, the agent turn in the task's worktree under the permission rules, the atomic per-task commit with traceability, and ticking the task. Progress is the ticked tasks.md, so a restart resumes at the first undone task. Plan mode returns the eligible sequence without touching anything; autonomous mode needs applicable permission rules or it degrades to supervised with a notice.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": ["projectRoot", "change", "agent"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 },
+        "planOnly": { "type": "boolean" },
+        "autonomous": { "type": "boolean" }
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["id", "description", "status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["planned", "committed", "already-done", "pending"]
+        },
+        "sha": { "type": "string", "minLength": 1 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["mode", "autonomous", "tasks", "committed"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["plan", "act"] },
+        "autonomous": { "type": "boolean" },
+        "degraded": { "type": "string" },
+        "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } },
+        "committed": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

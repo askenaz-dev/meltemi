@@ -622,6 +622,11 @@ fn session_events_conform() {
             agent: "claude".into(),
             irreversible: vec!["ran command: npm publish".into()],
         },
+        SessionEventKind::TaskStarted {
+            change: "add-thing".into(),
+            task: "1.1".into(),
+            agent: "claude".into(),
+        },
         SessionEventKind::TaskCommitted {
             change: "add-thing".into(),
             task: "1.1".into(),
@@ -1054,6 +1059,52 @@ fn verify_archive_conforms() {
         "verify-archive",
         "verifyScenario",
         &json!({ "capability": "c", "requirement": "r", "scenario": "s", "status": "maybe" }),
+    );
+}
+
+#[test]
+fn implement_conforms() {
+    assert_conforms(
+        "implement",
+        "params",
+        &SddImplementParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+            agent: "claude".into(),
+            plan_only: false,
+            autonomous: true,
+        },
+    );
+    assert_conforms(
+        "implement",
+        "result",
+        &SddImplementResult {
+            mode: "act".into(),
+            autonomous: false,
+            degraded: Some("no permission rules apply; running supervised".into()),
+            tasks: vec![
+                ImplementTask {
+                    id: "1.1".into(),
+                    description: "First task".into(),
+                    status: "committed".into(),
+                    sha: Some("a".repeat(40)),
+                },
+                ImplementTask {
+                    id: "1.2".into(),
+                    description: "Second".into(),
+                    status: "already-done".into(),
+                    sha: None,
+                },
+            ],
+            committed: vec!["1.1".into()],
+        },
+    );
+
+    // An unknown task status is rejected.
+    assert_rejected(
+        "implement",
+        "task",
+        &json!({ "id": "1.1", "description": "x", "status": "exploded" }),
     );
 }
 

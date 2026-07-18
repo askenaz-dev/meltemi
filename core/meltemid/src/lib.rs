@@ -18,6 +18,7 @@ pub mod conformance;
 pub mod context;
 pub mod fleet;
 pub mod git;
+pub mod implement;
 pub mod levels;
 pub mod logging;
 pub mod mcp;
