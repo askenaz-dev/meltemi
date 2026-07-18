@@ -11,6 +11,7 @@ pub mod acp;
 pub mod bootstrap;
 pub mod checkpoints;
 pub mod clock;
+pub mod commit;
 pub mod config;
 pub mod conformance;
 pub mod context;

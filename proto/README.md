@@ -54,6 +54,7 @@ jamás. La conexión es bidireccional: el daemon también envía peticiones
 | `permission/changed` | daemon → cliente | notification | `permission.schema.json` |
 | `worktree/assign` · `worktree/list` · `worktree/remove` · `worktree/diff` · `worktree/merge-file` | cliente → daemon | request | `worktree.schema.json` |
 | `checkpoint/create` · `checkpoint/list` · `checkpoint/revert` · `checkpoint/record-op` | cliente → daemon | request | `checkpoint.schema.json` |
+| `commit/task` | cliente → daemon | request | `commit.schema.json` |
 
 Los errores de aplicación (códigos 1xxx/2xxx/3xxx/4xxx con `data`
 `{kind, detail, remedy}`) están catalogados en `error.schema.json`.

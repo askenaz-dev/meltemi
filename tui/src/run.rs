@@ -14,6 +14,7 @@ use tokio::task::JoinHandle;
 
 use meltemi_proto::{
     CheckpointListParams, CheckpointListResult, CheckpointRevertParams, CheckpointRevertResult,
+    CommitTaskParams, CommitTaskResult,
 };
 use meltemi_proto::{
     ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
@@ -63,6 +64,13 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             agent,
             confirm,
         } => revert(change, task, agent, confirm, endpoint).await,
+        Command::Commit {
+            change,
+            task,
+            agent,
+            title,
+            confirm,
+        } => commit(change, task, agent, title, confirm, endpoint).await,
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -502,6 +510,44 @@ async fn revert(
     }
 }
 
+async fn commit(
+    change: String,
+    task: String,
+    agent: String,
+    title: String,
+    confirm: bool,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::COMMIT_TASK,
+            &CommitTaskParams {
+                project_root,
+                change,
+                task,
+                agent,
+                title,
+                body: None,
+                requirements: Vec::new(),
+                declared_files: Vec::new(),
+                confirm,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: CommitTaskResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_commit(&result),
+        json: value,
+    })
+}
+
 async fn stop(endpoint: &str) -> Result<Outcome, CliError> {
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(methods::SHUTDOWN, &json!({})).await;
@@ -693,6 +739,40 @@ fn render_assign(result: &WorktreeAssignResult) -> String {
     for w in &result.worktrees {
         let marker = if w.competitor { "race " } else { "solo " };
         let _ = write!(out, "\n  {marker} {}  {}  {}", w.agent, w.branch, w.path);
+    }
+    out
+}
+
+/// Human rendering of a per-task commit: preview vs applied, the guaranteed
+/// message, changed files, and any scope deviations (never hidden).
+fn render_commit(result: &CommitTaskResult) -> String {
+    use std::fmt::Write;
+    let mut out = if result.committed {
+        match &result.sha {
+            Some(sha) => format!("committed {}", &sha[..sha.len().min(12)]),
+            None => "committed".to_string(),
+        }
+    } else {
+        "preview (nothing committed) — re-run with a trailing `confirm` to apply".to_string()
+    };
+    let _ = write!(out, "\n--- message ---\n{}", result.message.trim_end());
+    let _ = write!(
+        out,
+        "\n--- {} file(s) changed ---",
+        result.changed_files.len()
+    );
+    for f in &result.changed_files {
+        let _ = write!(out, "\n  {f}");
+    }
+    if !result.deviations.is_empty() {
+        let _ = write!(
+            out,
+            "\n! {} path(s) outside the declared scope (corrective step available):",
+            result.deviations.len()
+        );
+        for d in &result.deviations {
+            let _ = write!(out, "\n  ! {d}");
+        }
     }
     out
 }

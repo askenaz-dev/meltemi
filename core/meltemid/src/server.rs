@@ -258,6 +258,7 @@ async fn dispatch_request(
         methods::CHECKPOINT_LIST => handle_checkpoint_list(params).await,
         methods::CHECKPOINT_REVERT => handle_checkpoint_revert(params).await,
         methods::CHECKPOINT_RECORD_OP => handle_checkpoint_record_op(params).await,
+        methods::COMMIT_TASK => handle_commit_task(params).await,
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -737,6 +738,102 @@ async fn handle_checkpoint_record_op(params: Value) -> Result<Value, RpcError> {
         serde_json::to_value(CheckpointRecordOpResult { recorded: true })
             .expect("CheckpointRecordOpResult serializes"),
     )
+}
+
+/// `commit/task`: propose (preview) or apply the atomic per-task commit with
+/// traceability trailers (git-commit-por-tarea). Supervised previews with
+/// `confirm` false; autonomous/approved applies with `confirm` true. Hooks are
+/// honored and never bypassed; deviations from the declared scope are reported.
+async fn handle_commit_task(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{CommitTaskParams, CommitTaskResult};
+
+    let params: CommitTaskParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("commit/task: {e}")))?;
+    let root = require_git_root(&params.project_root)?;
+    let worktree = resolve_worktree(&root, &params.change, &params.task, &params.agent)?;
+
+    let requirements: Vec<crate::commit::Requirement> = params
+        .requirements
+        .iter()
+        .map(|r| crate::commit::Requirement {
+            capability: r.capability.clone(),
+            requirement: r.requirement.clone(),
+        })
+        .collect();
+    let message = crate::commit::build_message(
+        &params.change,
+        &params.task,
+        &params.title,
+        params.body.as_deref(),
+        &requirements,
+    );
+
+    // The task's checkpoint is the base for scope comparison; without one, fall
+    // back to the current HEAD *resolved to a sha now* — after the commit,
+    // `HEAD` would name the new commit and the diff would be empty.
+    let base = {
+        let cp_ref = crate::checkpoints::ref_for(&params.change, &params.task, &params.agent);
+        if crate::git::run(&worktree, &["rev-parse", "--verify", "--quiet", &cp_ref]).is_ok() {
+            cp_ref
+        } else {
+            crate::git::head_rev(&worktree).unwrap_or_else(|| "HEAD".to_string())
+        }
+    };
+
+    if !params.confirm {
+        // Supervised preview: show the message and what would be committed,
+        // predicting deviations — nothing is applied.
+        let changed = crate::commit::pending_files(&worktree);
+        let deviations = crate::commit::scope_deviations(&changed, &params.declared_files);
+        let result = CommitTaskResult {
+            committed: false,
+            message,
+            sha: None,
+            changed_files: changed,
+            deviations,
+            tree_clean: !crate::git::is_dirty(&worktree),
+        };
+        return Ok(serde_json::to_value(result).expect("CommitTaskResult serializes"));
+    }
+
+    // Apply. A hook rejection (or any git failure) surfaces verbatim; the task
+    // stays completed-without-commit.
+    let committed = crate::commit::commit(&worktree, &message, &base).map_err(|detail| {
+        RpcError::application(
+            error_codes::GIT_COMMIT_FAILED,
+            "the per-task commit failed",
+            "git_commit_failed",
+            detail,
+            Some(
+                "Resolve what your git hook reported, then retry; Meltemi never bypasses hooks."
+                    .into(),
+            ),
+        )
+    })?;
+
+    let deviations =
+        crate::commit::scope_deviations(&committed.changed_files, &params.declared_files);
+
+    crate::checkpoints::log_event(
+        &root,
+        meltemi_proto::SessionEventKind::TaskCommitted {
+            change: params.change.clone(),
+            task: params.task.clone(),
+            agent: params.agent.clone(),
+            sha: committed.sha.clone(),
+            requirements: crate::commit::requirement_refs(&requirements),
+        },
+    );
+
+    let result = CommitTaskResult {
+        committed: true,
+        message,
+        sha: Some(committed.sha),
+        changed_files: committed.changed_files,
+        deviations,
+        tree_clean: !crate::git::is_dirty(&worktree),
+    };
+    Ok(serde_json::to_value(result).expect("CommitTaskResult serializes"))
 }
 
 /// `session/list`: active sessions (live state from the registry) plus the

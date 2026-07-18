@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/commit.schema.json",
+  "title": "commit/task",
+  "description": "Method `commit/task`: the atomic per-task commit with machine-readable traceability trailers (Meltemi-Task, Meltemi-Req) and the repo's message convention. Supervised mode previews (confirm=false); autonomous mode applies (confirm=true). The message NEVER carries a co-authorship trailer — the author is the user's own git identity, untouched.",
+  "$defs": {
+    "requirement": {
+      "type": "object",
+      "required": ["capability", "requirement"],
+      "properties": {
+        "capability": { "type": "string", "minLength": 1 },
+        "requirement": { "type": "string", "minLength": 1 }
+      }
+    },
+    "params": {
+      "type": "object",
+      "required": ["projectRoot", "change", "task", "agent", "title"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "body": { "type": "string" },
+        "requirements": { "type": "array", "items": { "$ref": "#/$defs/requirement" } },
+        "declaredFiles": { "type": "array", "items": { "type": "string" } },
+        "confirm": { "type": "boolean" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["committed", "message", "changedFiles", "deviations", "treeClean"],
+      "properties": {
+        "committed": { "type": "boolean" },
+        "message": { "type": "string", "minLength": 1 },
+        "sha": { "type": "string", "minLength": 1 },
+        "changedFiles": { "type": "array", "items": { "type": "string" } },
+        "deviations": { "type": "array", "items": { "type": "string" } },
+        "treeClean": { "type": "boolean" }
+      }
+    }
+  }
+}

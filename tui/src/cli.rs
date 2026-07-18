@@ -39,6 +39,9 @@ SUBCOMMANDS:
     revert <change> <task> <agent> [confirm]
                         revert a task's worktree to its checkpoint; without the
                         trailing `confirm` it previews the scope (what won't undo)
+    commit <change> <task> <agent> <title> [confirm]
+                        the atomic per-task commit with traceability trailers;
+                        without `confirm` it previews the message and diff
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
@@ -99,6 +102,15 @@ pub enum Command {
         change: String,
         task: String,
         agent: String,
+        confirm: bool,
+    },
+    /// The atomic per-task commit (`commit/task`); `confirm` false previews the
+    /// message and diff without committing.
+    Commit {
+        change: String,
+        task: String,
+        agent: String,
+        title: String,
         confirm: bool,
     },
     /// Request an orderly daemon shutdown.
@@ -301,6 +313,26 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
             }
             _ => Action::Usage(
                 "`revert` requires: meltemi revert <change> <task> <agent> [confirm]".into(),
+            ),
+        },
+        "commit" => match rest {
+            [change, task, agent, title] | [change, task, agent, title, _] => {
+                let confirm = rest.get(4).is_some_and(|w| *w == "confirm");
+                if rest.len() == 5 && !confirm {
+                    Action::Usage("`commit` accepts only `confirm` as its 5th argument".into())
+                } else {
+                    Action::Run(Command::Commit {
+                        change: (*change).to_string(),
+                        task: (*task).to_string(),
+                        agent: (*agent).to_string(),
+                        title: (*title).to_string(),
+                        confirm,
+                    })
+                }
+            }
+            _ => Action::Usage(
+                "`commit` requires: meltemi commit <change> <task> <agent> \"<title>\" [confirm]"
+                    .into(),
             ),
         },
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
@@ -559,6 +591,50 @@ mod tests {
         ));
         assert!(matches!(
             plan_of(&["revert", "add-thing"], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn commit_previews_without_confirm_and_applies_with_it() {
+        // Scenario: Supervisado propone antes de cometer; Autónomo comete.
+        assert_eq!(
+            plan_of(
+                &["commit", "add-thing", "2.1", "claude", "Add the thing"],
+                false
+            )
+            .action,
+            Action::Run(Command::Commit {
+                change: "add-thing".into(),
+                task: "2.1".into(),
+                agent: "claude".into(),
+                title: "Add the thing".into(),
+                confirm: false,
+            })
+        );
+        assert_eq!(
+            plan_of(
+                &[
+                    "commit",
+                    "add-thing",
+                    "2.1",
+                    "claude",
+                    "Add the thing",
+                    "confirm"
+                ],
+                false
+            )
+            .action,
+            Action::Run(Command::Commit {
+                change: "add-thing".into(),
+                task: "2.1".into(),
+                agent: "claude".into(),
+                title: "Add the thing".into(),
+                confirm: true,
+            })
+        );
+        assert!(matches!(
+            plan_of(&["commit", "add-thing", "2.1"], false).action,
             Action::Usage(_)
         ));
     }

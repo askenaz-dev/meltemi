@@ -206,6 +206,22 @@
         },
         {
           "properties": {
+            "type": { "const": "task_committed" },
+            "payload": {
+              "type": "object",
+              "required": ["change", "task", "agent", "sha", "requirements"],
+              "properties": {
+                "change": { "type": "string" },
+                "task": { "type": "string" },
+                "agent": { "type": "string" },
+                "sha": { "type": "string" },
+                "requirements": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "type": { "const": "session_cancelled" },
             "payload": { "type": "object" }
           }

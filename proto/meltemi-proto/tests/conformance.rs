@@ -622,6 +622,13 @@ fn session_events_conform() {
             agent: "claude".into(),
             irreversible: vec!["ran command: npm publish".into()],
         },
+        SessionEventKind::TaskCommitted {
+            change: "add-thing".into(),
+            task: "1.1".into(),
+            agent: "claude".into(),
+            sha: "a".repeat(40),
+            requirements: vec!["worktree-orchestration/managed-worktrees".into()],
+        },
         SessionEventKind::TurnCompleted {
             stop_reason: TurnStatus::Completed,
         },
@@ -897,6 +904,70 @@ fn checkpoint_conforms() {
 }
 
 #[test]
+fn commit_task_conforms() {
+    assert_conforms(
+        "commit",
+        "params",
+        &CommitTaskParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+            task: "2.1".into(),
+            agent: "claude".into(),
+            title: "Add the thing".into(),
+            body: Some("Implements the thing because the spec asks for it.".into()),
+            requirements: vec![TaskRequirement {
+                capability: "git-per-task".into(),
+                requirement: "Commit atómico por tarea completada".into(),
+            }],
+            declared_files: vec!["src/thing.rs".into()],
+            confirm: true,
+        },
+    );
+    // A preview with no body and no requirements is valid too.
+    assert_conforms(
+        "commit",
+        "params",
+        &CommitTaskParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+            task: "2.1".into(),
+            agent: "claude".into(),
+            title: "Add the thing".into(),
+            body: None,
+            requirements: vec![],
+            declared_files: vec![],
+            confirm: false,
+        },
+    );
+    // An applied commit carries its sha.
+    assert_conforms(
+        "commit",
+        "result",
+        &CommitTaskResult {
+            committed: true,
+            message: "Add the thing\n\n(add-thing 2.1)\n\nMeltemi-Task: add-thing/2.1".into(),
+            sha: Some("a".repeat(40)),
+            changed_files: vec!["src/thing.rs".into()],
+            deviations: vec![],
+            tree_clean: true,
+        },
+    );
+    // A preview declares no sha and reports predicted deviations.
+    assert_conforms(
+        "commit",
+        "result",
+        &CommitTaskResult {
+            committed: false,
+            message: "Add the thing\n\n(add-thing 2.1)\n\nMeltemi-Task: add-thing/2.1".into(),
+            sha: None,
+            changed_files: vec!["src/thing.rs".into(), "src/other.rs".into()],
+            deviations: vec!["src/other.rs".into()],
+            tree_clean: false,
+        },
+    );
+}
+
+#[test]
 fn error_data_conforms() {
     assert_conforms(
         "error",
@@ -942,6 +1013,7 @@ fn error_codes_match_catalog() {
         error_codes::WORKTREE_UNAVAILABLE,
         error_codes::WORKTREE_REFUSED,
         error_codes::CHECKPOINT_NOT_FOUND,
+        error_codes::GIT_COMMIT_FAILED,
     ];
     let mut sorted = constants.to_vec();
     sorted.sort_unstable();

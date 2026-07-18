@@ -85,6 +85,9 @@ pub mod methods {
     /// Request: record an approved out-of-tree operation against a task, so
     /// reversion can declare it irreversible (honest scope).
     pub const CHECKPOINT_RECORD_OP: &str = "checkpoint/record-op";
+    /// Request: propose or apply the atomic per-task commit with traceability
+    /// trailers, in supervised (preview) or autonomous (apply) mode.
+    pub const COMMIT_TASK: &str = "commit/task";
 }
 
 /// Application error codes, outside the JSON-RPC reserved range and grouped
@@ -123,6 +126,10 @@ pub mod error_codes {
     pub const WORKTREE_REFUSED: i64 = 4001;
     /// No checkpoint exists for the requested change/task/agent.
     pub const CHECKPOINT_NOT_FOUND: i64 = 4002;
+    /// The per-task commit could not be created — most often a user git hook
+    /// rejected it. The hook output is surfaced verbatim; hooks are never
+    /// bypassed. The task stays completed-without-commit (a visible state).
+    pub const GIT_COMMIT_FAILED: i64 = 4003;
 }
 
 /// Structured `error.data` payload: `{ kind, detail, remedy }` (D11).
@@ -946,6 +953,21 @@ pub enum SessionEventKind {
         /// Approved out-of-tree operations that remain in effect.
         irreversible: Vec<String>,
     },
+    /// An atomic per-task commit was applied with traceability trailers
+    /// (git-commit-por-tarea). Never carries co-authorship — the author is the
+    /// user's own git identity.
+    TaskCommitted {
+        /// The change the task belongs to.
+        change: String,
+        /// The task label committed.
+        task: String,
+        /// The agent whose worktree was committed.
+        agent: String,
+        /// The commit SHA.
+        sha: String,
+        /// The `<capability>/<requirement>` pairs recorded in `Meltemi-Req`.
+        requirements: Vec<String>,
+    },
     /// The client cancelled the session.
     SessionCancelled {},
     /// The session ended and its log is complete.
@@ -1284,4 +1306,66 @@ pub struct CheckpointRecordOpParams {
 pub struct CheckpointRecordOpResult {
     /// Whether the operation was recorded.
     pub recorded: bool,
+}
+
+/// One requirement a task implements, for the `Meltemi-Req` trailer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRequirement {
+    /// The capability (spec) the requirement lives in.
+    pub capability: String,
+    /// The requirement name (free text; slugged into the trailer).
+    pub requirement: String,
+}
+
+/// Params of `commit/task`. With `confirm` false the daemon returns the
+/// proposed message and the diff summary without committing (supervised
+/// preview); with `confirm` true it applies the commit (autonomous, or the
+/// human's approval). The title/body are the editable inputs — the daemon
+/// guarantees the message form and trailers either way.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitTaskParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change the task belongs to.
+    pub change: String,
+    /// The task label being committed.
+    pub task: String,
+    /// The agent whose worktree is committed.
+    pub agent: String,
+    /// The imperative English title (the daemon enforces the convention).
+    pub title: String,
+    /// The optional body (what/why); the agent may propose it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    /// The requirements this task implements (one `Meltemi-Req` each).
+    #[serde(default)]
+    pub requirements: Vec<TaskRequirement>,
+    /// The files the task declared it touches, to verify the commit's scope.
+    #[serde(default)]
+    pub declared_files: Vec<String>,
+    /// Whether to apply the commit (true) or only preview it (false).
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+/// Result of `commit/task`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitTaskResult {
+    /// Whether a commit was applied (false for a preview).
+    pub committed: bool,
+    /// The final, convention-guaranteed commit message (with trailers).
+    pub message: String,
+    /// The commit SHA, when applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha: Option<String>,
+    /// The files the commit changed against the checkpoint base.
+    pub changed_files: Vec<String>,
+    /// Committed paths outside the task's declared scope — reported, never
+    /// hidden (empty when the scope matches or nothing was declared).
+    pub deviations: Vec<String>,
+    /// Whether the worktree is clean after the commit (atomicity).
+    pub tree_clean: bool,
 }
