@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Release
+
+# Releases originate from a tag and its pipeline (docs/versionado.md). A red
+# gate aborts the release: no artifact is published (docs/release.md).
+on:
+  push:
+    tags: ["v*.*.*"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  # Performance budget (constitution §12): the TUI binary stays under 25 MB.
+  MELTEMI_TUI_BUDGET_BYTES: "26214400"
+
+jobs:
+  gates:
+    name: release gates (${{ matrix.os }})
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+
+      # Hard gates — any failure aborts the release for every platform.
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+      - name: Release build
+        run: cargo build --workspace --release
+
+      # Performance budget gate (§12): the TUI binary size.
+      - name: TUI size budget
+        shell: bash
+        run: |
+          bin="target/release/meltemi"
+          [ "${{ runner.os }}" = "Windows" ] && bin="target/release/meltemi.exe"
+          size=$(wc -c < "$bin")
+          echo "meltemi binary is $size bytes (budget ${MELTEMI_TUI_BUDGET_BYTES})"
+          if [ "$size" -gt "${MELTEMI_TUI_BUDGET_BYTES}" ]; then
+            echo "::error::TUI binary exceeds its §12 budget; aborting release"
+            exit 1
+          fi
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses advisories sources bans
+
+  package:
+    name: package & checksums (${{ matrix.os }})
+    needs: [gates, deny]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Release build
+        run: cargo build --workspace --release
+      - name: Package and checksum
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "dist/meltemi-${{ runner.os }}.zip" ./target/release/meltemi.exe ./target/release/meltemid.exe
+          else
+            tar -czf "dist/meltemi-${{ runner.os }}.tar.gz" -C target/release meltemi meltemid
+          fi
+          cd dist
+          # Publish a checksum for every artifact. The detached signature of
+          # SHA256SUMS is produced with the maintainer's key (docs/release.md);
+          # that signing step runs with the release secrets, not in this file.
+          if command -v sha256sum >/dev/null; then sha256sum * > SHA256SUMS; else shasum -a 256 * > SHA256SUMS; fi
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meltemi-${{ runner.os }}
+          path: dist/

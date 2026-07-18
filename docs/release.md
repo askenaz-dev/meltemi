@@ -1,0 +1,84 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+# Releases: packaging, signing, and installation
+
+This document describes how Meltemi is packaged, signed, verified, and installed.
+The promise is a **single self-contained binary, installable with one command**
+(foundational document §4.5). See [versioning](versionado.md) for how versions
+are decided.
+
+_Resumen en español al final._
+
+## Artifacts
+
+Each release publishes, per supported platform (see
+[platform notes](plataformas.md)), an archive containing the `meltemi` client and
+the `meltemid` daemon, plus:
+
+- a `SHA256SUMS` file with the checksum of every archive;
+- a detached signature for the checksums file.
+
+## Verifying a download
+
+Before installing, verify the archive:
+
+```
+# 1. Check the checksum
+sha256sum --check SHA256SUMS        # (shasum -a 256 on macOS; Get-FileHash on Windows)
+
+# 2. Verify the signature of SHA256SUMS with the published signing key
+#    (the key and the exact command are published on the release page)
+```
+
+The installer scripts perform this verification for you and refuse to proceed on
+a mismatch — there is no blind `curl | sh`: the script is short, readable, and
+its own hash is published.
+
+## Key custody (maintainer)
+
+The signing key is the responsibility of the **founding maintainer**. The custody
+procedure — generation, storage (offline/hardware-backed), rotation schedule, and
+revocation — is maintained by the maintainer and documented on the release
+infrastructure. This document records that the procedure exists and is the
+maintainer's; the key material itself is never in this repository.
+
+## Installers
+
+One-line, auditable installers place `meltemi` and `meltemid` on the user's
+`PATH` and create the short alias **`mel`**:
+
+- **Unix (macOS/Linux)**: [`scripts/install.sh`](../scripts/install.sh)
+- **Windows (PowerShell)**: [`scripts/install.ps1`](../scripts/install.ps1)
+
+Each script is short and legible; its published hash lets you verify it before
+running. Manual installation (download, verify, extract, add to `PATH`, create
+the `mel` alias) is documented in each script's header as the equivalent path.
+
+## Release pipeline and budgets
+
+The release pipeline (`.github/workflows/release.yml`) is triggered by a `vX.Y.Z`
+tag and runs on Windows, macOS, and Linux with **hard gates**: the full test
+suite, `cargo clippy -- -D warnings`, `cargo fmt --check`, `cargo deny`, and the
+**performance budgets** (constitution §12) — including the TUI binary staying
+under **25 MB**. Any red gate aborts the release and **no artifact is
+published**.
+
+## Crate namespaces
+
+To secure the project's namespace, the crates `meltemi`, `meltemid`, and
+`meltemi-proto` are reserved on the registry: `meltemi-proto` is the real
+published contract; `meltemi` and `meltemid` are honest placeholders that point
+at this repository until their libraries are published. Publishing is a
+maintainer action (the placeholder crates set `publish = false` in-tree as a
+safety until the maintainer reserves the names).
+
+## Summary (español)
+
+Cada release publica archivos por plataforma con `meltemi`+`meltemid`, checksums
+y firma. El usuario verifica checksum y firma con instrucciones publicadas; los
+instaladores (`scripts/install.sh`, `scripts/install.ps1`) lo hacen por él, son
+legibles y con hash publicado, e instalan los binarios y el alias `mel`. La
+custodia de la clave es del mantenedor (documentada, nunca en el repo). El
+pipeline de release corre las tres plataformas con gates duros —suite, clippy,
+fmt, cargo-deny y presupuestos §12 (TUI < 25 MB)— y aborta sin publicar ante
+cualquier rojo. Los crates `meltemi`/`meltemid`/`meltemi-proto` reservan el
+namespace.
