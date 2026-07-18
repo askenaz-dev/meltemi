@@ -38,6 +38,7 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
         Command::Constitution { topic } => {
             sdd_verb(endpoint, methods::SDD_CONSTITUTION, topic, None).await
         }
+        Command::Review { change } => review(change, endpoint).await,
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -259,6 +260,48 @@ async fn sdd_verb(
             if let Some(d) = d.as_str() {
                 human.push_str(&format!("\n  diagnostic: {d}"));
             }
+        }
+    }
+    Ok(Outcome { human, json: value })
+}
+
+/// Reports the review checklist of a change (scriptable; `--json` emits the
+/// items and their states, never awaiting interactive input).
+async fn review(change: String, endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = std::env::current_dir()
+        .map_err(CliError::internal)?
+        .display()
+        .to_string();
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::SDD_REVIEW,
+            &json!({ "projectRoot": project_root, "changeName": change }),
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    use std::fmt::Write;
+    let mut human = format!(
+        "review `{change}` — {} pending, {}",
+        value["pending"].as_u64().unwrap_or(0),
+        if value["canClose"].as_bool().unwrap_or(false) {
+            "closable"
+        } else {
+            "not closable (decide all items)"
+        }
+    );
+    if let Some(items) = value["items"].as_array() {
+        for item in items {
+            let _ = write!(
+                human,
+                "\n  [{}] {}/{}",
+                item["state"].as_str().unwrap_or("?"),
+                item["capability"].as_str().unwrap_or(""),
+                item["requirement"].as_str().unwrap_or("")
+            );
         }
     }
     Ok(Outcome { human, json: value })

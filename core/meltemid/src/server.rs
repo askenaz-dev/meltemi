@@ -243,6 +243,10 @@ async fn dispatch_request(
         methods::SDD_PROPOSE => crate::sdd_flow::handle_propose(params, state, peer).await,
         methods::SDD_PLAN => crate::sdd_flow::handle_plan(params, state, peer).await,
         methods::SDD_GATE => crate::sdd_flow::handle_gate(params, state, peer).await,
+        methods::SDD_REVIEW => crate::review::handle_review(params, state).await,
+        methods::SDD_REVIEW_DECIDE => {
+            crate::review::handle_review_decide(params, state, peer).await
+        }
         methods::PERMISSION_PENDING => handle_permission_pending(state).await,
         methods::PERMISSION_DECIDE => handle_permission_decide(params, state).await,
         other => Err(RpcError::method_not_found(other)),

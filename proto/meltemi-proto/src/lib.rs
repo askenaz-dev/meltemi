@@ -46,6 +46,10 @@ pub mod methods {
     pub const SDD_PLAN: &str = "sdd/plan";
     /// Request: decide a pending authoring gate (approve/comment/abort).
     pub const SDD_GATE: &str = "sdd/gate";
+    /// Request: the review checklist of a change's spec deltas.
+    pub const SDD_REVIEW: &str = "sdd/review";
+    /// Request: decide one review checklist item (approve/comment/reject).
+    pub const SDD_REVIEW_DECIDE: &str = "sdd/review-decide";
     /// Notification (client -> daemon): cancel an active session.
     pub const SESSION_CANCEL: &str = "session/cancel";
     /// Notification (daemon -> client): streamed session event.
@@ -411,6 +415,55 @@ pub struct SddGateParams {
     /// The rework comment, when `decision` is `comment`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+}
+
+/// Params of `sdd/review`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddReviewParams {
+    pub project_root: String,
+    pub change_name: String,
+}
+
+/// Params of `sdd/review-decide`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddReviewDecideParams {
+    pub project_root: String,
+    pub change_name: String,
+    /// The capability the requirement belongs to.
+    pub capability: String,
+    /// The requirement name being decided.
+    pub requirement: String,
+    /// `approve` | `comment` | `reject`.
+    pub decision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+/// One review checklist item.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewItem {
+    pub capability: String,
+    pub requirement: String,
+    /// `pending` | `approved` | `commented` | `rejected`.
+    pub state: String,
+    /// Diagnostics anchored to this requirement.
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
+}
+
+/// Result of a review step: the checklist and whether it can close.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddReviewResult {
+    pub change_name: String,
+    pub items: Vec<ReviewItem>,
+    /// How many items are still `pending`.
+    pub pending: u32,
+    /// Whether closing the review is allowed (all items decided).
+    pub can_close: bool,
 }
 
 /// Params of `sdd/plan`.

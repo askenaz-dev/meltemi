@@ -44,7 +44,7 @@ jamás. La conexión es bidireccional: el daemon también envía peticiones
 | `session/list` | cliente → daemon | request | `session-list.schema.json` |
 | `session/log` | cliente → daemon | request | `session-log.schema.json` |
 | `repo/map` | cliente → daemon | request | `repo-map.schema.json` |
-| `sdd/explore` · `sdd/constitution` · `sdd/propose` · `sdd/plan` · `sdd/gate` | cliente → daemon | request | `sdd.schema.json` |
+| `sdd/explore` · `sdd/constitution` · `sdd/propose` · `sdd/plan` · `sdd/gate` · `sdd/review` · `sdd/review-decide` | cliente → daemon | request | `sdd.schema.json` |
 | `session/cancel` | cliente → daemon | notification | `session-cancel.schema.json` |
 | `session/event` | daemon → cliente | notification | `session-event.schema.json` |
 | `permission/request` | daemon → cliente | request | `permission.schema.json` |

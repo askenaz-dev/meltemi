@@ -346,6 +346,79 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
     render_lines(frame, area, lines);
 }
 
+/// How one scenario differs between the living and the modified requirement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffMark {
+    /// Present in both (unchanged position by name).
+    Kept,
+    /// Only in the modified version (added by the delta).
+    Added,
+    /// Only in the living version (removed by the delta).
+    Removed,
+}
+
+/// Aligns two scenario-name lists (before/after) by name, classifying each as
+/// kept, added, or removed — the core of a MODIFIED delta's semantic diff
+/// (revision-specs-ux). Deterministic: befores first (kept/removed in their
+/// order), then adds in the after order.
+#[must_use]
+pub fn align_scenarios(before: &[String], after: &[String]) -> Vec<(DiffMark, String)> {
+    let after_set: std::collections::HashSet<&str> = after.iter().map(String::as_str).collect();
+    let before_set: std::collections::HashSet<&str> = before.iter().map(String::as_str).collect();
+    let mut out = Vec::new();
+    for name in before {
+        let mark = if after_set.contains(name.as_str()) {
+            DiffMark::Kept
+        } else {
+            DiffMark::Removed
+        };
+        out.push((mark, name.clone()));
+    }
+    for name in after {
+        if !before_set.contains(name.as_str()) {
+            out.push((DiffMark::Added, name.clone()));
+        }
+    }
+    out
+}
+
+/// Renders an aligned MODIFIED diff into lines: each scenario carries a glyph
+/// and a word (never color alone), legible in ASCII / NO_COLOR. A review view
+/// mounts these lines in the Project surface (revision-specs-ux).
+pub fn render_diff_lines(diff: &[(DiffMark, String)], ctx: &ShellCtx) -> Vec<Line<'static>> {
+    diff.iter()
+        .map(|(mark, name)| {
+            let (glyph, word) = match mark {
+                DiffMark::Kept => (
+                    glyphs::OK,
+                    if ctx.lang == Lang::Es {
+                        "igual"
+                    } else {
+                        "kept"
+                    },
+                ),
+                DiffMark::Added => (
+                    glyphs::SELECT,
+                    if ctx.lang == Lang::Es {
+                        "añadido"
+                    } else {
+                        "added"
+                    },
+                ),
+                DiffMark::Removed => (
+                    glyphs::ABSENT,
+                    if ctx.lang == Lang::Es {
+                        "retirado"
+                    } else {
+                        "removed"
+                    },
+                ),
+            };
+            Line::from(format!("{} {word:<9} {name}", glyph.text(&ctx.present)))
+        })
+        .collect()
+}
+
 /// (glyph, word) for a fleet detection state — never color alone.
 fn detection_label(detected: bool, lang: Lang) -> (Glyph, &'static str) {
     if detected {
@@ -1256,6 +1329,49 @@ mod tests {
             );
         }
         assert!(out.contains("esperando"), "meaning survives in words");
+    }
+
+    #[test]
+    fn modified_diff_aligns_scenarios_by_name() {
+        // Scenario: MODIFIED alineado por escenario.
+        let before = vec!["opens".to_string(), "closes".to_string()];
+        let after = vec!["opens".to_string(), "cancels".to_string()];
+        let diff = align_scenarios(&before, &after);
+        assert!(diff.contains(&(DiffMark::Kept, "opens".into())));
+        assert!(diff.contains(&(DiffMark::Removed, "closes".into())));
+        assert!(diff.contains(&(DiffMark::Added, "cancels".into())));
+    }
+
+    #[test]
+    fn diff_render_is_legible_in_ascii_with_words_and_glyph_twins() {
+        // Scenario: Legible sin color (ASCII twins + textual labels).
+        let ascii = Presentation::resolve(&PresentationEnv {
+            ascii_flag: true,
+            ..Default::default()
+        });
+        let diff = align_scenarios(
+            &["opens".into(), "closes".into()],
+            &["opens".into(), "cancels".into()],
+        );
+        let lines = render_diff_lines(&diff, &ctx(ascii));
+        let mut terminal = Terminal::new(TestBackend::new(60, 6)).unwrap();
+        terminal
+            .draw(|f| f.render_widget(Paragraph::new(lines), f.area()))
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("añadido") && text.contains("retirado") && text.contains("igual"));
+        for forbidden in ['›', '○', '●'] {
+            assert!(
+                !text.contains(forbidden),
+                "ASCII diff must avoid {forbidden:?}"
+            );
+        }
     }
 
     #[test]

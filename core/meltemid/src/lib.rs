@@ -22,6 +22,7 @@ pub mod pending;
 pub mod permissions;
 pub mod propose;
 pub mod repo_map;
+pub mod review;
 pub mod rpc;
 pub mod sdd;
 pub mod sdd_flow;

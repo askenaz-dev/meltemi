@@ -8,7 +8,7 @@
 
 /// Subcommands reserved for the SDD authoring cycle (#14+): recognized by the
 /// grammar so it stays stable, but not implemented in this change.
-pub const RESERVED: &[&str] = &["review", "implement", "verify", "archive"];
+pub const RESERVED: &[&str] = &["implement", "verify", "archive"];
 
 /// Help text for the scriptable surface.
 pub const USAGE: &str = "\
@@ -27,6 +27,7 @@ SUBCOMMANDS:
     explore <topic>     deliberate with the agent without writing
     plan <change>       refine design and sequence a change's tasks
     constitution        create or edit the project constitution
+    review <change>     review a change's spec deltas as a checklist
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
@@ -37,7 +38,7 @@ GLOBAL FLAGS:
     -V, --version       print the client version
 
 RESERVED (not yet implemented):
-    review, implement, verify, archive";
+    implement, verify, archive";
 
 /// An RPC-backed or local subcommand to run in scriptable mode.
 #[derive(Debug, PartialEq, Eq)]
@@ -61,6 +62,8 @@ pub enum Command {
     Plan { change: String },
     /// Create/edit the project constitution (`sdd/constitution`).
     Constitution { topic: String },
+    /// Review a change's spec deltas as a checklist (`sdd/review`).
+    Review { change: String },
     /// Request an orderly daemon shutdown.
     Stop,
     /// A reserved subcommand recognized by the grammar but not yet implemented.
@@ -189,6 +192,12 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
         "constitution" => Action::Run(Command::Constitution {
             topic: rest.first().map(|s| (*s).to_string()).unwrap_or_default(),
         }),
+        "review" => match rest {
+            [change] => Action::Run(Command::Review {
+                change: (*change).to_string(),
+            }),
+            _ => Action::Usage("`review` requires a change name: meltemi review <change>".into()),
+        },
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
         "stop" => Action::Usage("`stop` takes no arguments".into()),
         "propose" => match rest {

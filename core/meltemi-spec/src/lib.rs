@@ -21,6 +21,7 @@ pub mod ears;
 pub mod frontmatter;
 pub mod model;
 pub mod project;
+pub mod review;
 pub mod spec_parser;
 pub mod tree;
 pub mod validate;
@@ -32,5 +33,6 @@ pub use model::{
     RumboFile, Scenario, Spec, Step, StepMarker,
 };
 pub use project::{ActiveChange, ProjectionSources, project};
+pub use review::{normalize_name, review_diagnostics};
 pub use spec_parser::{parse_spec, parse_spec_file};
 pub use validate::{validate_rumbo, validate_spec, validate_tree};

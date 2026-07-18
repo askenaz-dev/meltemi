@@ -79,6 +79,14 @@ pub enum Rule {
     RenamedFromMissing,
     /// A `RENAMED` `TO` name is already in use.
     RenamedToExists,
+    /// An `ADDED` requirement's normalized name collides with an existing one
+    /// (a soft duplicate, differing only in case/whitespace).
+    DuplicateRequirementName,
+    /// A `MODIFIED` requirement is identical to the living one (no effect).
+    ModifiedNoOp,
+    /// An explicit `Requirement: X` reference points at a name absent after
+    /// the delta is applied.
+    DanglingReference,
 }
 
 impl Rule {
@@ -99,6 +107,9 @@ impl Rule {
             Self::RemovedWithoutReasonOrMigration => "removed-without-reason-or-migration",
             Self::RenamedFromMissing => "renamed-from-missing",
             Self::RenamedToExists => "renamed-to-exists",
+            Self::DuplicateRequirementName => "duplicate-requirement-name",
+            Self::ModifiedNoOp => "modified-no-op",
+            Self::DanglingReference => "dangling-reference",
         }
     }
 }
