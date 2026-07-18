@@ -36,6 +36,7 @@ name = "Gemini CLI"
 level = 1
 bin = "gemini"
 acp-args = ["--acp"]
+mcp = true
 candidate-paths = []
 
 [[agents]]
@@ -87,6 +88,7 @@ level = 2
 bin = "claude-agent-acp"
 adapter = "claude-agent-acp"
 adapter-args = []
+mcp = true
 candidate-paths = []
 
 [[agents]]

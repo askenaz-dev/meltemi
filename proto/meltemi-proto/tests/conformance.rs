@@ -296,6 +296,7 @@ fn fleet_conforms() {
                     integration_level: 1,
                     verified_level: None,
                     verified_at: None,
+                    mcp_support: false,
                     detected: true,
                     binary_path: Some("C:\\bin\\native-agent.exe".into()),
                     configured: true,
@@ -307,6 +308,7 @@ fn fleet_conforms() {
                     integration_level: 4,
                     verified_level: None,
                     verified_at: None,
+                    mcp_support: false,
                     detected: false,
                     binary_path: None,
                     configured: false,
@@ -318,6 +320,7 @@ fn fleet_conforms() {
                     integration_level: 1,
                     verified_level: None,
                     verified_at: None,
+                    mcp_support: false,
                     detected: false,
                     binary_path: None,
                     configured: false,
@@ -558,6 +561,12 @@ fn session_events_conform() {
                 path_prefix: Some("/repo".into()),
                 scope: PermissionRuleScope::Project,
             }),
+        },
+        SessionEventKind::McpInjected {
+            servers: vec!["fs".into(), "search".into()],
+        },
+        SessionEventKind::McpNotDelivered {
+            reason: "the agent does not announce MCP support".into(),
         },
         SessionEventKind::TurnCompleted {
             stop_reason: TurnStatus::Completed,

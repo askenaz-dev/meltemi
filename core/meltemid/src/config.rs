@@ -36,6 +36,31 @@ pub struct CustomAgent {
     pub command: Vec<String>,
 }
 
+/// One MCP server the user declared once, to inject into compatible agents
+/// (mcp-passthrough D1). Sensitive values live as `$VAR` references, never
+/// literals — Meltemi references the user's environment, never stores it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpServerConfig {
+    /// Human-readable server name (the injection is audited by name).
+    pub name: String,
+    /// The transport.
+    pub transport: McpTransport,
+}
+
+/// An MCP server transport.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McpTransport {
+    /// A local process speaking MCP over stdio.
+    Stdio {
+        command: String,
+        args: Vec<String>,
+        /// Environment entries as `(NAME, "$VAR")` references.
+        env: Vec<(String, String)>,
+    },
+    /// A remote MCP server over HTTP.
+    Http { url: String },
+}
+
 /// Resolved daemon configuration.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Config {
@@ -51,6 +76,12 @@ pub struct Config {
     /// User-declared agents joining the fleet catalog, in declaration order
     /// (user config first, project config after; same id overrides).
     pub fleet_custom: Vec<CustomAgent>,
+    /// Declared MCP servers to inject into compatible agents; project overrides
+    /// global by name (mcp-passthrough D1).
+    pub mcp_servers: Vec<McpServerConfig>,
+    /// Hygiene diagnostics for MCP declarations with plaintext-secret-looking
+    /// values; never carry the value itself.
+    pub mcp_diagnostics: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -59,6 +90,29 @@ struct RawConfig {
     agent: RawAgent,
     #[serde(default)]
     fleet: RawFleet,
+    #[serde(default)]
+    mcp: RawMcp,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawMcp {
+    #[serde(default)]
+    servers: Vec<RawMcpServer>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawMcpServer {
+    name: String,
+    /// stdio transport.
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    env: std::collections::BTreeMap<String, String>,
+    /// http transport.
+    #[serde(default)]
+    url: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -197,6 +251,47 @@ impl Config {
                 None => self.fleet_custom.push(agent),
             }
         }
+        for raw in raw.mcp.servers {
+            // Hygiene lint: flag plaintext-secret-looking values with a remedy,
+            // never copying the value into the diagnostic (D1).
+            for (key, value) in &raw.env {
+                if looks_like_plaintext_secret(value) {
+                    self.mcp_diagnostics.push(format!(
+                        "mcp server `{}` env `{key}` looks like a plaintext secret; \
+                         reference an environment variable instead (e.g. `\"$MY_TOKEN\"`)",
+                        raw.name
+                    ));
+                }
+            }
+            let transport = if let Some(command) = raw.command {
+                McpTransport::Stdio {
+                    command,
+                    args: raw.args,
+                    env: raw.env.into_iter().collect(),
+                }
+            } else if let Some(url) = raw.url {
+                if looks_like_plaintext_secret(&url) {
+                    self.mcp_diagnostics.push(format!(
+                        "mcp server `{}` url embeds what looks like a secret; \
+                         reference an environment variable instead",
+                        raw.name
+                    ));
+                }
+                McpTransport::Http { url }
+            } else {
+                tracing::warn!(name = %raw.name, "mcp server has neither command nor url; ignored");
+                continue;
+            };
+            let server = McpServerConfig {
+                name: raw.name,
+                transport,
+            };
+            // Project overrides global by name.
+            match self.mcp_servers.iter_mut().find(|s| s.name == server.name) {
+                Some(existing) => *existing = server,
+                None => self.mcp_servers.push(server),
+            }
+        }
     }
 
     fn apply_env(&mut self) {
@@ -212,6 +307,25 @@ impl Config {
             self.fleet_registry = Some(PathBuf::from(path));
         }
     }
+}
+
+/// Whether a config value looks like a plaintext secret rather than an
+/// environment reference: it is not a `$VAR`/`${VAR}` reference and either is a
+/// long opaque token or contains an obvious credential marker.
+pub fn looks_like_plaintext_secret(value: &str) -> bool {
+    let v = value.trim();
+    if v.is_empty() || v.starts_with('$') {
+        return false; // an env reference is exactly what we want
+    }
+    // A long, opaque, high-entropy-looking token.
+    let opaque = v.len() >= 20
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '+' | '='));
+    // A common credential prefix carried literally.
+    let prefixed = ["sk-", "ghp_", "xoxb-", "AKIA", "Bearer ", "AIza"]
+        .iter()
+        .any(|p| v.starts_with(p));
+    opaque || prefixed
 }
 
 fn read_config_file(path: &Path) -> Option<RawConfig> {
@@ -338,6 +452,81 @@ mod tests {
         let config = Config::load(&dir, None);
         assert_eq!(config.fleet_custom[0].name, "bare");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn mcp_servers_merge_by_name_and_lint_secrets() {
+        // Scenarios: Servidor declarado una vez; Nombre repetido por ámbito;
+        // Secreto en claro detectado (mcp-passthrough).
+        let dir = std::env::temp_dir().join(format!("meltemi-mcp-{}", std::process::id()));
+        let user_dir = dir.join("user");
+        let project_root = dir.join("project");
+        std::fs::create_dir_all(&user_dir).unwrap();
+        std::fs::create_dir_all(project_root.join(".meltemi")).unwrap();
+        std::fs::write(
+            user_dir.join("config.toml"),
+            "[[mcp.servers]]\nname = \"fs\"\ncommand = \"user-fs\"\n\n\
+             [[mcp.servers]]\nname = \"leaky\"\ncommand = \"x\"\n[mcp.servers.env]\nTOKEN = \"sk-abcdefghijklmnopqrstuvwxyz\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project_root.join(".meltemi").join("config.toml"),
+            "[[mcp.servers]]\nname = \"fs\"\ncommand = \"project-fs\"\n[mcp.servers.env]\nKEY = \"$MY_KEY\"\n",
+        )
+        .unwrap();
+        // SAFETY: single-threaded test.
+        unsafe {
+            std::env::remove_var(ENV_AGENT_COMMAND);
+        }
+        let config = Config::load(&user_dir, Some(&project_root));
+
+        // Project overrides the user's `fs` by name; `leaky` survives.
+        let fs = config.mcp_servers.iter().find(|s| s.name == "fs").unwrap();
+        match &fs.transport {
+            McpTransport::Stdio { command, env, .. } => {
+                assert_eq!(command, "project-fs", "project wins by name");
+                assert_eq!(
+                    env[0],
+                    ("KEY".into(), "$MY_KEY".into()),
+                    "env is a reference"
+                );
+            }
+            _ => panic!("stdio"),
+        }
+        // The plaintext token was flagged, and its value never entered the
+        // diagnostic text.
+        assert!(
+            config
+                .mcp_diagnostics
+                .iter()
+                .any(|d| d.contains("leaky") && d.contains("plaintext")),
+            "the plaintext secret is flagged: {:?}",
+            config.mcp_diagnostics
+        );
+        assert!(
+            !config
+                .mcp_diagnostics
+                .iter()
+                .any(|d| d.contains("sk-abcdefghijklmnop")),
+            "the secret value must never appear in a diagnostic"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn secret_detector_positives_and_negatives() {
+        assert!(looks_like_plaintext_secret("sk-1234567890abcdef1234"));
+        assert!(looks_like_plaintext_secret("ghp_aaaaaaaaaaaaaaaaaaaa"));
+        assert!(looks_like_plaintext_secret("AKIAIOSFODNN7EXAMPLE"));
+        assert!(looks_like_plaintext_secret(
+            "a-very-long-opaque-token-value-1234"
+        ));
+        // References and short/obvious non-secrets are not flagged.
+        assert!(!looks_like_plaintext_secret("$MY_TOKEN"));
+        assert!(!looks_like_plaintext_secret("${MY_TOKEN}"));
+        assert!(!looks_like_plaintext_secret("./local/path"));
+        assert!(!looks_like_plaintext_secret("short"));
     }
 
     #[test]

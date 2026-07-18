@@ -157,6 +157,11 @@ pub async fn handle_propose(
     for diagnostic in &rules.diagnostics {
         tracing::warn!(diagnostic, "permission rule skipped");
     }
+    // MCP hygiene diagnostics (mcp-passthrough D1) surface as warnings; the
+    // offending values are never carried into the diagnostic.
+    for diagnostic in &config.mcp_diagnostics {
+        tracing::warn!(diagnostic, "mcp hygiene");
+    }
 
     // Delegate the proposal contents to the agent (5.2).
     let outcome = acp::run_session(SessionParams {
@@ -172,6 +177,7 @@ pub async fn handle_propose(
         pending: state.pending.clone(),
         // `propose` always opens a fresh session; resume is a separate flow.
         load_session_id: None,
+        mcp_servers: config.mcp_servers.clone(),
     })
     .await;
 

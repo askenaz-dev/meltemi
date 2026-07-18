@@ -70,6 +70,8 @@ pub struct RegistryAgent {
     pub native_controls: Vec<String>,
     /// Level 4: the projected instruction file this agent reads (design D1).
     pub l4_target: Option<String>,
+    /// Whether the agent supports MCP passthrough (declared in the registry).
+    pub mcp: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,6 +105,8 @@ struct RawRegistryAgent {
     native_controls: Vec<String>,
     #[serde(default)]
     l4_target: Option<String>,
+    #[serde(default)]
+    mcp: bool,
 }
 
 /// The binary name of an entry: one for every OS, or a per-OS table.
@@ -177,6 +181,7 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
             headless_args: agent.headless_args,
             native_controls: agent.native_controls,
             l4_target: agent.l4_target,
+            mcp: agent.mcp,
         });
     }
     Ok(Registry {
@@ -322,6 +327,8 @@ pub struct CatalogEntry {
     pub native_controls: Vec<String>,
     /// Level 4: the projected instruction file this agent reads.
     pub l4_target: Option<String>,
+    /// Whether the agent supports MCP passthrough.
+    pub mcp: bool,
 }
 
 impl Default for CatalogEntry {
@@ -340,6 +347,7 @@ impl Default for CatalogEntry {
             headless_args: Vec::new(),
             native_controls: Vec::new(),
             l4_target: None,
+            mcp: false,
         }
     }
 }
@@ -375,6 +383,7 @@ pub fn build_catalog(config: &Config) -> Catalog {
             headless_args: agent.headless_args,
             native_controls: agent.native_controls,
             l4_target: agent.l4_target,
+            mcp: agent.mcp,
         })
         .collect();
     for custom in &config.fleet_custom {
@@ -422,6 +431,7 @@ pub fn list(config: &Config, configured_id: Option<&str>, path_var: &OsStr) -> F
                 // Enriched from persisted conformance in `handle_fleet_list`.
                 verified_level: None,
                 verified_at: None,
+                mcp_support: entry.mcp,
                 detected: binary.is_some(),
                 binary_path: binary.map(|p| p.display().to_string()),
                 configured: configured_id == Some(entry.id.as_str()),

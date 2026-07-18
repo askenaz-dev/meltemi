@@ -321,6 +321,9 @@ pub struct FleetAgent {
     /// The date (RFC 3339) of the conformance run behind `verified_level`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verified_at: Option<String>,
+    /// Whether the agent declares MCP passthrough support in the registry.
+    #[serde(default)]
+    pub mcp_support: bool,
     /// Whether the agent's binary was found on this system.
     pub detected: bool,
     /// Absolute path of the detected binary; present only when detected.
@@ -684,6 +687,19 @@ pub enum SessionEventKind {
         /// and content, so every grant is traceable to what took it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         rule: Option<PermissionRule>,
+    },
+    /// MCP servers were injected into the session at creation. Only the server
+    /// names are recorded — never resolved env values or credentialed URLs
+    /// (mcp-passthrough D3).
+    McpInjected {
+        /// The names of the injected servers.
+        servers: Vec<String>,
+    },
+    /// Declared MCP servers were not delivered (the agent announced no MCP
+    /// support); recorded so the omission is visible, never silent.
+    McpNotDelivered {
+        /// Why they were not delivered.
+        reason: String,
     },
     /// The agent turn finished.
     TurnCompleted {

@@ -72,6 +72,9 @@ pub struct SessionParams {
     /// When resuming, the agent session id to load instead of opening a new
     /// one (requires the agent to support session load; sesiones-reanudables).
     pub load_session_id: Option<String>,
+    /// Declared MCP servers to inject when the agent announces support
+    /// (mcp-passthrough D2).
+    pub mcp_servers: Vec<crate::config::McpServerConfig>,
 }
 
 /// The result of one ACP turn: the mapped stop reason, how many permission
@@ -104,6 +107,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         rules,
         pending,
         load_session_id,
+        mcp_servers,
     } = params;
 
     let agent = AcpAgent::from_args(&agent_command)
@@ -169,8 +173,27 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                     SessionId::new(prev.clone())
                 }
                 _ => {
+                    // Inject declared MCP servers only when the agent announced
+                    // support; otherwise open the session without them and
+                    // record the omission (mcp-passthrough D2/D3).
+                    let mut request = NewSessionRequest::new(project_root.clone());
+                    if !mcp_servers.is_empty() {
+                        if crate::mcp::announces_mcp(&init.agent_capabilities.mcp_capabilities) {
+                            request = request
+                                .mcp_servers(mcp_servers.iter().map(crate::mcp::to_acp).collect());
+                            let mut log = log.lock().await;
+                            let _ = log.append(SessionEventKind::McpInjected {
+                                servers: crate::mcp::names(&mcp_servers),
+                            });
+                        } else {
+                            let mut log = log.lock().await;
+                            let _ = log.append(SessionEventKind::McpNotDelivered {
+                                reason: "the agent does not announce MCP support".into(),
+                            });
+                        }
+                    }
                     connection
-                        .send_request(NewSessionRequest::new(project_root.clone()))
+                        .send_request(request)
                         .block_task()
                         .await?
                         .session_id

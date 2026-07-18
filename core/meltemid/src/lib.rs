@@ -16,6 +16,7 @@ pub mod context;
 pub mod fleet;
 pub mod levels;
 pub mod logging;
+pub mod mcp;
 pub mod paths;
 pub mod pending;
 pub mod permissions;

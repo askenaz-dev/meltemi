@@ -111,6 +111,34 @@
         },
         {
           "properties": {
+            "type": { "const": "mcp_injected" },
+            "payload": {
+              "type": "object",
+              "required": ["servers"],
+              "properties": {
+                "servers": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Injected MCP server names only — never resolved env values or credentialed URLs."
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "mcp_not_delivered" },
+            "payload": {
+              "type": "object",
+              "required": ["reason"],
+              "properties": {
+                "reason": { "type": "string" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "type": { "const": "turn_completed" },
             "payload": {
               "type": "object",

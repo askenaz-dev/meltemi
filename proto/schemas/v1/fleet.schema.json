@@ -48,6 +48,10 @@
           "format": "date-time",
           "description": "The date of the conformance run behind verifiedLevel."
         },
+        "mcpSupport": {
+          "type": "boolean",
+          "description": "Whether the agent declares MCP passthrough support in the registry."
+        },
         "detected": {
           "type": "boolean",
           "description": "Whether the agent's binary was found on this system (PATH or candidate paths); detection never executes anything."

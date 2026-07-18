@@ -32,6 +32,9 @@ async fn main() -> Result<()> {
     // `--load-session` makes the mock announce session-load support and handle
     // `session/load`, so the resume path can be exercised end to end.
     let supports_load = std::env::args().any(|a| a == "--load-session");
+    // `--mcp` makes the mock announce MCP support, so the passthrough injection
+    // path can be exercised end to end.
+    let supports_mcp = std::env::args().any(|a| a == "--mcp");
 
     Agent
         .builder()
@@ -40,6 +43,7 @@ async fn main() -> Result<()> {
             async move |initialize: InitializeRequest, responder, _cx| {
                 let mut capabilities = AgentCapabilities::new();
                 capabilities.load_session = supports_load;
+                capabilities.mcp_capabilities.http = supports_mcp;
                 responder.respond(
                     InitializeResponse::new(initialize.protocol_version)
                         .agent_capabilities(capabilities),
