@@ -43,6 +43,7 @@ jamás. La conexión es bidireccional: el daemon también envía peticiones
 | `context/project` | cliente → daemon | request | `context.schema.json` |
 | `session/list` | cliente → daemon | request | `session-list.schema.json` |
 | `session/log` | cliente → daemon | request | `session-log.schema.json` |
+| `repo/map` | cliente → daemon | request | `repo-map.schema.json` |
 | `session/cancel` | cliente → daemon | notification | `session-cancel.schema.json` |
 | `session/event` | daemon → cliente | notification | `session-event.schema.json` |
 | `permission/request` | daemon → cliente | request | `permission.schema.json` |

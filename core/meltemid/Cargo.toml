@@ -14,6 +14,7 @@ meltemi-spec.workspace = true
 agent-client-protocol.workspace = true
 anyhow.workspace = true
 directories.workspace = true
+ignore.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

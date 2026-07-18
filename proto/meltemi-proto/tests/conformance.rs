@@ -407,6 +407,39 @@ fn session_list_and_log_conform() {
 }
 
 #[test]
+fn repo_map_conforms() {
+    assert_conforms(
+        "repo-map",
+        "params",
+        &RepoMapParams {
+            project_root: "C:\\repo".into(),
+            depth: Some(2),
+            limit: Some(500),
+        },
+    );
+    assert_conforms(
+        "repo-map",
+        "result",
+        &RepoMapResult {
+            entries: vec![
+                RepoEntry {
+                    path: "src".into(),
+                    is_dir: true,
+                    size: 0,
+                },
+                RepoEntry {
+                    path: "src/lib.rs".into(),
+                    is_dir: false,
+                    size: 1234,
+                },
+            ],
+            truncated: true,
+            omitted: 12,
+        },
+    );
+}
+
+#[test]
 fn context_project_conforms() {
     assert_conforms(
         "context",
@@ -526,6 +559,14 @@ fn session_events_conform() {
         },
         SessionEventKind::PromptSent {
             text: "Complete the proposal".into(),
+        },
+        SessionEventKind::RefsExpanded {
+            expansions: vec![RefExpansion {
+                path: "src/lib.rs".into(),
+                bytes: 512,
+                not_found: false,
+                truncated: false,
+            }],
         },
         SessionEventKind::AgentUpdate {
             update: json!({

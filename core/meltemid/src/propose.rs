@@ -163,11 +163,23 @@ pub async fn handle_propose(
         tracing::warn!(diagnostic, "mcp hygiene");
     }
 
+    // Expand any `@` references in the idea against the repo, auditing the
+    // expansions in the log (gestion-contexto-repo). A missing reference is
+    // flagged inline, never aborting the turn.
+    let (expanded_idea, expansions) = crate::repo_map::expand_refs(
+        &project_root,
+        &params.idea,
+        crate::repo_map::ExpandLimits::default(),
+    );
+    if !expansions.is_empty() {
+        append(&log, SessionEventKind::RefsExpanded { expansions }).await;
+    }
+
     // Delegate the proposal contents to the agent (5.2).
     let outcome = acp::run_session(SessionParams {
         agent_command: agent_command.clone(),
         project_root: project_root.clone(),
-        prompt: build_prompt(&params.idea, &proposal_path),
+        prompt: build_prompt(&expanded_idea, &proposal_path),
         meltemi_session_id: session_id.clone(),
         peer: peer.clone(),
         log: log.clone(),

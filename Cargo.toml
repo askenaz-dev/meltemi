@@ -35,6 +35,10 @@ agent-client-protocol = "=1.2.0"
 ratatui = "=0.29.0"
 anyhow = "=1.0.103"
 directories = "=6.0.0"
+# Repository traversal honoring nested .gitignore (gestion-contexto-repo D1):
+# the audited ecosystem standard; reimplementing gitignore by hand is a known
+# nest of bugs.
+ignore = "=0.4.23"
 jsonschema = { version = "=0.47.0", default-features = false }
 libc = "=0.2.186"
 serde = { version = "=1.0.228", features = ["derive"] }

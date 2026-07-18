@@ -21,6 +21,7 @@ pub mod paths;
 pub mod pending;
 pub mod permissions;
 pub mod propose;
+pub mod repo_map;
 pub mod rpc;
 pub mod server;
 pub mod session;

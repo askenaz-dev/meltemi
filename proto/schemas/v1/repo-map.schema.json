@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/repo-map.schema.json",
+  "title": "repo/map",
+  "description": "Method `repo/map`: the repository tree honoring nested .gitignore, with file sizes and depth/limit budgets. Any truncation is declared, never silent.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": ["projectRoot"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "depth": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "required": ["path", "isDir", "size"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "isDir": { "type": "boolean" },
+        "size": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["entries", "truncated", "omitted"],
+      "properties": {
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" } },
+        "truncated": { "type": "boolean" },
+        "omitted": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

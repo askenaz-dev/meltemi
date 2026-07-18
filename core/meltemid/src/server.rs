@@ -235,6 +235,7 @@ async fn dispatch_request(
         methods::CONTEXT_PROJECT => handle_context_project(params, state).await,
         methods::SESSION_LIST => handle_session_list(params, state).await,
         methods::SESSION_LOG => handle_session_log(params, state).await,
+        methods::REPO_MAP => handle_repo_map(params).await,
         methods::PERMISSION_PENDING => handle_permission_pending(state).await,
         methods::PERMISSION_DECIDE => handle_permission_decide(params, state).await,
         other => Err(RpcError::method_not_found(other)),
@@ -243,6 +244,26 @@ async fn dispatch_request(
 
 /// Default `session/log` page size when the client gives no limit.
 const SESSION_LOG_PAGE: usize = 200;
+
+/// `repo/map`: the repository tree honoring nested gitignore, with sizes and a
+/// declared truncation budget (gestion-contexto-repo).
+async fn handle_repo_map(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::RepoMapParams;
+    let params: RepoMapParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("repo/map: {e}")))?;
+    let root = std::path::PathBuf::from(&params.project_root);
+    if !root.is_dir() {
+        return Err(RpcError::application(
+            error_codes::PROJECT_ROOT_INVALID,
+            "invalid project root",
+            "project_root_invalid",
+            format!("`{}` is not an existing directory", root.display()),
+            Some("Pass the absolute path to an existing repository root.".into()),
+        ));
+    }
+    let result = crate::repo_map::build_map(&root, params.depth, params.limit);
+    Ok(serde_json::to_value(result).expect("RepoMapResult serializes"))
+}
 
 /// `session/list`: active sessions (live state from the registry) plus the
 /// historical ones from the per-project index, most recent first. A session

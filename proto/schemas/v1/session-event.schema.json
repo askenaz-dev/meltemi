@@ -57,6 +57,30 @@
         },
         {
           "properties": {
+            "type": { "const": "refs_expanded" },
+            "payload": {
+              "type": "object",
+              "required": ["expansions"],
+              "properties": {
+                "expansions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["path", "bytes", "notFound", "truncated"],
+                    "properties": {
+                      "path": { "type": "string" },
+                      "bytes": { "type": "integer", "minimum": 0 },
+                      "notFound": { "type": "boolean" },
+                      "truncated": { "type": "boolean" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "type": { "const": "agent_update" },
             "payload": {
               "type": "object",

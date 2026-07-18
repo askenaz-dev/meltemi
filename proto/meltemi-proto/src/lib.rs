@@ -34,6 +34,8 @@ pub mod methods {
     pub const SESSION_LIST: &str = "session/list";
     /// Request: read a session's JSONL log, paginated by line range.
     pub const SESSION_LOG: &str = "session/log";
+    /// Request: the repository tree honoring gitignore, with sizes.
+    pub const REPO_MAP: &str = "repo/map";
     /// Notification (client -> daemon): cancel an active session.
     pub const SESSION_CANCEL: &str = "session/cancel";
     /// Notification (daemon -> client): streamed session event.
@@ -361,6 +363,45 @@ pub enum TurnStatus {
     MaxTurnRequests,
 }
 
+/// Params of `repo/map`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMapParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// Maximum directory depth to descend (0 = the root's entries only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<u32>,
+    /// Maximum entries to return before declaring truncation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// One entry of the repository map.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoEntry {
+    /// Path relative to the repository root (forward slashes).
+    pub path: String,
+    /// Whether this entry is a directory.
+    pub is_dir: bool,
+    /// File size in bytes (0 for directories).
+    pub size: u64,
+}
+
+/// Result of `repo/map`. `truncated`/`omitted` declare any budget cutoff —
+/// never silent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMapResult {
+    /// The entries honoring nested `.gitignore`, sorted by path.
+    pub entries: Vec<RepoEntry>,
+    /// Whether the limit cut the listing short.
+    pub truncated: bool,
+    /// How many entries were omitted by the cutoff.
+    pub omitted: u32,
+}
+
 /// Params of `context/project`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -667,6 +708,13 @@ pub enum SessionEventKind {
         /// The prompt text.
         text: String,
     },
+    /// `@` references in a prompt were expanded; records the paths and injected
+    /// byte counts so the delivered context is reconstructable
+    /// (gestion-contexto-repo).
+    RefsExpanded {
+        /// One entry per expanded reference.
+        expansions: Vec<RefExpansion>,
+    },
     /// The agent emitted a session update (ACP `SessionUpdate`, verbatim).
     AgentUpdate {
         /// The forwarded update.
@@ -720,6 +768,21 @@ pub enum SessionEventKind {
         /// Human-readable English detail.
         detail: String,
     },
+}
+
+/// One expanded `@` reference: the path and how many bytes it injected (0 when
+/// not found or truncated to nothing).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefExpansion {
+    /// The referenced path.
+    pub path: String,
+    /// Bytes injected into the prompt for this reference.
+    pub bytes: u64,
+    /// Whether the reference could not be found.
+    pub not_found: bool,
+    /// Whether the injected content was truncated by a limit.
+    pub truncated: bool,
 }
 
 /// Params of the `session/event` notification (daemon -> client).
