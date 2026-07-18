@@ -58,6 +58,28 @@ GLOBAL FLAGS:
     -h, --help          print this help
     -V, --version       print the client version";
 
+/// Renders the CLI reference markdown from the grammar ([`USAGE`]) and the
+/// exit-code taxonomy ([`crate::exit::EXIT_CODES`]) — a single source, so the
+/// committed reference cannot silently drift from the code (documentacion-
+/// inicial). The docs freshness test regenerates this and compares.
+#[must_use]
+pub fn reference() -> String {
+    let mut out = String::new();
+    out.push_str("<!-- SPDX-License-Identifier: Apache-2.0 -->\n");
+    out.push_str("<!-- GENERATED from the CLI grammar by `meltemi::cli::reference()`. Do not edit by hand; regenerate. -->\n\n");
+    out.push_str("# CLI reference\n\n");
+    out.push_str("The scriptable surface of `meltemi`. This document is generated from the\n");
+    out.push_str("subcommand grammar and the exit-code taxonomy in the source.\n\n");
+    out.push_str("## Grammar\n\n```\n");
+    out.push_str(USAGE);
+    out.push_str("\n```\n\n");
+    out.push_str("## Exit codes\n\n");
+    for (code, description) in crate::exit::EXIT_CODES {
+        out.push_str(&format!("- `{code}` — {description}\n"));
+    }
+    out
+}
+
 /// An RPC-backed or local subcommand to run in scriptable mode.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {

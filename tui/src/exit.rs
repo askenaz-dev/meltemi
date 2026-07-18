@@ -36,3 +36,28 @@ impl ExitCode {
         self as i32
     }
 }
+
+/// The stable exit-code taxonomy as data, so the CLI reference is generated
+/// from a single source (documentacion-inicial). Any change here regenerates
+/// the reference; a stale reference fails the freshness check.
+pub const EXIT_CODES: &[(i32, &str)] = &[
+    (0, "success — the command completed its purpose"),
+    (1, "internal — an unexpected internal error"),
+    (
+        2,
+        "usage — unknown subcommand, invalid flags, or a missing argument",
+    ),
+    (
+        10,
+        "unreachable — the daemon could not be reached or started",
+    ),
+    (
+        11,
+        "contract — the daemon answered with a contract/protocol error",
+    ),
+    (
+        12,
+        "denied — the operation was refused by policy (permission proxy)",
+    ),
+    (13, "cancelled — the operation was cancelled"),
+];
