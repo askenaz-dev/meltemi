@@ -254,6 +254,10 @@ async fn dispatch_request(
         methods::WORKTREE_REMOVE => handle_worktree_remove(params).await,
         methods::WORKTREE_DIFF => handle_worktree_diff(params).await,
         methods::WORKTREE_MERGE_FILE => handle_worktree_merge_file(params).await,
+        methods::CHECKPOINT_CREATE => handle_checkpoint_create(params).await,
+        methods::CHECKPOINT_LIST => handle_checkpoint_list(params).await,
+        methods::CHECKPOINT_REVERT => handle_checkpoint_revert(params).await,
+        methods::CHECKPOINT_RECORD_OP => handle_checkpoint_record_op(params).await,
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -524,6 +528,214 @@ async fn handle_worktree_merge_file(params: Value) -> Result<Value, RpcError> {
     Ok(
         serde_json::to_value(WorktreeMergeFileResult { applied: true })
             .expect("WorktreeMergeFileResult serializes"),
+    )
+}
+
+/// Resolves the managed worktree path for a `(change, task, agent)`.
+fn resolve_worktree(
+    root: &std::path::Path,
+    change: &str,
+    task: &str,
+    agent: &str,
+) -> Result<PathBuf, RpcError> {
+    crate::worktrees::list(root)
+        .into_iter()
+        .find(|w| w.change == change && w.task == task && w.agent == agent)
+        .map(|w| PathBuf::from(w.path))
+        .ok_or_else(|| {
+            RpcError::application(
+                error_codes::WORKTREE_UNAVAILABLE,
+                "no managed worktree for this task",
+                "worktree_unavailable",
+                format!("no worktree is assigned for {change}/{task}-{agent}"),
+                Some("Assign the task first (`worktree/assign`).".into()),
+            )
+        })
+}
+
+/// `checkpoint/create`: snapshot a task's worktree into a technical ref before
+/// it runs (checkpoints-rollback D1), recording the lifecycle event.
+async fn handle_checkpoint_create(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{Checkpoint, CheckpointCreateParams, CheckpointCreateResult};
+
+    let params: CheckpointCreateParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("checkpoint/create: {e}")))?;
+    let root = require_git_root(&params.project_root)?;
+    let worktree = resolve_worktree(&root, &params.change, &params.task, &params.agent)?;
+
+    let record = crate::checkpoints::create(
+        &root,
+        &worktree,
+        &params.change,
+        &params.task,
+        &params.agent,
+    )
+    .map_err(|e| {
+        RpcError::application(
+            error_codes::WORKTREE_UNAVAILABLE,
+            "could not create checkpoint",
+            "worktree_unavailable",
+            e,
+            Some("Check the git version and that the worktree has a commit.".into()),
+        )
+    })?;
+
+    crate::checkpoints::log_event(
+        &root,
+        meltemi_proto::SessionEventKind::CheckpointCreated {
+            git_ref: record.git_ref.clone(),
+            change: record.change.clone(),
+            task: record.task.clone(),
+            agent: record.agent.clone(),
+        },
+    );
+
+    let checkpoint = Checkpoint {
+        change: record.change,
+        task: record.task,
+        agent: record.agent,
+        git_ref: record.git_ref,
+        worktree: record.worktree,
+        created_at: record.created_at,
+        irreversible: Vec::new(),
+    };
+    Ok(serde_json::to_value(CheckpointCreateResult { checkpoint })
+        .expect("CheckpointCreateResult serializes"))
+}
+
+/// `checkpoint/list`: the checkpoints the daemon recorded for a project, each
+/// with its accumulated irreversible operations.
+async fn handle_checkpoint_list(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{Checkpoint, CheckpointListParams, CheckpointListResult};
+
+    let params: CheckpointListParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("checkpoint/list: {e}")))?;
+    let root = PathBuf::from(&params.project_root);
+    if !root.is_dir() {
+        return Err(RpcError::application(
+            error_codes::PROJECT_ROOT_INVALID,
+            "invalid project root",
+            "project_root_invalid",
+            format!("`{}` is not an existing directory", root.display()),
+            Some("Pass the absolute path to an existing repository root.".into()),
+        ));
+    }
+    let checkpoints = crate::checkpoints::list(&root, params.change.as_deref())
+        .into_iter()
+        .map(|r| {
+            let irreversible =
+                crate::checkpoints::irreversibles_for(&root, &r.change, &r.task, &r.agent);
+            Checkpoint {
+                change: r.change,
+                task: r.task,
+                agent: r.agent,
+                git_ref: r.git_ref,
+                worktree: r.worktree,
+                created_at: r.created_at,
+                irreversible,
+            }
+        })
+        .collect();
+    Ok(serde_json::to_value(CheckpointListResult { checkpoints })
+        .expect("CheckpointListResult serializes"))
+}
+
+/// `checkpoint/revert`: restore a task's worktree to its checkpoint with an
+/// honest scope. Requires explicit confirmation; the reversion is never
+/// presented as total when out-of-tree operations remain (D2/D3).
+async fn handle_checkpoint_revert(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{CheckpointRevertParams, CheckpointRevertResult, RevertScope};
+
+    let params: CheckpointRevertParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("checkpoint/revert: {e}")))?;
+    if !params.confirm {
+        // Report the scope so the surface can show what will (and won't) revert
+        // before the user confirms.
+        let root = PathBuf::from(&params.project_root);
+        let irreversible = crate::checkpoints::irreversibles_for(
+            &root,
+            &params.change,
+            &params.task,
+            &params.agent,
+        );
+        return Err(RpcError::application(
+            error_codes::WORKTREE_REFUSED,
+            "confirmation required",
+            "worktree_refused",
+            if irreversible.is_empty() {
+                format!(
+                    "reverting {}/{}-{} restores the worktree; confirm to proceed",
+                    params.change, params.task, params.agent
+                )
+            } else {
+                format!(
+                    "reverting {}/{}-{} cannot undo {} out-of-tree operation(s): {}",
+                    params.change,
+                    params.task,
+                    params.agent,
+                    irreversible.len(),
+                    irreversible.join("; ")
+                )
+            },
+            Some("Set confirm to revert the worktree to its checkpoint.".into()),
+        ));
+    }
+
+    let root = require_git_root(&params.project_root)?;
+    let reverted = crate::checkpoints::revert(&root, &params.change, &params.task, &params.agent)
+        .map_err(|e| {
+        RpcError::application(
+            error_codes::CHECKPOINT_NOT_FOUND,
+            "checkpoint not found",
+            "checkpoint_not_found",
+            e,
+            Some("List checkpoints to see what is available (`checkpoint/list`).".into()),
+        )
+    })?;
+
+    crate::checkpoints::log_event(
+        &root,
+        meltemi_proto::SessionEventKind::CheckpointRestored {
+            git_ref: reverted.git_ref,
+            change: params.change.clone(),
+            task: params.task.clone(),
+            agent: params.agent.clone(),
+            irreversible: reverted.irreversible.clone(),
+        },
+    );
+
+    let complete = reverted.irreversible.is_empty();
+    let result = CheckpointRevertResult {
+        reverted: true,
+        scope: RevertScope {
+            worktree_restored: true,
+            complete,
+            irreversible: reverted.irreversible,
+        },
+    };
+    Ok(serde_json::to_value(result).expect("CheckpointRevertResult serializes"))
+}
+
+/// `checkpoint/record-op`: record an approved out-of-tree operation against a
+/// task, so its reversion declares the operation irreversible (D3). The proxy
+/// classifies operations; this ledger records what it already classified.
+async fn handle_checkpoint_record_op(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{CheckpointRecordOpParams, CheckpointRecordOpResult};
+
+    let params: CheckpointRecordOpParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("checkpoint/record-op: {e}")))?;
+    let root = PathBuf::from(&params.project_root);
+    crate::checkpoints::record_irreversible(
+        &root,
+        &params.change,
+        &params.task,
+        &params.agent,
+        &params.operation,
+    )
+    .map_err(RpcError::internal)?;
+    Ok(
+        serde_json::to_value(CheckpointRecordOpResult { recorded: true })
+            .expect("CheckpointRecordOpResult serializes"),
     )
 }
 

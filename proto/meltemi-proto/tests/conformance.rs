@@ -609,6 +609,19 @@ fn session_events_conform() {
         SessionEventKind::McpNotDelivered {
             reason: "the agent does not announce MCP support".into(),
         },
+        SessionEventKind::CheckpointCreated {
+            git_ref: "refs/meltemi/checkpoints/add-thing/1-1-claude".into(),
+            change: "add-thing".into(),
+            task: "1.1".into(),
+            agent: "claude".into(),
+        },
+        SessionEventKind::CheckpointRestored {
+            git_ref: "refs/meltemi/checkpoints/add-thing/1-1-claude".into(),
+            change: "add-thing".into(),
+            task: "1.1".into(),
+            agent: "claude".into(),
+            irreversible: vec!["ran command: npm publish".into()],
+        },
         SessionEventKind::TurnCompleted {
             stop_reason: TurnStatus::Completed,
         },
@@ -770,6 +783,120 @@ fn worktree_conforms() {
 }
 
 #[test]
+fn checkpoint_conforms() {
+    let cp = Checkpoint {
+        change: "add-thing".into(),
+        task: "1.1".into(),
+        agent: "claude".into(),
+        git_ref: "refs/meltemi/checkpoints/add-thing/1-1-claude".into(),
+        worktree: "C:\\repos\\fixture\\.meltemi\\worktrees\\add-thing\\1-1-claude".into(),
+        created_at: TS.into(),
+        irreversible: vec!["ran command: npm publish".into()],
+    };
+    assert_conforms("checkpoint", "checkpoint", &cp);
+
+    assert_conforms(
+        "checkpoint",
+        "createParams",
+        &CheckpointCreateParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+            task: "1.1".into(),
+            agent: "claude".into(),
+        },
+    );
+    assert_conforms(
+        "checkpoint",
+        "createResult",
+        &CheckpointCreateResult {
+            checkpoint: cp.clone(),
+        },
+    );
+
+    assert_conforms(
+        "checkpoint",
+        "listParams",
+        &CheckpointListParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: Some("add-thing".into()),
+        },
+    );
+    assert_conforms(
+        "checkpoint",
+        "listResult",
+        &CheckpointListResult {
+            checkpoints: vec![cp.clone()],
+        },
+    );
+    assert_conforms("checkpoint", "listResult", &CheckpointListResult::default());
+
+    assert_conforms(
+        "checkpoint",
+        "revertParams",
+        &CheckpointRevertParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+            task: "1.1".into(),
+            agent: "claude".into(),
+            confirm: true,
+        },
+    );
+    // A clean reversion: complete, no irreversibles.
+    assert_conforms(
+        "checkpoint",
+        "revertResult",
+        &CheckpointRevertResult {
+            reverted: true,
+            scope: RevertScope {
+                worktree_restored: true,
+                complete: true,
+                irreversible: vec![],
+            },
+        },
+    );
+    // A reversion with an irreversible operation is never complete.
+    assert_conforms(
+        "checkpoint",
+        "revertResult",
+        &CheckpointRevertResult {
+            reverted: true,
+            scope: RevertScope {
+                worktree_restored: true,
+                complete: false,
+                irreversible: vec!["ran command: npm publish".into()],
+            },
+        },
+    );
+
+    assert_conforms(
+        "checkpoint",
+        "recordOpParams",
+        &CheckpointRecordOpParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+            task: "1.1".into(),
+            agent: "claude".into(),
+            operation: "ran command: npm publish".into(),
+        },
+    );
+    assert_conforms(
+        "checkpoint",
+        "recordOpResult",
+        &CheckpointRecordOpResult { recorded: true },
+    );
+
+    // A ref outside the technical namespace is rejected (never a user branch).
+    assert_rejected(
+        "checkpoint",
+        "checkpoint",
+        &json!({
+            "change": "c", "task": "1.1", "agent": "claude",
+            "gitRef": "refs/heads/main", "worktree": "/w", "createdAt": TS,
+        }),
+    );
+}
+
+#[test]
 fn error_data_conforms() {
     assert_conforms(
         "error",
@@ -814,6 +941,7 @@ fn error_codes_match_catalog() {
         error_codes::PROJECT_ROOT_INVALID,
         error_codes::WORKTREE_UNAVAILABLE,
         error_codes::WORKTREE_REFUSED,
+        error_codes::CHECKPOINT_NOT_FOUND,
     ];
     let mut sorted = constants.to_vec();
     sorted.sort_unstable();

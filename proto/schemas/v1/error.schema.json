@@ -35,7 +35,7 @@
     },
     "errorCode": {
       "type": "integer",
-      "enum": [1000, 1001, 1002, 2000, 2001, 2002, 2003, 2004, 3000, 3001, 3002, 4000, 4001],
+      "enum": [1000, 1001, 1002, 2000, 2001, 2002, 2003, 2004, 3000, 3001, 3002, 4000, 4001, 4002],
       "x-catalog": {
         "1000": {
           "kind": "protocol_version_unsupported",
@@ -87,7 +87,11 @@
         },
         "4001": {
           "kind": "worktree_refused",
-          "description": "A managed-worktree operation was refused: the target is not a worktree the daemon created, or it has uncommitted changes and confirmation was not given. Foreign worktrees are never touched; dirty removals need explicit force."
+          "description": "A managed-worktree or checkpoint operation was refused: the target is not one the daemon created, it has uncommitted changes, or the required confirmation was not given. Foreign worktrees are never touched; dirty removals and reversions need explicit confirmation."
+        },
+        "4002": {
+          "kind": "checkpoint_not_found",
+          "description": "No checkpoint exists for the requested change/task/agent. detail names the missing task; remedy suggests listing checkpoints. Nothing is reverted."
         }
       }
     }

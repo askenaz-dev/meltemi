@@ -76,6 +76,15 @@ pub mod methods {
     /// Request: apply one file from a source worktree into a target worktree
     /// (assisted merge; each application is an explicit human decision).
     pub const WORKTREE_MERGE_FILE: &str = "worktree/merge-file";
+    /// Request: create the pre-task checkpoint of a worktree (technical ref).
+    pub const CHECKPOINT_CREATE: &str = "checkpoint/create";
+    /// Request: list checkpoints by change and task (ref, moment, worktree).
+    pub const CHECKPOINT_LIST: &str = "checkpoint/list";
+    /// Request: revert a task's worktree to its checkpoint (needs confirm).
+    pub const CHECKPOINT_REVERT: &str = "checkpoint/revert";
+    /// Request: record an approved out-of-tree operation against a task, so
+    /// reversion can declare it irreversible (honest scope).
+    pub const CHECKPOINT_RECORD_OP: &str = "checkpoint/record-op";
 }
 
 /// Application error codes, outside the JSON-RPC reserved range and grouped
@@ -108,9 +117,12 @@ pub mod error_codes {
     /// Worktree orchestration was requested on a directory that is not a git
     /// repository (honest degradation: refuse with remedy).
     pub const WORKTREE_UNAVAILABLE: i64 = 4000;
-    /// A managed-worktree operation was refused: the target is not one the
-    /// daemon created, or it has uncommitted changes and confirmation is off.
+    /// A managed-worktree or checkpoint operation was refused: the target is
+    /// not one the daemon created, it has uncommitted changes, or the required
+    /// confirmation was not given.
     pub const WORKTREE_REFUSED: i64 = 4001;
+    /// No checkpoint exists for the requested change/task/agent.
+    pub const CHECKPOINT_NOT_FOUND: i64 = 4002;
 }
 
 /// Structured `error.data` payload: `{ kind, detail, remedy }` (D11).
@@ -908,6 +920,32 @@ pub enum SessionEventKind {
         /// Mapped ACP stop reason.
         stop_reason: TurnStatus,
     },
+    /// A pre-task checkpoint of the worktree was created (checkpoints-rollback).
+    CheckpointCreated {
+        /// The technical ref under `refs/meltemi/checkpoints/`.
+        git_ref: String,
+        /// The change the task belongs to.
+        change: String,
+        /// The task label the checkpoint precedes.
+        task: String,
+        /// The agent whose worktree was snapshotted.
+        agent: String,
+    },
+    /// A task's worktree was restored to its checkpoint. `irreversible` lists
+    /// the approved out-of-tree operations the restore could not undo — the
+    /// reversion is never presented as total when it is non-empty.
+    CheckpointRestored {
+        /// The technical ref restored from.
+        git_ref: String,
+        /// The change the task belongs to.
+        change: String,
+        /// The task label restored.
+        task: String,
+        /// The agent whose worktree was restored.
+        agent: String,
+        /// Approved out-of-tree operations that remain in effect.
+        irreversible: Vec<String>,
+    },
     /// The client cancelled the session.
     SessionCancelled {},
     /// The session ended and its log is complete.
@@ -1116,4 +1154,134 @@ pub struct WorktreeMergeFileParams {
 pub struct WorktreeMergeFileResult {
     /// Whether the file was applied into the target worktree.
     pub applied: bool,
+}
+
+/// Identifies one task's worktree checkpoint by change, task and agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointCreateParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change the task belongs to.
+    pub change: String,
+    /// The task label the checkpoint precedes.
+    pub task: String,
+    /// The agent whose worktree is snapshotted.
+    pub agent: String,
+}
+
+/// One pre-task checkpoint of a worktree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Checkpoint {
+    /// The change the task belongs to.
+    pub change: String,
+    /// The task label the checkpoint precedes.
+    pub task: String,
+    /// The agent whose worktree was snapshotted.
+    pub agent: String,
+    /// The technical ref under `refs/meltemi/checkpoints/`.
+    pub git_ref: String,
+    /// Absolute path of the worktree the checkpoint restores.
+    pub worktree: String,
+    /// RFC 3339 UTC moment the checkpoint was created.
+    pub created_at: String,
+    /// Approved out-of-tree operations accumulated for this task (irreversible).
+    #[serde(default)]
+    pub irreversible: Vec<String>,
+}
+
+/// Result of `checkpoint/create`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointCreateResult {
+    /// The checkpoint that was created.
+    pub checkpoint: Checkpoint,
+}
+
+/// Params of `checkpoint/list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointListParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// Optional change filter; omitted lists every checkpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<String>,
+}
+
+/// Result of `checkpoint/list`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointListResult {
+    /// The checkpoints, most recent first.
+    pub checkpoints: Vec<Checkpoint>,
+}
+
+/// Params of `checkpoint/revert`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointRevertParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change the task belongs to.
+    pub change: String,
+    /// The task label to revert.
+    pub task: String,
+    /// The agent whose worktree to restore.
+    pub agent: String,
+    /// Explicit human confirmation: nothing is reverted without it.
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+/// The honest scope of a reversion: what the restore covered and what it could
+/// not undo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevertScope {
+    /// Whether the worktree was restored to the checkpoint (tracked state and
+    /// removal of later untracked files).
+    pub worktree_restored: bool,
+    /// Whether the reversion is complete: the worktree was restored and no
+    /// out-of-tree operation remains in effect.
+    pub complete: bool,
+    /// Approved out-of-tree operations that remain in effect (irreversible).
+    #[serde(default)]
+    pub irreversible: Vec<String>,
+}
+
+/// Result of `checkpoint/revert`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointRevertResult {
+    /// Whether the worktree was reverted.
+    pub reverted: bool,
+    /// The honest scope of what the reversion covered.
+    pub scope: RevertScope,
+}
+
+/// Params of `checkpoint/record-op`: record one approved out-of-tree operation
+/// against a task, so its reversion declares the operation irreversible.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointRecordOpParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change the task belongs to.
+    pub change: String,
+    /// The task label the operation ran under.
+    pub task: String,
+    /// The agent that ran the operation.
+    pub agent: String,
+    /// A human-readable description of the out-of-tree operation.
+    pub operation: String,
+}
+
+/// Result of `checkpoint/record-op`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointRecordOpResult {
+    /// Whether the operation was recorded.
+    pub recorded: bool,
 }

@@ -9,6 +9,7 @@
 
 pub mod acp;
 pub mod bootstrap;
+pub mod checkpoints;
 pub mod clock;
 pub mod config;
 pub mod conformance;

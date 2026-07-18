@@ -14,9 +14,19 @@ const MIN_MAJOR_MINOR: (u32, u32) = (2, 17);
 
 /// Runs `git <args>` in `cwd`, returning stdout on success or a diagnostic.
 pub fn run(cwd: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
+    run_env(cwd, args, &[])
+}
+
+/// Runs `git <args>` in `cwd` with extra environment variables (e.g.
+/// `GIT_INDEX_FILE` to snapshot into a scratch index without touching the
+/// worktree's own index), returning stdout on success or a diagnostic.
+pub fn run_env(cwd: &Path, args: &[&str], envs: &[(&str, &str)]) -> Result<String, String> {
+    let mut command = Command::new("git");
+    command.args(args).current_dir(cwd);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let output = command
         .output()
         .map_err(|e| format!("could not run git: {e}"))?;
     if output.status.success() {

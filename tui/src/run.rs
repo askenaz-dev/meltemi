@@ -13,6 +13,9 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 
 use meltemi_proto::{
+    CheckpointListParams, CheckpointListResult, CheckpointRevertParams, CheckpointRevertResult,
+};
+use meltemi_proto::{
     ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
     PROTOCOL_VERSION, PeerInfo, PermissionOutcome, PermissionRequestResult, ProposeParams,
     ProposeResult, SessionListParams, SessionListResult, StatusResult, WorktreeAssignParams,
@@ -53,6 +56,13 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             task,
             project_root,
         } => race(change, task, project_root, endpoint).await,
+        Command::Checkpoints { change } => checkpoints(change, endpoint).await,
+        Command::Revert {
+            change,
+            task,
+            agent,
+            confirm,
+        } => revert(change, task, agent, confirm, endpoint).await,
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -415,6 +425,83 @@ async fn race(
     })
 }
 
+async fn checkpoints(change: Option<String>, endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::CHECKPOINT_LIST,
+            &CheckpointListParams {
+                project_root,
+                change,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: CheckpointListResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_checkpoints(&result),
+        json: value,
+    })
+}
+
+async fn revert(
+    change: String,
+    task: String,
+    agent: String,
+    confirm: bool,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::CHECKPOINT_REVERT,
+            &CheckpointRevertParams {
+                project_root,
+                change,
+                task,
+                agent,
+                confirm,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    match response {
+        Ok(value) => {
+            let result: CheckpointRevertResult =
+                serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+            Ok(Outcome {
+                human: render_revert(&result),
+                json: value,
+            })
+        }
+        // Without `confirm`, the daemon refuses with the honest scope. That is
+        // the preview, not a failure: render it and exit successfully.
+        Err(err) if !confirm && err.code == meltemi_proto::error_codes::WORKTREE_REFUSED => {
+            let detail = err
+                .data
+                .as_ref()
+                .and_then(|d| d["detail"].as_str())
+                .unwrap_or(&err.message)
+                .to_string();
+            Ok(Outcome {
+                human: format!(
+                    "preview (nothing reverted) — {detail}\nRe-run with a trailing `confirm` to revert."
+                ),
+                json: json!({ "preview": true, "detail": detail }),
+            })
+        }
+        Err(err) => Err(CliError::contract(err)),
+    }
+}
+
 async fn stop(endpoint: &str) -> Result<Outcome, CliError> {
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(methods::SHUTDOWN, &json!({})).await;
@@ -606,6 +693,40 @@ fn render_assign(result: &WorktreeAssignResult) -> String {
     for w in &result.worktrees {
         let marker = if w.competitor { "race " } else { "solo " };
         let _ = write!(out, "\n  {marker} {}  {}  {}", w.agent, w.branch, w.path);
+    }
+    out
+}
+
+/// Human rendering of the checkpoint list: change/task/agent, short ref, moment,
+/// and a count of irreversible out-of-tree operations when present.
+fn render_checkpoints(result: &CheckpointListResult) -> String {
+    use std::fmt::Write;
+    let mut out = format!("{} checkpoint(s)", result.checkpoints.len());
+    for c in &result.checkpoints {
+        let short = c.git_ref.rsplit('/').next().unwrap_or(&c.git_ref);
+        let _ = write!(
+            out,
+            "\n  {}/{}-{}  {short}  {}",
+            c.change, c.task, c.agent, c.created_at
+        );
+        if !c.irreversible.is_empty() {
+            let _ = write!(out, "  ({} irreversible)", c.irreversible.len());
+        }
+    }
+    out
+}
+
+/// Human rendering of a reversion result with its honest scope: complete vs
+/// partial, and the out-of-tree operations that remain in effect.
+fn render_revert(result: &CheckpointRevertResult) -> String {
+    use std::fmt::Write;
+    let mut out = if result.scope.complete {
+        "reverted — worktree restored completely".to_string()
+    } else {
+        "reverted — worktree restored, but NOT a total reversion".to_string()
+    };
+    for op in &result.scope.irreversible {
+        let _ = write!(out, "\n  irreversible: {op}");
     }
     out
 }

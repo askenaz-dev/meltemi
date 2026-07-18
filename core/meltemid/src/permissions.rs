@@ -64,6 +64,38 @@ impl RequestFacts {
             path,
         }
     }
+
+    /// Whether an approved request acts **outside** the worktree — a command
+    /// execution or a network/fetch operation — and is therefore irreversible
+    /// by a worktree restore (checkpoints-rollback D3). File edits (in-tree)
+    /// are reversible and return `false`. Conservative: any carried command, or
+    /// an execute/fetch-flavored tool kind, counts as out-of-tree.
+    #[must_use]
+    pub fn is_out_of_tree(&self) -> bool {
+        if self.command.is_some() {
+            return true;
+        }
+        let kind = self.tool.as_deref().unwrap_or("").to_ascii_lowercase();
+        ["execute", "command", "shell", "run", "fetch", "network"]
+            .iter()
+            .any(|needle| kind.contains(needle))
+    }
+
+    /// A short human description of the out-of-tree operation, for the honest
+    /// scope listing (empty when the request is in-tree).
+    #[must_use]
+    pub fn out_of_tree_summary(&self) -> Option<String> {
+        if !self.is_out_of_tree() {
+            return None;
+        }
+        Some(match &self.command {
+            Some(cmd) => format!("ran command: {cmd}"),
+            None => format!(
+                "out-of-tree operation: {}",
+                self.tool.as_deref().unwrap_or("unknown")
+            ),
+        })
+    }
 }
 
 /// The engine's verdict for a request.
@@ -364,6 +396,21 @@ mod tests {
         // Scenario: Sin regla se pregunta.
         let set = RuleSet::default();
         assert_eq!(set.evaluate(&facts("edit", None, None)), RuleDecision::Ask);
+    }
+
+    #[test]
+    fn out_of_tree_classification_flags_commands_and_network() {
+        // checkpoints-rollback D3: a command or a fetch is out-of-tree (its
+        // effects a worktree restore cannot undo); a file edit is in-tree.
+        assert!(facts("execute", Some("npm publish"), None).is_out_of_tree());
+        assert!(facts("fetch", None, None).is_out_of_tree());
+        assert!(!facts("edit", None, Some("src/lib.rs")).is_out_of_tree());
+        // The summary quotes the command for the honest-scope listing.
+        assert_eq!(
+            facts("execute", Some("npm publish"), None).out_of_tree_summary(),
+            Some("ran command: npm publish".to_string())
+        );
+        assert_eq!(facts("edit", None, None).out_of_tree_summary(), None);
     }
 
     #[test]

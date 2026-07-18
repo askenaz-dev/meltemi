@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/checkpoint.schema.json",
+  "title": "checkpoint/*",
+  "description": "Checkpoint methods: an automatic pre-task snapshot of a worktree as a technical ref outside the user's branches, listable, and revertible per task with an honest scope — the approved out-of-tree operations a restore cannot undo are listed as irreversible, and the reversion is never presented as total when any remain.",
+  "$defs": {
+    "checkpoint": {
+      "type": "object",
+      "required": ["change", "task", "agent", "gitRef", "worktree", "createdAt"],
+      "properties": {
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 },
+        "gitRef": { "type": "string", "minLength": 1, "pattern": "^refs/meltemi/checkpoints/" },
+        "worktree": { "type": "string", "minLength": 1 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "irreversible": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "createParams": {
+      "type": "object",
+      "required": ["projectRoot", "change", "task", "agent"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 }
+      }
+    },
+    "createResult": {
+      "type": "object",
+      "required": ["checkpoint"],
+      "properties": {
+        "checkpoint": { "$ref": "#/$defs/checkpoint" }
+      }
+    },
+    "listParams": {
+      "type": "object",
+      "required": ["projectRoot"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 }
+      }
+    },
+    "listResult": {
+      "type": "object",
+      "required": ["checkpoints"],
+      "properties": {
+        "checkpoints": { "type": "array", "items": { "$ref": "#/$defs/checkpoint" } }
+      }
+    },
+    "revertParams": {
+      "type": "object",
+      "required": ["projectRoot", "change", "task", "agent"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 },
+        "confirm": { "type": "boolean" }
+      }
+    },
+    "revertScope": {
+      "type": "object",
+      "required": ["worktreeRestored", "complete"],
+      "properties": {
+        "worktreeRestored": { "type": "boolean" },
+        "complete": { "type": "boolean" },
+        "irreversible": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "revertResult": {
+      "type": "object",
+      "required": ["reverted", "scope"],
+      "properties": {
+        "reverted": { "type": "boolean" },
+        "scope": { "$ref": "#/$defs/revertScope" }
+      }
+    },
+    "recordOpParams": {
+      "type": "object",
+      "required": ["projectRoot", "change", "task", "agent", "operation"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 },
+        "operation": { "type": "string", "minLength": 1 }
+      }
+    },
+    "recordOpResult": {
+      "type": "object",
+      "required": ["recorded"],
+      "properties": {
+        "recorded": { "type": "boolean" }
+      }
+    }
+  }
+}

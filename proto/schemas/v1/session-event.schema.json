@@ -175,6 +175,37 @@
         },
         {
           "properties": {
+            "type": { "const": "checkpoint_created" },
+            "payload": {
+              "type": "object",
+              "required": ["gitRef", "change", "task", "agent"],
+              "properties": {
+                "gitRef": { "type": "string" },
+                "change": { "type": "string" },
+                "task": { "type": "string" },
+                "agent": { "type": "string" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "checkpoint_restored" },
+            "payload": {
+              "type": "object",
+              "required": ["gitRef", "change", "task", "agent", "irreversible"],
+              "properties": {
+                "gitRef": { "type": "string" },
+                "change": { "type": "string" },
+                "task": { "type": "string" },
+                "agent": { "type": "string" },
+                "irreversible": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "type": { "const": "session_cancelled" },
             "payload": { "type": "object" }
           }

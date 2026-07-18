@@ -34,6 +34,11 @@ SUBCOMMANDS:
                         base (comma-separate agents to race them on one task)
     race <change> <task>
                         show each competitor's diff against the common base
+    checkpoints [change]
+                        list pre-task checkpoints (ref, moment, irreversibles)
+    revert <change> <task> <agent> [confirm]
+                        revert a task's worktree to its checkpoint; without the
+                        trailing `confirm` it previews the scope (what won't undo)
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
@@ -85,6 +90,16 @@ pub enum Command {
         change: String,
         task: String,
         project_root: Option<String>,
+    },
+    /// List pre-task checkpoints (`checkpoint/list`).
+    Checkpoints { change: Option<String> },
+    /// Revert a task's worktree to its checkpoint (`checkpoint/revert`);
+    /// `confirm` false previews the honest scope without mutating.
+    Revert {
+        change: String,
+        task: String,
+        agent: String,
+        confirm: bool,
     },
     /// Request an orderly daemon shutdown.
     Stop,
@@ -259,6 +274,33 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
             }),
             _ => Action::Usage(
                 "`race` requires: meltemi race <change> <task> [project-root]".into(),
+            ),
+        },
+        "checkpoints" => match rest {
+            [] => Action::Run(Command::Checkpoints { change: None }),
+            [change] => Action::Run(Command::Checkpoints {
+                change: Some((*change).to_string()),
+            }),
+            _ => Action::Usage("`checkpoints` takes at most a change name".into()),
+        },
+        "revert" => match rest {
+            [change, task, agent] | [change, task, agent, _] => {
+                let confirm = rest.get(3).is_some_and(|w| *w == "confirm");
+                if rest.len() == 4 && !confirm {
+                    Action::Usage(
+                        "`revert` accepts only `confirm` as its 4th argument".into(),
+                    )
+                } else {
+                    Action::Run(Command::Revert {
+                        change: (*change).to_string(),
+                        task: (*task).to_string(),
+                        agent: (*agent).to_string(),
+                        confirm,
+                    })
+                }
+            }
+            _ => Action::Usage(
+                "`revert` requires: meltemi revert <change> <task> <agent> [confirm]".into(),
             ),
         },
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
@@ -470,6 +512,53 @@ mod tests {
         );
         assert!(matches!(
             plan_of(&["race", "add-thing"], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn checkpoints_lists_with_an_optional_change() {
+        // Scenario: Checkpoints consultables.
+        assert_eq!(
+            plan_of(&["checkpoints"], false).action,
+            Action::Run(Command::Checkpoints { change: None })
+        );
+        assert_eq!(
+            plan_of(&["checkpoints", "add-thing"], false).action,
+            Action::Run(Command::Checkpoints {
+                change: Some("add-thing".into())
+            })
+        );
+    }
+
+    #[test]
+    fn revert_requires_confirmation_word_to_execute() {
+        // Scenario: Confirmación obligatoria — sin `confirm` es una vista previa.
+        assert_eq!(
+            plan_of(&["revert", "add-thing", "1.1", "claude"], false).action,
+            Action::Run(Command::Revert {
+                change: "add-thing".into(),
+                task: "1.1".into(),
+                agent: "claude".into(),
+                confirm: false,
+            })
+        );
+        assert_eq!(
+            plan_of(&["revert", "add-thing", "1.1", "claude", "confirm"], false).action,
+            Action::Run(Command::Revert {
+                change: "add-thing".into(),
+                task: "1.1".into(),
+                agent: "claude".into(),
+                confirm: true,
+            })
+        );
+        // A non-`confirm` 4th argument is a usage error, never a silent revert.
+        assert!(matches!(
+            plan_of(&["revert", "add-thing", "1.1", "claude", "now"], false).action,
+            Action::Usage(_)
+        ));
+        assert!(matches!(
+            plan_of(&["revert", "add-thing"], false).action,
             Action::Usage(_)
         ));
     }
