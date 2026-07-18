@@ -25,9 +25,9 @@ Workspace Cargo en la raíz: `core/meltemid` (daemon), `core/meltemi-spec` (moto
 - **Licencia**: Apache-2.0; todo archivo fuente lleva cabecera SPDX (`docs/politica-spdx.md`).
 - **Tests e2e**: siempre contra repos fixture temporales, nunca contra la raíz de este repo. En CI se usa `mock-agent`, nunca agentes reales ni red.
 
-## Bootstrap del método (dos etapas)
+## Bootstrap del método — etapa 1 cerrada
 
-El desarrollo de Meltemi usa OpenSpec (`openspec/changes/`, comandos `/opsx:*`) hasta que el motor de specs de fase 1 esté operativo; entonces se migrará a `.meltemi/`. La constitución y el rumbo ya viven en `.meltemi/` (formato destino). Detalle: design D9 de `fase-0-fundacion`.
+El motor de specs de fase 1 está operativo y hospeda las specs del propio proyecto: la **verdad viva vive en `.meltemi/specs/`** y el histórico en `.meltemi/changes/archive/` (migrados desde `openspec/` con verificación del motor, `migracion-openspec-a-meltemi`). El método del proyecto son los comandos de Meltemi (`propose`/`plan`/`review`/`verify`/`archive`/`implement`) sobre `.meltemi/`; toda enmienda fundacional entra como change en `.meltemi/changes/`. El árbol `openspec/` se conserva como histórico consultable hasta que el mantenedor confirme su retiro físico (design D3 de la migración; D9 de `fase-0-fundacion` cumplido).
 
 ## Referencias
 

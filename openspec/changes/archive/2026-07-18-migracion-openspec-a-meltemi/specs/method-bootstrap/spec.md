@@ -1,8 +1,5 @@
-# method-bootstrap Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change enmiendas-fundacionales-v1. Update Purpose after archive.
-## Requirements
 ### Requirement: Excepción interina del método (bootstrap en dos etapas)
 La etapa de bootstrap sobre `openspec/` SHALL quedar cerrada: los artefactos del
 método del propio proyecto (specs vivas, changes activas e histórico) viven en
@@ -21,12 +18,7 @@ de la etapa anterior, y el histórico MUST preservarse íntegro.
 - **THEN** cada spec de `.meltemi/specs/` SHALL ser idéntica en requisitos y escenarios a su origen
 - **AND** el histórico SHALL conservar fechas y contenido
 
-### Requirement: Ratificación de enmiendas fundacionales
-Toda enmienda a un documento fundacional ratificado SHALL requerir la aprobación explícita del mantenedor fundador antes de aplicarse, y NO SHALL auto-ratificarse por la herramienta que la redacta.
-
-#### Scenario: Enmienda pendiente de ratificación
-- **WHEN** una propuesta de cambio modifica un documento fundacional ratificado
-- **THEN** la nueva versión del documento se marca como "pendiente de ratificación" hasta que el mantenedor fundador la ratifique explícitamente
+## ADDED Requirements
 
 ### Requirement: El método del proyecto es su propio producto
 El desarrollo de Meltemi SHALL usar los comandos de Meltemi (`propose`, `review`,
@@ -41,4 +33,3 @@ repositorio, sin referencias operativas restantes.
 #### Scenario: Sin referencias operativas a la etapa anterior
 - **WHEN** corre el barrido de referencias en CI
 - **THEN** SHALL NOT quedar invocaciones operativas de la herramienta prestada en el repositorio
-
