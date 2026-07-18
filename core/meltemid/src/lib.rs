@@ -8,6 +8,7 @@
 //! `main.rs` is a thin wrapper over [`run`].
 
 pub mod acp;
+pub mod archive;
 pub mod bootstrap;
 pub mod checkpoints;
 pub mod clock;
@@ -34,6 +35,7 @@ pub mod session;
 pub mod session_index;
 pub mod session_log;
 pub mod transport;
+pub mod verify;
 pub mod worktrees;
 
 use std::sync::Arc;

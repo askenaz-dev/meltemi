@@ -14,7 +14,8 @@ use tokio::task::JoinHandle;
 
 use meltemi_proto::{
     CheckpointListParams, CheckpointListResult, CheckpointRevertParams, CheckpointRevertResult,
-    CommitTaskParams, CommitTaskResult,
+    CommitTaskParams, CommitTaskResult, SddArchiveParams, SddArchiveResult, SddVerifyParams,
+    SddVerifyResult,
 };
 use meltemi_proto::{
     ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
@@ -71,6 +72,8 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             title,
             confirm,
         } => commit(change, task, agent, title, confirm, endpoint).await,
+        Command::Verify { change } => verify(change, endpoint).await,
+        Command::Archive { change, confirm } => archive(change, confirm, endpoint).await,
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -548,6 +551,56 @@ async fn commit(
     })
 }
 
+async fn verify(change: String, endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::SDD_VERIFY,
+            &SddVerifyParams {
+                project_root,
+                change,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: SddVerifyResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_verify(&result),
+        json: value,
+    })
+}
+
+async fn archive(change: String, confirm: bool, endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::SDD_ARCHIVE,
+            &SddArchiveParams {
+                project_root,
+                change,
+                confirm,
+                exceptions: Vec::new(),
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: SddArchiveResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_archive(&result),
+        json: value,
+    })
+}
+
 async fn stop(endpoint: &str) -> Result<Outcome, CliError> {
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(methods::SHUTDOWN, &json!({})).await;
@@ -739,6 +792,46 @@ fn render_assign(result: &WorktreeAssignResult) -> String {
     for w in &result.worktrees {
         let marker = if w.competitor { "race " } else { "solo " };
         let _ = write!(out, "\n  {marker} {}  {}  {}", w.agent, w.branch, w.path);
+    }
+    out
+}
+
+/// Human rendering of a verification checklist: a per-scenario status word and
+/// a coverage summary.
+fn render_verify(result: &SddVerifyResult) -> String {
+    use std::fmt::Write;
+    let mut out = format!(
+        "verify — {}/{} scenario(s) verified{}",
+        result.verified,
+        result.total,
+        if result.complete { " (complete)" } else { "" }
+    );
+    for s in &result.scenarios {
+        let _ = write!(out, "\n  [{}] {}/{}", s.status, s.requirement, s.scenario);
+        if let Some(note) = &s.note {
+            let _ = write!(out, " — {note}");
+        }
+    }
+    out
+}
+
+/// Human rendering of an archive report: the folded capabilities, where the
+/// change was preserved, any exceptions, and whether the projection refreshed.
+fn render_archive(result: &SddArchiveResult) -> String {
+    use std::fmt::Write;
+    let mut out = format!(
+        "archived — folded {} capabilit(y/ies) into the living truth",
+        result.capabilities.len()
+    );
+    for c in &result.capabilities {
+        let _ = write!(out, "\n  + {c}");
+    }
+    let _ = write!(out, "\n  preserved at {}", result.archived_to);
+    if result.projection_regenerated {
+        let _ = write!(out, "\n  projection regenerated");
+    }
+    for e in &result.excepted {
+        let _ = write!(out, "\n  excepted: {e}");
     }
     out
 }

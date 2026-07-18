@@ -35,7 +35,7 @@
     },
     "errorCode": {
       "type": "integer",
-      "enum": [1000, 1001, 1002, 2000, 2001, 2002, 2003, 2004, 3000, 3001, 3002, 4000, 4001, 4002, 4003],
+      "enum": [1000, 1001, 1002, 2000, 2001, 2002, 2003, 2004, 3000, 3001, 3002, 4000, 4001, 4002, 4003, 4004, 4005],
       "x-catalog": {
         "1000": {
           "kind": "protocol_version_unsupported",
@@ -96,6 +96,14 @@
         "4003": {
           "kind": "git_commit_failed",
           "description": "The per-task commit could not be created — most often a user git hook rejected it. detail carries the git/hook output verbatim; hooks are never bypassed (no --no-verify). The task stays completed-without-commit, a visible state."
+        },
+        "4004": {
+          "kind": "verify_incomplete",
+          "description": "Archiving was blocked: a requirement is neither verified (linked to a test or manually marked) nor excepted with a justification. detail lists the unverified scenarios; nothing is folded into the living truth."
+        },
+        "4005": {
+          "kind": "spec_merge_conflict",
+          "description": "Archiving was blocked: applying the change's deltas to the living truth raised conflict diagnostics (e.g. a modified requirement that does not exist). detail lists them; nothing is folded — the living truth is left intact."
         }
       }
     }

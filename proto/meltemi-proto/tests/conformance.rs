@@ -968,6 +968,96 @@ fn commit_task_conforms() {
 }
 
 #[test]
+fn verify_archive_conforms() {
+    assert_conforms(
+        "verify-archive",
+        "verifyParams",
+        &SddVerifyParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+        },
+    );
+    assert_conforms(
+        "verify-archive",
+        "verifyResult",
+        &SddVerifyResult {
+            scenarios: vec![
+                VerifyScenario {
+                    capability: "verify-archive".into(),
+                    requirement: "Archivado con fusión atómica".into(),
+                    scenario: "Fusión total o nada".into(),
+                    status: "linked".into(),
+                    note: None,
+                },
+                VerifyScenario {
+                    capability: "verify-archive".into(),
+                    requirement: "Archivado con fusión atómica".into(),
+                    scenario: "Histórico y proyección".into(),
+                    status: "manual".into(),
+                    note: Some("verified by hand on staging".into()),
+                },
+            ],
+            verified: 2,
+            total: 2,
+            complete: true,
+        },
+    );
+    assert_conforms(
+        "verify-archive",
+        "verifyResult",
+        &SddVerifyResult::default(),
+    );
+
+    assert_conforms(
+        "verify-archive",
+        "verifyMarkParams",
+        &SddVerifyMarkParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+            scenario: "Fusión total o nada".into(),
+            note: "checked manually".into(),
+        },
+    );
+    assert_conforms(
+        "verify-archive",
+        "verifyMarkResult",
+        &SddVerifyMarkResult { marked: true },
+    );
+
+    assert_conforms(
+        "verify-archive",
+        "archiveParams",
+        &SddArchiveParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+            confirm: true,
+            exceptions: vec![ArchiveException {
+                scenario: "Some edge case".into(),
+                justification: "covered by manual QA, test pending".into(),
+            }],
+        },
+    );
+    assert_conforms(
+        "verify-archive",
+        "archiveResult",
+        &SddArchiveResult {
+            capabilities: vec!["verify-archive".into()],
+            archived_to: "C:\\repos\\fixture\\.meltemi\\changes\\archive\\2026-07-18-add-thing"
+                .into(),
+            projection_regenerated: true,
+            excepted: vec!["Some edge case".into()],
+        },
+    );
+
+    // An unknown verification status is rejected.
+    assert_rejected(
+        "verify-archive",
+        "verifyScenario",
+        &json!({ "capability": "c", "requirement": "r", "scenario": "s", "status": "maybe" }),
+    );
+}
+
+#[test]
 fn error_data_conforms() {
     assert_conforms(
         "error",
@@ -1014,6 +1104,8 @@ fn error_codes_match_catalog() {
         error_codes::WORKTREE_REFUSED,
         error_codes::CHECKPOINT_NOT_FOUND,
         error_codes::GIT_COMMIT_FAILED,
+        error_codes::VERIFY_INCOMPLETE,
+        error_codes::SPEC_MERGE_CONFLICT,
     ];
     let mut sorted = constants.to_vec();
     sorted.sort_unstable();

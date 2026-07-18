@@ -259,6 +259,9 @@ async fn dispatch_request(
         methods::CHECKPOINT_REVERT => handle_checkpoint_revert(params).await,
         methods::CHECKPOINT_RECORD_OP => handle_checkpoint_record_op(params).await,
         methods::COMMIT_TASK => handle_commit_task(params).await,
+        methods::SDD_VERIFY => handle_sdd_verify(params).await,
+        methods::SDD_VERIFY_MARK => handle_sdd_verify_mark(params).await,
+        methods::SDD_ARCHIVE => handle_sdd_archive(params).await,
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -834,6 +837,162 @@ async fn handle_commit_task(params: Value) -> Result<Value, RpcError> {
         tree_clean: !crate::git::is_dirty(&worktree),
     };
     Ok(serde_json::to_value(result).expect("CommitTaskResult serializes"))
+}
+
+/// Validates a project root exists as a directory.
+fn require_project_dir(project_root: &str) -> Result<PathBuf, RpcError> {
+    let root = PathBuf::from(project_root);
+    if root.is_dir() {
+        Ok(root)
+    } else {
+        Err(RpcError::application(
+            error_codes::PROJECT_ROOT_INVALID,
+            "invalid project root",
+            "project_root_invalid",
+            format!("`{}` is not an existing directory", root.display()),
+            Some("Pass the absolute path to an existing repository root.".into()),
+        ))
+    }
+}
+
+/// `sdd/verify`: the per-requirement verification checklist of a change — each
+/// scenario linked to a test, manually marked, or unverified (verify-archive).
+async fn handle_sdd_verify(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{SddVerifyParams, SddVerifyResult, VerifyScenario};
+
+    let params: SddVerifyParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("sdd/verify: {e}")))?;
+    let root = require_project_dir(&params.project_root)?;
+
+    let verifications = crate::verify::verify_change(&root, &params.change);
+    let total = verifications.len() as u32;
+    let verified = verifications
+        .iter()
+        .filter(|v| v.status != crate::verify::ScenarioStatus::Unverified)
+        .count() as u32;
+    let scenarios = verifications
+        .into_iter()
+        .map(|v| VerifyScenario {
+            capability: v.capability,
+            requirement: v.requirement,
+            scenario: v.scenario,
+            status: v.status.as_str().to_string(),
+            note: v.note,
+        })
+        .collect();
+    let result = SddVerifyResult {
+        scenarios,
+        verified,
+        total,
+        complete: verified == total,
+    };
+    Ok(serde_json::to_value(result).expect("SddVerifyResult serializes"))
+}
+
+/// `sdd/verify-mark`: record a manual verification of a scenario with a note.
+async fn handle_sdd_verify_mark(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{SddVerifyMarkParams, SddVerifyMarkResult};
+
+    let params: SddVerifyMarkParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("sdd/verify-mark: {e}")))?;
+    let root = require_project_dir(&params.project_root)?;
+    crate::verify::mark_manual(&root, &params.change, &params.scenario, &params.note).map_err(
+        |e| {
+            RpcError::application(
+                error_codes::PROJECT_ROOT_INVALID,
+                "could not record the manual verification",
+                "project_root_invalid",
+                e,
+                Some("Check the change exists under `.meltemi/changes/`.".into()),
+            )
+        },
+    )?;
+    Ok(serde_json::to_value(SddVerifyMarkResult { marked: true })
+        .expect("SddVerifyMarkResult serializes"))
+}
+
+/// `sdd/archive`: fold a change's deltas into the living truth atomically,
+/// gated by complete verification (or recorded exceptions), warning on a dirty
+/// specs tree, then preserve the change in the dated history (verify-archive).
+async fn handle_sdd_archive(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{SddArchiveParams, SddArchiveResult};
+
+    let params: SddArchiveParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("sdd/archive: {e}")))?;
+    let root = require_project_dir(&params.project_root)?;
+
+    // 1. Verification gate: every scenario verified, or explicitly excepted.
+    let excepted: std::collections::HashSet<&str> = params
+        .exceptions
+        .iter()
+        .map(|e| e.scenario.as_str())
+        .collect();
+    let verifications = crate::verify::verify_change(&root, &params.change);
+    let blocking: Vec<String> = verifications
+        .iter()
+        .filter(|v| {
+            v.status == crate::verify::ScenarioStatus::Unverified
+                && !excepted.contains(v.scenario.as_str())
+        })
+        .map(|v| format!("{}/{}", v.requirement, v.scenario))
+        .collect();
+    if !blocking.is_empty() {
+        return Err(RpcError::application(
+            error_codes::VERIFY_INCOMPLETE,
+            "archiving blocked: verification incomplete",
+            "verify_incomplete",
+            format!(
+                "{} unverified requirement(s): {}",
+                blocking.len(),
+                blocking.join("; ")
+            ),
+            Some("Verify or except each requirement before archiving.".into()),
+        ));
+    }
+
+    // 2. Merge validation (dry run): any conflict blocks the fold entirely.
+    let diagnostics = crate::archive::dry_run_diagnostics(&root, &params.change);
+    if !diagnostics.is_empty() {
+        return Err(RpcError::application(
+            error_codes::SPEC_MERGE_CONFLICT,
+            "archiving blocked: spec merge conflict",
+            "spec_merge_conflict",
+            diagnostics.join("; "),
+            Some("Resolve the delta against the living truth, then archive.".into()),
+        ));
+    }
+
+    // 3. A dirty living-specs tree needs explicit confirmation before folding.
+    if !params.confirm && crate::archive::living_specs_dirty(&root) {
+        return Err(RpcError::application(
+            error_codes::WORKTREE_REFUSED,
+            "the living specs tree has uncommitted changes",
+            "worktree_refused",
+            "archiving would fold into specs with local changes; confirm to proceed".to_string(),
+            Some("Commit or stash the specs changes, or set confirm to proceed.".into()),
+        ));
+    }
+
+    // 4. Fold atomically, preserve in history, regenerate projection.
+    let date = crate::clock::now_rfc3339();
+    let date = date.get(..10).unwrap_or(&date);
+    let report = crate::archive::archive_change(&root, &params.change, date).map_err(|e| {
+        RpcError::application(
+            error_codes::SPEC_MERGE_CONFLICT,
+            "archiving failed",
+            "spec_merge_conflict",
+            e,
+            Some("No specs were changed; inspect the change and retry.".into()),
+        )
+    })?;
+
+    let result = SddArchiveResult {
+        capabilities: report.capabilities,
+        archived_to: report.archived_to,
+        projection_regenerated: report.projection_regenerated,
+        excepted: params.exceptions.into_iter().map(|e| e.scenario).collect(),
+    };
+    Ok(serde_json::to_value(result).expect("SddArchiveResult serializes"))
 }
 
 /// `session/list`: active sessions (live state from the registry) plus the

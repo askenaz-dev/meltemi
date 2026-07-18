@@ -6,9 +6,10 @@
 //! the whole grammar and the CLI↔TUI dispatch rule are unit-testable without a
 //! terminal or a daemon. It never performs I/O.
 
-/// Subcommands reserved for the SDD authoring cycle (#14+): recognized by the
-/// grammar so it stays stable, but not implemented in this change.
-pub const RESERVED: &[&str] = &["implement", "verify", "archive"];
+/// Subcommands reserved for the SDD authoring cycle: recognized by the grammar
+/// so it stays stable, but not implemented yet. `verify`/`archive` are now
+/// operative (comandos-verify-archive); only `implement` remains reserved.
+pub const RESERVED: &[&str] = &["implement"];
 
 /// Help text for the scriptable surface.
 pub const USAGE: &str = "\
@@ -42,6 +43,9 @@ SUBCOMMANDS:
     commit <change> <task> <agent> <title> [confirm]
                         the atomic per-task commit with traceability trailers;
                         without `confirm` it previews the message and diff
+    verify <change>     the per-requirement verification checklist of a change
+    archive <change> [confirm]
+                        fold a verified change's deltas into the living truth
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
@@ -52,7 +56,7 @@ GLOBAL FLAGS:
     -V, --version       print the client version
 
 RESERVED (not yet implemented):
-    implement, verify, archive";
+    implement";
 
 /// An RPC-backed or local subcommand to run in scriptable mode.
 #[derive(Debug, PartialEq, Eq)]
@@ -113,6 +117,11 @@ pub enum Command {
         title: String,
         confirm: bool,
     },
+    /// The per-requirement verification checklist of a change (`sdd/verify`).
+    Verify { change: String },
+    /// Fold a verified change's deltas into the living truth (`sdd/archive`);
+    /// `confirm` allows folding over a dirty specs tree.
+    Archive { change: String, confirm: bool },
     /// Request an orderly daemon shutdown.
     Stop,
     /// A reserved subcommand recognized by the grammar but not yet implemented.
@@ -335,6 +344,28 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
                     .into(),
             ),
         },
+        "verify" => match rest {
+            [change] => Action::Run(Command::Verify {
+                change: (*change).to_string(),
+            }),
+            _ => Action::Usage("`verify` requires a change name: meltemi verify <change>".into()),
+        },
+        "archive" => match rest {
+            [change] | [change, _] => {
+                let confirm = rest.get(1).is_some_and(|w| *w == "confirm");
+                if rest.len() == 2 && !confirm {
+                    Action::Usage("`archive` accepts only `confirm` as its 2nd argument".into())
+                } else {
+                    Action::Run(Command::Archive {
+                        change: (*change).to_string(),
+                        confirm,
+                    })
+                }
+            }
+            _ => Action::Usage(
+                "`archive` requires: meltemi archive <change> [confirm]".into(),
+            ),
+        },
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
         "stop" => Action::Usage("`stop` takes no arguments".into()),
         "propose" => match rest {
@@ -408,7 +439,7 @@ mod tests {
 
     #[test]
     fn reserved_subcommand_is_recognized_not_usage_error() {
-        // Scenario: Subcomando reservado no es error de uso.
+        // Scenario: Subcomando reservado no es error de uso (`implement`).
         for reserved in RESERVED {
             let p = plan_of(&[reserved], false);
             assert_eq!(
@@ -417,6 +448,36 @@ mod tests {
                 "`{reserved}` must be recognized as reserved"
             );
         }
+        assert_eq!(RESERVED, &["implement"], "only implement stays reserved");
+    }
+
+    #[test]
+    fn verify_and_archive_are_operative() {
+        // Scenario: Subcomando operativo reconocido (verify/archive).
+        assert_eq!(
+            plan_of(&["verify", "add-thing"], false).action,
+            Action::Run(Command::Verify {
+                change: "add-thing".into()
+            })
+        );
+        assert_eq!(
+            plan_of(&["archive", "add-thing"], false).action,
+            Action::Run(Command::Archive {
+                change: "add-thing".into(),
+                confirm: false,
+            })
+        );
+        assert_eq!(
+            plan_of(&["archive", "add-thing", "confirm"], false).action,
+            Action::Run(Command::Archive {
+                change: "add-thing".into(),
+                confirm: true,
+            })
+        );
+        assert!(matches!(
+            plan_of(&["verify"], false).action,
+            Action::Usage(_)
+        ));
     }
 
     #[test]

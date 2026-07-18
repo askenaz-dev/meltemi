@@ -88,6 +88,14 @@ pub mod methods {
     /// Request: propose or apply the atomic per-task commit with traceability
     /// trailers, in supervised (preview) or autonomous (apply) mode.
     pub const COMMIT_TASK: &str = "commit/task";
+    /// Request: the per-requirement verification checklist of a change (each
+    /// scenario linked to a test, marked manually, or unverified).
+    pub const SDD_VERIFY: &str = "sdd/verify";
+    /// Request: record a manual verification of a scenario with a note.
+    pub const SDD_VERIFY_MARK: &str = "sdd/verify-mark";
+    /// Request: fold a change's deltas into the living truth atomically and
+    /// preserve it in the dated history (gated by verification).
+    pub const SDD_ARCHIVE: &str = "sdd/archive";
 }
 
 /// Application error codes, outside the JSON-RPC reserved range and grouped
@@ -130,6 +138,12 @@ pub mod error_codes {
     /// rejected it. The hook output is surfaced verbatim; hooks are never
     /// bypassed. The task stays completed-without-commit (a visible state).
     pub const GIT_COMMIT_FAILED: i64 = 4003;
+    /// Archiving was blocked: a requirement is neither verified nor excepted.
+    /// The detail lists what is missing; nothing is folded.
+    pub const VERIFY_INCOMPLETE: i64 = 4004;
+    /// Archiving was blocked: applying the change's deltas to the living truth
+    /// raised conflict diagnostics. Nothing is folded — the truth is intact.
+    pub const SPEC_MERGE_CONFLICT: i64 = 4005;
 }
 
 /// Structured `error.data` payload: `{ kind, detail, remedy }` (D11).
@@ -1368,4 +1382,110 @@ pub struct CommitTaskResult {
     pub deviations: Vec<String>,
     /// Whether the worktree is clean after the commit (atomicity).
     pub tree_clean: bool,
+}
+
+/// Params of `sdd/verify`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddVerifyParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change whose requirements to verify.
+    pub change: String,
+}
+
+/// One scenario's verification status in the checklist.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyScenario {
+    /// The capability (spec) the scenario belongs to.
+    pub capability: String,
+    /// The requirement the scenario belongs to.
+    pub requirement: String,
+    /// The scenario name.
+    pub scenario: String,
+    /// `linked` (a test names it), `manual` (marked with a note), or
+    /// `unverified`.
+    pub status: String,
+    /// The note recorded with a manual verification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Result of `sdd/verify`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddVerifyResult {
+    /// One entry per scenario of the change's deltas.
+    pub scenarios: Vec<VerifyScenario>,
+    /// How many scenarios are verified (linked or manual).
+    pub verified: u32,
+    /// The total number of scenarios.
+    pub total: u32,
+    /// Whether every scenario is verified.
+    pub complete: bool,
+}
+
+/// Params of `sdd/verify-mark`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddVerifyMarkParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change the scenario belongs to.
+    pub change: String,
+    /// The scenario name to mark verified.
+    pub scenario: String,
+    /// The note justifying the manual verification.
+    pub note: String,
+}
+
+/// Result of `sdd/verify-mark`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddVerifyMarkResult {
+    /// Whether the manual mark was recorded.
+    pub marked: bool,
+}
+
+/// One requirement exception for archiving: a scenario allowed through the gate
+/// without verification, with a justification recorded in the history.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveException {
+    /// The scenario being excepted.
+    pub scenario: String,
+    /// Why it is allowed through unverified.
+    pub justification: String,
+}
+
+/// Params of `sdd/archive`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddArchiveParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change to archive.
+    pub change: String,
+    /// Confirmation to proceed when the living specs tree is dirty.
+    #[serde(default)]
+    pub confirm: bool,
+    /// Explicit exceptions for unverified requirements (recorded).
+    #[serde(default)]
+    pub exceptions: Vec<ArchiveException>,
+}
+
+/// Result of `sdd/archive`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddArchiveResult {
+    /// The capabilities whose living specs were folded.
+    pub capabilities: Vec<String>,
+    /// Where the change was preserved in the dated history.
+    pub archived_to: String,
+    /// Whether the projected context was regenerated after the fold.
+    pub projection_regenerated: bool,
+    /// The scenarios that passed the gate as recorded exceptions.
+    #[serde(default)]
+    pub excepted: Vec<String>,
 }
