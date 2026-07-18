@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/worktree.schema.json",
+  "title": "worktree/*",
+  "description": "Worktree orchestration methods: assign N agents over M tasks in isolated worktrees from a common base (parallel where files don't overlap, serialized where they do), run races, list/remove managed worktrees, and drive assisted merge (per-competitor diffs and explicit per-file application).",
+  "$defs": {
+    "task": {
+      "type": "object",
+      "required": ["change", "task", "agents"],
+      "properties": {
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "agents": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "files": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "required": ["change", "task", "agent", "path", "branch", "baseRev", "competitor"],
+      "properties": {
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string", "minLength": 1 },
+        "baseRev": { "type": "string", "minLength": 1 },
+        "competitor": { "type": "boolean" }
+      }
+    },
+    "batch": {
+      "type": "object",
+      "required": ["tasks"],
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "serializedReason": { "type": "string" }
+      }
+    },
+    "assignParams": {
+      "type": "object",
+      "required": ["projectRoot", "tasks"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } }
+      }
+    },
+    "assignResult": {
+      "type": "object",
+      "required": ["baseRev", "batches", "worktrees"],
+      "properties": {
+        "baseRev": { "type": "string", "minLength": 1 },
+        "batches": { "type": "array", "items": { "$ref": "#/$defs/batch" } },
+        "worktrees": { "type": "array", "items": { "$ref": "#/$defs/worktree" } }
+      }
+    },
+    "listParams": {
+      "type": "object",
+      "required": ["projectRoot"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 }
+      }
+    },
+    "listResult": {
+      "type": "object",
+      "required": ["worktrees"],
+      "properties": {
+        "worktrees": { "type": "array", "items": { "$ref": "#/$defs/worktree" } }
+      }
+    },
+    "removeParams": {
+      "type": "object",
+      "required": ["projectRoot", "path"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "force": { "type": "boolean" }
+      }
+    },
+    "removeResult": {
+      "type": "object",
+      "required": ["removed"],
+      "properties": {
+        "removed": { "type": "boolean" }
+      }
+    },
+    "diffParams": {
+      "type": "object",
+      "required": ["projectRoot", "change", "task"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 }
+      }
+    },
+    "competitorDiff": {
+      "type": "object",
+      "required": ["agent", "path", "changedFiles", "diff"],
+      "properties": {
+        "agent": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "changedFiles": { "type": "array", "items": { "type": "string" } },
+        "diff": { "type": "string" }
+      }
+    },
+    "diffResult": {
+      "type": "object",
+      "required": ["baseRev", "competitors"],
+      "properties": {
+        "baseRev": { "type": "string", "minLength": 1 },
+        "competitors": { "type": "array", "items": { "$ref": "#/$defs/competitorDiff" } }
+      }
+    },
+    "mergeFileParams": {
+      "type": "object",
+      "required": ["projectRoot", "target", "source", "file"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "file": { "type": "string", "minLength": 1 },
+        "confirm": { "type": "boolean" }
+      }
+    },
+    "mergeFileResult": {
+      "type": "object",
+      "required": ["applied"],
+      "properties": {
+        "applied": { "type": "boolean" }
+      }
+    }
+  }
+}

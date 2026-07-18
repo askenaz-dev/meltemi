@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://meltemi.dev/proto/v1/error.schema.json",
   "title": "application errors",
-  "description": "Application error shape and code catalog. Application codes live outside the JSON-RPC reserved range (-32768..-32000), grouped by domain: 1xxx daemon, 2xxx ACP session, 3xxx propose. Contract messages are in English; the remedy field lets surfaces translate or expand.",
+  "description": "Application error shape and code catalog. Application codes live outside the JSON-RPC reserved range (-32768..-32000), grouped by domain: 1xxx daemon, 2xxx ACP session, 3xxx propose, 4xxx worktree orchestration. Contract messages are in English; the remedy field lets surfaces translate or expand.",
   "$defs": {
     "errorData": {
       "type": "object",
@@ -35,7 +35,7 @@
     },
     "errorCode": {
       "type": "integer",
-      "enum": [1000, 1001, 1002, 2000, 2001, 2002, 2003, 2004, 3000, 3001, 3002],
+      "enum": [1000, 1001, 1002, 2000, 2001, 2002, 2003, 2004, 3000, 3001, 3002, 4000, 4001],
       "x-catalog": {
         "1000": {
           "kind": "protocol_version_unsupported",
@@ -80,6 +80,14 @@
         "3002": {
           "kind": "project_root_invalid",
           "description": "projectRoot does not exist or is not a directory."
+        },
+        "4000": {
+          "kind": "worktree_unavailable",
+          "description": "Worktree orchestration was requested on a directory that is not a git repository. detail states the directory is not a git repo; remedy points to `git init` (or opening an existing repo). Simple sessions still work, without isolation, warned."
+        },
+        "4001": {
+          "kind": "worktree_refused",
+          "description": "A managed-worktree operation was refused: the target is not a worktree the daemon created, or it has uncommitted changes and confirmation was not given. Foreign worktrees are never touched; dirty removals need explicit force."
         }
       }
     }

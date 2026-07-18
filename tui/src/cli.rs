@@ -28,6 +28,12 @@ SUBCOMMANDS:
     plan <change>       refine design and sequence a change's tasks
     constitution        create or edit the project constitution
     review <change>     review a change's spec deltas as a checklist
+    worktrees           list the worktrees Meltemi manages for a project
+    assign <change> <task> <agents>
+                        create an isolated worktree per agent from a common
+                        base (comma-separate agents to race them on one task)
+    race <change> <task>
+                        show each competitor's diff against the common base
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
@@ -64,6 +70,22 @@ pub enum Command {
     Constitution { topic: String },
     /// Review a change's spec deltas as a checklist (`sdd/review`).
     Review { change: String },
+    /// List the worktrees the daemon manages (`worktree/list`).
+    Worktrees { project_root: Option<String> },
+    /// Assign a task to one or more agents in isolated worktrees from a common
+    /// base (`worktree/assign`); more than one agent races them.
+    Assign {
+        change: String,
+        task: String,
+        agents: Vec<String>,
+        project_root: Option<String>,
+    },
+    /// Show each competitor's diff against the common base (`worktree/diff`).
+    Race {
+        change: String,
+        task: String,
+        project_root: Option<String>,
+    },
     /// Request an orderly daemon shutdown.
     Stop,
     /// A reserved subcommand recognized by the grammar but not yet implemented.
@@ -197,6 +219,47 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
                 change: (*change).to_string(),
             }),
             _ => Action::Usage("`review` requires a change name: meltemi review <change>".into()),
+        },
+        "worktrees" => match rest {
+            [] => Action::Run(Command::Worktrees { project_root: None }),
+            [root] => Action::Run(Command::Worktrees {
+                project_root: Some((*root).to_string()),
+            }),
+            _ => Action::Usage("`worktrees` takes at most a project root".into()),
+        },
+        "assign" => match rest {
+            [change, task, agents] | [change, task, agents, _] => {
+                let list: Vec<String> = agents
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                if list.is_empty() {
+                    Action::Usage("`assign` needs at least one agent".into())
+                } else {
+                    Action::Run(Command::Assign {
+                        change: (*change).to_string(),
+                        task: (*task).to_string(),
+                        agents: list,
+                        project_root: rest.get(3).map(|s| (*s).to_string()),
+                    })
+                }
+            }
+            _ => Action::Usage(
+                "`assign` requires: meltemi assign <change> <task> <agent[,agent...]> [project-root]"
+                    .into(),
+            ),
+        },
+        "race" => match rest {
+            [change, task] | [change, task, _] => Action::Run(Command::Race {
+                change: (*change).to_string(),
+                task: (*task).to_string(),
+                project_root: rest.get(2).map(|s| (*s).to_string()),
+            }),
+            _ => Action::Usage(
+                "`race` requires: meltemi race <change> <task> [project-root]".into(),
+            ),
         },
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
         "stop" => Action::Usage("`stop` takes no arguments".into()),
@@ -339,6 +402,74 @@ mod tests {
         assert!(p.json);
         assert!(matches!(
             plan_of(&["fleet", "x"], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn worktrees_lists_with_an_optional_root() {
+        // Scenario: worktrees lista los gestionados.
+        assert_eq!(
+            plan_of(&["worktrees"], false).action,
+            Action::Run(Command::Worktrees { project_root: None })
+        );
+        assert_eq!(
+            plan_of(&["worktrees", "/repo"], false).action,
+            Action::Run(Command::Worktrees {
+                project_root: Some("/repo".into())
+            })
+        );
+    }
+
+    #[test]
+    fn assign_parses_a_race_from_comma_separated_agents() {
+        // Scenario: Carrera etiquetada — dos agentes en una tarea.
+        assert_eq!(
+            plan_of(&["assign", "add-thing", "1.2", "claude,gemini"], false).action,
+            Action::Run(Command::Assign {
+                change: "add-thing".into(),
+                task: "1.2".into(),
+                agents: vec!["claude".into(), "gemini".into()],
+                project_root: None,
+            })
+        );
+        // A single agent is a plain (non-race) assignment, with a root.
+        assert_eq!(
+            plan_of(&["assign", "add-thing", "1.2", "claude", "/repo"], false).action,
+            Action::Run(Command::Assign {
+                change: "add-thing".into(),
+                task: "1.2".into(),
+                agents: vec!["claude".into()],
+                project_root: Some("/repo".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn assign_needs_change_task_and_agents() {
+        assert!(matches!(
+            plan_of(&["assign", "add-thing"], false).action,
+            Action::Usage(_)
+        ));
+        // Empty agent list (bare commas) is a usage error.
+        assert!(matches!(
+            plan_of(&["assign", "c", "1.2", ","], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn race_shows_competitor_diffs() {
+        assert_eq!(
+            plan_of(&["race", "add-thing", "1.2"], false).action,
+            Action::Run(Command::Race {
+                change: "add-thing".into(),
+                task: "1.2".into(),
+                project_root: None,
+            })
+        );
+        assert!(matches!(
+            plan_of(&["race", "add-thing"], false).action,
             Action::Usage(_)
         ));
     }

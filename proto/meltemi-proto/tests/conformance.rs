@@ -637,6 +637,139 @@ fn session_events_conform() {
 }
 
 #[test]
+fn worktree_conforms() {
+    assert_conforms(
+        "worktree",
+        "assignParams",
+        &WorktreeAssignParams {
+            project_root: "C:\\repos\\fixture".into(),
+            tasks: vec![
+                WorktreeTask {
+                    change: "add-thing".into(),
+                    task: "1.1".into(),
+                    agents: vec!["claude".into(), "gemini".into()],
+                    files: vec!["src/a.rs".into()],
+                },
+                WorktreeTask {
+                    change: "add-thing".into(),
+                    task: "1.2".into(),
+                    agents: vec!["claude".into()],
+                    files: vec![],
+                },
+            ],
+        },
+    );
+
+    let racer = Worktree {
+        change: "add-thing".into(),
+        task: "1.1".into(),
+        agent: "claude".into(),
+        path: "C:\\repos\\fixture\\.meltemi\\worktrees\\add-thing\\1-1-claude".into(),
+        branch: "meltemi/add-thing/1-1-claude".into(),
+        base_rev: "a".repeat(40),
+        competitor: true,
+    };
+    assert_conforms("worktree", "worktree", &racer);
+
+    assert_conforms(
+        "worktree",
+        "assignResult",
+        &WorktreeAssignResult {
+            base_rev: "a".repeat(40),
+            batches: vec![
+                WorktreeBatch {
+                    tasks: vec!["1.1".into()],
+                    serialized_reason: None,
+                },
+                WorktreeBatch {
+                    tasks: vec!["1.2".into()],
+                    serialized_reason: Some("serialized: shares src/a.rs".into()),
+                },
+            ],
+            worktrees: vec![racer.clone()],
+        },
+    );
+
+    assert_conforms(
+        "worktree",
+        "listParams",
+        &WorktreeListParams {
+            project_root: "C:\\repos\\fixture".into(),
+        },
+    );
+    assert_conforms(
+        "worktree",
+        "listResult",
+        &WorktreeListResult {
+            worktrees: vec![racer.clone()],
+        },
+    );
+    assert_conforms("worktree", "listResult", &WorktreeListResult::default());
+
+    assert_conforms(
+        "worktree",
+        "removeParams",
+        &WorktreeRemoveParams {
+            project_root: "C:\\repos\\fixture".into(),
+            path: racer.path.clone(),
+            force: true,
+        },
+    );
+    assert_conforms(
+        "worktree",
+        "removeResult",
+        &WorktreeRemoveResult { removed: true },
+    );
+
+    assert_conforms(
+        "worktree",
+        "diffParams",
+        &WorktreeDiffParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+            task: "1.1".into(),
+        },
+    );
+    assert_conforms(
+        "worktree",
+        "diffResult",
+        &WorktreeDiffResult {
+            base_rev: "a".repeat(40),
+            competitors: vec![WorktreeCompetitorDiff {
+                agent: "claude".into(),
+                path: racer.path.clone(),
+                changed_files: vec!["src/a.rs".into()],
+                diff: "diff --git a/src/a.rs b/src/a.rs\n".into(),
+            }],
+        },
+    );
+
+    assert_conforms(
+        "worktree",
+        "mergeFileParams",
+        &WorktreeMergeFileParams {
+            project_root: "C:\\repos\\fixture".into(),
+            target: racer.path.clone(),
+            source: "C:\\repos\\fixture\\.meltemi\\worktrees\\add-thing\\1-1-gemini".into(),
+            file: "src/a.rs".into(),
+            confirm: true,
+        },
+    );
+    assert_conforms(
+        "worktree",
+        "mergeFileResult",
+        &WorktreeMergeFileResult { applied: true },
+    );
+
+    // A task with no agents is rejected (nobody to assign).
+    assert_rejected(
+        "worktree",
+        "task",
+        &json!({ "change": "c", "task": "1.1", "agents": [] }),
+    );
+}
+
+#[test]
 fn error_data_conforms() {
     assert_conforms(
         "error",
@@ -679,6 +812,8 @@ fn error_codes_match_catalog() {
         error_codes::CHANGE_ALREADY_EXISTS,
         error_codes::INVALID_IDEA,
         error_codes::PROJECT_ROOT_INVALID,
+        error_codes::WORKTREE_UNAVAILABLE,
+        error_codes::WORKTREE_REFUSED,
     ];
     let mut sorted = constants.to_vec();
     sorted.sort_unstable();

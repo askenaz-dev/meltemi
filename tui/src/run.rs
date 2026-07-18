@@ -15,7 +15,9 @@ use tokio::task::JoinHandle;
 use meltemi_proto::{
     ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
     PROTOCOL_VERSION, PeerInfo, PermissionOutcome, PermissionRequestResult, ProposeParams,
-    ProposeResult, SessionListParams, SessionListResult, StatusResult, methods,
+    ProposeResult, SessionListParams, SessionListResult, StatusResult, WorktreeAssignParams,
+    WorktreeAssignResult, WorktreeDiffParams, WorktreeDiffResult, WorktreeListParams,
+    WorktreeListResult, WorktreeTask, methods,
 };
 use meltemid::bootstrap;
 use meltemid::rpc::{Incoming, Peer, RpcError};
@@ -39,6 +41,18 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             sdd_verb(endpoint, methods::SDD_CONSTITUTION, topic, None).await
         }
         Command::Review { change } => review(change, endpoint).await,
+        Command::Worktrees { project_root } => worktrees(project_root, endpoint).await,
+        Command::Assign {
+            change,
+            task,
+            agents,
+            project_root,
+        } => assign(change, task, agents, project_root, endpoint).await,
+        Command::Race {
+            change,
+            task,
+            project_root,
+        } => race(change, task, project_root, endpoint).await,
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -307,6 +321,100 @@ async fn review(change: String, endpoint: &str) -> Result<Outcome, CliError> {
     Ok(Outcome { human, json: value })
 }
 
+/// Resolves an optional project root to the current directory.
+fn cwd_or(project_root: Option<String>) -> Result<String, CliError> {
+    match project_root {
+        Some(root) => Ok(root),
+        None => Ok(std::env::current_dir()
+            .map_err(CliError::internal)?
+            .display()
+            .to_string()),
+    }
+}
+
+async fn worktrees(project_root: Option<String>, endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(project_root)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(methods::WORKTREE_LIST, &WorktreeListParams { project_root })
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: WorktreeListResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_worktrees(&result),
+        json: value,
+    })
+}
+
+async fn assign(
+    change: String,
+    task: String,
+    agents: Vec<String>,
+    project_root: Option<String>,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(project_root)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::WORKTREE_ASSIGN,
+            &WorktreeAssignParams {
+                project_root,
+                tasks: vec![WorktreeTask {
+                    change,
+                    task,
+                    agents,
+                    files: Vec::new(),
+                }],
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: WorktreeAssignResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_assign(&result),
+        json: value,
+    })
+}
+
+async fn race(
+    change: String,
+    task: String,
+    project_root: Option<String>,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(project_root)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::WORKTREE_DIFF,
+            &WorktreeDiffParams {
+                project_root,
+                change,
+                task,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: WorktreeDiffResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_race(&result),
+        json: value,
+    })
+}
+
 async fn stop(endpoint: &str) -> Result<Outcome, CliError> {
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(methods::SHUTDOWN, &json!({})).await;
@@ -455,6 +563,74 @@ fn render_status(status: &StatusResult) -> String {
             session.session_id,
             session.state,
             session.agent_command.join(" ")
+        );
+    }
+    out
+}
+
+/// Human rendering of the managed worktree list: branch, agent and path, with a
+/// `race` marker when more than one competes on the same task.
+fn render_worktrees(result: &WorktreeListResult) -> String {
+    use std::fmt::Write;
+    let mut out = format!("{} managed worktree(s)", result.worktrees.len());
+    for w in &result.worktrees {
+        let _ = write!(
+            out,
+            "\n  {}  {}/{}  {}  {}",
+            if w.competitor { "race " } else { "solo " },
+            w.change,
+            w.task,
+            w.agent,
+            w.path
+        );
+    }
+    out
+}
+
+/// Human rendering of an assignment: the fixed base, then each parallel batch
+/// (serialized batches show why), and every worktree created.
+fn render_assign(result: &WorktreeAssignResult) -> String {
+    use std::fmt::Write;
+    let short: String = result.base_rev.chars().take(12).collect();
+    let mut out = format!(
+        "assigned {} worktree(s) from base {short} — {} batch(es)",
+        result.worktrees.len(),
+        result.batches.len()
+    );
+    for (i, batch) in result.batches.iter().enumerate() {
+        let _ = write!(out, "\n  batch {}: {}", i + 1, batch.tasks.join(", "));
+        if let Some(reason) = &batch.serialized_reason {
+            let _ = write!(out, "  [{reason}]");
+        }
+    }
+    for w in &result.worktrees {
+        let marker = if w.competitor { "race " } else { "solo " };
+        let _ = write!(out, "\n  {marker} {}  {}  {}", w.agent, w.branch, w.path);
+    }
+    out
+}
+
+/// Human rendering of a race: each competitor's changed-file count and the
+/// full diff against the common base, ready for an assisted merge decision.
+fn render_race(result: &WorktreeDiffResult) -> String {
+    use std::fmt::Write;
+    let short: String = result.base_rev.chars().take(12).collect();
+    let mut out = format!(
+        "{} competitor(s) against base {short}",
+        result.competitors.len()
+    );
+    for c in &result.competitors {
+        let _ = write!(
+            out,
+            "\n\n=== {} ({} file(s) changed) — {}\n{}",
+            c.agent,
+            c.changed_files.len(),
+            c.path,
+            if c.diff.is_empty() {
+                "(no changes)"
+            } else {
+                c.diff.trim_end()
+            }
         );
     }
     out

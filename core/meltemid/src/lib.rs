@@ -14,6 +14,7 @@ pub mod config;
 pub mod conformance;
 pub mod context;
 pub mod fleet;
+pub mod git;
 pub mod levels;
 pub mod logging;
 pub mod mcp;
@@ -31,6 +32,7 @@ pub mod session;
 pub mod session_index;
 pub mod session_log;
 pub mod transport;
+pub mod worktrees;
 
 use std::sync::Arc;
 

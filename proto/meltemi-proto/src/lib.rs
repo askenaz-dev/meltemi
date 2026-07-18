@@ -64,6 +64,18 @@ pub mod methods {
     pub const PERMISSION_DECIDE: &str = "permission/decide";
     /// Notification (daemon -> client): the pending permission queue changed.
     pub const PERMISSION_CHANGED: &str = "permission/changed";
+    /// Request: plan and create the N×M worktree assignment for a set of
+    /// tasks and agents (parallel batches, serialized overlaps, races).
+    pub const WORKTREE_ASSIGN: &str = "worktree/assign";
+    /// Request: list the worktrees the daemon manages for a project.
+    pub const WORKTREE_LIST: &str = "worktree/list";
+    /// Request: remove a managed worktree (safe cleanup, dirty needs confirm).
+    pub const WORKTREE_REMOVE: &str = "worktree/remove";
+    /// Request: the diff of each competitor of a task against the common base.
+    pub const WORKTREE_DIFF: &str = "worktree/diff";
+    /// Request: apply one file from a source worktree into a target worktree
+    /// (assisted merge; each application is an explicit human decision).
+    pub const WORKTREE_MERGE_FILE: &str = "worktree/merge-file";
 }
 
 /// Application error codes, outside the JSON-RPC reserved range and grouped
@@ -93,6 +105,12 @@ pub mod error_codes {
     pub const INVALID_IDEA: i64 = 3001;
     /// The project root does not exist or is not a directory.
     pub const PROJECT_ROOT_INVALID: i64 = 3002;
+    /// Worktree orchestration was requested on a directory that is not a git
+    /// repository (honest degradation: refuse with remedy).
+    pub const WORKTREE_UNAVAILABLE: i64 = 4000;
+    /// A managed-worktree operation was refused: the target is not one the
+    /// daemon created, or it has uncommitted changes and confirmation is off.
+    pub const WORKTREE_REFUSED: i64 = 4001;
 }
 
 /// Structured `error.data` payload: `{ kind, detail, remedy }` (D11).
@@ -929,4 +947,173 @@ pub struct SessionEventParams {
     pub session_id: String,
     /// The event.
     pub event: SessionEvent,
+}
+
+/// One task to assign, with the agents that will work it and the files it
+/// declares it touches. More than one agent on the same task is a race.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeTask {
+    /// The change the task belongs to.
+    pub change: String,
+    /// The task label (e.g. `1.2`).
+    pub task: String,
+    /// The agents assigned to this task (>1 = a race).
+    pub agents: Vec<String>,
+    /// The files the task declares it touches (for overlap serialization).
+    #[serde(default)]
+    pub files: Vec<String>,
+}
+
+/// Params of `worktree/assign`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeAssignParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The tasks to assign.
+    pub tasks: Vec<WorktreeTask>,
+}
+
+/// One worktree the daemon manages, as reported over the wire.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Worktree {
+    /// The change the worktree serves.
+    pub change: String,
+    /// The task label.
+    pub task: String,
+    /// The agent that owns this worktree.
+    pub agent: String,
+    /// Absolute path of the worktree on disk.
+    pub path: String,
+    /// The managed branch checked out in the worktree.
+    pub branch: String,
+    /// The base revision the worktree was created from.
+    pub base_rev: String,
+    /// Whether this worktree competes with others on the same task (a race).
+    pub competitor: bool,
+}
+
+/// One batch of the assignment plan: its tasks run in parallel; batches run in
+/// sequence. `serializedReason` explains why a batch was split off (overlap).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeBatch {
+    /// The task labels running in parallel in this batch.
+    pub tasks: Vec<String>,
+    /// Why this batch was serialized after the previous one, if it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serialized_reason: Option<String>,
+}
+
+/// Result of `worktree/assign`: the parallel/serial plan plus every worktree
+/// created (one per agent per task, all from the same fixed base).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeAssignResult {
+    /// The common base revision fixed for the whole assignment.
+    pub base_rev: String,
+    /// The parallel/serial batching of tasks.
+    pub batches: Vec<WorktreeBatch>,
+    /// Every worktree created for the assignment.
+    pub worktrees: Vec<Worktree>,
+}
+
+/// Params of `worktree/list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeListParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+}
+
+/// Result of `worktree/list`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeListResult {
+    /// The worktrees the daemon manages for this project (its own only).
+    pub worktrees: Vec<Worktree>,
+}
+
+/// Params of `worktree/remove`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeRemoveParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// Absolute path of the managed worktree to remove.
+    pub path: String,
+    /// Confirmation to remove a worktree with uncommitted changes.
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// Result of `worktree/remove`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeRemoveResult {
+    /// Whether the worktree was removed.
+    pub removed: bool,
+}
+
+/// Params of `worktree/diff`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeDiffParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change whose task competitors to compare.
+    pub change: String,
+    /// The task label whose competitors to compare.
+    pub task: String,
+}
+
+/// One competitor's result in a race: its diff against the common base.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeCompetitorDiff {
+    /// The agent that produced this result.
+    pub agent: String,
+    /// The worktree path.
+    pub path: String,
+    /// The files changed against the common base.
+    pub changed_files: Vec<String>,
+    /// The unified diff against the common base.
+    pub diff: String,
+}
+
+/// Result of `worktree/diff`: every competitor of the task, side by side.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeDiffResult {
+    /// The common base revision the diffs are taken against.
+    pub base_rev: String,
+    /// One entry per competing agent.
+    pub competitors: Vec<WorktreeCompetitorDiff>,
+}
+
+/// Params of `worktree/merge-file`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeMergeFileParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// Absolute path of the worktree chosen as the integration base.
+    pub target: String,
+    /// Absolute path of the worktree to take the file from.
+    pub source: String,
+    /// The file (relative to the worktree root) to apply.
+    pub file: String,
+    /// Explicit human confirmation: nothing is applied without it.
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+/// Result of `worktree/merge-file`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeMergeFileResult {
+    /// Whether the file was applied into the target worktree.
+    pub applied: bool,
 }

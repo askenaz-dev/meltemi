@@ -249,6 +249,11 @@ async fn dispatch_request(
         }
         methods::PERMISSION_PENDING => handle_permission_pending(state).await,
         methods::PERMISSION_DECIDE => handle_permission_decide(params, state).await,
+        methods::WORKTREE_ASSIGN => handle_worktree_assign(params).await,
+        methods::WORKTREE_LIST => handle_worktree_list(params).await,
+        methods::WORKTREE_REMOVE => handle_worktree_remove(params).await,
+        methods::WORKTREE_DIFF => handle_worktree_diff(params).await,
+        methods::WORKTREE_MERGE_FILE => handle_worktree_merge_file(params).await,
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -274,6 +279,252 @@ async fn handle_repo_map(params: Value) -> Result<Value, RpcError> {
     }
     let result = crate::repo_map::build_map(&root, params.depth, params.limit);
     Ok(serde_json::to_value(result).expect("RepoMapResult serializes"))
+}
+
+/// Validates and returns a project root that must be an existing git repo,
+/// refusing with honest degradation (4000) otherwise (orquestacion-worktrees).
+fn require_git_root(project_root: &str) -> Result<PathBuf, RpcError> {
+    let root = PathBuf::from(project_root);
+    if !root.is_dir() {
+        return Err(RpcError::application(
+            error_codes::PROJECT_ROOT_INVALID,
+            "invalid project root",
+            "project_root_invalid",
+            format!("`{}` is not an existing directory", root.display()),
+            Some("Pass the absolute path to an existing repository root.".into()),
+        ));
+    }
+    if !crate::git::is_repo(&root) {
+        return Err(RpcError::application(
+            error_codes::WORKTREE_UNAVAILABLE,
+            "worktree orchestration unavailable",
+            "worktree_unavailable",
+            format!("`{}` is not a git repository", root.display()),
+            Some(
+                "Run `git init` (or open an existing repository) to orchestrate worktrees; \
+                 simple sessions still run without isolation."
+                    .into(),
+            ),
+        ));
+    }
+    Ok(root)
+}
+
+/// Maps a domain worktree to the wire type, flagging competitors: a worktree
+/// races when the daemon manages more than one for the same `(change, task)`.
+fn to_proto_worktrees(
+    managed: Vec<crate::worktrees::ManagedWorktree>,
+) -> Vec<meltemi_proto::Worktree> {
+    use std::collections::HashMap;
+    let mut counts: HashMap<(String, String), usize> = HashMap::new();
+    for w in &managed {
+        *counts
+            .entry((w.change.clone(), w.task.clone()))
+            .or_default() += 1;
+    }
+    managed
+        .into_iter()
+        .map(|w| {
+            let competitor = counts
+                .get(&(w.change.clone(), w.task.clone()))
+                .copied()
+                .unwrap_or(0)
+                > 1;
+            meltemi_proto::Worktree {
+                change: w.change,
+                task: w.task,
+                agent: w.agent,
+                path: w.path,
+                branch: w.branch,
+                base_rev: w.base_rev,
+                competitor,
+            }
+        })
+        .collect()
+}
+
+/// `worktree/assign`: plan the N×M assignment (parallel where declared files
+/// don't overlap, serialized where they do) and create one isolated worktree
+/// per agent per task from a common fixed base (orquestacion-worktrees D4/D6).
+async fn handle_worktree_assign(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{WorktreeAssignParams, WorktreeAssignResult, WorktreeBatch};
+
+    let params: WorktreeAssignParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("worktree/assign: {e}")))?;
+    let root = require_git_root(&params.project_root)?;
+
+    // The common base is fixed for the whole assignment (no drift mid-race).
+    let base = crate::git::head_rev(&root).ok_or_else(|| {
+        RpcError::application(
+            error_codes::WORKTREE_UNAVAILABLE,
+            "worktree orchestration unavailable",
+            "worktree_unavailable",
+            "the repository has no commit to branch worktrees from",
+            Some("Make an initial commit, then assign worktrees.".into()),
+        )
+    })?;
+
+    // Serialize tasks whose declared files overlap; races stay parallel.
+    let task_files: Vec<crate::worktrees::TaskFiles> = params
+        .tasks
+        .iter()
+        .map(|t| crate::worktrees::TaskFiles {
+            task: t.task.clone(),
+            files: t.files.clone(),
+        })
+        .collect();
+    let batches = crate::worktrees::assignment_plan(&task_files)
+        .into_iter()
+        .map(|b| WorktreeBatch {
+            tasks: b.tasks,
+            serialized_reason: b.serialized_reason,
+        })
+        .collect();
+
+    // One worktree per agent per task, all from the same base.
+    let mut managed = Vec::new();
+    for task in &params.tasks {
+        for agent in &task.agents {
+            let wt = crate::worktrees::create(&root, &task.change, &task.task, agent, &base)
+                .map_err(|e| {
+                    RpcError::application(
+                        error_codes::WORKTREE_UNAVAILABLE,
+                        "could not create worktree",
+                        "worktree_unavailable",
+                        e,
+                        Some("Check the git version and that the base revision exists.".into()),
+                    )
+                })?;
+            managed.push(wt);
+        }
+    }
+
+    let result = WorktreeAssignResult {
+        base_rev: base,
+        batches,
+        worktrees: to_proto_worktrees(managed),
+    };
+    Ok(serde_json::to_value(result).expect("WorktreeAssignResult serializes"))
+}
+
+/// `worktree/list`: the worktrees the daemon manages for a project — its own
+/// registry only, never worktrees it did not create.
+async fn handle_worktree_list(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{WorktreeListParams, WorktreeListResult};
+
+    let params: WorktreeListParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("worktree/list: {e}")))?;
+    let root = PathBuf::from(&params.project_root);
+    if !root.is_dir() {
+        return Err(RpcError::application(
+            error_codes::PROJECT_ROOT_INVALID,
+            "invalid project root",
+            "project_root_invalid",
+            format!("`{}` is not an existing directory", root.display()),
+            Some("Pass the absolute path to an existing repository root.".into()),
+        ));
+    }
+    let result = WorktreeListResult {
+        worktrees: to_proto_worktrees(crate::worktrees::list(&root)),
+    };
+    Ok(serde_json::to_value(result).expect("WorktreeListResult serializes"))
+}
+
+/// `worktree/remove`: safe cleanup of a managed worktree. Refuses a worktree
+/// the daemon did not create, and a dirty one unless `force` confirms it.
+async fn handle_worktree_remove(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{WorktreeRemoveParams, WorktreeRemoveResult};
+
+    let params: WorktreeRemoveParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("worktree/remove: {e}")))?;
+    let root = PathBuf::from(&params.project_root);
+    let path = PathBuf::from(&params.path);
+    crate::worktrees::remove(&root, &path, params.force).map_err(|e| {
+        RpcError::application(
+            error_codes::WORKTREE_REFUSED,
+            "worktree removal refused",
+            "worktree_refused",
+            e,
+            Some("Confirm removal of a worktree with uncommitted changes (force).".into()),
+        )
+    })?;
+    Ok(serde_json::to_value(WorktreeRemoveResult { removed: true })
+        .expect("WorktreeRemoveResult serializes"))
+}
+
+/// `worktree/diff`: every competitor of a task as a diff against the common
+/// base — the side-by-side input to assisted merge (orquestacion-worktrees D5).
+async fn handle_worktree_diff(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{WorktreeCompetitorDiff, WorktreeDiffParams, WorktreeDiffResult};
+
+    let params: WorktreeDiffParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("worktree/diff: {e}")))?;
+    let root = require_git_root(&params.project_root)?;
+
+    let competitors = crate::worktrees::competitors(&root, &params.change, &params.task);
+    let base_rev = competitors
+        .first()
+        .map(|w| w.base_rev.clone())
+        .unwrap_or_default();
+    let competitors = competitors
+        .into_iter()
+        .map(|w| {
+            let path = PathBuf::from(&w.path);
+            WorktreeCompetitorDiff {
+                agent: w.agent,
+                changed_files: crate::git::changed_files(&path, &w.base_rev),
+                diff: crate::git::diff_against(&path, &w.base_rev),
+                path: w.path,
+            }
+        })
+        .collect();
+    let result = WorktreeDiffResult {
+        base_rev,
+        competitors,
+    };
+    Ok(serde_json::to_value(result).expect("WorktreeDiffResult serializes"))
+}
+
+/// `worktree/merge-file`: apply one file from a source worktree into a target
+/// worktree. Nothing is applied without explicit confirmation — every
+/// application is a human decision (orquestacion-worktrees D5).
+async fn handle_worktree_merge_file(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{WorktreeMergeFileParams, WorktreeMergeFileResult};
+
+    let params: WorktreeMergeFileParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("worktree/merge-file: {e}")))?;
+    if !params.confirm {
+        return Err(RpcError::application(
+            error_codes::WORKTREE_REFUSED,
+            "confirmation required",
+            "worktree_refused",
+            format!("applying `{}` is an explicit decision", params.file),
+            Some("Set confirm to apply the file into the chosen base worktree.".into()),
+        ));
+    }
+    let root = PathBuf::from(&params.project_root);
+    crate::worktrees::apply_file(
+        &root,
+        &PathBuf::from(&params.target),
+        &PathBuf::from(&params.source),
+        &params.file,
+    )
+    .map_err(|e| {
+        RpcError::application(
+            error_codes::WORKTREE_REFUSED,
+            "file application refused",
+            "worktree_refused",
+            e,
+            Some(
+                "Both worktrees must be managed by Meltemi; the file must live inside the source."
+                    .into(),
+            ),
+        )
+    })?;
+    Ok(
+        serde_json::to_value(WorktreeMergeFileResult { applied: true })
+            .expect("WorktreeMergeFileResult serializes"),
+    )
 }
 
 /// `session/list`: active sessions (live state from the registry) plus the
