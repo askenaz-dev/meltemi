@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/spec.schema.json",
+  "title": "spec/list · spec/show",
+  "description": "Navigate the living truth: list the capabilities with requirement/scenario counts, and show one capability parsed into its requirements and scenarios (with EARS steps). Read-only.",
+  "$defs": {
+    "listParams": {
+      "type": "object",
+      "required": ["projectRoot"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 }
+      }
+    },
+    "specInfo": {
+      "type": "object",
+      "required": ["capability", "requirements", "scenarios"],
+      "properties": {
+        "capability": { "type": "string", "minLength": 1 },
+        "requirements": { "type": "integer", "minimum": 0 },
+        "scenarios": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "listResult": {
+      "type": "object",
+      "required": ["specs"],
+      "properties": {
+        "specs": { "type": "array", "items": { "$ref": "#/$defs/specInfo" } }
+      }
+    },
+    "showParams": {
+      "type": "object",
+      "required": ["projectRoot", "capability"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "capability": { "type": "string", "minLength": 1 }
+      }
+    },
+    "specStep": {
+      "type": "object",
+      "required": ["marker", "text"],
+      "properties": {
+        "marker": { "type": "string", "enum": ["when", "while", "if", "then", "where", "and", "other"] },
+        "text": { "type": "string" }
+      }
+    },
+    "specScenario": {
+      "type": "object",
+      "required": ["name", "steps"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/specStep" } }
+      }
+    },
+    "specRequirement": {
+      "type": "object",
+      "required": ["name", "description", "scenarios"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "scenarios": { "type": "array", "items": { "$ref": "#/$defs/specScenario" } }
+      }
+    },
+    "showResult": {
+      "type": "object",
+      "required": ["capability", "requirements"],
+      "properties": {
+        "capability": { "type": "string", "minLength": 1 },
+        "requirements": { "type": "array", "items": { "$ref": "#/$defs/specRequirement" } }
+      }
+    }
+  }
+}

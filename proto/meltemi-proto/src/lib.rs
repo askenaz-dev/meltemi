@@ -99,6 +99,18 @@ pub mod methods {
     /// Request: deploy agents over a change's `tasks.md`, task by task, with
     /// the full composed cycle (checkpoint → turn → commit → tick).
     pub const SDD_IMPLEMENT: &str = "sdd/implement";
+    /// Request: list the method's changes (active and archived) with aggregated
+    /// state (artifacts, tasks, review, verify). Read-only (navegacion-del-metodo).
+    pub const CHANGE_LIST: &str = "change/list";
+    /// Request: show a change — its artifacts and its deltas per capability.
+    pub const CHANGE_SHOW: &str = "change/show";
+    /// Request: list the living-truth capabilities with requirement/scenario counts.
+    pub const SPEC_LIST: &str = "spec/list";
+    /// Request: show a living-truth capability, its requirements and scenarios.
+    pub const SPEC_SHOW: &str = "spec/show";
+    /// Request: validate a change (engine + dry-run merge) or the whole living
+    /// truth, without archiving; findings are a result, not an error.
+    pub const SDD_VALIDATE: &str = "sdd/validate";
 }
 
 /// Application error codes, outside the JSON-RPC reserved range and grouped
@@ -147,6 +159,9 @@ pub mod error_codes {
     /// Archiving was blocked: applying the change's deltas to the living truth
     /// raised conflict diagnostics. Nothing is folded — the truth is intact.
     pub const SPEC_MERGE_CONFLICT: i64 = 4005;
+    /// A `change/show`, `spec/show` or `sdd/validate` named a change or
+    /// capability that does not exist under `.meltemi/`. Nothing is read further.
+    pub const ARTIFACT_NOT_FOUND: i64 = 4006;
 }
 
 /// Structured `error.data` payload: `{ kind, detail, remedy }` (D11).
@@ -1553,4 +1568,190 @@ pub struct SddImplementResult {
     pub tasks: Vec<ImplementTask>,
     /// The ids committed this run.
     pub committed: Vec<String>,
+}
+
+/// Params of `change/list`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeListParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// Maximum entries to return (active first, then archived).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// Which of a change's artifacts are present on disk.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeArtifacts {
+    pub proposal: bool,
+    pub design: bool,
+    pub tasks: bool,
+    pub specs: bool,
+}
+
+/// One change in the listing, with its aggregated state.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeInfo {
+    /// The change name (kebab-case).
+    pub name: String,
+    /// Whether it is archived history.
+    pub archived: bool,
+    /// The archive date, when archived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
+    /// Which artifacts are present.
+    pub artifacts: ChangeArtifacts,
+    /// Tasks ticked / total.
+    pub tasks_done: u32,
+    pub tasks_total: u32,
+    /// Review items decided / total.
+    pub review_decided: u32,
+    pub review_total: u32,
+    /// Verify scenarios verified / total.
+    pub verified: u32,
+    pub verify_total: u32,
+}
+
+/// Result of `change/list`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeListResult {
+    /// Active changes first (name asc), then archived (most recent first).
+    pub changes: Vec<ChangeInfo>,
+}
+
+/// Params of `change/show`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeShowParams {
+    pub project_root: String,
+    pub change: String,
+}
+
+/// One artifact of a change, verbatim.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeArtifact {
+    /// `proposal` | `design` | `tasks`.
+    pub name: String,
+    pub content: String,
+}
+
+/// One capability delta of a change, verbatim.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeDelta {
+    pub capability: String,
+    pub content: String,
+}
+
+/// Result of `change/show`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeShowResult {
+    pub name: String,
+    pub artifacts: Vec<ChangeArtifact>,
+    pub deltas: Vec<ChangeDelta>,
+}
+
+/// Params of `spec/list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecListParams {
+    pub project_root: String,
+}
+
+/// One living-truth capability with its counts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecInfo {
+    pub capability: String,
+    pub requirements: u32,
+    pub scenarios: u32,
+}
+
+/// Result of `spec/list`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecListResult {
+    pub specs: Vec<SpecInfo>,
+}
+
+/// Params of `spec/show`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecShowParams {
+    pub project_root: String,
+    pub capability: String,
+}
+
+/// One EARS step of a scenario.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecStep {
+    /// The classified marker word (`when`, `then`, …).
+    pub marker: String,
+    pub text: String,
+}
+
+/// One scenario of a requirement.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecScenario {
+    pub name: String,
+    pub steps: Vec<SpecStep>,
+}
+
+/// One requirement of a living-truth capability.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecRequirement {
+    pub name: String,
+    pub description: String,
+    pub scenarios: Vec<SpecScenario>,
+}
+
+/// Result of `spec/show`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecShowResult {
+    pub capability: String,
+    pub requirements: Vec<SpecRequirement>,
+}
+
+/// Params of `sdd/validate`. With no `change`, the whole living truth is
+/// validated structurally.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddValidateParams {
+    pub project_root: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<String>,
+}
+
+/// One validation finding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateDiagnostic {
+    pub capability: String,
+    /// `file:line` anchor of the finding.
+    pub location: String,
+    pub message: String,
+}
+
+/// Result of `sdd/validate`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SddValidateResult {
+    /// `change` or `living-truth`.
+    pub scope: String,
+    /// The change validated, when scope is `change`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// Whether the validation is clean (no diagnostics).
+    pub clean: bool,
+    pub diagnostics: Vec<ValidateDiagnostic>,
 }

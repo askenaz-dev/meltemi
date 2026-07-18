@@ -18,6 +18,7 @@ use common::spawn_daemon;
 #[tokio::test]
 async fn status_maps_to_the_status_method() {
     // Scenario: status consulta el estado del daemon.
+    // Scenario: Éxito termina en cero
     let (endpoint, handle) = spawn_daemon("status").await;
 
     let outcome = execute(Command::Status, &endpoint)
@@ -30,6 +31,29 @@ async fn status_maps_to_the_status_method() {
     );
     assert!(outcome.json["sessions"].is_array());
     assert!(outcome.human.contains("daemon "));
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn a_daemon_application_error_maps_to_the_contract_exit_code() {
+    // Scenario: Respuesta de error del contrato — a daemon application error
+    // (here: showing a change that does not exist) maps to exit code 11.
+    let (endpoint, handle) = spawn_daemon("contract").await;
+
+    let error = execute(
+        Command::Show {
+            change: "no-such-change-exists".into(),
+        },
+        &endpoint,
+    )
+    .await
+    .expect_err("an unknown change is a contract error");
+    assert_eq!(
+        error.exit,
+        meltemi::exit::ExitCode::Contract,
+        "a JSON-RPC application error exits with the contract code"
+    );
 
     handle.abort();
 }

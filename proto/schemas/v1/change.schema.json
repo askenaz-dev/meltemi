@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/change.schema.json",
+  "title": "change/list · change/show",
+  "description": "Navigate the method's changes: list active and archived changes with aggregated read-only state (artifacts present, task progress, review decided/total, verify verified/total), and show one change with its artifacts and per-capability deltas verbatim. Read-only — never mutates the method tree.",
+  "$defs": {
+    "listParams": {
+      "type": "object",
+      "required": ["projectRoot"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "limit": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "changeArtifacts": {
+      "type": "object",
+      "required": ["proposal", "design", "tasks", "specs"],
+      "properties": {
+        "proposal": { "type": "boolean" },
+        "design": { "type": "boolean" },
+        "tasks": { "type": "boolean" },
+        "specs": { "type": "boolean" }
+      }
+    },
+    "changeInfo": {
+      "type": "object",
+      "required": ["name", "archived", "artifacts", "tasksDone", "tasksTotal", "reviewDecided", "reviewTotal", "verified", "verifyTotal"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "archived": { "type": "boolean" },
+        "archivedAt": { "type": "string", "minLength": 1 },
+        "artifacts": { "$ref": "#/$defs/changeArtifacts" },
+        "tasksDone": { "type": "integer", "minimum": 0 },
+        "tasksTotal": { "type": "integer", "minimum": 0 },
+        "reviewDecided": { "type": "integer", "minimum": 0 },
+        "reviewTotal": { "type": "integer", "minimum": 0 },
+        "verified": { "type": "integer", "minimum": 0 },
+        "verifyTotal": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "listResult": {
+      "type": "object",
+      "required": ["changes"],
+      "properties": {
+        "changes": { "type": "array", "items": { "$ref": "#/$defs/changeInfo" } }
+      }
+    },
+    "showParams": {
+      "type": "object",
+      "required": ["projectRoot", "change"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 }
+      }
+    },
+    "changeArtifact": {
+      "type": "object",
+      "required": ["name", "content"],
+      "properties": {
+        "name": { "type": "string", "enum": ["proposal", "design", "tasks"] },
+        "content": { "type": "string" }
+      }
+    },
+    "changeDelta": {
+      "type": "object",
+      "required": ["capability", "content"],
+      "properties": {
+        "capability": { "type": "string", "minLength": 1 },
+        "content": { "type": "string" }
+      }
+    },
+    "showResult": {
+      "type": "object",
+      "required": ["name", "artifacts", "deltas"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "artifacts": { "type": "array", "items": { "$ref": "#/$defs/changeArtifact" } },
+        "deltas": { "type": "array", "items": { "$ref": "#/$defs/changeDelta" } }
+      }
+    }
+  }
+}

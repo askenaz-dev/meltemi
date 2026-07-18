@@ -151,6 +151,17 @@ fn load_manual(repo_root: &Path, change: &str) -> Vec<ManualMark> {
 #[must_use]
 pub fn verify_change(repo_root: &Path, change: &str) -> Vec<ScenarioVerification> {
     let linked = linked_scenarios(repo_root);
+    verify_change_with(repo_root, change, &linked)
+}
+
+/// As [`verify_change`], with a precomputed linked-scenario set — so a listing
+/// over many changes walks the repo for test markers only once, not per change.
+#[must_use]
+pub fn verify_change_with(
+    repo_root: &Path,
+    change: &str,
+    linked: &HashSet<String>,
+) -> Vec<ScenarioVerification> {
     let manual = load_manual(repo_root, change);
     change_scenarios(repo_root, change)
         .into_iter()

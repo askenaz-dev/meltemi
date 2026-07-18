@@ -77,6 +77,7 @@ fn the_git_bash_gotcha_is_documented() {
 fn the_cli_reference_is_generated_and_fresh() {
     // Scenario: Referencia nunca desincronizada — the committed reference must
     // equal what the generator produces from the grammar.
+    // Scenario: La referencia es la enumeración autoritativa
     let committed = read(&repo_root(), "docs/referencia-cli.md");
     let generated = meltemi::cli::reference();
     assert_eq!(

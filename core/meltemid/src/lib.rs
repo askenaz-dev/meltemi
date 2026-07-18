@@ -22,6 +22,7 @@ pub mod implement;
 pub mod levels;
 pub mod logging;
 pub mod mcp;
+pub mod navigate;
 pub mod paths;
 pub mod pending;
 pub mod permissions;

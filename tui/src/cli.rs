@@ -46,6 +46,10 @@ SUBCOMMANDS:
     verify <change>     the per-requirement verification checklist of a change
     archive <change> [confirm]
                         fold a verified change's deltas into the living truth
+    changes             list changes (active and archived) with their state
+    show <change>       show a change: its artifacts and per-capability deltas
+    specs [capability]  list living-truth capabilities, or show one
+    validate [change]   validate a change or the living truth (exit 14 on findings)
     implement <change> <agent> [plan]
                         deploy the agent over the change's tasks.md task by task
                         (checkpoint → turn → commit → tick); `plan` previews
@@ -151,6 +155,14 @@ pub enum Command {
         agent: String,
         plan_only: bool,
     },
+    /// List changes with aggregated state (`change/list`).
+    Changes,
+    /// Show a change: artifacts and per-capability deltas (`change/show`).
+    Show { change: String },
+    /// List living-truth capabilities (`spec/list`), or show one (`spec/show`).
+    Specs { capability: Option<String> },
+    /// Validate a change or the living truth without archiving (`sdd/validate`).
+    Validate { change: Option<String> },
     /// Request an orderly daemon shutdown.
     Stop,
     /// A reserved subcommand recognized by the grammar but not yet implemented.
@@ -412,6 +424,28 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
                 "`implement` requires: meltemi implement <change> <agent> [plan]".into(),
             ),
         },
+        "changes" if rest.is_empty() => Action::Run(Command::Changes),
+        "changes" => Action::Usage("`changes` takes no arguments".into()),
+        "show" => match rest {
+            [change] => Action::Run(Command::Show {
+                change: (*change).to_string(),
+            }),
+            _ => Action::Usage("`show` requires a change name: meltemi show <change>".into()),
+        },
+        "specs" => match rest {
+            [] => Action::Run(Command::Specs { capability: None }),
+            [capability] => Action::Run(Command::Specs {
+                capability: Some((*capability).to_string()),
+            }),
+            _ => Action::Usage("`specs` takes at most a capability name".into()),
+        },
+        "validate" => match rest {
+            [] => Action::Run(Command::Validate { change: None }),
+            [change] => Action::Run(Command::Validate {
+                change: Some((*change).to_string()),
+            }),
+            _ => Action::Usage("`validate` takes at most a change name".into()),
+        },
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
         "stop" => Action::Usage("`stop` takes no arguments".into()),
         "propose" => match rest {
@@ -512,6 +546,46 @@ mod tests {
             plan_of(&["implement", "add-thing"], false).action,
             Action::Usage(_)
         ));
+    }
+
+    #[test]
+    fn navigation_verbs_parse() {
+        // Scenario: Subcomando operativo reconocido
+        assert_eq!(
+            plan_of(&["changes"], false).action,
+            Action::Run(Command::Changes)
+        );
+        assert!(matches!(
+            plan_of(&["changes", "x"], false).action,
+            Action::Usage(_)
+        ));
+        assert_eq!(
+            plan_of(&["show", "flota-multiproveedor"], false).action,
+            Action::Run(Command::Show {
+                change: "flota-multiproveedor".into()
+            })
+        );
+        assert!(matches!(plan_of(&["show"], false).action, Action::Usage(_)));
+        assert_eq!(
+            plan_of(&["specs"], false).action,
+            Action::Run(Command::Specs { capability: None })
+        );
+        assert_eq!(
+            plan_of(&["specs", "fleet-catalog"], false).action,
+            Action::Run(Command::Specs {
+                capability: Some("fleet-catalog".into())
+            })
+        );
+        assert_eq!(
+            plan_of(&["validate"], false).action,
+            Action::Run(Command::Validate { change: None })
+        );
+        assert_eq!(
+            plan_of(&["validate", "flota-multiproveedor"], false).action,
+            Action::Run(Command::Validate {
+                change: Some("flota-multiproveedor".into())
+            })
+        );
     }
 
     #[test]

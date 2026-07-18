@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Migration verification (migracion-openspec-a-meltemi): the living truth and
-//! the history now live under `.meltemi/`, and the engine verifies the migrated
-//! specs are identical (requirements and scenarios) to their bootstrap-stage
-//! origin under `openspec/`. The borrowed tool must have no operative
-//! invocation left in the repository configuration.
+//! the history now live under `.meltemi/`, and the engine verifies the migration
+//! PRESERVED every capability's requirements and scenarios from the
+//! bootstrap-stage origin under `openspec/`. The invariant is preservation, not
+//! eternal byte-identity — the migration lost nothing, and the living truth may
+//! legitimately grow past its frozen origin as later changes edit `.meltemi/`.
+//! The borrowed tool must have no operative invocation left in CI.
 //!
 //! This is the inverted parity: the migrated living truth revalidates against
 //! its source. It reads the repository's own artifacts.
@@ -42,9 +44,15 @@ fn parse_at(path: &Path, capability: &str) -> Option<Spec> {
 }
 
 #[test]
-fn the_migrated_living_truth_is_identical_to_its_origin() {
-    // Scenario: Verdad viva idéntica tras migrar — every migrated spec matches
-    // its bootstrap-stage source in requirements and scenarios.
+fn the_migration_preserved_every_capability_shape() {
+    // Scenario: Verdad viva idéntica tras migrar — scoped "WHEN la migración
+    // concluye": the migration lost nothing. It is a PRESERVATION invariant, not
+    // eternal byte-identity: once the living truth hosts the method, later
+    // changes legitimately grow `.meltemi/specs/` past its frozen origin
+    // (`openspec/`), so every migration-era requirement and scenario must STILL
+    // exist in the live spec — not that the two trees stay identical forever
+    // (navegacion-del-metodo, per the archival-parity analysis). This test
+    // retires together with the physical removal of `openspec/`.
     let root = repo_root();
     let source_dir = root.join("openspec").join("specs");
     let dest_dir = root.join(".meltemi").join("specs");
@@ -69,11 +77,24 @@ fn the_migrated_living_truth_is_identical_to_its_origin() {
         let migrated = parse_at(&dest, &capability)
             .unwrap_or_else(|| panic!("capability `{capability}` was not migrated"));
         let origin = parse_at(&source, &capability).unwrap();
-        assert_eq!(
-            shape(&migrated),
-            shape(&origin),
-            "capability `{capability}` differs after migration"
-        );
+        // Preservation: every origin requirement (and each of its scenarios)
+        // still exists in the live spec. The live spec MAY carry more.
+        let live = shape(&migrated);
+        for (req, origin_scenarios) in shape(&origin) {
+            let live_scenarios = live
+                .iter()
+                .find(|(name, _)| *name == req)
+                .map(|(_, s)| s)
+                .unwrap_or_else(|| {
+                    panic!("requirement `{req}` of `{capability}` was dropped after migration")
+                });
+            for scenario in origin_scenarios {
+                assert!(
+                    live_scenarios.contains(&scenario),
+                    "scenario `{scenario}` of `{req}` (`{capability}`) was dropped after migration"
+                );
+            }
+        }
         compared += 1;
     }
     assert!(

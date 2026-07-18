@@ -70,15 +70,27 @@ pub async fn dispatch(
             );
             ExitCode::Success.code()
         }
-        Action::Run(command) => match run::execute(command, endpoint).await {
-            Ok(outcome) => {
-                let _ = render_outcome(&outcome, json, out);
-                ExitCode::Success.code()
+        Action::Run(command) => {
+            // `validate` findings are a result, not an error: render to stdout,
+            // but exit `14` so CI distinguishes clean from findings (its `clean`
+            // field is the stable signal). Every other command exits `0` on Ok.
+            let is_validate = matches!(command, Command::Validate { .. });
+            match run::execute(command, endpoint).await {
+                Ok(outcome) => {
+                    let _ = render_outcome(&outcome, json, out);
+                    if is_validate
+                        && outcome.json.get("clean") == Some(&serde_json::Value::Bool(false))
+                    {
+                        ExitCode::Validation.code()
+                    } else {
+                        ExitCode::Success.code()
+                    }
+                }
+                Err(error) => {
+                    let _ = render_error(&error, json, out, err);
+                    error.exit.code()
+                }
             }
-            Err(error) => {
-                let _ = render_error(&error, json, out, err);
-                error.exit.code()
-            }
-        },
+        }
     }
 }

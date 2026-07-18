@@ -263,6 +263,11 @@ async fn dispatch_request(
         methods::SDD_VERIFY_MARK => handle_sdd_verify_mark(params).await,
         methods::SDD_ARCHIVE => handle_sdd_archive(params).await,
         methods::SDD_IMPLEMENT => handle_sdd_implement(params, state, peer).await,
+        methods::CHANGE_LIST => crate::navigate::handle_change_list(params).await,
+        methods::CHANGE_SHOW => crate::navigate::handle_change_show(params).await,
+        methods::SPEC_LIST => crate::navigate::handle_spec_list(params).await,
+        methods::SPEC_SHOW => crate::navigate::handle_spec_show(params).await,
+        methods::SDD_VALIDATE => crate::navigate::handle_sdd_validate(params).await,
         other => Err(RpcError::method_not_found(other)),
     }
 }

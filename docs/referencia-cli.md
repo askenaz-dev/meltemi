@@ -42,6 +42,10 @@ SUBCOMMANDS:
     verify <change>     the per-requirement verification checklist of a change
     archive <change> [confirm]
                         fold a verified change's deltas into the living truth
+    changes             list changes (active and archived) with their state
+    show <change>       show a change: its artifacts and per-capability deltas
+    specs [capability]  list living-truth capabilities, or show one
+    validate [change]   validate a change or the living truth (exit 14 on findings)
     implement <change> <agent> [plan]
                         deploy the agent over the change's tasks.md task by task
                         (checkpoint → turn → commit → tick); `plan` previews
@@ -64,3 +68,4 @@ GLOBAL FLAGS:
 - `11` — contract — the daemon answered with a contract/protocol error
 - `12` — denied — the operation was refused by policy (permission proxy)
 - `13` — cancelled — the operation was cancelled
+- `14` — validation — a validation completed with findings (not an error)

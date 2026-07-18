@@ -8,9 +8,10 @@
 //! a change to the `cli-contract` capability.
 
 /// A process exit category. The numeric value is the process exit code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExitCode {
     /// The command completed its purpose.
+    #[default]
     Success = 0,
     /// An unexpected internal error.
     Internal = 1,
@@ -27,6 +28,9 @@ pub enum ExitCode {
     /// The operation was cancelled. Reserved for richer flows; defined here as
     /// part of the stable taxonomy.
     Cancelled = 13,
+    /// A validation completed with findings (not an error of the channel, a
+    /// result — `sdd/validate`). Lets CI distinguish clean from findings.
+    Validation = 14,
 }
 
 impl ExitCode {
@@ -60,4 +64,8 @@ pub const EXIT_CODES: &[(i32, &str)] = &[
         "denied — the operation was refused by policy (permission proxy)",
     ),
     (13, "cancelled — the operation was cancelled"),
+    (
+        14,
+        "validation — a validation completed with findings (not an error)",
+    ),
 ];

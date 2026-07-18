@@ -13,6 +13,10 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 
 use meltemi_proto::{
+    ChangeListParams, ChangeListResult, ChangeShowParams, ChangeShowResult, SddValidateParams,
+    SddValidateResult, SpecListParams, SpecListResult, SpecShowParams, SpecShowResult,
+};
+use meltemi_proto::{
     CheckpointListParams, CheckpointListResult, CheckpointRevertParams, CheckpointRevertResult,
     CommitTaskParams, CommitTaskResult, SddArchiveParams, SddArchiveResult, SddImplementParams,
     SddImplementResult, SddVerifyParams, SddVerifyResult,
@@ -79,6 +83,10 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             agent,
             plan_only,
         } => implement(change, agent, plan_only, endpoint).await,
+        Command::Changes => changes(endpoint).await,
+        Command::Show { change } => show(change, endpoint).await,
+        Command::Specs { capability } => specs(capability, endpoint).await,
+        Command::Validate { change } => validate(change, endpoint).await,
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -638,6 +646,115 @@ async fn implement(
     })
 }
 
+async fn changes(endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::CHANGE_LIST,
+            &ChangeListParams {
+                project_root,
+                limit: None,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: ChangeListResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_changes(&result),
+        json: value,
+    })
+}
+
+async fn show(change: String, endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::CHANGE_SHOW,
+            &ChangeShowParams {
+                project_root,
+                change,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: ChangeShowResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_change_show(&result),
+        json: value,
+    })
+}
+
+async fn specs(capability: Option<String>, endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    // No capability -> list; a capability -> show that one.
+    let (value, human) = match capability {
+        None => {
+            let response = peer
+                .request(methods::SPEC_LIST, &SpecListParams { project_root })
+                .await;
+            peer.close();
+            background.abort();
+            let value = response.map_err(CliError::contract)?;
+            let result: SpecListResult =
+                serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+            (value.clone(), render_spec_list(&result))
+        }
+        Some(capability) => {
+            let response = peer
+                .request(
+                    methods::SPEC_SHOW,
+                    &SpecShowParams {
+                        project_root,
+                        capability,
+                    },
+                )
+                .await;
+            peer.close();
+            background.abort();
+            let value = response.map_err(CliError::contract)?;
+            let result: SpecShowResult =
+                serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+            (value.clone(), render_spec_show(&result))
+        }
+    };
+    Ok(Outcome { human, json: value })
+}
+
+async fn validate(change: Option<String>, endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::SDD_VALIDATE,
+            &SddValidateParams {
+                project_root,
+                change,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: SddValidateResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_validate(&result),
+        json: value,
+    })
+}
+
 async fn stop(endpoint: &str) -> Result<Outcome, CliError> {
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(methods::SHUTDOWN, &json!({})).await;
@@ -854,6 +971,127 @@ fn render_implement(result: &SddImplementResult) -> String {
             .map(|s| format!(" ({})", &s[..s.len().min(12)]))
             .unwrap_or_default();
         let _ = write!(out, "\n  [{}] {} {}{sha}", t.status, t.id, t.description);
+    }
+    out
+}
+
+/// Human rendering of the change listing: state columns per change.
+fn render_changes(result: &ChangeListResult) -> String {
+    use std::fmt::Write;
+    let active = result.changes.iter().filter(|c| !c.archived).count();
+    let mut out = format!(
+        "{} change(s) — {active} active, {} archived",
+        result.changes.len(),
+        result.changes.len() - active
+    );
+    for c in &result.changes {
+        if c.archived {
+            let _ = write!(
+                out,
+                "\n  archived  {}  {}",
+                c.archived_at.as_deref().unwrap_or("—"),
+                c.name
+            );
+        } else {
+            let a = &c.artifacts;
+            let art: String = [
+                (a.proposal, 'P'),
+                (a.design, 'D'),
+                (a.specs, 'S'),
+                (a.tasks, 'T'),
+            ]
+            .iter()
+            .map(|(present, ch)| if *present { *ch } else { '·' })
+            .collect();
+            let _ = write!(
+                out,
+                "\n  active    {art}  tasks {}/{}  review {}/{}  verify {}/{}  {}",
+                c.tasks_done,
+                c.tasks_total,
+                c.review_decided,
+                c.review_total,
+                c.verified,
+                c.verify_total,
+                c.name
+            );
+        }
+    }
+    out
+}
+
+/// Human rendering of a change: which artifacts are present and its deltas.
+fn render_change_show(result: &ChangeShowResult) -> String {
+    use std::fmt::Write;
+    let mut out = format!("change `{}`", result.name);
+    let _ = write!(
+        out,
+        "\n  artifacts: {}",
+        result
+            .artifacts
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    for d in &result.deltas {
+        let reqs = d.content.matches("### Requirement:").count();
+        let _ = write!(out, "\n  delta: {} ({reqs} requirement(s))", d.capability);
+    }
+    out
+}
+
+/// Human rendering of the living-truth capability list.
+fn render_spec_list(result: &SpecListResult) -> String {
+    use std::fmt::Write;
+    let mut out = format!(
+        "{} capabilit(y/ies) in the living truth",
+        result.specs.len()
+    );
+    for s in &result.specs {
+        let _ = write!(
+            out,
+            "\n  {}  {} req  {} scenario(s)",
+            s.capability, s.requirements, s.scenarios
+        );
+    }
+    out
+}
+
+/// Human rendering of one living capability: its requirements and scenarios.
+fn render_spec_show(result: &SpecShowResult) -> String {
+    use std::fmt::Write;
+    let scenarios: usize = result.requirements.iter().map(|r| r.scenarios.len()).sum();
+    let mut out = format!(
+        "capability `{}` — {} requirement(s), {scenarios} scenario(s)",
+        result.capability,
+        result.requirements.len()
+    );
+    for r in &result.requirements {
+        let _ = write!(out, "\n  # {}", r.name);
+        for s in &r.scenarios {
+            let _ = write!(out, "\n    - {}", s.name);
+        }
+    }
+    out
+}
+
+/// Human rendering of a validation: clean, or the findings by capability.
+fn render_validate(result: &SddValidateResult) -> String {
+    use std::fmt::Write;
+    let head = match (&result.scope[..], &result.target) {
+        ("change", Some(t)) => format!("validate change `{t}`"),
+        _ => "validate living truth".to_string(),
+    };
+    if result.clean {
+        return format!("{head} — clean");
+    }
+    let mut out = format!("{head} — {} finding(s)", result.diagnostics.len());
+    for d in &result.diagnostics {
+        let _ = write!(
+            out,
+            "\n  ! [{}] {} ({})",
+            d.capability, d.message, d.location
+        );
     }
     out
 }

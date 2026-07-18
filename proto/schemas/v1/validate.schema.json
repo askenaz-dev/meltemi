@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/validate.schema.json",
+  "title": "sdd/validate",
+  "description": "Validate a change (engine structure + EARS on its delta requirements, plus a dry-run of its deltas against the living truth) or the whole living truth when no change is named — without archiving anything. Findings are a result, not an error: the CLI maps a non-clean validation to exit code 14, a clean one to 0.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": ["projectRoot"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["capability", "location", "message"],
+      "properties": {
+        "capability": { "type": "string" },
+        "location": { "type": "string" },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["scope", "clean", "diagnostics"],
+      "properties": {
+        "scope": { "type": "string", "enum": ["change", "living-truth"] },
+        "target": { "type": "string", "minLength": 1 },
+        "clean": { "type": "boolean" },
+        "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
+      }
+    }
+  }
+}

@@ -1109,6 +1109,153 @@ fn implement_conforms() {
 }
 
 #[test]
+fn navigation_conforms() {
+    assert_conforms(
+        "change",
+        "listParams",
+        &ChangeListParams {
+            project_root: "C:\\repos\\fixture".into(),
+            limit: Some(50),
+        },
+    );
+    let info = ChangeInfo {
+        name: "flota-multiproveedor".into(),
+        archived: false,
+        archived_at: None,
+        artifacts: ChangeArtifacts {
+            proposal: true,
+            design: true,
+            tasks: true,
+            specs: true,
+        },
+        tasks_done: 3,
+        tasks_total: 11,
+        review_decided: 0,
+        review_total: 4,
+        verified: 0,
+        verify_total: 8,
+    };
+    assert_conforms("change", "changeInfo", &info);
+    // An archived change carries its date.
+    assert_conforms(
+        "change",
+        "changeInfo",
+        &ChangeInfo {
+            archived: true,
+            archived_at: Some("2026-07-18".into()),
+            ..info.clone()
+        },
+    );
+    assert_conforms(
+        "change",
+        "listResult",
+        &ChangeListResult {
+            changes: vec![info],
+        },
+    );
+    assert_conforms("change", "listResult", &ChangeListResult::default());
+
+    assert_conforms(
+        "change",
+        "showParams",
+        &ChangeShowParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "flota-multiproveedor".into(),
+        },
+    );
+    assert_conforms(
+        "change",
+        "showResult",
+        &ChangeShowResult {
+            name: "flota-multiproveedor".into(),
+            artifacts: vec![ChangeArtifact {
+                name: "proposal".into(),
+                content: "## Why\n...".into(),
+            }],
+            deltas: vec![ChangeDelta {
+                capability: "fleet-catalog".into(),
+                content: "## ADDED Requirements\n...".into(),
+            }],
+        },
+    );
+
+    assert_conforms(
+        "spec",
+        "listResult",
+        &SpecListResult {
+            specs: vec![SpecInfo {
+                capability: "fleet-catalog".into(),
+                requirements: 5,
+                scenarios: 12,
+            }],
+        },
+    );
+    assert_conforms(
+        "spec",
+        "showResult",
+        &SpecShowResult {
+            capability: "fleet-catalog".into(),
+            requirements: vec![SpecRequirement {
+                name: "Resolución de agente por sesión".into(),
+                description: "El daemon SHALL...".into(),
+                scenarios: vec![SpecScenario {
+                    name: "Sesión lanza el binario de su id".into(),
+                    steps: vec![SpecStep {
+                        marker: "when".into(),
+                        text: "una sesión se lanza".into(),
+                    }],
+                }],
+            }],
+        },
+    );
+    // An unknown step marker is rejected.
+    assert_rejected(
+        "spec",
+        "specStep",
+        &json!({ "marker": "unless", "text": "x" }),
+    );
+
+    assert_conforms(
+        "validate",
+        "params",
+        &SddValidateParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: Some("flota-multiproveedor".into()),
+        },
+    );
+    assert_conforms(
+        "validate",
+        "result",
+        &SddValidateResult {
+            scope: "change".into(),
+            target: Some("flota-multiproveedor".into()),
+            clean: false,
+            diagnostics: vec![ValidateDiagnostic {
+                capability: "fleet-catalog".into(),
+                location: "spec.md:12".into(),
+                message: "modified requirement `X` does not exist".into(),
+            }],
+        },
+    );
+    assert_conforms(
+        "validate",
+        "result",
+        &SddValidateResult {
+            scope: "living-truth".into(),
+            target: None,
+            clean: true,
+            diagnostics: vec![],
+        },
+    );
+    // An unknown scope is rejected.
+    assert_rejected(
+        "validate",
+        "result",
+        &json!({ "scope": "everything", "clean": true, "diagnostics": [] }),
+    );
+}
+
+#[test]
 fn error_data_conforms() {
     assert_conforms(
         "error",
@@ -1157,6 +1304,7 @@ fn error_codes_match_catalog() {
         error_codes::GIT_COMMIT_FAILED,
         error_codes::VERIFY_INCOMPLETE,
         error_codes::SPEC_MERGE_CONFLICT,
+        error_codes::ARTIFACT_NOT_FOUND,
     ];
     let mut sorted = constants.to_vec();
     sorted.sort_unstable();

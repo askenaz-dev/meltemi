@@ -51,6 +51,14 @@ fn key(capability: &str, requirement: &str) -> String {
     format!("{capability}\u{1f}{requirement}")
 }
 
+/// The change's review checklist (read-only): each delta requirement with its
+/// persisted decision state. Used by the method listing to aggregate review
+/// progress without touching the mutating handler (navegacion-del-metodo D2).
+#[must_use]
+pub fn checklist(change_dir: &Path) -> Vec<ReviewItem> {
+    build_checklist(change_dir)
+}
+
 /// Builds the checklist from the change's delta specs, folding in the persisted
 /// item states and the engine's review diagnostics anchored per requirement.
 fn build_checklist(change_dir: &Path) -> Vec<ReviewItem> {
