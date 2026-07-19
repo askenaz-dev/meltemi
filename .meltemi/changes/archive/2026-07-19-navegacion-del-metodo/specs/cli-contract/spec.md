@@ -14,6 +14,11 @@ del ciclo permanece reservado.
 - **WHEN** se invoca un subcomando de la gramática (p. ej. `meltemi changes`)
 - **THEN** el binario SHALL despacharlo en modo scriptable
 
+#### Scenario: El ciclo completo es operativo
+- **WHEN** se invoca `meltemi implement` con el daemon accesible
+- **THEN** el binario SHALL despacharlo como subcomando operativo
+- **AND** ningún subcomando del ciclo SDD SHALL permanecer reservado
+
 #### Scenario: Subcomando desconocido
 - **WHEN** se invoca `meltemi` con un token que no pertenece a la gramática
 - **THEN** el binario SHALL emitir un error de uso por stderr y terminar con el código de error de uso

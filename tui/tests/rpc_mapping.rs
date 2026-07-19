@@ -37,8 +37,9 @@ async fn status_maps_to_the_status_method() {
 
 #[tokio::test]
 async fn a_daemon_application_error_maps_to_the_contract_exit_code() {
-    // Scenario: Respuesta de error del contrato — a daemon application error
-    // (here: showing a change that does not exist) maps to exit code 11.
+    // Scenario: Respuesta de error del contrato
+    // A daemon application error (here: showing a change that does not exist)
+    // maps to exit code 11.
     let (endpoint, handle) = spawn_daemon("contract").await;
 
     let error = execute(

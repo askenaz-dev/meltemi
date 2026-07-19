@@ -519,7 +519,7 @@ mod tests {
 
     #[test]
     fn the_sdd_cycle_grammar_has_no_reserved_subcommands() {
-        // Scenario: El ciclo completo es operativo — nothing stays reserved.
+        // Scenario: El ciclo completo es operativo
         assert!(RESERVED.is_empty(), "the whole SDD cycle is operative");
     }
 
