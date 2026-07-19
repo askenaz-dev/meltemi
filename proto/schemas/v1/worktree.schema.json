@@ -133,6 +133,46 @@
       "properties": {
         "applied": { "type": "boolean" }
       }
+    },
+    "resolutionSource": {
+      "type": "string",
+      "enum": ["profile", "catalog", "configured"]
+    },
+    "dispatchParams": {
+      "type": "object",
+      "required": ["projectRoot", "change", "task", "agent"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 }
+      }
+    },
+    "dispatchResolution": {
+      "type": "object",
+      "required": ["binary", "source", "level"],
+      "properties": {
+        "binary": { "type": "string", "minLength": 1 },
+        "source": { "$ref": "#/$defs/resolutionSource" },
+        "level": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "profile": { "type": "string", "minLength": 1 }
+      }
+    },
+    "dispatchResult": {
+      "type": "object",
+      "required": ["change", "task", "agent", "resolution", "worktree", "committed", "changedFiles", "status", "taskTicked"],
+      "properties": {
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 },
+        "resolution": { "$ref": "#/$defs/dispatchResolution" },
+        "worktree": { "type": "string", "minLength": 1 },
+        "committed": { "type": "boolean" },
+        "sha": { "type": "string", "minLength": 1 },
+        "changedFiles": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"] },
+        "taskTicked": { "type": "boolean", "const": false }
+      }
     }
   }
 }

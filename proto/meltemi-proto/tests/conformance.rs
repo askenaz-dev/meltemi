@@ -300,6 +300,7 @@ fn fleet_conforms() {
                     detected: true,
                     binary_path: Some("C:\\bin\\native-agent.exe".into()),
                     configured: true,
+                    underlying_agent: None,
                 },
                 FleetAgent {
                     id: "absent-agent".into(),
@@ -312,6 +313,7 @@ fn fleet_conforms() {
                     detected: false,
                     binary_path: None,
                     configured: false,
+                    underlying_agent: None,
                 },
                 FleetAgent {
                     id: "my-agent".into(),
@@ -324,6 +326,22 @@ fn fleet_conforms() {
                     detected: false,
                     binary_path: None,
                     configured: false,
+                    underlying_agent: None,
+                },
+                // A launch profile row: a catalog agent under a selected auth
+                // context (flota-multiproveedor).
+                FleetAgent {
+                    id: "work".into(),
+                    display_name: "work".into(),
+                    source: FleetAgentSource::Profile,
+                    integration_level: 1,
+                    verified_level: None,
+                    verified_at: None,
+                    mcp_support: false,
+                    detected: true,
+                    binary_path: Some("C:\\bin\\native-agent.exe".into()),
+                    configured: false,
+                    underlying_agent: Some("native-agent".into()),
                 },
             ],
         },
@@ -622,6 +640,12 @@ fn session_events_conform() {
             agent: "claude".into(),
             irreversible: vec!["ran command: npm publish".into()],
         },
+        SessionEventKind::AgentResolved {
+            binary: "native-agent".into(),
+            source: FleetResolutionSource::Profile,
+            profile: Some("work".into()),
+            level: 1,
+        },
         SessionEventKind::TaskStarted {
             change: "add-thing".into(),
             task: "1.1".into(),
@@ -791,6 +815,50 @@ fn worktree_conforms() {
         "worktree",
         "task",
         &json!({ "change": "c", "task": "1.1", "agents": [] }),
+    );
+
+    // Dispatch: the race primitive (flota-multiproveedor).
+    assert_conforms(
+        "worktree",
+        "dispatchParams",
+        &WorktreeDispatchParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: "add-thing".into(),
+            task: "1.1".into(),
+            agent: "work".into(),
+        },
+    );
+    assert_conforms(
+        "worktree",
+        "dispatchResult",
+        &WorktreeDispatchResult {
+            change: "add-thing".into(),
+            task: "1.1".into(),
+            agent: "work".into(),
+            resolution: DispatchResolution {
+                binary: "native-agent".into(),
+                source: FleetResolutionSource::Profile,
+                level: 1,
+                profile: Some("work".into()),
+            },
+            worktree: "C:\\repos\\fixture\\.meltemi\\worktrees\\add-thing\\1-1-work".into(),
+            committed: true,
+            sha: Some("a".repeat(40)),
+            changed_files: vec!["toggle.rs".into()],
+            status: TurnStatus::Completed,
+            task_ticked: false,
+        },
+    );
+    // task_ticked MUST be false — a dispatch never marks the task.
+    assert_rejected(
+        "worktree",
+        "dispatchResult",
+        &json!({
+            "change": "c", "task": "1.1", "agent": "a",
+            "resolution": { "binary": "b", "source": "catalog", "level": 1 },
+            "worktree": "/w", "committed": false, "changedFiles": [],
+            "status": "completed", "taskTicked": true
+        }),
     );
 }
 

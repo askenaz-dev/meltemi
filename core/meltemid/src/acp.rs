@@ -75,6 +75,10 @@ pub struct SessionParams {
     /// Declared MCP servers to inject when the agent announces support
     /// (mcp-passthrough D2).
     pub mcp_servers: Vec<crate::config::McpServerConfig>,
+    /// Environment overlay applied to the agent's subprocess — the profile's
+    /// auth context (flota-multiproveedor). Passed as leading `NAME=value`
+    /// tokens to the ACP launch; the values are NEVER logged (§2).
+    pub env: Vec<(String, String)>,
 }
 
 /// The result of one ACP turn: the mapped stop reason, how many permission
@@ -108,9 +112,21 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         pending,
         load_session_id,
         mcp_servers,
+        env,
     } = params;
 
-    let agent = AcpAgent::from_args(&agent_command)
+    // The env overlay rides as leading `NAME=value` tokens: the ACP crate parses
+    // them into the subprocess environment (verified in acp_agent.rs). The
+    // un-prefixed `agent_command` stays the identity used for logging — env
+    // values are never logged (§2).
+    let launch_argv: Vec<String> = if env.is_empty() {
+        agent_command.clone()
+    } else {
+        let mut argv: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        argv.extend(agent_command.iter().cloned());
+        argv
+    };
+    let agent = AcpAgent::from_args(&launch_argv)
         .map_err(|e| anyhow::anyhow!("invalid agent command: {e:?}"))?;
 
     let denials = Arc::new(AtomicU32::new(0));

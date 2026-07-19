@@ -36,6 +36,21 @@ pub struct CustomAgent {
     pub command: Vec<String>,
 }
 
+/// A launch profile (`[[fleet.profile]]`, flota-multiproveedor): a catalog
+/// agent run under a selected authentication context. The `env` overlay
+/// redirects which account the official binary authenticates as (e.g.
+/// `HOME`/`XDG_CONFIG_HOME`) — Meltemi never reads the credential itself (§2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FleetProfile {
+    /// Profile name, selectable per session.
+    pub name: String,
+    /// The catalog id of the underlying agent to launch.
+    pub agent: String,
+    /// Environment overlay applied to the binary's subprocess (`${VAR}`
+    /// references resolved at launch; never a plaintext secret).
+    pub env: Vec<(String, String)>,
+}
+
 /// One MCP server the user declared once, to inject into compatible agents
 /// (mcp-passthrough D1). Sensitive values live as `$VAR` references, never
 /// literals — Meltemi references the user's environment, never stores it.
@@ -82,6 +97,12 @@ pub struct Config {
     /// Hygiene diagnostics for MCP declarations with plaintext-secret-looking
     /// values; never carry the value itself.
     pub mcp_diagnostics: Vec<String>,
+    /// Launch profiles joining the catalog (`[[fleet.profile]]`); project
+    /// overrides global by name (flota-multiproveedor).
+    pub fleet_profiles: Vec<FleetProfile>,
+    /// Hygiene diagnostics for profiles with plaintext-secret-looking env
+    /// values; never carry the value itself.
+    pub fleet_diagnostics: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -134,6 +155,17 @@ struct RawFleet {
     /// User-declared agents.
     #[serde(default)]
     custom: Vec<RawCustomAgent>,
+    /// Launch profiles (flota-multiproveedor).
+    #[serde(default)]
+    profile: Vec<RawFleetProfile>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawFleetProfile {
+    name: String,
+    agent: String,
+    #[serde(default)]
+    env: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -292,6 +324,42 @@ impl Config {
                 None => self.mcp_servers.push(server),
             }
         }
+        for raw in raw.fleet.profile {
+            if raw.name.trim().is_empty() || raw.agent.trim().is_empty() {
+                tracing::warn!("ignoring fleet.profile with an empty name or agent");
+                continue;
+            }
+            // Hygiene lint: a plaintext-secret-looking env value REFUSES the
+            // profile (never launch with a bare secret); the remedy names the
+            // `${VAR}` form, never the value itself (§2, reuse of mcp-passthrough).
+            let mut refused = false;
+            for (key, value) in &raw.env {
+                if looks_like_plaintext_secret(value) {
+                    self.fleet_diagnostics.push(format!(
+                        "fleet profile `{}` env `{key}` looks like a plaintext secret; \
+                         reference an environment variable instead (e.g. `\"${{MY_TOKEN}}\"`)",
+                        raw.name
+                    ));
+                    refused = true;
+                }
+            }
+            if refused {
+                continue;
+            }
+            let profile = FleetProfile {
+                name: raw.name,
+                agent: raw.agent,
+                env: raw.env.into_iter().collect(),
+            };
+            match self
+                .fleet_profiles
+                .iter_mut()
+                .find(|p| p.name == profile.name)
+            {
+                Some(existing) => *existing = profile,
+                None => self.fleet_profiles.push(profile),
+            }
+        }
     }
 
     fn apply_env(&mut self) {
@@ -432,6 +500,45 @@ mod tests {
             .unwrap();
         assert_eq!(other.name, "Other");
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn fleet_profiles_merge_and_refuse_plaintext_secrets() {
+        // flota-multiproveedor: a clean profile is kept; a profile whose env
+        // looks like a plaintext secret is REFUSED with a ${VAR} remedy (never
+        // the value).
+        let dir = std::env::temp_dir().join(format!("meltemi-prof-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("config.toml"),
+            "[[fleet.profile]]\nname = \"work\"\nagent = \"gemini-cli\"\nenv = { HOME = \"${WORK_HOME}\" }\n\n\
+             [[fleet.profile]]\nname = \"leaky\"\nagent = \"gemini-cli\"\nenv = { TOKEN = \"sk-abcdefghijklmnopqrstuvwxyz\" }\n",
+        )
+        .unwrap();
+        let config = Config::load(&dir, None);
+        // The clean profile survives; the secret-looking one is refused.
+        assert_eq!(
+            config.fleet_profiles.len(),
+            1,
+            "only the clean profile is kept"
+        );
+        assert_eq!(config.fleet_profiles[0].name, "work");
+        assert!(
+            config
+                .fleet_diagnostics
+                .iter()
+                .any(|d| d.contains("leaky") && d.contains("${")),
+            "the remedy names the ${{VAR}} form: {:?}",
+            config.fleet_diagnostics
+        );
+        assert!(
+            !config
+                .fleet_diagnostics
+                .iter()
+                .any(|d| d.contains("sk-abcdefghij")),
+            "the value never appears in a diagnostic"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -1078,6 +1078,7 @@ mod tests {
             binary_path: detected.then(|| format!("/bin/{id}")),
             configured,
             custom: false,
+            underlying_agent: None,
         }
     }
 

@@ -190,6 +190,8 @@ pub async fn handle_propose(
         // `propose` always opens a fresh session; resume is a separate flow.
         load_session_id: None,
         mcp_servers: config.mcp_servers.clone(),
+        // `propose` uses the configured agent (no per-session selection).
+        env: Vec::new(),
     })
     .await;
 

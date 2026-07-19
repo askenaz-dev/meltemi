@@ -28,6 +28,7 @@ use meltemi_proto::{
     WorktreeAssignResult, WorktreeDiffParams, WorktreeDiffResult, WorktreeListParams,
     WorktreeListResult, WorktreeTask, methods,
 };
+use meltemi_proto::{WorktreeDispatchParams, WorktreeDispatchResult};
 use meltemid::bootstrap;
 use meltemid::rpc::{Incoming, Peer, RpcError};
 
@@ -62,6 +63,12 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             task,
             project_root,
         } => race(change, task, project_root, endpoint).await,
+        Command::Dispatch {
+            change,
+            task,
+            agent,
+            project_root,
+        } => dispatch(change, task, agent, project_root, endpoint).await,
         Command::Checkpoints { change } => checkpoints(change, endpoint).await,
         Command::Revert {
             change,
@@ -646,6 +653,38 @@ async fn implement(
     })
 }
 
+async fn dispatch(
+    change: String,
+    task: String,
+    agent: String,
+    project_root: Option<String>,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(project_root)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::WORKTREE_DISPATCH,
+            &WorktreeDispatchParams {
+                project_root,
+                change,
+                task,
+                agent,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: WorktreeDispatchResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_dispatch(&result),
+        json: value,
+    })
+}
+
 async fn changes(endpoint: &str) -> Result<Outcome, CliError> {
     let project_root = cwd_or(None)?;
     let (peer, background) = connect_and_init(endpoint).await?;
@@ -878,6 +917,10 @@ fn render_fleet(fleet: &FleetListResult) -> String {
         if let Some(path) = &agent.binary_path {
             let _ = write!(out, " — {path}");
         }
+        // A launch profile shows the underlying agent it runs (flota D4 parity).
+        if let Some(underlying) = &agent.underlying_agent {
+            let _ = write!(out, " (profile → {underlying})");
+        }
         if agent.configured {
             let _ = write!(out, " (configured)");
         }
@@ -972,6 +1015,43 @@ fn render_implement(result: &SddImplementResult) -> String {
             .unwrap_or_default();
         let _ = write!(out, "\n  [{}] {} {}{sha}", t.status, t.id, t.description);
     }
+    out
+}
+
+/// Human rendering of a dispatch: the resolved binary + source, the worktree,
+/// the commit outcome, and the explicit "tasks.md untouched" line.
+fn render_dispatch(result: &WorktreeDispatchResult) -> String {
+    use std::fmt::Write;
+    let r = &result.resolution;
+    let source = serde_json::to_value(r.source)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default();
+    let profile = r
+        .profile
+        .as_deref()
+        .map(|p| format!(" profile={p}"))
+        .unwrap_or_default();
+    let mut out = format!(
+        "dispatch {}/{} [{}] -> {} (source={source}{profile}, L{})",
+        result.change, result.task, result.agent, r.binary, r.level
+    );
+    let _ = write!(out, "\n  worktree: {}", result.worktree);
+    if result.committed {
+        let sha = result.sha.as_deref().unwrap_or("");
+        let _ = write!(
+            out,
+            "\n  committed {} ({} file(s))",
+            &sha[..sha.len().min(12)],
+            result.changed_files.len()
+        );
+    } else {
+        let _ = write!(out, "\n  nothing committed ({:?})", result.status);
+    }
+    let _ = write!(
+        out,
+        "\n  tasks.md untouched (a competitor does not own the task)"
+    );
     out
 }
 

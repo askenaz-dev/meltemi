@@ -76,6 +76,10 @@ pub mod methods {
     /// Request: apply one file from a source worktree into a target worktree
     /// (assisted merge; each application is an explicit human decision).
     pub const WORKTREE_MERGE_FILE: &str = "worktree/merge-file";
+    /// Request: run one competitor's turn over its assignment worktree with
+    /// that competitor's own resolved binary — the composable race primitive
+    /// (flota-multiproveedor). Never ticks `tasks.md`.
+    pub const WORKTREE_DISPATCH: &str = "worktree/dispatch";
     /// Request: create the pre-task checkpoint of a worktree (technical ref).
     pub const CHECKPOINT_CREATE: &str = "checkpoint/create";
     /// Request: list checkpoints by change and task (ref, moment, worktree).
@@ -384,6 +388,21 @@ pub enum FleetAgentSource {
     Registry,
     /// A user-declared agent (`[[fleet.custom]]` in config).
     Custom,
+    /// A launch profile (`[[fleet.profile]]`): a catalog agent under a selected
+    /// auth context (flota-multiproveedor).
+    Profile,
+}
+
+/// Where a per-session agent resolution came from (flota-multiproveedor).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FleetResolutionSource {
+    /// A launch profile matched by name.
+    Profile,
+    /// A catalog id matched by name.
+    Catalog,
+    /// The project-configured agent (the free-label fallback).
+    Configured,
 }
 
 /// One agent of the fleet catalog, as reported by `fleet/list`.
@@ -417,6 +436,10 @@ pub struct FleetAgent {
     /// Whether the project at `projectRoot` selects this agent (always
     /// `false` when the request carried no `projectRoot`).
     pub configured: bool,
+    /// For a profile row, the catalog id of the underlying agent it launches;
+    /// absent on registry/custom rows (flota-multiproveedor).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underlying_agent: Option<String>,
 }
 
 /// Result of `fleet/list`.
@@ -985,6 +1008,20 @@ pub enum SessionEventKind {
         /// Approved out-of-tree operations that remain in effect.
         irreversible: Vec<String>,
     },
+    /// A session's agent was resolved from the fleet (flota-multiproveedor):
+    /// the effective binary and how the name resolved. Carries the binary and
+    /// source ONLY — never the profile's env values (fair play §2).
+    AgentResolved {
+        /// The effective binary (program) that will run.
+        binary: String,
+        /// How the name resolved.
+        source: FleetResolutionSource,
+        /// The profile name, when resolved via a launch profile.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile: Option<String>,
+        /// The integration level of the resolved agent.
+        level: u8,
+    },
     /// A task's deployment turn began (comando-implement progress). Emitted
     /// before the agent runs in the task's worktree.
     TaskStarted {
@@ -1218,6 +1255,57 @@ pub struct WorktreeMergeFileParams {
 pub struct WorktreeMergeFileResult {
     /// Whether the file was applied into the target worktree.
     pub applied: bool,
+}
+
+/// Params of `worktree/dispatch`. `agent` is a profile, catalog id, or free
+/// label (resolved in that order).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeDispatchParams {
+    pub project_root: String,
+    pub change: String,
+    pub task: String,
+    pub agent: String,
+}
+
+/// How a dispatch resolved its competitor's binary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DispatchResolution {
+    /// The effective binary (program).
+    pub binary: String,
+    /// How the name resolved.
+    pub source: FleetResolutionSource,
+    /// The integration level of the resolved agent.
+    pub level: u8,
+    /// The profile name, when resolved via a launch profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+}
+
+/// Result of `worktree/dispatch`: one competitor's turn + traceability commit.
+/// `task_ticked` is always `false` — a competitor does not own the task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeDispatchResult {
+    pub change: String,
+    pub task: String,
+    pub agent: String,
+    /// How the competitor's binary was resolved.
+    pub resolution: DispatchResolution,
+    /// The worktree the turn ran in.
+    pub worktree: String,
+    /// Whether the turn produced a commit.
+    pub committed: bool,
+    /// The commit SHA, when committed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha: Option<String>,
+    /// The files changed against the common base.
+    pub changed_files: Vec<String>,
+    /// The mapped ACP turn status.
+    pub status: TurnStatus,
+    /// Always `false`: a dispatch never marks the task.
+    pub task_ticked: bool,
 }
 
 /// Identifies one task's worktree checkpoint by change, task and agent.

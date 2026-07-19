@@ -67,7 +67,90 @@ pub fn resolve_launch(config: &Config, path_var: &OsStr) -> Result<Launch, RpcEr
         ));
     };
     let catalog = build_catalog(config);
-    let Some(entry) = catalog.entries.iter().find(|e| e.id == *id) else {
+    resolve_id_launch(&catalog, id, path_var)
+}
+
+/// A per-session agent resolution: the launch, an env overlay selecting the
+/// auth context, and how the name resolved (flota-multiproveedor D1/D2).
+#[derive(Debug)]
+pub struct ResolvedAgent {
+    pub launch: Launch,
+    /// Environment overlay for the binary's subprocess (never logged).
+    pub env: Vec<(String, String)>,
+    pub source: meltemi_proto::FleetResolutionSource,
+    pub profile: Option<String>,
+}
+
+/// Resolves an agent named per session against the fleet, in order: a launch
+/// **profile**, a catalog **id**, else the project-**configured** agent (a free
+/// label falls through to it — keeping race labels like `fast`/`thorough`
+/// working). A profile/id that resolves to an **undetected** binary refuses with
+/// 2001 and MUST NOT degrade to the configured agent (never a silent provider
+/// swap). Detection only — nothing is spawned here.
+pub fn resolve_fleet_agent(
+    config: &Config,
+    name: &str,
+    path_var: &OsStr,
+) -> Result<ResolvedAgent, RpcError> {
+    use meltemi_proto::FleetResolutionSource;
+    let catalog = build_catalog(config);
+
+    // (a) A launch profile matched by name — resolve its underlying id, then
+    //     overlay the auth-context env (`${VAR}` resolved; never a secret).
+    if let Some(profile) = config.fleet_profiles.iter().find(|p| p.name == name) {
+        let launch = resolve_id_launch(&catalog, &profile.agent, path_var)?;
+        let env: Vec<(String, String)> = profile
+            .env
+            .iter()
+            .map(|(k, v)| {
+                let resolved = crate::mcp::resolve_ref(v);
+                if resolved.is_empty() && !v.is_empty() {
+                    tracing::warn!(
+                        profile = %name, key = %k,
+                        "profile env value resolved empty; is the referenced variable set?"
+                    );
+                }
+                (k.clone(), resolved)
+            })
+            .collect();
+        return Ok(ResolvedAgent {
+            launch,
+            env,
+            source: FleetResolutionSource::Profile,
+            profile: Some(name.to_string()),
+        });
+    }
+
+    // (b) A catalog id matched by name.
+    if catalog.entries.iter().any(|e| e.id == name) {
+        let launch = resolve_id_launch(&catalog, name, path_var)?;
+        return Ok(ResolvedAgent {
+            launch,
+            env: Vec::new(),
+            source: FleetResolutionSource::Catalog,
+            profile: None,
+        });
+    }
+
+    // (c) A free label — the project-configured agent.
+    let launch = resolve_launch(config, path_var)?;
+    Ok(ResolvedAgent {
+        launch,
+        env: Vec::new(),
+        source: FleetResolutionSource::Configured,
+        profile: None,
+    })
+}
+
+/// Resolves the launch for a specific catalog id (the level 1–4 match). Shared
+/// by [`resolve_launch`] and [`resolve_fleet_agent`]; propagates 2001 on an
+/// undetected binary, never degrading to another agent.
+pub fn resolve_id_launch(
+    catalog: &crate::fleet::Catalog,
+    id: &str,
+    path_var: &OsStr,
+) -> Result<Launch, RpcError> {
+    let Some(entry) = catalog.entries.iter().find(|e| e.id == id) else {
         return Err(not_detected(format!(
             "agent id `{id}` is not in the fleet catalog (registry {})",
             catalog.registry_version
@@ -236,6 +319,96 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// A registry with one level-1 agent `id` whose binary `id-bin` is created
+    /// only when `detected` (so resolution can be exercised both ways).
+    fn fleet_config(
+        dir: &std::path::Path,
+        id: &str,
+        profiles: Vec<crate::config::FleetProfile>,
+    ) -> Config {
+        let path = dir.join("registry.toml");
+        std::fs::write(
+            &path,
+            format!(
+                "version=\"v\"\n[[agents]]\nid=\"{id}\"\nname=\"{id}\"\nlevel=1\nbin=\"{id}-bin\"\nacp-args=[\"--acp\"]\n"
+            ),
+        )
+        .unwrap();
+        Config {
+            // A configured fallback that resolution must NOT reach for a profile/id.
+            agent_command: Some(vec!["configured-fallback".into()]),
+            fleet_registry: Some(path),
+            fleet_profiles: profiles,
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn a_profile_with_an_undetected_underlying_id_refuses_with_2001() {
+        // flota-multiproveedor D1: a profile resolving to an UNDETECTED binary
+        // MUST refuse (2001) and NEVER degrade to the configured agent.
+        let dir = temp("prof-undetected");
+        // 'ghost-bin' is never created -> undetected.
+        let config = fleet_config(
+            &dir,
+            "ghost",
+            vec![crate::config::FleetProfile {
+                name: "work".into(),
+                agent: "ghost".into(),
+                env: vec![],
+            }],
+        );
+        let path_var = std::env::join_paths([dir.clone()]).unwrap();
+        let err = resolve_fleet_agent(&config, "work", &path_var)
+            .expect_err("an undetected profile must refuse");
+        assert_eq!(err.code, meltemi_proto::error_codes::AGENT_NOT_DETECTED);
+    }
+
+    #[test]
+    fn a_profile_resolves_its_binary_and_overlays_env() {
+        // A profile launches its underlying detected binary under its env context.
+        let dir = temp("prof-ok");
+        fake_binary(&dir, "real-bin");
+        let config = fleet_config(
+            &dir,
+            "real",
+            vec![crate::config::FleetProfile {
+                name: "work".into(),
+                agent: "real".into(),
+                env: vec![("MELTEMI_MOCK_MARKER".into(), "work".into())],
+            }],
+        );
+        let path_var = std::env::join_paths([dir.clone()]).unwrap();
+        let resolved = resolve_fleet_agent(&config, "work", &path_var).expect("profile resolves");
+        assert_eq!(
+            resolved.source,
+            meltemi_proto::FleetResolutionSource::Profile
+        );
+        assert_eq!(resolved.profile.as_deref(), Some("work"));
+        assert!(resolved.launch.level() == 1);
+        assert_eq!(
+            resolved.env,
+            vec![("MELTEMI_MOCK_MARKER".to_string(), "work".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_free_label_falls_back_to_the_configured_agent() {
+        // A name matching neither a profile nor a catalog id is a free label
+        // that resolves to the configured agent (source=Configured).
+        let dir = temp("free-label");
+        let config = fleet_config(&dir, "known", vec![]);
+        let path_var = std::env::join_paths([dir.clone()]).unwrap();
+        let resolved =
+            resolve_fleet_agent(&config, "fast", &path_var).expect("free label falls back");
+        assert_eq!(
+            resolved.source,
+            meltemi_proto::FleetResolutionSource::Configured
+        );
+        assert!(resolved.env.is_empty());
+        assert!(matches!(resolved.launch, Launch::Acp { .. }));
     }
 
     #[test]

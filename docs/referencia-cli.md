@@ -31,6 +31,10 @@ SUBCOMMANDS:
                         base (comma-separate agents to race them on one task)
     race <change> <task>
                         show each competitor's diff against the common base
+    dispatch <change> <task> <agent|profile>
+                        run one competitor's turn over its worktree with that
+                        agent's own binary (checkpoint -> turn -> commit); the
+                        task is never ticked
     checkpoints [change]
                         list pre-task checkpoints (ref, moment, irreversibles)
     revert <change> <task> <agent> [confirm]

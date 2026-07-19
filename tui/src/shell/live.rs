@@ -56,6 +56,9 @@ pub struct FleetRow {
     pub binary_path: Option<String>,
     pub configured: bool,
     pub custom: bool,
+    /// For a launch profile, the underlying agent it runs (flota-multiproveedor
+    /// D4 parity); `None` for registry/custom rows.
+    pub underlying_agent: Option<String>,
 }
 
 impl From<FleetAgent> for FleetRow {
@@ -69,6 +72,7 @@ impl From<FleetAgent> for FleetRow {
             binary_path: a.binary_path,
             configured: a.configured,
             custom: a.source == FleetAgentSource::Custom,
+            underlying_agent: a.underlying_agent,
         }
     }
 }
@@ -426,6 +430,7 @@ mod tests {
                 binary_path: Some("/bin/one".into()),
                 configured: false,
                 custom: false,
+                underlying_agent: None,
             }],
         }));
         let snapshot = live.fleet.as_ref().expect("snapshot stored");

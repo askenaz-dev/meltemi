@@ -40,7 +40,7 @@ pub fn to_acp(server: &McpServerConfig) -> McpServer {
 
 /// Resolves a `$VAR` or `${VAR}` reference from the environment; a literal is
 /// passed through (the hygiene lint already flagged literal secrets).
-fn resolve_ref(value: &str) -> String {
+pub fn resolve_ref(value: &str) -> String {
     let name = value
         .strip_prefix("${")
         .and_then(|v| v.strip_suffix('}'))

@@ -474,6 +474,7 @@ async fn run_turn(
         pending: state.pending.clone(),
         load_session_id: None,
         mcp_servers: config.mcp_servers.clone(),
+        env: Vec::new(),
     })
     .await;
 

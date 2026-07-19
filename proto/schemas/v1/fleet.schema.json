@@ -6,7 +6,7 @@
   "$defs": {
     "fleetAgentSource": {
       "type": "string",
-      "enum": ["registry", "custom"],
+      "enum": ["registry", "custom", "profile"],
       "description": "Where a catalog entry comes from: the bundled registry snapshot or the user's configuration."
     },
     "fleetAgent": {
@@ -64,6 +64,11 @@
         "configured": {
           "type": "boolean",
           "description": "Whether the project at projectRoot selects this agent; always false when the request carried no projectRoot."
+        },
+        "underlyingAgent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "For a profile row, the catalog id of the underlying agent it launches; absent otherwise."
         }
       }
     },

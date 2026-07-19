@@ -418,7 +418,7 @@ pub fn detect(entry: &CatalogEntry, path_var: &OsStr) -> Option<PathBuf> {
 /// marking the entry `configured_id` selects, if any.
 pub fn list(config: &Config, configured_id: Option<&str>, path_var: &OsStr) -> FleetListResult {
     let catalog = build_catalog(config);
-    let agents = catalog
+    let mut agents: Vec<FleetAgent> = catalog
         .entries
         .iter()
         .map(|entry| {
@@ -435,9 +435,33 @@ pub fn list(config: &Config, configured_id: Option<&str>, path_var: &OsStr) -> F
                 detected: binary.is_some(),
                 binary_path: binary.map(|p| p.display().to_string()),
                 configured: configured_id == Some(entry.id.as_str()),
+                underlying_agent: None,
             }
         })
         .collect();
+
+    // Launch profiles: a catalog agent under a selected auth context. The row
+    // detects the underlying binary and names the agent it launches (flota-
+    // multiproveedor D4). Never the configured selection (profiles are chosen
+    // per session, not project-wide).
+    for profile in &config.fleet_profiles {
+        let underlying = catalog.entries.iter().find(|e| e.id == profile.agent);
+        let binary = underlying.and_then(|e| detect(e, path_var));
+        agents.push(FleetAgent {
+            id: profile.name.clone(),
+            display_name: profile.name.clone(),
+            source: FleetAgentSource::Profile,
+            integration_level: underlying.map_or(1, |e| e.level),
+            verified_level: None,
+            verified_at: None,
+            mcp_support: underlying.is_some_and(|e| e.mcp),
+            detected: binary.is_some(),
+            binary_path: binary.map(|p| p.display().to_string()),
+            configured: false,
+            underlying_agent: Some(profile.agent.clone()),
+        });
+    }
+
     FleetListResult {
         registry_version: catalog.registry_version,
         agents,

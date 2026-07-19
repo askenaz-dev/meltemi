@@ -35,6 +35,10 @@ SUBCOMMANDS:
                         base (comma-separate agents to race them on one task)
     race <change> <task>
                         show each competitor's diff against the common base
+    dispatch <change> <task> <agent|profile>
+                        run one competitor's turn over its worktree with that
+                        agent's own binary (checkpoint -> turn -> commit); the
+                        task is never ticked
     checkpoints [change]
                         list pre-task checkpoints (ref, moment, irreversibles)
     revert <change> <task> <agent> [confirm]
@@ -122,6 +126,13 @@ pub enum Command {
     Race {
         change: String,
         task: String,
+        project_root: Option<String>,
+    },
+    /// Run one competitor's turn over its worktree (`worktree/dispatch`).
+    Dispatch {
+        change: String,
+        task: String,
+        agent: String,
         project_root: Option<String>,
     },
     /// List pre-task checkpoints (`checkpoint/list`).
@@ -336,6 +347,18 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
             }),
             _ => Action::Usage(
                 "`race` requires: meltemi race <change> <task> [project-root]".into(),
+            ),
+        },
+        "dispatch" => match rest {
+            [change, task, agent] | [change, task, agent, _] => Action::Run(Command::Dispatch {
+                change: (*change).to_string(),
+                task: (*task).to_string(),
+                agent: (*agent).to_string(),
+                project_root: rest.get(3).map(|s| (*s).to_string()),
+            }),
+            _ => Action::Usage(
+                "`dispatch` requires: meltemi dispatch <change> <task> <agent> [project-root]"
+                    .into(),
             ),
         },
         "checkpoints" => match rest {
@@ -742,6 +765,24 @@ mod tests {
         );
         assert!(matches!(
             plan_of(&["race", "add-thing"], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn dispatch_parses_change_task_agent() {
+        // Scenario: Carrera de dos proveedores distintos (per-competitor dispatch).
+        assert_eq!(
+            plan_of(&["dispatch", "add-thing", "1.1", "work"], false).action,
+            Action::Run(Command::Dispatch {
+                change: "add-thing".into(),
+                task: "1.1".into(),
+                agent: "work".into(),
+                project_root: None,
+            })
+        );
+        assert!(matches!(
+            plan_of(&["dispatch", "add-thing", "1.1"], false).action,
             Action::Usage(_)
         ));
     }

@@ -254,6 +254,7 @@ async fn dispatch_request(
         methods::WORKTREE_REMOVE => handle_worktree_remove(params).await,
         methods::WORKTREE_DIFF => handle_worktree_diff(params).await,
         methods::WORKTREE_MERGE_FILE => handle_worktree_merge_file(params).await,
+        methods::WORKTREE_DISPATCH => handle_worktree_dispatch(params, state, peer).await,
         methods::CHECKPOINT_CREATE => handle_checkpoint_create(params).await,
         methods::CHECKPOINT_LIST => handle_checkpoint_list(params).await,
         methods::CHECKPOINT_REVERT => handle_checkpoint_revert(params).await,
@@ -539,6 +540,208 @@ async fn handle_worktree_merge_file(params: Value) -> Result<Value, RpcError> {
         serde_json::to_value(WorktreeMergeFileResult { applied: true })
             .expect("WorktreeMergeFileResult serializes"),
     )
+}
+
+/// `worktree/dispatch`: run one competitor's turn over its assignment worktree
+/// with that competitor's own resolved binary and auth context (flota-
+/// multiproveedor). Composes checkpoint → turn → per-task commit, and **never**
+/// ticks `tasks.md` — a competitor does not own the task; the human decides via
+/// assisted merge.
+async fn handle_worktree_dispatch(
+    params: Value,
+    state: &Arc<DaemonState>,
+    peer: &Peer,
+) -> Result<Value, RpcError> {
+    use meltemi_proto::{
+        DispatchResolution, SessionEventKind, WorktreeDispatchParams, WorktreeDispatchResult,
+    };
+
+    let params: WorktreeDispatchParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("worktree/dispatch: {e}")))?;
+    let root = require_git_root(&params.project_root)?;
+
+    let config = crate::config::Config::load(&state.config_dir, Some(&root));
+    for d in &config.fleet_diagnostics {
+        tracing::warn!(diagnostic = %d, "fleet profile hygiene");
+    }
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let resolved = crate::levels::resolve_fleet_agent(&config, &params.agent, &path_var)?;
+    let (agent_command, level) = match &resolved.launch {
+        crate::levels::Launch::Acp { argv, level } => (argv.clone(), *level),
+        crate::levels::Launch::Headless { level, .. }
+        | crate::levels::Launch::Artifacts { level } => {
+            return Err(RpcError::application(
+                error_codes::AGENT_COMMAND_NOT_CONFIGURED,
+                "level not pilotable by dispatch",
+                "level_not_pilotable",
+                format!("the resolved agent is level {level}; dispatch needs an ACP agent"),
+                Some("Select a level 1/2 agent to dispatch.".into()),
+            ));
+        }
+    };
+
+    // The common base is fixed by the assignment; create/reuse the worktree.
+    let base = crate::git::head_rev(&root).ok_or_else(|| {
+        RpcError::application(
+            error_codes::WORKTREE_UNAVAILABLE,
+            "the repository has no commit to dispatch from",
+            "worktree_unavailable",
+            "make an initial commit before dispatching",
+            Some("Commit something first.".into()),
+        )
+    })?;
+    let wt = crate::worktrees::create(&root, &params.change, &params.task, &params.agent, &base)
+        .map_err(|e| {
+            RpcError::application(
+                error_codes::WORKTREE_UNAVAILABLE,
+                "could not create the dispatch worktree",
+                "worktree_unavailable",
+                e,
+                Some("Check the git version and the base revision.".into()),
+            )
+        })?;
+    let worktree = PathBuf::from(&wt.path);
+    let _ = crate::checkpoints::create(
+        &root,
+        &worktree,
+        &params.change,
+        &params.task,
+        &params.agent,
+    );
+
+    // Session setup mirroring implement, but for a single competitor turn.
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let cancel = state
+        .sessions
+        .register(&session_id, agent_command.clone())
+        .await;
+    let project_key = crate::paths::project_key(&root);
+    let mut log =
+        crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)
+            .map_err(RpcError::internal)?;
+    let _ = log.append(SessionEventKind::SessionStarted {
+        session_id: session_id.clone(),
+        agent_command: agent_command.clone(),
+        project_root: worktree.display().to_string(),
+    });
+    let _ = log.append(SessionEventKind::AgentResolved {
+        binary: agent_command.first().cloned().unwrap_or_default(),
+        source: resolved.source,
+        profile: resolved.profile.clone(),
+        level,
+    });
+    let log = std::sync::Arc::new(tokio::sync::Mutex::new(log));
+    let rules = std::sync::Arc::new(crate::permissions::load_rules(
+        &state.config_dir,
+        Some(&root),
+    ));
+
+    // The prompt points the agent at a per-task artifact so its work is
+    // committable; the task description (best-effort) titles the commit.
+    let description = std::fs::read_to_string(
+        root.join(".meltemi")
+            .join("changes")
+            .join(&params.change)
+            .join("tasks.md"),
+    )
+    .ok()
+    .and_then(|md| {
+        crate::implement::parse_tasks(&md)
+            .into_iter()
+            .find(|t| t.id == params.task)
+            .map(|t| t.description)
+    })
+    .unwrap_or_else(|| format!("task {}", params.task));
+    let artifact = worktree.join(format!("task-{}.md", params.task.replace('.', "-")));
+    let prompt = format!(
+        "Implement task {} of change {} ({}): {}\nPROPOSAL_PATH: {}",
+        params.task,
+        params.change,
+        params.agent,
+        description,
+        artifact.display()
+    );
+
+    let outcome = crate::acp::run_session(crate::acp::SessionParams {
+        agent_command: agent_command.clone(),
+        project_root: worktree.clone(),
+        prompt,
+        meltemi_session_id: session_id.clone(),
+        peer: peer.clone(),
+        log: log.clone(),
+        cancel,
+        permission_timeout: IMPLEMENT_PERMISSION_TIMEOUT,
+        rules,
+        pending: state.pending.clone(),
+        load_session_id: None,
+        mcp_servers: config.mcp_servers.clone(),
+        env: resolved.env.clone(),
+    })
+    .await;
+    let status = outcome
+        .as_ref()
+        .map(|o| o.status)
+        .unwrap_or(meltemi_proto::TurnStatus::Refused);
+
+    // Commit with traceability, but NEVER tick tasks.md (D3).
+    let message =
+        crate::commit::build_message(&params.change, &params.task, &description, None, &[]);
+    let cp_ref = crate::checkpoints::ref_for(&params.change, &params.task, &params.agent);
+    let (committed, sha, changed_files) = match crate::commit::commit(&worktree, &message, &cp_ref)
+    {
+        Ok(done) => {
+            append(
+                &log,
+                SessionEventKind::TaskCommitted {
+                    change: params.change.clone(),
+                    task: params.task.clone(),
+                    agent: params.agent.clone(),
+                    sha: done.sha.clone(),
+                    requirements: Vec::new(),
+                },
+            )
+            .await;
+            (true, Some(done.sha), done.changed_files)
+        }
+        // Nothing to commit: compare against the worktree's OWN fixed base
+        // (not repo HEAD) so a reused assignment worktree diffs correctly.
+        Err(_) => (
+            false,
+            None,
+            crate::git::changed_files(&worktree, &wt.base_rev),
+        ),
+    };
+
+    append(
+        &log,
+        SessionEventKind::SessionEnded {
+            reason: "dispatch finished".to_string(),
+        },
+    )
+    .await;
+    state
+        .sessions
+        .set_state(&session_id, meltemi_proto::SessionState::Ended)
+        .await;
+
+    let result = WorktreeDispatchResult {
+        change: params.change,
+        task: params.task,
+        agent: params.agent,
+        resolution: DispatchResolution {
+            binary: agent_command.first().cloned().unwrap_or_default(),
+            source: resolved.source,
+            level,
+            profile: resolved.profile,
+        },
+        worktree: wt.path,
+        committed,
+        sha,
+        changed_files,
+        status,
+        task_ticked: false,
+    };
+    Ok(serde_json::to_value(result).expect("WorktreeDispatchResult serializes"))
 }
 
 /// Resolves the managed worktree path for a `(change, task, agent)`.
@@ -1081,15 +1284,22 @@ async fn handle_sdd_implement(
     // Act mode. One deployment session log carries the per-task progress.
     let config = crate::config::Config::load(&state.config_dir, Some(&root));
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let agent_command = match crate::levels::resolve_launch(&config, &path_var)? {
-        crate::levels::Launch::Acp { argv, .. } => argv,
+    // Resolve the deployed agent from the fleet (profile > catalog id >
+    // configured); a free label like `claude` falls through to the configured
+    // agent (flota-multiproveedor). Surface any profile hygiene diagnostics.
+    for d in &config.fleet_diagnostics {
+        tracing::warn!(diagnostic = %d, "fleet profile hygiene");
+    }
+    let resolved = crate::levels::resolve_fleet_agent(&config, &params.agent, &path_var)?;
+    let (agent_command, level) = match &resolved.launch {
+        crate::levels::Launch::Acp { argv, level } => (argv.clone(), *level),
         crate::levels::Launch::Headless { level, .. }
         | crate::levels::Launch::Artifacts { level } => {
             return Err(RpcError::application(
                 error_codes::AGENT_COMMAND_NOT_CONFIGURED,
                 "level not pilotable by implement",
                 "level_not_pilotable",
-                format!("the configured agent is level {level}; implement needs an ACP agent"),
+                format!("the resolved agent is level {level}; implement needs an ACP agent"),
                 Some("Select a level 1/2 agent to deploy tasks.".into()),
             ));
         }
@@ -1108,6 +1318,13 @@ async fn handle_sdd_implement(
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: root.display().to_string(),
+    });
+    // Record which binary/source ran — never the env values (§2).
+    let _ = log.append(SessionEventKind::AgentResolved {
+        binary: agent_command.first().cloned().unwrap_or_default(),
+        source: resolved.source,
+        profile: resolved.profile.clone(),
+        level,
     });
     let log = std::sync::Arc::new(tokio::sync::Mutex::new(log));
     let rules = std::sync::Arc::new(rules);
@@ -1198,6 +1415,7 @@ async fn handle_sdd_implement(
             pending: state.pending.clone(),
             load_session_id: None,
             mcp_servers: config.mcp_servers.clone(),
+            env: resolved.env.clone(),
         })
         .await;
 
