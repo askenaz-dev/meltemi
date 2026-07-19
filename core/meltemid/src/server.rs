@@ -1585,21 +1585,44 @@ async fn handle_session_direct(
     // Active branch: enqueue as the next turn of the live session. The enqueue
     // records the instruction before it becomes visible to the draining loop
     // (log-before-enqueue), so the audit trail is always queued-then-sent.
-    if let Some((queue, log)) = state.sessions.direct_target(&params.session_id).await
-        && let Some(position) = queue.enqueue(params.instruction.clone(), &log).await
-    {
-        let result = SessionDirectResult {
-            disposition: DirectDisposition::Queued,
-            session_id: params.session_id.clone(),
-            resumed_from: None,
-            queue_position: Some(position as u32),
-            status: None,
-            denied_permissions: 0,
-        };
-        return Ok(serde_json::to_value(result).expect("SessionDirectResult serializes"));
+    match state.sessions.direct_target(&params.session_id).await {
+        Some((queue, log)) => {
+            if let Some(position) = queue.enqueue(params.instruction.clone(), &log).await {
+                let result = SessionDirectResult {
+                    disposition: DirectDisposition::Queued,
+                    session_id: params.session_id.clone(),
+                    resumed_from: None,
+                    queue_position: Some(position as u32),
+                    status: None,
+                    denied_permissions: 0,
+                };
+                return Ok(serde_json::to_value(result).expect("SessionDirectResult serializes"));
+            }
+            // Directable but no longer accepting (the session is ending): fall
+            // through to the resume path below.
+        }
+        None => {
+            // Not directable. If it is nonetheless still LIVE, it is an active
+            // session that does not accept direction (implement / dispatch drive
+            // their own turn loop) — refuse honestly, with a distinct message, so
+            // a running session is never misreported as ended-and-not-resumable.
+            if state.sessions.contains(&params.session_id).await {
+                return Err(RpcError::application(
+                    error_codes::SESSION_NOT_FOUND,
+                    "session does not accept direction",
+                    "session_not_directable",
+                    format!(
+                        "session `{}` is active but does not accept direction; only \
+                         interactive sessions can be steered",
+                        params.session_id
+                    ),
+                    Some("Wait for this session to finish, or steer an interactive one.".into()),
+                ));
+            }
+        }
     }
-    // Not active (or a session that just stopped accepting turns): resume if the
-    // record says it can, otherwise refuse honestly.
+    // Ended (or a directable session that just stopped accepting turns): resume
+    // if the record says it can, otherwise refuse honestly.
 
     let Some(record) = find_session_record(
         &state.data_dir,

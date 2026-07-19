@@ -32,6 +32,11 @@ pub struct InstructionQueue {
 struct QueueInner {
     items: VecDeque<String>,
     accepting: bool,
+    /// Set when the session is cancelled. Consulted by `take_or_close` under the
+    /// same lock, so a cancel and a dequeue can never both win: once cancelled,
+    /// no queued instruction is dispatched, however the turn's stop reason came
+    /// back.
+    cancelled: bool,
 }
 
 impl InstructionQueue {
@@ -40,6 +45,7 @@ impl InstructionQueue {
             inner: Arc::new(Mutex::new(QueueInner {
                 items: VecDeque::new(),
                 accepting: true,
+                cancelled: false,
             })),
         }
     }
@@ -73,9 +79,18 @@ impl InstructionQueue {
     }
 
     /// Loop side: take the next queued instruction, or atomically stop accepting
-    /// and return `None` when the queue is empty.
+    /// and return `None` when the queue is empty or the session was cancelled.
+    /// The cancel check is under the same lock as [`Self::mark_cancelled`], so a
+    /// cancel that has taken effect is never overtaken by a dequeue — no queued
+    /// turn runs after cancellation. (A cancel racing the dequeue at the instant
+    /// of the boundary may still let the one instruction being dequeued run; that
+    /// residual coincidence is inherent and bounded to a single turn.)
     pub async fn take_or_close(&self) -> Option<String> {
         let mut inner = self.inner.lock().await;
+        if inner.cancelled {
+            inner.accepting = false;
+            return None;
+        }
         match inner.items.pop_front() {
             Some(instruction) => Some(instruction),
             None => {
@@ -85,8 +100,17 @@ impl InstructionQueue {
         }
     }
 
-    /// Stop accepting further turns without draining (used when the session is
-    /// cancelled): a late instruction then takes the resume path rather than
+    /// Mark the session cancelled: no queued instruction is dispatched afterward,
+    /// even one already sitting in the queue. Set under the queue lock so it is
+    /// atomic with `take_or_close`'s decision to pop.
+    pub async fn mark_cancelled(&self) {
+        let mut inner = self.inner.lock().await;
+        inner.cancelled = true;
+        inner.accepting = false;
+    }
+
+    /// Stop accepting further turns without draining (used when the loop ends a
+    /// session): a late instruction then takes the resume path rather than
     /// queueing into a turn that will never run.
     pub async fn close(&self) {
         self.inner.lock().await.accepting = false;
@@ -198,18 +222,29 @@ impl SessionRegistry {
         self.inner.lock().await.contains_key(session_id)
     }
 
-    /// Signals cancellation for one session. Returns whether it existed. Sets
-    /// the cancellation flag before notifying, so the turn boundary sees it even
-    /// if it checks after the in-turn interruption has fired.
+    /// Signals cancellation for one session. Returns whether it existed. Sets the
+    /// cancellation flag and notifies the in-turn waiter, then marks the queue
+    /// cancelled so a directed instruction sitting at the turn boundary is not
+    /// dequeued — closing the race where a cancel lands between a turn ending and
+    /// the next instruction being taken.
     pub async fn cancel(&self, session_id: &str) -> bool {
-        match self.inner.lock().await.get(session_id) {
-            Some(entry) => {
-                entry.cancelled.store(true, Ordering::SeqCst);
-                entry.cancel.notify_waiters();
-                true
+        let queue = {
+            let guard = self.inner.lock().await;
+            match guard.get(session_id) {
+                Some(entry) => {
+                    entry.cancelled.store(true, Ordering::SeqCst);
+                    entry.cancel.notify_waiters();
+                    entry.direction.as_ref().map(|d| d.queue.clone())
+                }
+                None => return false,
             }
-            None => false,
+        };
+        // Marked outside the registry lock (the queue has its own lock), so there
+        // is no cross-lock hold between the registry and a queue.
+        if let Some(queue) = queue {
+            queue.mark_cancelled().await;
         }
+        true
     }
 
     /// Signals cancellation for every session (used by shutdown).
@@ -304,6 +339,27 @@ mod tests {
         // Empty: the loop closes the queue and stops.
         assert_eq!(queue.take_or_close().await, None);
         // A late instruction is refused once closed.
+        assert_eq!(queue.enqueue("late".into(), &log).await, None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_queue_dispatches_nothing_even_with_items() {
+        // Scenario: Dirigir no interrumpe ni cancela
+        // A cancel that takes effect stops dispatch: an instruction already in
+        // the queue is never handed to the loop, and later enqueues are refused.
+        let dir = std::env::temp_dir().join(format!("meltemi-queue-cx-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let log = SessionLog::create(&dir, "proj", "sess").expect("log");
+        let log = Arc::new(Mutex::new(log));
+
+        let queue = InstructionQueue::new();
+        assert_eq!(queue.enqueue("queued".into(), &log).await, Some(1));
+        queue.mark_cancelled().await;
+        // The queued instruction is NOT dispatched after cancellation.
+        assert_eq!(queue.take_or_close().await, None);
+        // And nothing new can be queued.
         assert_eq!(queue.enqueue("late".into(), &log).await, None);
 
         let _ = std::fs::remove_dir_all(&dir);

@@ -717,7 +717,10 @@ pub struct SessionDirectParams {
 #[serde(rename_all = "snake_case")]
 pub enum DirectDisposition {
     /// The session was active: the instruction was queued and will be dispatched
-    /// as the next turn of the same agent session when the current turn ends.
+    /// as the next turn of the same agent session when the current turn ends —
+    /// unless the session is cancelled first, in which case it is dropped
+    /// undispatched (the log shows `instruction_queued` with no `prompt_sent`, so
+    /// the loss is auditable, not silent). Observe the outcome via `session/log`.
     Queued,
     /// The session was terminated but resumable: it was resumed with the
     /// instruction as the prompt, as a new session linked to the original.

@@ -329,6 +329,55 @@ async fn a_non_directable_session_refuses_with_a_remedy() {
 }
 
 #[tokio::test]
+async fn directing_a_live_non_directable_session_says_it_is_active() {
+    // Scenario: Sesión no dirigible rehúsa con remedio
+    // A running session that drives its own turn loop (here, `explore`) is not
+    // directable — but it is LIVE, so the refusal must say so, never misreport a
+    // running session as ended-and-not-resumable (frontera honesta).
+    let root = fixture("live-nondirect", &["--turn-delay-ms", "3000"]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("live-nondirect").await;
+    let peer = init_client(&endpoint).await;
+
+    // `explore` opens a session that does not accept direction; hold it open.
+    let explore = {
+        let peer = peer.clone();
+        let root = root_str.clone();
+        tokio::spawn(async move {
+            peer.request(
+                methods::SDD_EXPLORE,
+                &json!({ "projectRoot": root, "topic": "shape the idea" }),
+            )
+            .await
+        })
+    };
+
+    let session_id = wait_for_active_session(&peer, &root_str).await;
+    let refused = peer
+        .request(
+            methods::SESSION_DIRECT,
+            &json!({
+                "sessionId": session_id,
+                "instruction": "steer me",
+                "projectRoot": root_str,
+            }),
+        )
+        .await
+        .expect_err("a live non-directable session refuses");
+    assert_eq!(refused.code, 2004, "{refused}");
+    let message = refused.to_string().to_lowercase();
+    assert!(
+        message.contains("does not accept direction") && !message.contains("ended"),
+        "the refusal is honest about the session being active, not ended: {refused}"
+    );
+
+    let _ = tokio::time::timeout(Duration::from_secs(30), explore).await;
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn cancelling_with_a_queued_instruction_leaves_it_undispatched() {
     // Scenario: Dirigir no interrumpe ni cancela
     let root = fixture("cancel", &["--turn-delay-ms", "3000"]);
