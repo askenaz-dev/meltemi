@@ -754,6 +754,44 @@ mod tests {
     }
 
     #[test]
+    fn fleet_list_includes_the_profiles() {
+        // Scenario: fleet/list incluye los perfiles
+        use crate::config::FleetProfile;
+        let dir = temp_dir("profiles-list");
+        fake_binary(&dir, "reg-agent");
+        let registry = dir.join("registry.toml");
+        std::fs::write(
+            &registry,
+            "version=\"fixture-1\"\n[[agents]]\nid=\"reg\"\nname=\"Reg\"\nlevel=2\n\
+             bin=\"reg-agent\"\nacp-args=[\"--acp\"]\n",
+        )
+        .unwrap();
+        let path_var = std::env::join_paths([dir.clone()]).unwrap();
+        let config = Config {
+            fleet_registry: Some(registry),
+            fleet_profiles: vec![FleetProfile {
+                name: "work".into(),
+                agent: "reg".into(),
+                env: vec![("MELTEMI_MOCK_MARKER".into(), "work-ctx".into())],
+            }],
+            ..Config::default()
+        };
+        let result = list(&config, None, &path_var);
+        let profile = result
+            .agents
+            .iter()
+            .find(|a| a.id == "work")
+            .expect("profile row listed");
+        // The profile is its own row, names the binary it launches, and inherits
+        // the underlying agent's detection + integration level (D4).
+        assert_eq!(profile.source, FleetAgentSource::Profile);
+        assert_eq!(profile.underlying_agent.as_deref(), Some("reg"));
+        assert!(profile.detected, "underlying binary is detected");
+        assert_eq!(profile.integration_level, 2);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn selection_precedence_command_beats_id() {
         // Scenario: Compatibilidad del comando literal (con o sin id).
         let config = Config {

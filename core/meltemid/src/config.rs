@@ -505,6 +505,7 @@ mod tests {
 
     #[test]
     fn fleet_profiles_merge_and_refuse_plaintext_secrets() {
+        // Scenario: Secreto en claro rehusado por higiene
         // flota-multiproveedor: a clean profile is kept; a profile whose env
         // looks like a plaintext secret is REFUSED with a ${VAR} remedy (never
         // the value).

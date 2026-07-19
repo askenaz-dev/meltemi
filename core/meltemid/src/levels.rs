@@ -347,6 +347,7 @@ mod tests {
 
     #[test]
     fn a_profile_with_an_undetected_underlying_id_refuses_with_2001() {
+        // Scenario: Id no detectado rehúsa sin degradar
         // flota-multiproveedor D1: a profile resolving to an UNDETECTED binary
         // MUST refuse (2001) and NEVER degrade to the configured agent.
         let dir = temp("prof-undetected");
@@ -368,6 +369,7 @@ mod tests {
 
     #[test]
     fn a_profile_resolves_its_binary_and_overlays_env() {
+        // Scenario: Perfil lanza el mismo binario con otro contexto de autenticación
         // A profile launches its underlying detected binary under its env context.
         let dir = temp("prof-ok");
         fake_binary(&dir, "real-bin");
@@ -396,6 +398,7 @@ mod tests {
 
     #[test]
     fn a_free_label_falls_back_to_the_configured_agent() {
+        // Scenario: Etiqueta libre cae al agente configurado con registro
         // A name matching neither a profile nor a catalog id is a free label
         // that resolves to the configured agent (source=Configured).
         let dir = temp("free-label");

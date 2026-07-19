@@ -196,7 +196,8 @@ async fn dispatch(peer: &Peer, root: &str, agent: &str) -> serde_json::Value {
 
 #[tokio::test]
 async fn two_profiles_race_with_distinct_auth_contexts() {
-    // Scenario: Carrera de dos proveedores distintos; El despacho no marca la tarea.
+    // Scenario: Carrera de dos proveedores distintos
+    // Scenario: El despacho no marca la tarea
     if !git_available() {
         eprintln!("skipping: git not on PATH");
         return;
@@ -274,7 +275,9 @@ async fn two_profiles_race_with_distinct_auth_contexts() {
 
 #[tokio::test]
 async fn resolution_honors_catalog_id_and_free_label_fallback() {
-    // Scenario: resolución perfil > catálogo > configurado (D1).
+    // Scenario: Sesión lanza el binario de su id de catálogo
+    // Scenario: Etiqueta libre cae al agente configurado con registro
+    // (resolución perfil > catálogo > configurado, D1)
     if !git_available() {
         eprintln!("skipping: git not on PATH");
         return;
