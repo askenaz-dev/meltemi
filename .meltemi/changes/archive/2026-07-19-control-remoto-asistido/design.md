@@ -40,21 +40,26 @@ el log lo evidencia (encoladas sin `prompt_sent`). Trade-off aceptado y anotado:
 persistir la cola es delta futuro si el uso lo pide.
 
 ### D3 — El helper de túnel compone, no transporta
-`meltemi tunnel [user@host]` conoce el endpoint local por plataforma (UDS en
-macOS/Linux; named pipe en Windows) e imprime: (a) el comando `ssh` exacto de
-reenvío del socket, (b) el snippet de `~/.ssh/config` equivalente, y (c) el
-valor de `MELTEMI_ENDPOINT` que el otro extremo debe usar (con la advertencia
-git-bash/MSYS ya documentada). Con `--exec` lanza el `ssh` del usuario tal cual
-(proceso hijo visible, nunca en background silencioso). El helper es un
-**formateador**: cero sockets propios, cero dependencias nuevas.
+`meltemi tunnel [user@host]` se ejecuta en la máquina donde vive el daemon:
+conoce su endpoint local por plataforma (UDS en macOS/Linux; named pipe en
+Windows) e imprime: (a) el comando `ssh` exacto de **reenvío inverso**
+(`ssh -R`) que lleva ese socket local al host remoto, (b) el snippet de
+`~/.ssh/config` equivalente (`RemoteForward`), y (c) el valor de
+`MELTEMI_ENDPOINT` que el otro extremo debe fijar (con la advertencia
+git-bash/MSYS ya documentada). Se usa reenvío inverso —no `-L`— porque el helper
+expone hacia fuera el endpoint que le es local; el extremo remoto es el que lo
+consume. Con `--exec` lanza el `ssh` del usuario tal cual (proceso hijo visible,
+nunca en background silencioso). El helper es un **formateador**: cero sockets
+propios, cero dependencias nuevas.
 
 ### D4 — Honestidad de plataforma: Windows como servidor
-OpenSSH reenvía sockets Unix (`-L local:remote` con streamlocal), pero **no**
-named pipes de Windows: un daemon en Windows no es alcanzable por túnel SSH
-estándar hoy. El helper lo declara con diagnóstico y remedio (usar la máquina
-Unix como servidor del daemon, o esperar el delta de bridging), en lugar de
-imprimir un comando que no puede funcionar. Windows como **cliente** (dirigir
-un daemon remoto Unix) sí funciona y se prueba.
+OpenSSH reenvía sockets Unix (`-R remote:local` con streamlocal; el sshd remoto
+necesita `StreamLocalBindUnlink yes`), pero **no** named pipes de Windows: un
+daemon en Windows no es alcanzable por túnel SSH estándar hoy. El helper lo
+declara con diagnóstico y remedio (usar la máquina Unix como servidor del daemon,
+o esperar el delta de bridging), en lugar de imprimir un comando que no puede
+funcionar. Windows como **cliente** (ejecutar el comando impreso contra un daemon
+remoto Unix) sí funciona y se prueba.
 
 ### D5 — Paridad y frontera
 `session/direct` se consume desde CLI (`direct <session> "<instr>"`), TUI y GUI
