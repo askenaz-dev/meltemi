@@ -34,6 +34,7 @@ pub mod sdd;
 pub mod sdd_flow;
 pub mod server;
 pub mod session;
+pub mod session_finalize;
 pub mod session_index;
 pub mod session_log;
 pub mod transport;

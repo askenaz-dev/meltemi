@@ -14,6 +14,7 @@ pub mod exit;
 pub mod output;
 pub mod run;
 pub mod shell;
+pub mod tunnel;
 
 use std::io::Write;
 

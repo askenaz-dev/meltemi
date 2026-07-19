@@ -440,7 +440,7 @@ async fn run_turn(
     };
 
     let session_id = uuid::Uuid::new_v4().to_string();
-    let cancel = state
+    let reg = state
         .sessions
         .register(&session_id, agent_command.clone())
         .await;
@@ -468,13 +468,17 @@ async fn run_turn(
         meltemi_session_id: session_id.clone(),
         peer: peer.clone(),
         log: log.clone(),
-        cancel,
+        cancel: reg.cancel,
+        cancelled: reg.cancelled,
         permission_timeout: PERMISSION_TIMEOUT,
         rules: Arc::new(rules),
         pending: state.pending.clone(),
         load_session_id: None,
         mcp_servers: config.mcp_servers.clone(),
         env: Vec::new(),
+        // Authoring turns (`explore`/`plan`/`constitution`) are single-turn and
+        // not directable.
+        instruction_queue: None,
     })
     .await;
 

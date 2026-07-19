@@ -7,12 +7,98 @@
 //! `session/cancel` use the per-session cancel signal to terminate agents
 //! without leaving orphan processes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::sync::{Mutex, Notify};
 
-use meltemi_proto::{SessionState, SessionSummary};
+use meltemi_proto::{SessionEventKind, SessionState, SessionSummary};
+
+use crate::session_log::SessionLog;
+
+/// A per-session FIFO of directed instructions (control-remoto-asistido).
+///
+/// While the session is `accepting`, `session/direct` enqueues an instruction
+/// and the multi-turn loop dispatches it as the next turn. Once the loop finds
+/// the queue empty at a turn boundary — or the session is cancelled — it stops
+/// accepting, so a later instruction takes the resume path instead of queueing
+/// into a session that will never drain it.
+#[derive(Clone)]
+pub struct InstructionQueue {
+    inner: Arc<Mutex<QueueInner>>,
+}
+
+struct QueueInner {
+    items: VecDeque<String>,
+    accepting: bool,
+}
+
+impl InstructionQueue {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(QueueInner {
+                items: VecDeque::new(),
+                accepting: true,
+            })),
+        }
+    }
+
+    /// Enqueue an instruction as the session's next turn, recording it in the
+    /// log *before* it becomes visible to the draining loop (log-before-enqueue,
+    /// so the audit trail always shows `instruction_queued` before the matching
+    /// `prompt_sent`). Returns the 1-based queue position, or `None` if the
+    /// session no longer accepts turns.
+    pub async fn enqueue(
+        &self,
+        instruction: String,
+        log: &Arc<Mutex<SessionLog>>,
+    ) -> Option<usize> {
+        let mut inner = self.inner.lock().await;
+        if !inner.accepting {
+            return None;
+        }
+        // Written while the queue lock is held, so the loop (which locks the
+        // same queue to pop) cannot dispatch this instruction before it is
+        // recorded. The queue lock is never acquired while holding the log lock,
+        // so there is no lock-order inversion.
+        {
+            let mut log = log.lock().await;
+            let _ = log.append(SessionEventKind::InstructionQueued {
+                instruction: instruction.clone(),
+            });
+        }
+        inner.items.push_back(instruction);
+        Some(inner.items.len())
+    }
+
+    /// Loop side: take the next queued instruction, or atomically stop accepting
+    /// and return `None` when the queue is empty.
+    pub async fn take_or_close(&self) -> Option<String> {
+        let mut inner = self.inner.lock().await;
+        match inner.items.pop_front() {
+            Some(instruction) => Some(instruction),
+            None => {
+                inner.accepting = false;
+                None
+            }
+        }
+    }
+
+    /// Stop accepting further turns without draining (used when the session is
+    /// cancelled): a late instruction then takes the resume path rather than
+    /// queueing into a turn that will never run.
+    pub async fn close(&self) {
+        self.inner.lock().await.accepting = false;
+    }
+}
+
+/// What a session opts into when it accepts remote direction: the queue the
+/// loop drains and the log handle `session/direct` audits through.
+struct Direction {
+    queue: InstructionQueue,
+    log: Arc<Mutex<SessionLog>>,
+}
 
 /// Handle the registry keeps for one live session.
 struct Entry {
@@ -20,6 +106,23 @@ struct Entry {
     state: SessionState,
     /// Fired to ask the owning ACP task to cancel and terminate the agent.
     cancel: Arc<Notify>,
+    /// Set when cancellation is requested, so the multi-turn loop stops
+    /// dispatching queued instructions at the next turn boundary even if the
+    /// agent reports a non-cancelled stop reason.
+    cancelled: Arc<AtomicBool>,
+    /// Present once the session opts into remote direction (`propose` and the
+    /// `session/direct` resume branch).
+    direction: Option<Direction>,
+}
+
+/// What [`SessionRegistry::register`] hands back to the ACP task that runs the
+/// session: the cancel signal it awaits and the cancellation flag it checks at
+/// each turn boundary.
+pub struct Registration {
+    /// Await this to cancel and terminate the agent mid-turn.
+    pub cancel: Arc<Notify>,
+    /// Observed at turn boundaries by the multi-turn loop.
+    pub cancelled: Arc<AtomicBool>,
 }
 
 /// Thread-safe registry of active sessions.
@@ -30,18 +133,52 @@ pub struct SessionRegistry {
 
 impl SessionRegistry {
     /// Registers a new session in the `Starting` state, returning the cancel
-    /// signal the ACP task should await.
-    pub async fn register(&self, session_id: &str, agent_command: Vec<String>) -> Arc<Notify> {
+    /// signal the ACP task should await and the cancellation flag it checks at
+    /// each turn boundary.
+    pub async fn register(&self, session_id: &str, agent_command: Vec<String>) -> Registration {
         let cancel = Arc::new(Notify::new());
+        let cancelled = Arc::new(AtomicBool::new(false));
         self.inner.lock().await.insert(
             session_id.to_string(),
             Entry {
                 agent_command,
                 state: SessionState::Starting,
                 cancel: Arc::clone(&cancel),
+                cancelled: Arc::clone(&cancelled),
+                direction: None,
             },
         );
-        cancel
+        Registration { cancel, cancelled }
+    }
+
+    /// Opt a session into remote direction: create its instruction queue and
+    /// record the log handle so `session/direct` can enqueue (and audit) turns.
+    /// Returns the queue the session loop drains, or `None` if the session is
+    /// no longer registered.
+    pub async fn enable_direction(
+        &self,
+        session_id: &str,
+        log: Arc<Mutex<SessionLog>>,
+    ) -> Option<InstructionQueue> {
+        let mut guard = self.inner.lock().await;
+        let entry = guard.get_mut(session_id)?;
+        let queue = InstructionQueue::new();
+        entry.direction = Some(Direction {
+            queue: queue.clone(),
+            log,
+        });
+        Some(queue)
+    }
+
+    /// The queue and log of a session that accepts direction, when it is still
+    /// active. `session/direct` uses this to enqueue the next turn.
+    pub async fn direct_target(
+        &self,
+        session_id: &str,
+    ) -> Option<(InstructionQueue, Arc<Mutex<SessionLog>>)> {
+        let guard = self.inner.lock().await;
+        let direction = guard.get(session_id)?.direction.as_ref()?;
+        Some((direction.queue.clone(), direction.log.clone()))
     }
 
     /// Updates the lifecycle state of a session, if still present.
@@ -61,10 +198,13 @@ impl SessionRegistry {
         self.inner.lock().await.contains_key(session_id)
     }
 
-    /// Signals cancellation for one session. Returns whether it existed.
+    /// Signals cancellation for one session. Returns whether it existed. Sets
+    /// the cancellation flag before notifying, so the turn boundary sees it even
+    /// if it checks after the in-turn interruption has fired.
     pub async fn cancel(&self, session_id: &str) -> bool {
         match self.inner.lock().await.get(session_id) {
             Some(entry) => {
+                entry.cancelled.store(true, Ordering::SeqCst);
                 entry.cancel.notify_waiters();
                 true
             }
@@ -75,6 +215,7 @@ impl SessionRegistry {
     /// Signals cancellation for every session (used by shutdown).
     pub async fn cancel_all(&self) {
         for entry in self.inner.lock().await.values() {
+            entry.cancelled.store(true, Ordering::SeqCst);
             entry.cancel.notify_waiters();
         }
     }
@@ -113,7 +254,7 @@ mod tests {
         let registry = SessionRegistry::default();
         assert!(registry.is_empty().await);
 
-        let _cancel = registry.register("s1", vec!["mock-agent".into()]).await;
+        let _reg = registry.register("s1", vec!["mock-agent".into()]).await;
         registry.set_state("s1", SessionState::Active).await;
 
         let summaries = registry.summaries().await;
@@ -129,7 +270,7 @@ mod tests {
     #[tokio::test]
     async fn cancel_signals_the_waiter() {
         let registry = SessionRegistry::default();
-        let cancel = registry.register("s1", vec!["a".into()]).await;
+        let cancel = registry.register("s1", vec!["a".into()]).await.cancel;
 
         let waiter = tokio::spawn(async move {
             cancel.notified().await;
@@ -144,10 +285,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn instruction_queue_is_fifo_and_closes_when_empty() {
+        // Scenario: Instrucción a una sesión activa se despacha como siguiente turno
+        // The queue drains in order; once empty it stops accepting, so a later
+        // instruction is refused (it must take the resume path instead).
+        let dir = std::env::temp_dir().join(format!("meltemi-queue-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let log = SessionLog::create(&dir, "proj", "sess").expect("log");
+        let log = Arc::new(Mutex::new(log));
+
+        let queue = InstructionQueue::new();
+        assert_eq!(queue.enqueue("first".into(), &log).await, Some(1));
+        assert_eq!(queue.enqueue("second".into(), &log).await, Some(2));
+
+        // FIFO order.
+        assert_eq!(queue.take_or_close().await.as_deref(), Some("first"));
+        assert_eq!(queue.take_or_close().await.as_deref(), Some("second"));
+        // Empty: the loop closes the queue and stops.
+        assert_eq!(queue.take_or_close().await, None);
+        // A late instruction is refused once closed.
+        assert_eq!(queue.enqueue("late".into(), &log).await, None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn cancel_all_notifies_every_session() {
         let registry = SessionRegistry::default();
-        let c1 = registry.register("s1", vec!["a".into()]).await;
-        let c2 = registry.register("s2", vec!["b".into()]).await;
+        let c1 = registry.register("s1", vec!["a".into()]).await.cancel;
+        let c2 = registry.register("s2", vec!["b".into()]).await.cancel;
 
         let w1 = tokio::spawn(async move { c1.notified().await });
         let w2 = tokio::spawn(async move { c2.notified().await });

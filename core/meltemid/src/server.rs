@@ -235,6 +235,7 @@ async fn dispatch_request(
         methods::CONTEXT_PROJECT => handle_context_project(params, state).await,
         methods::SESSION_LIST => handle_session_list(params, state).await,
         methods::SESSION_LOG => handle_session_log(params, state).await,
+        methods::SESSION_DIRECT => handle_session_direct(params, state, peer).await,
         methods::REPO_MAP => handle_repo_map(params).await,
         methods::SDD_EXPLORE => crate::sdd_flow::handle_explore(params, state, peer).await,
         methods::SDD_CONSTITUTION => {
@@ -611,7 +612,7 @@ async fn handle_worktree_dispatch(
 
     // Session setup mirroring implement, but for a single competitor turn.
     let session_id = uuid::Uuid::new_v4().to_string();
-    let cancel = state
+    let reg = state
         .sessions
         .register(&session_id, agent_command.clone())
         .await;
@@ -669,13 +670,16 @@ async fn handle_worktree_dispatch(
         meltemi_session_id: session_id.clone(),
         peer: peer.clone(),
         log: log.clone(),
-        cancel,
+        cancel: reg.cancel,
+        cancelled: reg.cancelled,
         permission_timeout: IMPLEMENT_PERMISSION_TIMEOUT,
         rules,
         pending: state.pending.clone(),
         load_session_id: None,
         mcp_servers: config.mcp_servers.clone(),
         env: resolved.env.clone(),
+        // A competitor dispatch is a single self-managed turn, not directable.
+        instruction_queue: None,
     })
     .await;
     let status = outcome
@@ -1306,7 +1310,7 @@ async fn handle_sdd_implement(
     };
 
     let session_id = uuid::Uuid::new_v4().to_string();
-    let cancel = state
+    let reg = state
         .sessions
         .register(&session_id, agent_command.clone())
         .await;
@@ -1409,13 +1413,16 @@ async fn handle_sdd_implement(
             meltemi_session_id: session_id.clone(),
             peer: peer.clone(),
             log: log.clone(),
-            cancel: cancel.clone(),
+            cancel: reg.cancel.clone(),
+            cancelled: reg.cancelled.clone(),
             permission_timeout: IMPLEMENT_PERMISSION_TIMEOUT,
             rules: rules.clone(),
             pending: state.pending.clone(),
             load_session_id: None,
             mcp_servers: config.mcp_servers.clone(),
             env: resolved.env.clone(),
+            // `implement` drives its own per-task loop; each turn is not directable.
+            instruction_queue: None,
         })
         .await;
 
@@ -1543,6 +1550,236 @@ async fn handle_session_list(params: Value, state: &Arc<DaemonState>) -> Result<
 
     Ok(serde_json::to_value(SessionListResult { sessions: infos })
         .expect("SessionListResult serializes"))
+}
+
+/// How long a directed instruction's turn waits for a human to answer a
+/// permission request. Interactive steering, so the interactive budget (not the
+/// tighter autonomous-implement one).
+const DIRECT_PERMISSION_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// `session/direct`: steer an existing session (control-remoto-asistido, the
+/// third remote verb). An active session queues the instruction as its next
+/// turn; a terminated-but-resumable one is resumed with it; anything else is a
+/// `SESSION_NOT_FOUND` error with a remedy. Every instruction is audited in the
+/// session log (queued, then sent).
+async fn handle_session_direct(
+    params: Value,
+    state: &Arc<DaemonState>,
+    peer: &Peer,
+) -> Result<Value, RpcError> {
+    use meltemi_proto::{DirectDisposition, SessionDirectParams, SessionDirectResult};
+
+    let params: SessionDirectParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("session/direct: {e}")))?;
+    if !is_safe_session_id(&params.session_id) {
+        return Err(RpcError::invalid_params(
+            "session/direct: invalid session id",
+        ));
+    }
+    if params.instruction.trim().is_empty() {
+        return Err(RpcError::invalid_params(
+            "session/direct: the instruction is empty",
+        ));
+    }
+
+    // Active branch: enqueue as the next turn of the live session. The enqueue
+    // records the instruction before it becomes visible to the draining loop
+    // (log-before-enqueue), so the audit trail is always queued-then-sent.
+    if let Some((queue, log)) = state.sessions.direct_target(&params.session_id).await
+        && let Some(position) = queue.enqueue(params.instruction.clone(), &log).await
+    {
+        let result = SessionDirectResult {
+            disposition: DirectDisposition::Queued,
+            session_id: params.session_id.clone(),
+            resumed_from: None,
+            queue_position: Some(position as u32),
+            status: None,
+            denied_permissions: 0,
+        };
+        return Ok(serde_json::to_value(result).expect("SessionDirectResult serializes"));
+    }
+    // Not active (or a session that just stopped accepting turns): resume if the
+    // record says it can, otherwise refuse honestly.
+
+    let Some(record) = find_session_record(
+        &state.data_dir,
+        params.project_root.as_deref(),
+        &params.session_id,
+    ) else {
+        return Err(not_directable(
+            &params.session_id,
+            format!("no session `{}` is active or resumable", params.session_id),
+        ));
+    };
+    if !record.resumable() {
+        return Err(not_directable(
+            &params.session_id,
+            format!(
+                "session `{}` has ended and its agent does not support resuming",
+                params.session_id
+            ),
+        ));
+    }
+    resume_with_instruction(state, peer, &record, &params.instruction).await
+}
+
+/// Finds a session's metadata record by id, within one project when a root is
+/// given, or across every project otherwise (session ids are UUIDs).
+fn find_session_record(
+    data_dir: &std::path::Path,
+    project_root: Option<&str>,
+    session_id: &str,
+) -> Option<crate::session_index::SessionRecord> {
+    let keys = match project_root {
+        Some(root) => vec![crate::paths::project_key(std::path::Path::new(root))],
+        None => crate::session_index::all_project_keys(data_dir),
+    };
+    for key in keys {
+        if let Some(record) = crate::session_index::records_for_project(data_dir, &key)
+            .into_iter()
+            .find(|r| r.session_id == session_id)
+        {
+            return Some(record);
+        }
+    }
+    None
+}
+
+/// A `SESSION_NOT_FOUND` refusal with the standing remedy (list the sessions).
+fn not_directable(_session_id: &str, detail: String) -> RpcError {
+    RpcError::application(
+        error_codes::SESSION_NOT_FOUND,
+        "session not directable",
+        "session_not_found",
+        detail,
+        Some("List sessions with `meltemi sessions` and direct an active or resumable one.".into()),
+    )
+}
+
+/// Resumes a terminated-but-resumable session with `instruction` as its prompt,
+/// as a new session linked to the original (`resumed_from`). Mirrors `propose`'s
+/// session setup and shares the finalizer, so the resumed session is itself
+/// resumable and directable.
+async fn resume_with_instruction(
+    state: &Arc<DaemonState>,
+    peer: &Peer,
+    record: &crate::session_index::SessionRecord,
+    instruction: &str,
+) -> Result<Value, RpcError> {
+    use meltemi_proto::{DirectDisposition, SessionDirectResult, SessionState};
+
+    let project_root = std::path::PathBuf::from(&record.project_root);
+    let agent_command = record.agent_command.clone();
+    let project_key = crate::paths::project_key(&project_root);
+
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let reg = state
+        .sessions
+        .register(&session_id, agent_command.clone())
+        .await;
+    let mut log =
+        crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)
+            .map_err(RpcError::internal)?;
+    let _ = log.append(meltemi_proto::SessionEventKind::SessionStarted {
+        session_id: session_id.clone(),
+        agent_command: agent_command.clone(),
+        project_root: record.project_root.clone(),
+    });
+    let log = Arc::new(tokio::sync::Mutex::new(log));
+    let instruction_queue = state
+        .sessions
+        .enable_direction(&session_id, log.clone())
+        .await;
+    state
+        .sessions
+        .set_state(&session_id, SessionState::Active)
+        .await;
+
+    // A start record so a crash mid-resume leaves the session interrupted, and
+    // the resume linkage is visible even before the turn completes.
+    let started_at = crate::clock::now_rfc3339();
+    let _ = crate::session_index::append(
+        &state.data_dir,
+        &project_key,
+        &crate::session_index::SessionRecord {
+            session_id: session_id.clone(),
+            agent_command: agent_command.clone(),
+            project_root: record.project_root.clone(),
+            level: record.level,
+            started_at: started_at.clone(),
+            ended_at: None,
+            final_status: None,
+            agent_session_id: None,
+            supports_load: false,
+            resumed_from: Some(record.session_id.clone()),
+        },
+    );
+
+    let rules = Arc::new(crate::permissions::load_rules(
+        &state.config_dir,
+        Some(&project_root),
+    ));
+
+    let outcome = crate::acp::run_session(crate::acp::SessionParams {
+        agent_command: agent_command.clone(),
+        project_root: project_root.clone(),
+        prompt: instruction.to_string(),
+        meltemi_session_id: session_id.clone(),
+        peer: peer.clone(),
+        log: log.clone(),
+        cancel: reg.cancel,
+        cancelled: reg.cancelled,
+        permission_timeout: DIRECT_PERMISSION_TIMEOUT,
+        rules,
+        pending: state.pending.clone(),
+        // The heart of resume: load the agent's prior session instead of a new
+        // one (only honored if the agent re-announces load support).
+        load_session_id: record.agent_session_id.clone(),
+        // MCP is injected on new-session only; a load carries the prior server set.
+        mcp_servers: Vec::new(),
+        env: Vec::new(),
+        // The resumed session is itself directable.
+        instruction_queue,
+    })
+    .await;
+
+    let ctx = crate::session_finalize::SessionContext {
+        data_dir: &state.data_dir,
+        sessions: &state.sessions,
+        log: &log,
+        project_key: &project_key,
+        session_id: &session_id,
+        agent_command: &agent_command,
+        project_root: &record.project_root,
+        level: record.level,
+        started_at: &started_at,
+        resumed_from: Some(record.session_id.clone()),
+    };
+    match outcome {
+        Ok(session_outcome) => {
+            let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
+            let result = SessionDirectResult {
+                disposition: DirectDisposition::Resumed,
+                session_id: session_id.clone(),
+                resumed_from: Some(record.session_id.clone()),
+                queue_position: None,
+                status: Some(fin.status),
+                denied_permissions: fin.denied_permissions,
+            };
+            Ok(serde_json::to_value(result).expect("SessionDirectResult serializes"))
+        }
+        Err(e) => {
+            crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())
+                .await;
+            Err(RpcError::application(
+                error_codes::AGENT_SPAWN_FAILED,
+                "resume failed",
+                "agent_session_failed",
+                e.to_string(),
+                Some("Check that the agent still runs and supports session load.".into()),
+            ))
+        }
+    }
 }
 
 /// `session/log`: a paginated slice of a session's JSONL log, so a thin client

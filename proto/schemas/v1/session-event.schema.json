@@ -251,6 +251,18 @@
         },
         {
           "properties": {
+            "type": { "const": "instruction_queued" },
+            "payload": {
+              "type": "object",
+              "required": ["instruction"],
+              "properties": {
+                "instruction": { "type": "string" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "type": { "const": "session_cancelled" },
             "payload": { "type": "object" }
           }

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/session-direct.schema.json",
+  "title": "session/direct",
+  "description": "Request `session/direct` (client -> daemon): steer an existing session. On an active session the instruction is queued and dispatched as the next turn of the same agent session when the current turn ends; on a terminated but resumable session it resumes with the instruction as the prompt, linked to the original; on a non-existent or non-resumable session it is a SESSION_NOT_FOUND error. Every instruction is recorded in the session log (queued, then sent). The third remote verb (monitor / approve / direct); consumable from all surfaces (core parity).",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": ["sessionId", "instruction"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "instruction": { "type": "string", "minLength": 1 },
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The project the session belongs to; locates its log and, on resume, the repository the agent runs in."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["disposition", "sessionId", "deniedPermissions"],
+      "properties": {
+        "disposition": {
+          "type": "string",
+          "enum": ["queued", "resumed"],
+          "description": "queued: the active session accepted the instruction as its next turn; resumed: a terminated resumable session was resumed with it."
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The session the instruction landed on: the same id when queued, or the new resumed session's id."
+        },
+        "resumedFrom": {
+          "type": "string",
+          "minLength": 1,
+          "description": "When resumed, the original session this one continues."
+        },
+        "queuePosition": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based position of the instruction in the queue, when queued."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"],
+          "description": "The final turn status, when the instruction ran a turn (on resume)."
+        },
+        "deniedPermissions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Permission requests denied during the resumed turn (0 when merely queued); greater than zero means the result may be incomplete."
+        }
+      }
+    }
+  }
+}

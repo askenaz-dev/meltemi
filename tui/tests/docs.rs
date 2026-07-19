@@ -54,9 +54,41 @@ fn readme_and_docs_are_present_with_their_sections() {
         "docs/accesibilidad.md",
         "docs/plataformas.md",
         "docs/referencia-cli.md",
+        "docs/acceso-remoto.md",
     ] {
         assert!(root.join(doc).is_file(), "missing doc: {doc}");
     }
+}
+
+#[test]
+fn the_remote_access_frontier_is_documented() {
+    // Scenario: La frontera está documentada como postura
+    // Scenario: Propuesta de push sin túnel se rechaza
+    let doc = read(&repo_root(), "docs/acceso-remoto.md").to_ascii_lowercase();
+    // The frontier: remote control requires a live tunnel.
+    assert!(
+        doc.contains("túnel vivo"),
+        "the live-tunnel requirement is declared"
+    );
+    // The three remote verbs are named.
+    for verb in ["monitorear", "aprobar", "dirigir"] {
+        assert!(doc.contains(verb), "the `{verb}` remote verb is documented");
+    }
+    // The absence of push without a connection, explained as a posture with its
+    // why (§3 / no cloud relay), not as a missing feature.
+    assert!(
+        doc.contains("postura de privacidad"),
+        "the no-push stance is framed as a posture"
+    );
+    assert!(
+        doc.contains("§3") && doc.contains("relé"),
+        "the why is grounded in §3 and the no-relay rule"
+    );
+    // A push-without-tunnel proposal is rejected save a foundational amendment.
+    assert!(
+        doc.contains("se rechaza") && doc.contains("enmienda"),
+        "the rejection rule (save amendment) is stated"
+    );
 }
 
 #[test]
@@ -100,6 +132,7 @@ fn internal_doc_links_resolve() {
         "docs/metodo-sdd.md",
         "docs/accesibilidad.md",
         "docs/plataformas.md",
+        "docs/acceso-remoto.md",
     ];
     let mut problems = Vec::new();
     for doc in docs {

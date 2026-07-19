@@ -94,6 +94,13 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
         Command::Show { change } => show(change, endpoint).await,
         Command::Specs { capability } => specs(capability, endpoint).await,
         Command::Validate { change } => validate(change, endpoint).await,
+        Command::Direct {
+            session,
+            instruction,
+            project_root,
+        } => direct(session, instruction, project_root, endpoint).await,
+        // `tunnel` is a local formatter: it never touches the daemon.
+        Command::Tunnel { target, exec } => tunnel(target, exec),
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -804,6 +811,112 @@ async fn stop(endpoint: &str) -> Result<Outcome, CliError> {
     Ok(Outcome {
         human: "daemon shutdown requested".into(),
         json: json!({ "shutdown": "requested" }),
+    })
+}
+
+/// `direct`: steer an existing session (`session/direct`). Queues the
+/// instruction as an active session's next turn, or resumes a resumable one.
+async fn direct(
+    session: String,
+    instruction: String,
+    project_root: Option<String>,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(project_root)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::SESSION_DIRECT,
+            &json!({
+                "sessionId": session,
+                "instruction": instruction,
+                "projectRoot": project_root,
+            }),
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    Ok(Outcome {
+        human: render_direct(&value),
+        json: value,
+    })
+}
+
+fn render_direct(value: &serde_json::Value) -> String {
+    match value["disposition"].as_str().unwrap_or("") {
+        "queued" => format!(
+            "queued — the instruction is turn #{} of session {}",
+            value["queuePosition"].as_u64().unwrap_or(0),
+            value["sessionId"].as_str().unwrap_or("?"),
+        ),
+        "resumed" => {
+            let denied = value["deniedPermissions"].as_u64().unwrap_or(0);
+            let mut out = format!(
+                "resumed — session {} continues {} [{}]",
+                value["sessionId"].as_str().unwrap_or("?"),
+                value["resumedFrom"].as_str().unwrap_or("?"),
+                value["status"].as_str().unwrap_or("?"),
+            );
+            if denied > 0 {
+                out.push_str(&format!(
+                    "\nwarning: {denied} permission request(s) denied — the turn may be incomplete"
+                ));
+            }
+            out
+        }
+        _ => "directed".to_string(),
+    }
+}
+
+/// `tunnel`: compose (or, with `--exec`, run) the `ssh` reverse-forward that
+/// exposes this daemon's endpoint to a remote host. Entirely local — it uses the
+/// user's own `ssh` and never touches the daemon (control-remoto-asistido D3).
+fn tunnel(target: Option<String>, exec: bool) -> Result<Outcome, CliError> {
+    let local_endpoint = meltemid::paths::endpoint();
+    let plan = crate::tunnel::compose(cfg!(windows), &local_endpoint, target.as_deref())
+        .map_err(|refusal| CliError::usage(format!("{} — {}", refusal.reason, refusal.remedy)))?;
+
+    if exec {
+        // `--exec` runs the user's OWN ssh, visible (inherited stdio), never a
+        // silent background tunnel. A placeholder target cannot be dialed.
+        let Some(host) = target.as_deref() else {
+            return Err(CliError::usage(
+                "`tunnel --exec` needs a target: meltemi tunnel <user@host> --exec",
+            ));
+        };
+        let forward = format!("{}:{}", plan.remote_endpoint, plan.local_endpoint);
+        let status = std::process::Command::new("ssh")
+            .args(["-N", "-R", &forward, host])
+            .status()
+            .map_err(|e| CliError::internal(format!("could not launch ssh: {e}")))?;
+        let code = status.code().unwrap_or(-1);
+        return Ok(Outcome {
+            human: format!("ran `{}`; ssh exited with status {code}", plan.ssh_command),
+            json: json!({
+                "sshCommand": plan.ssh_command,
+                "executed": true,
+                "exitCode": code,
+            }),
+        });
+    }
+
+    let human = format!(
+        "Reverse-forward this daemon ({}) to a remote host with your own ssh:\n\n  {}\n\n\
+         …or add this to ~/.ssh/config and run `ssh -N meltemi-tunnel`:\n\n{}\n{}",
+        plan.local_endpoint, plan.ssh_command, plan.config_snippet, plan.note,
+    );
+    Ok(Outcome {
+        human,
+        json: json!({
+            "sshCommand": plan.ssh_command,
+            "configSnippet": plan.config_snippet,
+            "localEndpoint": plan.local_endpoint,
+            "remoteEndpoint": plan.remote_endpoint,
+            "note": plan.note,
+            "executed": false,
+        }),
     })
 }
 

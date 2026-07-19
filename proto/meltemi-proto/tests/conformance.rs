@@ -504,6 +504,45 @@ fn session_cancel_conforms() {
 }
 
 #[test]
+fn session_direct_conforms() {
+    assert_conforms(
+        "session-direct",
+        "params",
+        &SessionDirectParams {
+            session_id: "sess-1".into(),
+            instruction: "also add a dark theme".into(),
+            project_root: Some("C:\\repos\\fixture".into()),
+        },
+    );
+    // Queued: an active session accepted the instruction as its next turn.
+    assert_conforms(
+        "session-direct",
+        "result",
+        &SessionDirectResult {
+            disposition: DirectDisposition::Queued,
+            session_id: "sess-1".into(),
+            resumed_from: None,
+            queue_position: Some(1),
+            status: None,
+            denied_permissions: 0,
+        },
+    );
+    // Resumed: a terminated resumable session was resumed with the instruction.
+    assert_conforms(
+        "session-direct",
+        "result",
+        &SessionDirectResult {
+            disposition: DirectDisposition::Resumed,
+            session_id: "sess-2".into(),
+            resumed_from: Some("sess-1".into()),
+            queue_position: None,
+            status: Some(TurnStatus::Completed),
+            denied_permissions: 2,
+        },
+    );
+}
+
+#[test]
 fn permission_conforms() {
     let kinds = [
         PermissionOptionKind::AllowOnce,
@@ -660,6 +699,9 @@ fn session_events_conform() {
         },
         SessionEventKind::TurnCompleted {
             stop_reason: TurnStatus::Completed,
+        },
+        SessionEventKind::InstructionQueued {
+            instruction: "also add a dark theme".into(),
         },
         SessionEventKind::SessionCancelled {},
         SessionEventKind::SessionEnded {

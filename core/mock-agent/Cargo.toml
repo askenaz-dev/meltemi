@@ -10,4 +10,4 @@ publish = false
 
 [dependencies]
 agent-client-protocol.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std", "time"] }

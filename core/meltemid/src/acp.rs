@@ -21,7 +21,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -63,6 +63,10 @@ pub struct SessionParams {
     pub log: Arc<Mutex<SessionLog>>,
     /// Fired by the daemon when the client cancels this session.
     pub cancel: Arc<Notify>,
+    /// Set when cancellation is requested. Checked at each turn boundary so the
+    /// multi-turn loop stops dispatching queued instructions even if the agent
+    /// reports a non-cancelled stop reason (control-remoto-asistido).
+    pub cancelled: Arc<AtomicBool>,
     /// How long to wait for a human to answer a permission request.
     pub permission_timeout: Duration,
     /// The permission rules evaluated before escalation (proxy-permisos D1).
@@ -79,6 +83,10 @@ pub struct SessionParams {
     /// auth context (flota-multiproveedor). Passed as leading `NAME=value`
     /// tokens to the ACP launch; the values are NEVER logged (§2).
     pub env: Vec<(String, String)>,
+    /// When the session accepts remote direction, the FIFO the loop drains after
+    /// each turn — each queued instruction becomes the next prompt of the same
+    /// agent session (control-remoto-asistido). `None` for single-turn runs.
+    pub instruction_queue: Option<crate::session::InstructionQueue>,
 }
 
 /// The result of one ACP turn: the mapped stop reason, how many permission
@@ -107,12 +115,14 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         peer,
         log,
         cancel,
+        cancelled,
         permission_timeout,
         rules,
         pending,
         load_session_id,
         mcp_servers,
         env,
+        instruction_queue,
     } = params;
 
     // The env overlay rides as leading `NAME=value` tokens: the ACP crate parses
@@ -217,35 +227,60 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
             };
             let agent_session_id = session_id_string(&acp_session_id);
 
-            {
-                let mut log = log.lock().await;
-                let _ = log.append(SessionEventKind::PromptSent {
-                    text: prompt.clone(),
-                });
-            }
+            // Turns while the queue has work. The first turn runs the initial
+            // prompt; each subsequent turn runs the next directed instruction on
+            // the SAME live agent session (control-remoto-asistido). A session
+            // that does not accept direction (no queue) runs exactly one turn —
+            // identical to the prior single-turn behavior.
+            let mut current_prompt = prompt;
+            let final_status = loop {
+                {
+                    let mut log = log.lock().await;
+                    let _ = log.append(SessionEventKind::PromptSent {
+                        text: current_prompt.clone(),
+                    });
+                }
 
-            // Send the prompt, racing the client's cancellation. On cancel we
-            // forward an ACP session/cancel and let the agent drain the turn
-            // to its Cancelled stop reason.
-            let prompt_request = PromptRequest::new(
-                acp_session_id.clone(),
-                vec![ContentBlock::Text(TextContent::new(prompt))],
-            );
-            let prompt_future = connection.send_request(prompt_request).block_task();
-            tokio::pin!(prompt_future);
-            let response = tokio::select! {
-                r = &mut prompt_future => r?,
-                _ = cancel.notified() => {
-                    let _ = connection.send_notification(CancelNotification::new(acp_session_id));
-                    (&mut prompt_future).await?
+                // Send the prompt, racing the client's cancellation. On cancel we
+                // forward an ACP session/cancel and let the agent drain the turn
+                // to its Cancelled stop reason.
+                let prompt_request = PromptRequest::new(
+                    acp_session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new(current_prompt.clone()))],
+                );
+                let prompt_future = connection.send_request(prompt_request).block_task();
+                tokio::pin!(prompt_future);
+                let response = tokio::select! {
+                    r = &mut prompt_future => r?,
+                    _ = cancel.notified() => {
+                        let _ = connection
+                            .send_notification(CancelNotification::new(acp_session_id.clone()));
+                        (&mut prompt_future).await?
+                    }
+                };
+                let status = map_stop_reason(response.stop_reason);
+
+                // Turn boundary. A cancellation request stops further dispatch
+                // even if the agent reported a non-cancelled stop reason, and so
+                // does a cancelled turn: a directed instruction that arrives late
+                // must take the resume path, never queue into a turn that will
+                // not run. Otherwise dispatch the next queued instruction.
+                if cancelled.load(Ordering::SeqCst) || matches!(status, TurnStatus::Cancelled) {
+                    if let Some(queue) = &instruction_queue {
+                        queue.close().await;
+                    }
+                    break status;
+                }
+                match &instruction_queue {
+                    Some(queue) => match queue.take_or_close().await {
+                        Some(next) => current_prompt = next,
+                        None => break status,
+                    },
+                    None => break status,
                 }
             };
 
-            Ok((
-                map_stop_reason(response.stop_reason),
-                supports_load,
-                agent_session_id,
-            ))
+            Ok((final_status, supports_load, agent_session_id))
         })
         .await;
 

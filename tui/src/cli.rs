@@ -57,6 +57,12 @@ SUBCOMMANDS:
     implement <change> <agent> [plan]
                         deploy the agent over the change's tasks.md task by task
                         (checkpoint → turn → commit → tick); `plan` previews
+    direct <session> <instruction>
+                        steer an existing session: queue the instruction as an
+                        active session's next turn, or resume a resumable one
+    tunnel [user@host] [--exec]
+                        compose the `ssh` command that reverse-forwards this
+                        daemon's endpoint to a remote host; `--exec` runs it
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
@@ -174,6 +180,16 @@ pub enum Command {
     Specs { capability: Option<String> },
     /// Validate a change or the living truth without archiving (`sdd/validate`).
     Validate { change: Option<String> },
+    /// Steer an existing session (`session/direct`): queue an instruction as an
+    /// active session's next turn, or resume a resumable one.
+    Direct {
+        session: String,
+        instruction: String,
+        project_root: Option<String>,
+    },
+    /// Compose (or, with `--exec`, run) the `ssh` reverse-forward that exposes
+    /// this daemon's endpoint to a remote host. Local: touches no daemon.
+    Tunnel { target: Option<String>, exec: bool },
     /// Request an orderly daemon shutdown.
     Stop,
     /// A reserved subcommand recognized by the grammar but not yet implemented.
@@ -209,6 +225,7 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
     let mut json = false;
     let mut want_help = false;
     let mut want_version = false;
+    let mut exec = false;
     let mut positionals: Vec<&str> = Vec::new();
     let mut end_of_flags = false;
 
@@ -222,6 +239,9 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             "--json" => json = true,
             "--help" | "-h" => want_help = true,
             "--version" | "-V" => want_version = true,
+            // Subcommand-local, but recognized here so the global flag parser
+            // does not reject it wherever it appears (only `tunnel` reads it).
+            "--exec" => exec = true,
             flag if flag.starts_with('-') && flag != "-" => {
                 return Plan {
                     action: Action::Usage(format!("unknown flag `{flag}`; run `meltemi help`")),
@@ -257,14 +277,15 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
                 Action::Usage("no subcommand given; run `meltemi help`".into())
             }
         }
-        Some((subcommand, rest)) => plan_subcommand(subcommand, rest),
+        Some((subcommand, rest)) => plan_subcommand(subcommand, rest, exec),
     };
 
     Plan { action, json }
 }
 
-/// Maps a subcommand and its remaining positionals to an action.
-fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
+/// Maps a subcommand and its remaining positionals to an action. `exec` carries
+/// the global `--exec` flag (only `tunnel` consumes it).
+fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool) -> Action {
     match subcommand {
         "help" => Action::Help,
         "version" => Action::Version,
@@ -469,6 +490,28 @@ fn plan_subcommand(subcommand: &str, rest: &[&str]) -> Action {
             }),
             _ => Action::Usage("`validate` takes at most a change name".into()),
         },
+        "direct" => match rest {
+            [session, instruction] | [session, instruction, _] => Action::Run(Command::Direct {
+                session: (*session).to_string(),
+                instruction: (*instruction).to_string(),
+                project_root: rest.get(2).map(|s| (*s).to_string()),
+            }),
+            _ => Action::Usage(
+                "`direct` requires: meltemi direct <session> \"<instruction>\" [project-root]"
+                    .into(),
+            ),
+        },
+        "tunnel" => match rest {
+            [] => Action::Run(Command::Tunnel {
+                target: None,
+                exec,
+            }),
+            [target] => Action::Run(Command::Tunnel {
+                target: Some((*target).to_string()),
+                exec,
+            }),
+            _ => Action::Usage("`tunnel` takes at most a `user@host` target".into()),
+        },
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
         "stop" => Action::Usage("`stop` takes no arguments".into()),
         "propose" => match rest {
@@ -607,6 +650,66 @@ mod tests {
             plan_of(&["validate", "flota-multiproveedor"], false).action,
             Action::Run(Command::Validate {
                 change: Some("flota-multiproveedor".into())
+            })
+        );
+    }
+
+    #[test]
+    fn direct_parses_session_and_instruction() {
+        // Scenario: Instrucción a una sesión activa se despacha como siguiente turno
+        assert_eq!(
+            plan_of(&["direct", "sess-1", "add a dark theme"], false).action,
+            Action::Run(Command::Direct {
+                session: "sess-1".into(),
+                instruction: "add a dark theme".into(),
+                project_root: None,
+            })
+        );
+        assert_eq!(
+            plan_of(&["direct", "sess-1", "add a dark theme", "/repo"], false).action,
+            Action::Run(Command::Direct {
+                session: "sess-1".into(),
+                instruction: "add a dark theme".into(),
+                project_root: Some("/repo".into()),
+            })
+        );
+        assert!(matches!(
+            plan_of(&["direct", "sess-1"], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn tunnel_parses_optional_target_and_exec_flag() {
+        // Scenario: Composición del túnel por plataforma
+        assert_eq!(
+            plan_of(&["tunnel"], false).action,
+            Action::Run(Command::Tunnel {
+                target: None,
+                exec: false,
+            })
+        );
+        assert_eq!(
+            plan_of(&["tunnel", "me@server"], false).action,
+            Action::Run(Command::Tunnel {
+                target: Some("me@server".into()),
+                exec: false,
+            })
+        );
+        // Scenario: Ejecución visible solo a pedido
+        // `--exec` is opt-in and position-independent (a global flag).
+        assert_eq!(
+            plan_of(&["tunnel", "me@server", "--exec"], false).action,
+            Action::Run(Command::Tunnel {
+                target: Some("me@server".into()),
+                exec: true,
+            })
+        );
+        assert_eq!(
+            plan_of(&["tunnel", "--exec", "me@server"], false).action,
+            Action::Run(Command::Tunnel {
+                target: Some("me@server".into()),
+                exec: true,
             })
         );
     }

@@ -53,6 +53,12 @@ SUBCOMMANDS:
     implement <change> <agent> [plan]
                         deploy the agent over the change's tasks.md task by task
                         (checkpoint → turn → commit → tick); `plan` previews
+    direct <session> <instruction>
+                        steer an existing session: queue the instruction as an
+                        active session's next turn, or resume a resumable one
+    tunnel [user@host] [--exec]
+                        compose the `ssh` command that reverse-forwards this
+                        daemon's endpoint to a remote host; `--exec` runs it
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help

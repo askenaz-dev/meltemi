@@ -110,7 +110,7 @@ pub async fn handle_propose(
 
     // Open the session and its log.
     let session_id = uuid::Uuid::new_v4().to_string();
-    let cancel = state
+    let reg = state
         .sessions
         .register(&session_id, agent_command.clone())
         .await;
@@ -123,6 +123,12 @@ pub async fn handle_propose(
         project_root: project_root.display().to_string(),
     });
     let log = Arc::new(Mutex::new(log));
+    // Opt the session into remote direction (control-remoto-asistido): it becomes
+    // a directable target and gains the queue the multi-turn loop drains.
+    let instruction_queue = state
+        .sessions
+        .enable_direction(&session_id, log.clone())
+        .await;
     state
         .sessions
         .set_state(&session_id, SessionState::Active)
@@ -183,7 +189,8 @@ pub async fn handle_propose(
         meltemi_session_id: session_id.clone(),
         peer: peer.clone(),
         log: log.clone(),
-        cancel,
+        cancel: reg.cancel,
+        cancelled: reg.cancelled,
         permission_timeout: PERMISSION_TIMEOUT,
         rules,
         pending: state.pending.clone(),
@@ -192,77 +199,42 @@ pub async fn handle_propose(
         mcp_servers: config.mcp_servers.clone(),
         // `propose` uses the configured agent (no per-session selection).
         env: Vec::new(),
+        // Directable: directed instructions run as follow-up turns.
+        instruction_queue,
     })
     .await;
 
-    // Finalize the session log and registry regardless of outcome.
+    // Finalize the session log and registry regardless of outcome, through the
+    // shared finalizer (control-remoto-asistido) so the end record — and thus
+    // resumability — matches every other single-turn run.
+    let project_root_str = project_root.display().to_string();
+    let ctx = crate::session_finalize::SessionContext {
+        data_dir: &state.data_dir,
+        sessions: &state.sessions,
+        log: &log,
+        project_key: &project_key,
+        session_id: &session_id,
+        agent_command: &agent_command,
+        project_root: &project_root_str,
+        level,
+        started_at: &started_at,
+        resumed_from: None,
+    };
     let result = match outcome {
         Ok(session_outcome) => {
-            let status = session_outcome.status;
-            append(
-                &log,
-                SessionEventKind::TurnCompleted {
-                    stop_reason: status,
-                },
-            )
-            .await;
-            append(&log, ended("completed")).await;
-            // The end record carries the resume metadata (agent session id and
-            // load capability) so this session can be resumed later.
-            let _ = crate::session_index::append(
-                &state.data_dir,
-                &project_key,
-                &crate::session_index::SessionRecord {
-                    session_id: session_id.clone(),
-                    agent_command: agent_command.clone(),
-                    project_root: project_root.display().to_string(),
-                    level,
-                    started_at: started_at.clone(),
-                    ended_at: Some(crate::clock::now_rfc3339()),
-                    final_status: Some(status),
-                    agent_session_id: session_outcome.agent_session_id.clone(),
-                    supports_load: session_outcome.supports_load,
-                    resumed_from: None,
-                },
-            );
-            state.sessions.deregister(&session_id).await;
+            let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
             ProposeResult {
                 change_name,
                 // Normalize the path to the platform separator (honesty D4).
                 proposal_path: normalize_path(&proposal_path),
-                status,
+                status: fin.status,
                 // Declared honestly: how many requests the turn denied (H1).
-                denied_permissions: session_outcome.denied_permissions,
+                denied_permissions: fin.denied_permissions,
             }
         }
         Err(e) => {
-            append(
-                &log,
-                SessionEventKind::Error {
-                    kind: "agent_session_failed".into(),
-                    detail: e.to_string(),
-                },
-            )
-            .await;
-            append(&log, ended("error")).await;
-            // Record the end so a failed session is not mislabeled interrupted.
-            let _ = crate::session_index::append(
-                &state.data_dir,
-                &project_key,
-                &crate::session_index::SessionRecord {
-                    session_id: session_id.clone(),
-                    agent_command: agent_command.clone(),
-                    project_root: project_root.display().to_string(),
-                    level,
-                    started_at: started_at.clone(),
-                    ended_at: Some(crate::clock::now_rfc3339()),
-                    final_status: None,
-                    agent_session_id: None,
-                    supports_load: false,
-                    resumed_from: None,
-                },
-            );
-            state.sessions.deregister(&session_id).await;
+            crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())
+                .await;
             return Err(RpcError::application(
                 error_codes::AGENT_SPAWN_FAILED,
                 "agent session failed",
@@ -279,12 +251,6 @@ pub async fn handle_propose(
 async fn append(log: &Arc<Mutex<SessionLog>>, kind: SessionEventKind) {
     let mut log = log.lock().await;
     let _ = log.append(kind);
-}
-
-fn ended(reason: &str) -> SessionEventKind {
-    SessionEventKind::SessionEnded {
-        reason: reason.to_string(),
-    }
 }
 
 /// Renders a path with a uniform platform separator (honesty D4, H4/H5). On

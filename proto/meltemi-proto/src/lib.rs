@@ -52,6 +52,10 @@ pub mod methods {
     pub const SDD_REVIEW_DECIDE: &str = "sdd/review-decide";
     /// Notification (client -> daemon): cancel an active session.
     pub const SESSION_CANCEL: &str = "session/cancel";
+    /// Request (client -> daemon): direct an instruction to an existing session
+    /// — queued as the next turn of an active session, or resuming a terminated
+    /// but resumable one (control-remoto-asistido). The third remote verb.
+    pub const SESSION_DIRECT: &str = "session/direct";
     /// Notification (daemon -> client): streamed session event.
     pub const SESSION_EVENT: &str = "session/event";
     /// Request (daemon -> client): permission passthrough from the agent.
@@ -693,6 +697,58 @@ pub struct SessionCancelParams {
     pub session_id: String,
 }
 
+/// Params of `session/direct`: an instruction aimed at an existing session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDirectParams {
+    /// The session to direct (its Meltemi id).
+    pub session_id: String,
+    /// The instruction to enqueue or resume with, verbatim.
+    pub instruction: String,
+    /// The project the session belongs to (locates its log and, on resume,
+    /// the repository the agent runs in). Absent means the daemon's default
+    /// project resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+}
+
+/// How `session/direct` handled the instruction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DirectDisposition {
+    /// The session was active: the instruction was queued and will be dispatched
+    /// as the next turn of the same agent session when the current turn ends.
+    Queued,
+    /// The session was terminated but resumable: it was resumed with the
+    /// instruction as the prompt, as a new session linked to the original.
+    Resumed,
+}
+
+/// Result of `session/direct`. A non-existent or non-resumable session is a
+/// `SESSION_NOT_FOUND` error, not a result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDirectResult {
+    /// How the instruction was handled.
+    pub disposition: DirectDisposition,
+    /// The session the instruction landed on: the same id when queued, or the
+    /// new resumed session's id.
+    pub session_id: String,
+    /// When resumed, the original session this one continues.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resumed_from: Option<String>,
+    /// 1-based position of the instruction in the queue, when queued.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_position: Option<u32>,
+    /// The final turn status, when the instruction ran a turn (on resume).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<TurnStatus>,
+    /// How many permission requests were denied during the resumed turn (0 when
+    /// merely queued). Greater than zero means the result may be incomplete.
+    #[serde(default)]
+    pub denied_permissions: u32,
+}
+
 /// Hint about the nature of a permission option (mirrors ACP).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1046,6 +1102,14 @@ pub enum SessionEventKind {
         sha: String,
         /// The `<capability>/<requirement>` pairs recorded in `Meltemi-Req`.
         requirements: Vec<String>,
+    },
+    /// A directed instruction was accepted into a session's queue
+    /// (session/direct). It is dispatched as a later `PromptSent` when the turn
+    /// in progress concludes; recording it before dispatch makes remote steering
+    /// auditable even if the daemon dies before the queue drains.
+    InstructionQueued {
+        /// The instruction text that will become the session's next prompt.
+        instruction: String,
     },
     /// The client cancelled the session.
     SessionCancelled {},

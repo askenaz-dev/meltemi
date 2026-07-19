@@ -91,6 +91,13 @@ async fn main() -> Result<()> {
 async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
     let session_id = prompt.session_id.clone();
 
+    // `--turn-delay-ms <N>` holds each turn open for N milliseconds before doing
+    // any work, so a test can race a `session/direct` into an active turn
+    // (control-remoto-asistido). Default: no delay.
+    if let Some(ms) = turn_delay_ms() {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
+
     // 1. Stream a chunk of the agent's "response".
     let _ = cx.send_notification(SessionNotification::new(
         session_id.clone(),
@@ -128,6 +135,18 @@ async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
         }
         write_sdd_artifact(prompt);
     }
+}
+
+/// Reads the optional `--turn-delay-ms <N>` argument (milliseconds to hold each
+/// turn open before scripting it).
+fn turn_delay_ms() -> Option<u64> {
+    let mut args = std::env::args();
+    while let Some(arg) = args.next() {
+        if arg == "--turn-delay-ms" {
+            return args.next().and_then(|v| v.parse().ok());
+        }
+    }
+    None
 }
 
 /// The mock's profile name (`--profile <name>`, default `mock`). Two instances
