@@ -703,6 +703,14 @@ fn session_events_conform() {
         SessionEventKind::InstructionQueued {
             instruction: "also add a dark theme".into(),
         },
+        SessionEventKind::HumanEdit {
+            file: "src/lib.rs".into(),
+            session_id: Some("sess-1".into()),
+        },
+        SessionEventKind::HumanEdit {
+            file: ".meltemi/specs/x/spec.md".into(),
+            session_id: None,
+        },
         SessionEventKind::SessionCancelled {},
         SessionEventKind::SessionEnded {
             reason: "shutdown".into(),
@@ -901,6 +909,50 @@ fn worktree_conforms() {
             "worktree": "/w", "committed": false, "changedFiles": [],
             "status": "completed", "taskTicked": true
         }),
+    );
+
+    // Apply-edit: the traceable human edit (gui-tauri-paridad D5).
+    assert_conforms(
+        "worktree",
+        "applyEditParams",
+        &WorktreeApplyEditParams {
+            project_root: "C:\\repos\\fixture".into(),
+            change: Some("add-thing".into()),
+            task: Some("1.1".into()),
+            agent: Some("work".into()),
+            file: "src/lib.rs".into(),
+            content: "pub fn edited() {}\n".into(),
+            confirm: true,
+        },
+    );
+    assert_conforms(
+        "worktree",
+        "applyEditParams",
+        &WorktreeApplyEditParams {
+            project_root: "/repo".into(),
+            change: None,
+            task: None,
+            agent: None,
+            file: ".meltemi/specs/x/spec.md".into(),
+            content: String::new(),
+            confirm: false,
+        },
+    );
+    assert_conforms(
+        "worktree",
+        "applyEditResult",
+        &WorktreeApplyEditResult {
+            file: "src/lib.rs".into(),
+            bytes_written: 19,
+            tree_state: TreeEditState::TurnInFlight,
+            logged_to: EditLogDestination::Session,
+        },
+    );
+    // An empty file path is refused by the schema.
+    assert_rejected(
+        "worktree",
+        "applyEditParams",
+        &json!({ "projectRoot": "/repo", "file": "", "content": "x" }),
     );
 }
 

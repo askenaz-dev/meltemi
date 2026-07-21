@@ -84,6 +84,11 @@ pub mod methods {
     /// that competitor's own resolved binary — the composable race primitive
     /// (flota-multiproveedor). Never ticks `tasks.md`.
     pub const WORKTREE_DISPATCH: &str = "worktree/dispatch";
+    /// Request: apply a human edit to a file of the project root or of a
+    /// managed worktree, through the daemon — traceable as a `human_edit`
+    /// event and governed by the soft-lock concurrency policy (edit-surface,
+    /// gui-tauri-paridad design D4/D5).
+    pub const WORKTREE_APPLY_EDIT: &str = "worktree/apply-edit";
     /// Request: create the pre-task checkpoint of a worktree (technical ref).
     pub const CHECKPOINT_CREATE: &str = "checkpoint/create";
     /// Request: list checkpoints by change and task (ref, moment, worktree).
@@ -1114,6 +1119,16 @@ pub enum SessionEventKind {
         /// The instruction text that will become the session's next prompt.
         instruction: String,
     },
+    /// A human edit applied through the daemon (edit-surface traceability):
+    /// the file relative to its tree, and the session active on the tree at
+    /// apply time, when any.
+    HumanEdit {
+        /// The edited file, relative to its tree.
+        file: String,
+        /// The session active on the tree, when any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+    },
     /// The client cancelled the session.
     SessionCancelled {},
     /// The session ended and its log is complete.
@@ -1373,6 +1388,70 @@ pub struct WorktreeDispatchResult {
     pub status: TurnStatus,
     /// Always `false`: a dispatch never marks the task.
     pub task_ticked: bool,
+}
+
+/// Parameters of `worktree/apply-edit` (gui-tauri-paridad design D5): the
+/// target tree is the project root, or a managed worktree when the
+/// change/task/agent triple is given. `content` replaces the file whole; the
+/// write is refused unless `confirm` acknowledges an active session or an
+/// in-flight turn on the tree (soft lock, never a hard lock).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeApplyEditParams {
+    /// Absolute path of the repository root.
+    pub project_root: String,
+    /// With `task` and `agent`, addresses a managed worktree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// The file to write, relative to the target tree.
+    pub file: String,
+    /// The full new content of the file (UTF-8).
+    pub content: String,
+    /// Acknowledges the tree's activity when it is not free.
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+/// The tree activity observed by `worktree/apply-edit`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeEditState {
+    /// No session runs on the tree: the edit applies without friction.
+    Free,
+    /// A session is registered on the tree but no turn is in flight:
+    /// simple confirmation required.
+    SessionActive,
+    /// The agent is inside a turn on the tree: reinforced confirmation
+    /// required.
+    TurnInFlight,
+}
+
+/// Where the `human_edit` event was appended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditLogDestination {
+    /// The active session's JSONL log.
+    Session,
+    /// The project-scoped edits log (no session was active on the tree).
+    Project,
+}
+
+/// Result of `worktree/apply-edit`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeApplyEditResult {
+    /// The file written, relative to its tree.
+    pub file: String,
+    /// Bytes written.
+    pub bytes_written: u64,
+    /// The activity observed at apply time.
+    pub tree_state: TreeEditState,
+    /// Where the `human_edit` event landed.
+    pub logged_to: EditLogDestination,
 }
 
 /// Identifies one task's worktree checkpoint by change, task and agent.

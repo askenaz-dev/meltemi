@@ -129,6 +129,10 @@ export const REGISTRY: RegistryEntry[] = [
     template: { projectRoot: "", change: "", task: "" },
     injectRoot: "projectRoot",
   }),
+  R("worktree/apply-edit", "palette.m.worktree.apply-edit", {
+    template: { projectRoot: "", file: "", content: "", confirm: false },
+    injectRoot: "projectRoot",
+  }),
   R("worktree/merge-file", "palette.m.worktree.merge-file", {
     template: { projectRoot: "", change: "", task: "", agent: "", file: "" },
     injectRoot: "projectRoot",

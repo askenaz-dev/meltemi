@@ -138,6 +138,33 @@
       "type": "string",
       "enum": ["profile", "catalog", "configured"]
     },
+    "applyEditParams": {
+      "type": "object",
+      "required": ["projectRoot", "file", "content"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 },
+        "file": { "type": "string", "minLength": 1 },
+        "content": { "type": "string" },
+        "confirm": { "type": "boolean" }
+      }
+    },
+    "treeEditState": {
+      "type": "string",
+      "enum": ["free", "session_active", "turn_in_flight"]
+    },
+    "applyEditResult": {
+      "type": "object",
+      "required": ["file", "bytesWritten", "treeState", "loggedTo"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "bytesWritten": { "type": "integer", "minimum": 0 },
+        "treeState": { "$ref": "#/$defs/treeEditState" },
+        "loggedTo": { "type": "string", "enum": ["session", "project"] }
+      }
+    },
     "dispatchParams": {
       "type": "object",
       "required": ["projectRoot", "change", "task", "agent"],

@@ -213,6 +213,13 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "run one competitor's turn with its own binary",
     },
     Entry {
+        name: "apply-edit",
+        reserved: true,
+        methods: &[m::WORKTREE_APPLY_EDIT],
+        desc_es: "aplicar una edición humana trazable vía el daemon",
+        desc_en: "apply a traceable human edit through the daemon",
+    },
+    Entry {
         name: "merge",
         reserved: true,
         methods: &[m::WORKTREE_MERGE_FILE],

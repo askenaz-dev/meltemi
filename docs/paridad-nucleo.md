@@ -50,6 +50,7 @@ future change — never a silent omission.
 | `worktree/list` | `worktrees` | `worktrees` | registry |
 | `worktree/remove` | — | `worktree-remove` | registry |
 | `worktree/diff` | `race` | `race` | registry |
+| `worktree/apply-edit` | `apply-edit` | `apply-edit` | registry + editor save |
 | `worktree/merge-file` | — | `merge` | registry |
 | `worktree/dispatch` | `dispatch` | `dispatch` | registry |
 | `checkpoint/create` | — | `checkpoints` | registry |
