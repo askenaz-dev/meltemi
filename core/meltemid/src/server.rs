@@ -42,6 +42,9 @@ pub struct DaemonState {
     pub sessions: SessionRegistry,
     /// Shared pending-permission queue (survives reconnection, multi-client).
     pub pending: PendingQueue,
+    /// Per-tree activity and pending human-edit notes (edit-surface soft lock,
+    /// gui-tauri-paridad design D4/D5).
+    pub edits: Arc<crate::edits::EditHub>,
     /// Signals the accept loop to begin the orderly shutdown.
     shutdown: mpsc::Sender<()>,
 }
@@ -56,6 +59,7 @@ impl DaemonState {
             config_dir,
             sessions: SessionRegistry::default(),
             pending: PendingQueue::default(),
+            edits: Arc::default(),
             shutdown,
         })
     }
@@ -255,6 +259,7 @@ async fn dispatch_request(
         methods::WORKTREE_REMOVE => handle_worktree_remove(params).await,
         methods::WORKTREE_DIFF => handle_worktree_diff(params).await,
         methods::WORKTREE_MERGE_FILE => handle_worktree_merge_file(params).await,
+        methods::WORKTREE_APPLY_EDIT => handle_worktree_apply_edit(params, state).await,
         methods::WORKTREE_DISPATCH => handle_worktree_dispatch(params, state, peer).await,
         methods::CHECKPOINT_CREATE => handle_checkpoint_create(params).await,
         methods::CHECKPOINT_LIST => handle_checkpoint_list(params).await,
@@ -663,6 +668,7 @@ async fn handle_worktree_dispatch(
         artifact.display()
     );
 
+    let edit_scope = state.edits.enter(&worktree, &session_id, log.clone());
     let outcome = crate::acp::run_session(crate::acp::SessionParams {
         agent_command: agent_command.clone(),
         project_root: worktree.clone(),
@@ -680,6 +686,7 @@ async fn handle_worktree_dispatch(
         env: resolved.env.clone(),
         // A competitor dispatch is a single self-managed turn, not directable.
         instruction_queue: None,
+        edit_scope: Some(edit_scope.handle()),
     })
     .await;
     let status = outcome
@@ -746,6 +753,105 @@ async fn handle_worktree_dispatch(
         task_ticked: false,
     };
     Ok(serde_json::to_value(result).expect("WorktreeDispatchResult serializes"))
+}
+
+/// `worktree/apply-edit`: a traceable human edit through the daemon
+/// (edit-surface; gui-tauri-paridad design D4/D5). The target tree is the
+/// project root, or a managed worktree when the change/task/agent triple is
+/// given. Soft lock: with a session active or a turn in flight on the tree,
+/// the write demands `confirm: true` — never a hard lock. Every applied edit
+/// is recorded as a `human_edit` event (the active session's JSONL, or the
+/// project-scoped edits log) and noted for the agent's next turn.
+async fn handle_worktree_apply_edit(
+    params: Value,
+    state: &Arc<DaemonState>,
+) -> Result<Value, RpcError> {
+    use meltemi_proto::{
+        EditLogDestination, SessionEventKind, WorktreeApplyEditParams, WorktreeApplyEditResult,
+    };
+
+    let params: WorktreeApplyEditParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("worktree/apply-edit: {e}")))?;
+    let root = require_git_root(&params.project_root)?;
+
+    let tree = match (&params.change, &params.task, &params.agent) {
+        (Some(change), Some(task), Some(agent)) => resolve_worktree(&root, change, task, agent)?,
+        (None, None, None) => root.clone(),
+        _ => {
+            return Err(RpcError::invalid_params(
+                "worktree/apply-edit: change, task and agent go together",
+            ));
+        }
+    };
+
+    // Containment, same discipline as worktree/merge-file: relative path,
+    // no parent escapes.
+    if params.file.contains("..") || std::path::Path::new(&params.file).is_absolute() {
+        return Err(RpcError::application(
+            error_codes::WORKTREE_REFUSED,
+            "edit refused",
+            "path_escape",
+            format!("`{}` escapes the target tree", params.file),
+            Some("Pass a path relative to the tree, without `..`.".into()),
+        ));
+    }
+
+    // The soft-lock policy (design D4): the observed activity decides the
+    // acknowledgement the save needs.
+    let key = crate::edits::tree_key(&tree);
+    let tree_state = state.edits.state_of(&key);
+    if let Some(kind) = crate::edits::required_ack(tree_state)
+        && !params.confirm
+    {
+        return Err(RpcError::application(
+            error_codes::WORKTREE_REFUSED,
+            "edit requires confirmation",
+            kind,
+            format!(
+                "a session is running on this tree ({kind}); saving may conflict \
+                 with the agent's work"
+            ),
+            Some("Acknowledge the running session and retry with `confirm: true`.".into()),
+        ));
+    }
+
+    let target = tree.join(&params.file);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(RpcError::internal)?;
+    }
+    std::fs::write(&target, params.content.as_bytes()).map_err(RpcError::internal)?;
+    state.edits.note_edit(&key, &params.file);
+
+    // Trace: into the active session's JSONL when one runs on the tree,
+    // otherwise into the project-scoped edits log.
+    let logged_to = match state.edits.active_session(&key) {
+        Some((session_id, log)) => {
+            let mut log = log.lock().await;
+            let _ = log.append(SessionEventKind::HumanEdit {
+                file: params.file.clone(),
+                session_id: Some(session_id),
+            });
+            EditLogDestination::Session
+        }
+        None => {
+            crate::edits::log_project_event(
+                &root,
+                SessionEventKind::HumanEdit {
+                    file: params.file.clone(),
+                    session_id: None,
+                },
+            );
+            EditLogDestination::Project
+        }
+    };
+
+    let result = WorktreeApplyEditResult {
+        bytes_written: params.content.len() as u64,
+        file: params.file,
+        tree_state,
+        logged_to,
+    };
+    serde_json::to_value(result).map_err(RpcError::internal)
 }
 
 /// Resolves the managed worktree path for a `(change, task, agent)`.
@@ -1406,6 +1512,7 @@ async fn handle_sdd_implement(
             task.description,
             artifact.display()
         );
+        let task_edit_scope = state.edits.enter(&worktree, &session_id, log.clone());
         let _ = crate::acp::run_session(crate::acp::SessionParams {
             agent_command: agent_command.clone(),
             project_root: worktree.clone(),
@@ -1423,6 +1530,7 @@ async fn handle_sdd_implement(
             env: resolved.env.clone(),
             // `implement` drives its own per-task loop; each turn is not directable.
             instruction_queue: None,
+            edit_scope: Some(task_edit_scope.handle()),
         })
         .await;
 
@@ -1743,6 +1851,7 @@ async fn resume_with_instruction(
         Some(&project_root),
     ));
 
+    let edit_scope = state.edits.enter(&project_root, &session_id, log.clone());
     let outcome = crate::acp::run_session(crate::acp::SessionParams {
         agent_command: agent_command.clone(),
         project_root: project_root.clone(),
@@ -1763,6 +1872,7 @@ async fn resume_with_instruction(
         env: Vec::new(),
         // The resumed session is itself directable.
         instruction_queue,
+        edit_scope: Some(edit_scope.handle()),
     })
     .await;
 

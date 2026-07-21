@@ -182,6 +182,7 @@ pub async fn handle_propose(
     }
 
     // Delegate the proposal contents to the agent (5.2).
+    let edit_scope = state.edits.enter(&project_root, &session_id, log.clone());
     let outcome = acp::run_session(SessionParams {
         agent_command: agent_command.clone(),
         project_root: project_root.clone(),
@@ -201,6 +202,7 @@ pub async fn handle_propose(
         env: Vec::new(),
         // Directable: directed instructions run as follow-up turns.
         instruction_queue,
+        edit_scope: Some(edit_scope.handle()),
     })
     .await;
 

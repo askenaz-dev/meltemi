@@ -87,6 +87,10 @@ pub struct SessionParams {
     /// each turn — each queued instruction becomes the next prompt of the same
     /// agent session (control-remoto-asistido). `None` for single-turn runs.
     pub instruction_queue: Option<crate::session::InstructionQueue>,
+    /// Registration of this session over its tree (edit-surface soft lock):
+    /// marks turns in flight and drains the human-edit notes into the next
+    /// turn's prompt (gui-tauri-paridad design D4).
+    pub edit_scope: Option<crate::edits::EditScopeHandle>,
 }
 
 /// The result of one ACP turn: the mapped stop reason, how many permission
@@ -123,6 +127,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         mcp_servers,
         env,
         instruction_queue,
+        edit_scope,
     } = params;
 
     // The env overlay rides as leading `NAME=value` tokens: the ACP crate parses
@@ -234,6 +239,14 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
             // identical to the prior single-turn behavior.
             let mut current_prompt = prompt;
             let final_status = loop {
+                // Human edits since the agent's last turn ride in the prompt
+                // itself (never a push outside ACP — design D4); the drain is
+                // announce-exactly-once.
+                if let Some(scope) = &edit_scope
+                    && let Some(note) = scope.note_prefix()
+                {
+                    current_prompt = format!("{note}\n\n{current_prompt}");
+                }
                 {
                     let mut log = log.lock().await;
                     let _ = log.append(SessionEventKind::PromptSent {
@@ -250,14 +263,21 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                 );
                 let prompt_future = connection.send_request(prompt_request).block_task();
                 tokio::pin!(prompt_future);
+                if let Some(scope) = &edit_scope {
+                    scope.begin_turn();
+                }
                 let response = tokio::select! {
-                    r = &mut prompt_future => r?,
+                    r = &mut prompt_future => r,
                     _ = cancel.notified() => {
                         let _ = connection
                             .send_notification(CancelNotification::new(acp_session_id.clone()));
-                        (&mut prompt_future).await?
+                        (&mut prompt_future).await
                     }
                 };
+                if let Some(scope) = &edit_scope {
+                    scope.end_turn();
+                }
+                let response = response?;
                 let status = map_stop_reason(response.stop_reason);
 
                 // Turn boundary. A cancellation request stops further dispatch

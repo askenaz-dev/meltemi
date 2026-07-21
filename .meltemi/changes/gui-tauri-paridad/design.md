@@ -65,9 +65,14 @@ bloqueo duro: el humano siempre decide; la honestidad la dan el registro y la
 nota, y el riesgo residual lo acota el checkpoint por tarea existente.
 
 ### D5 — Edición in situ: un método, una traza
-`worktree/apply-edit` (aditivo en `proto/`): ruta + contenido o hunk + sesión
-asociada opcional → validación de que la ruta cae dentro del worktree →
-escritura + evento `human_edit` (archivo, sesión, marca temporal) en el JSONL.
+`worktree/apply-edit` (aditivo en `proto/`): ruta + contenido → validación de
+que la ruta cae dentro del árbol destino (raíz del proyecto, o worktree
+gestionado si viaja la tripleta change/task/agent) → escritura + evento
+`human_edit` (archivo, sesión, marca temporal). Destino del evento: el JSONL
+de la sesión activa sobre ese árbol cuando la hay; si el árbol está libre, el
+log de ediciones del proyecto (`.meltemi/edits/events.jsonl`, mismo patrón
+apend-only que el log de checkpoints) — la respuesta declara `loggedTo` para
+que ninguna traza sea ambigua.
 Toda superficie escribe por aquí (requisito vigente de `edit-surface`); paridad
 de poder desde el día uno: subcomando CLI y registro en la paleta TUI. La
 inteligencia LSP es experiencia de superficie, no capacidad del daemon: la GUI

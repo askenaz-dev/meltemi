@@ -29,8 +29,8 @@
 ## 5. Edición in situ y concurrencia
 
 - [x] 5.1 `proto/`: método aditivo `worktree/apply-edit` + tipos + schema _(Req edit-surface: Trazabilidad de ediciones humanas; design D5)_
-- [ ] 5.2 Daemon: validación de ruta dentro del worktree + escritura + evento `human_edit` en el JSONL + estado turno-en-vuelo observable por worktree _(Req edit-surface: política de concurrencia; design D4)_
-- [ ] 5.3 Nota de ediciones humanas antepuesta al siguiente turno del agente, evidenciada en el log _(Req edit-surface: Nota al siguiente turno)_
+- [x] 5.2 Daemon: validación de ruta dentro del worktree + escritura + evento `human_edit` en el JSONL + estado turno-en-vuelo observable por worktree _(Req edit-surface: política de concurrencia; design D4)_
+- [x] 5.3 Nota de ediciones humanas antepuesta al siguiente turno del agente, evidenciada en el log _(Req edit-surface: Nota al siguiente turno)_
 - [ ] 5.4 Paridad del método nuevo: subcomando CLI + registro en la paleta de la TUI _(constitución §4; design D5)_
 - [ ] 5.5 GUI: árbol/pestañas/búsqueda/resaltado + guardado vía daemon aplicando la política (reforzada/simple/directa) _(Req: Edición utilitaria in situ; edit-surface)_
 - [ ] 5.6 LSP BYO: detección/config de servidores del usuario + degradación honesta sin servidor _(Req: Edición utilitaria con LSP BYO)_
