@@ -26,6 +26,25 @@ jobs:
       - name: Show toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
+      - name: Desktop system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl \
+            wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/ui/package-lock.json
+      - name: Desktop frontend install (locked)
+        run: npm ci --prefix desktop/ui
+      - name: Desktop frontend audit
+        run: npm audit --prefix desktop/ui --audit-level=high
+      # tauri::generate_context! embeds ui/dist at compile time.
+      - name: Desktop frontend build
+        run: npm run build --prefix desktop/ui
 
       # Hard gates — any failure aborts the release for every platform.
       - name: Format
@@ -69,6 +88,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Desktop system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl \
+            wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/ui/package-lock.json
+      - name: Desktop frontend install (locked)
+        run: npm ci --prefix desktop/ui
+      - name: Desktop frontend build
+        run: npm run build --prefix desktop/ui
       - name: Release build
         run: cargo build --workspace --release
       - name: Package and checksum
