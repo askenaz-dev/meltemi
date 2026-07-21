@@ -39,6 +39,11 @@ SUBCOMMANDS:
                         run one competitor's turn over its worktree with that
                         agent's own binary (checkpoint -> turn -> commit); the
                         task is never ticked
+    apply-edit <file> [<change> <task> <agent>] [confirm]
+                        apply a human edit read from stdin through the daemon,
+                        onto the project tree or a managed worktree; traceable
+                        (human_edit). A running session or in-flight turn on
+                        the tree demands the trailing `confirm` (soft lock)
     checkpoints [change]
                         list pre-task checkpoints (ref, moment, irreversibles)
     revert <change> <task> <agent> [confirm]
@@ -140,6 +145,12 @@ pub enum Command {
         task: String,
         agent: String,
         project_root: Option<String>,
+    },
+    ApplyEdit {
+        file: String,
+        /// Managed-worktree addressing: (change, task, agent).
+        target: Option<(String, String, String)>,
+        confirm: bool,
     },
     /// List pre-task checkpoints (`checkpoint/list`).
     Checkpoints { change: Option<String> },
@@ -379,6 +390,42 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool) -> Action {
             }),
             _ => Action::Usage(
                 "`dispatch` requires: meltemi dispatch <change> <task> <agent> [project-root]"
+                    .into(),
+            ),
+        },
+        "apply-edit" => match rest {
+            [file] => Action::Run(Command::ApplyEdit {
+                file: (*file).to_string(),
+                target: None,
+                confirm: false,
+            }),
+            [file, kw] if *kw == "confirm" => Action::Run(Command::ApplyEdit {
+                file: (*file).to_string(),
+                target: None,
+                confirm: true,
+            }),
+            [file, change, task, agent] => Action::Run(Command::ApplyEdit {
+                file: (*file).to_string(),
+                target: Some((
+                    (*change).to_string(),
+                    (*task).to_string(),
+                    (*agent).to_string(),
+                )),
+                confirm: false,
+            }),
+            [file, change, task, agent, kw] if *kw == "confirm" => {
+                Action::Run(Command::ApplyEdit {
+                    file: (*file).to_string(),
+                    target: Some((
+                        (*change).to_string(),
+                        (*task).to_string(),
+                        (*agent).to_string(),
+                    )),
+                    confirm: true,
+                })
+            }
+            _ => Action::Usage(
+                "`apply-edit` requires: meltemi apply-edit <file> [<change> <task> <agent>]                  [confirm] (content is read from stdin)"
                     .into(),
             ),
         },
@@ -870,6 +917,38 @@ mod tests {
             plan_of(&["race", "add-thing"], false).action,
             Action::Usage(_)
         ));
+    }
+
+    #[test]
+    fn apply_edit_parses_file_target_and_confirm() {
+        // Scenario: Guardado de una edición in situ
+        assert_eq!(
+            plan_of(&["apply-edit", "src/lib.rs"], false).action,
+            Action::Run(Command::ApplyEdit {
+                file: "src/lib.rs".into(),
+                target: None,
+                confirm: false,
+            })
+        );
+        assert_eq!(
+            plan_of(
+                &[
+                    "apply-edit",
+                    "src/lib.rs",
+                    "add-thing",
+                    "1.1",
+                    "fast",
+                    "confirm"
+                ],
+                false
+            )
+            .action,
+            Action::Run(Command::ApplyEdit {
+                file: "src/lib.rs".into(),
+                target: Some(("add-thing".into(), "1.1".into(), "fast".into())),
+                confirm: true,
+            })
+        );
     }
 
     #[test]

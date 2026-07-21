@@ -35,6 +35,11 @@ SUBCOMMANDS:
                         run one competitor's turn over its worktree with that
                         agent's own binary (checkpoint -> turn -> commit); the
                         task is never ticked
+    apply-edit <file> [<change> <task> <agent>] [confirm]
+                        apply a human edit read from stdin through the daemon,
+                        onto the project tree or a managed worktree; traceable
+                        (human_edit). A running session or in-flight turn on
+                        the tree demands the trailing `confirm` (soft lock)
     checkpoints [change]
                         list pre-task checkpoints (ref, moment, irreversibles)
     revert <change> <task> <agent> [confirm]

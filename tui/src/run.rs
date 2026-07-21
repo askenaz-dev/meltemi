@@ -30,7 +30,10 @@ use meltemi_proto::{
     WorktreeAssignResult, WorktreeDiffParams, WorktreeDiffResult, WorktreeListParams,
     WorktreeListResult, WorktreeTask, methods,
 };
-use meltemi_proto::{WorktreeDispatchParams, WorktreeDispatchResult};
+use meltemi_proto::{
+    EditLogDestination, TreeEditState, WorktreeApplyEditParams, WorktreeApplyEditResult,
+    WorktreeDispatchParams, WorktreeDispatchResult,
+};
 
 use crate::cli::Command;
 use crate::output::{CliError, Outcome};
@@ -69,6 +72,11 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             agent,
             project_root,
         } => dispatch(change, task, agent, project_root, endpoint).await,
+        Command::ApplyEdit {
+            file,
+            target,
+            confirm,
+        } => apply_edit(file, target, confirm, endpoint).await,
         Command::Checkpoints { change } => checkpoints(change, endpoint).await,
         Command::Revert {
             change,
@@ -690,6 +698,63 @@ async fn dispatch(
         human: render_dispatch(&result),
         json: value,
     })
+}
+
+/// `apply-edit`: a traceable human edit through the daemon; the new file
+/// content is read whole from stdin (scriptable surface of edit-surface).
+async fn apply_edit(
+    file: String,
+    target: Option<(String, String, String)>,
+    confirm: bool,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let content = std::io::read_to_string(std::io::stdin()).map_err(CliError::internal)?;
+    let project_root = cwd_or(None)?;
+    let (change, task, agent) = match target {
+        Some((change, task, agent)) => (Some(change), Some(task), Some(agent)),
+        None => (None, None, None),
+    };
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::WORKTREE_APPLY_EDIT,
+            &WorktreeApplyEditParams {
+                project_root,
+                change,
+                task,
+                agent,
+                file,
+                content,
+                confirm,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: WorktreeApplyEditResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_apply_edit(&result),
+        json: value,
+    })
+}
+
+fn render_apply_edit(result: &WorktreeApplyEditResult) -> String {
+    let state = match result.tree_state {
+        TreeEditState::Free => "free",
+        TreeEditState::SessionActive => "session active",
+        TreeEditState::TurnInFlight => "turn in flight",
+    };
+    let destination = match result.logged_to {
+        EditLogDestination::Session => "session log",
+        EditLogDestination::Project => "project edits log",
+    };
+    format!(
+        "wrote {} ({} bytes) — tree {}; human_edit -> {}",
+        result.file, result.bytes_written, state, destination
+    )
 }
 
 async fn changes(endpoint: &str) -> Result<Outcome, CliError> {
