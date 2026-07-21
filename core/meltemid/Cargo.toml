@@ -9,6 +9,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+meltemi-client.workspace = true
 meltemi-proto.workspace = true
 meltemi-spec.workspace = true
 agent-client-protocol.workspace = true

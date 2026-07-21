@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 
 fn marker_path() -> PathBuf {
-    meltemid::paths::data_dir().join("onboarded")
+    meltemi_client::paths::data_dir().join("onboarded")
 }
 
 /// Whether this is the first interactive run (no marker present).

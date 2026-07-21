@@ -13,14 +13,14 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::time::interval;
 
+use meltemi_client::bootstrap;
+use meltemi_client::rpc::{Incoming, Peer, RpcError};
 use meltemi_proto::{
     ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
     PROTOCOL_VERSION, PeerInfo, PermissionChangedParams, PermissionDecideParams,
     PermissionPendingResult, PermissionRule, SessionCancelParams, SessionListParams,
     SessionListResult, SessionLogParams, SessionLogResult, StatusResult, methods,
 };
-use meltemid::bootstrap;
-use meltemid::rpc::{Incoming, Peer, RpcError};
 
 use crate::shell::live::{FleetRow, FleetSnapshot, SessionRow, Update};
 use crate::shell::render::ConnState;
@@ -97,7 +97,7 @@ enum ConnExit {
 }
 
 async fn serve_connection(
-    stream: meltemid::transport::Stream,
+    stream: meltemi_client::transport::Stream,
     commands: &mut UnboundedReceiver<Command>,
     updates: &UnboundedSender<Update>,
 ) -> ConnExit {

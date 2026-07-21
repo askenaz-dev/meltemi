@@ -21,9 +21,12 @@ propias); empaquetar servidores LSP; reemplazar el editor del usuario (la cerca
 ## Decisions
 
 ### D1 — Toda la conexión en el backend Rust; la webview solo pinta
-El proceso Rust de Tauri reutiliza el cliente JSON-RPC del proyecto — extraído
-de `tui/` al crate compartido `core/meltemi-client`, refactor sin cambio de
-contrato — y habla con el daemon por el socket local, igual que la TUI. La
+El proceso Rust de Tauri reutiliza el cliente JSON-RPC del proyecto — los
+módulos `rpc`/`transport`/`bootstrap`/`paths` que vivían dentro de `meltemid`
+(y que la TUI consumía re-exportados), extraídos al crate compartido
+`core/meltemi-client`, refactor sin cambio de contrato; `meltemid` los
+re-exporta para sus internos — y habla con el daemon por el socket local,
+igual que la TUI. La
 webview consume exclusivamente comandos/eventos del IPC de Tauri: no abre
 sockets, no hace fetch remoto; CSP estricta sin orígenes remotos y capacidades
 Tauri mínimas declaradas (deny-by-default, coherente con constitución §3 y el

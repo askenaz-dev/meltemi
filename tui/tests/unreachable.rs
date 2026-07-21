@@ -25,7 +25,7 @@ async fn unreachable_daemon_is_reported_as_unreachable() {
     // variable concurrently.
     unsafe {
         std::env::set_var(
-            meltemid::bootstrap::ENV_DAEMON_BIN,
+            meltemi_client::bootstrap::ENV_DAEMON_BIN,
             "meltemi-no-such-daemon-binary",
         );
     }
@@ -37,6 +37,6 @@ async fn unreachable_daemon_is_reported_as_unreachable() {
 
     // SAFETY: as above.
     unsafe {
-        std::env::remove_var(meltemid::bootstrap::ENV_DAEMON_BIN);
+        std::env::remove_var(meltemi_client::bootstrap::ENV_DAEMON_BIN);
     }
 }

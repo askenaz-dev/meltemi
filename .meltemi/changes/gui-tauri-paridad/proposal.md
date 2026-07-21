@@ -58,8 +58,9 @@ de la change de GUI de fase 2. Esta change salda las tres.
 
 ## Impact
 
-- Nuevo `desktop/` (crate Tauri + frontend); extracción del cliente JSON-RPC de
-  `tui/` a un crate compartido (`core/meltemi-client`) sin cambio de contrato;
+- Nuevo `desktop/` (crate Tauri + frontend); extracción del cliente JSON-RPC
+  (los módulos cliente de `meltemid` que la TUI ya consumía) a un crate
+  compartido (`core/meltemi-client`) sin cambio de contrato;
   `core/meltemid` (estado turno-en-vuelo por worktree, `worktree/apply-edit` +
   evento `human_edit`, nota de ediciones al siguiente turno); `proto/` (método
   y tipos aditivos); `tui/` (paridad del método nuevo: subcomando CLI + registro

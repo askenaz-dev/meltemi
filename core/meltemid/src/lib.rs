@@ -9,7 +9,6 @@
 
 pub mod acp;
 pub mod archive;
-pub mod bootstrap;
 pub mod checkpoints;
 pub mod clock;
 pub mod commit;
@@ -23,13 +22,11 @@ pub mod levels;
 pub mod logging;
 pub mod mcp;
 pub mod navigate;
-pub mod paths;
 pub mod pending;
 pub mod permissions;
 pub mod propose;
 pub mod repo_map;
 pub mod review;
-pub mod rpc;
 pub mod sdd;
 pub mod sdd_flow;
 pub mod server;
@@ -37,9 +34,13 @@ pub mod session;
 pub mod session_finalize;
 pub mod session_index;
 pub mod session_log;
-pub mod transport;
 pub mod verify;
 pub mod worktrees;
+
+// The client-side stack (transport, JSON-RPC peer, bootstrap, paths) lives in
+// the shared `meltemi-client` crate since gui-tauri-paridad 1.2; re-exported
+// here so daemon internals and existing consumers keep their paths.
+pub use meltemi_client::{bootstrap, paths, rpc, transport};
 
 use std::sync::Arc;
 

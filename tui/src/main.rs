@@ -16,7 +16,7 @@ async fn main() {
     let stdout_is_tty = io::stdout().is_terminal();
     let planned = plan(&args, stdout_is_tty);
 
-    let endpoint = meltemid::paths::endpoint();
+    let endpoint = meltemi_client::paths::endpoint();
     let mut out = io::stdout().lock();
     let mut err = io::stderr().lock();
     let code = meltemi::dispatch(planned, &endpoint, &mut out, &mut err).await;

@@ -1,7 +1,7 @@
 ## 1. Fundaciones
 
 - [x] 1.1 `docs/ux/design-system.md`: tokens desde brand V2 (tipografía, color, espaciado, densidad) + regla transversal símbolo+palabra _(design D6)_
-- [ ] 1.2 Extraer el cliente JSON-RPC de `tui/` al crate compartido `core/meltemi-client` sin cambio de contrato observable (TUI sigue verde) _(design D1)_
+- [x] 1.2 Extraer el cliente JSON-RPC al crate compartido `core/meltemi-client` (módulos `rpc`/`transport`/`bootstrap`/`paths` de `meltemid`, re-exportados) sin cambio de contrato observable (TUI sigue verde) _(design D1)_
 - [ ] 1.3 Miembro `desktop/` del workspace: Tauri 2 pineado + Svelte 5/TS pineados por lockfile; capacidades mínimas deny-by-default; CSP sin orígenes remotos _(Req: Cliente fino sobre el socket local; design D1, D2)_
 - [ ] 1.4 Puente IPC: comandos/eventos Tauri ↔ `meltemi-client` (conexión, backoff, arranque bajo demanda, ErrorData con remedy) _(Req: Cliente fino; Desconexión ruidosa)_
 - [ ] 1.5 CI: build + tests de `desktop/` en las tres plataformas _(constitución §7)_

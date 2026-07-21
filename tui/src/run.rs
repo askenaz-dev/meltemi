@@ -12,6 +12,8 @@ use serde_json::json;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 
+use meltemi_client::bootstrap;
+use meltemi_client::rpc::{Incoming, Peer, RpcError};
 use meltemi_proto::{
     ChangeListParams, ChangeListResult, ChangeShowParams, ChangeShowResult, SddValidateParams,
     SddValidateResult, SpecListParams, SpecListResult, SpecShowParams, SpecShowResult,
@@ -29,8 +31,6 @@ use meltemi_proto::{
     WorktreeListResult, WorktreeTask, methods,
 };
 use meltemi_proto::{WorktreeDispatchParams, WorktreeDispatchResult};
-use meltemid::bootstrap;
-use meltemid::rpc::{Incoming, Peer, RpcError};
 
 use crate::cli::Command;
 use crate::output::{CliError, Outcome};
@@ -874,7 +874,7 @@ fn render_direct(value: &serde_json::Value) -> String {
 /// exposes this daemon's endpoint to a remote host. Entirely local — it uses the
 /// user's own `ssh` and never touches the daemon (control-remoto-asistido D3).
 fn tunnel(target: Option<String>, exec: bool) -> Result<Outcome, CliError> {
-    let local_endpoint = meltemid::paths::endpoint();
+    let local_endpoint = meltemi_client::paths::endpoint();
     let plan = crate::tunnel::compose(cfg!(windows), &local_endpoint, target.as_deref())
         .map_err(|refusal| CliError::usage(format!("{} — {}", refusal.reason, refusal.remedy)))?;
 

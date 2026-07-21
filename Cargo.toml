@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "core/meltemi-client",
     "core/meltemid",
     "core/meltemi-spec",
     "core/mock-agent",
@@ -18,12 +19,14 @@ rust-version = "1.97"
 
 [workspace.dependencies]
 meltemi-proto = { path = "proto/meltemi-proto" }
+# The client-side stack (local transport, JSON-RPC peer, on-demand bootstrap,
+# platform paths), shared by the daemon's server side, the terminal client and
+# the desktop client (gui-tauri-paridad design D1; anticipated by cli-contrato
+# design D6).
+meltemi-client = { path = "core/meltemi-client" }
 # The spec engine: parsing of `.meltemi/` and the pure context-projection
 # compiler the daemon writes into agent instruction files.
 meltemi-spec = { path = "core/meltemi-spec" }
-# The terminal client reuses the daemon's client-side helpers (local transport,
-# on-demand bootstrap, JSON-RPC peer) exposed as a library; see cli-contrato
-# design D6. A dedicated `meltemi-client` crate can be extracted later.
 meltemid = { path = "core/meltemid" }
 
 # All third-party dependencies are pinned exactly (constitution §10) and

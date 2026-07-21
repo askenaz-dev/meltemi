@@ -1230,11 +1230,25 @@ dependencies = [
 name = "meltemi"
 version = "0.1.0"
 dependencies = [
+ "meltemi-client",
  "meltemi-proto",
  "meltemid",
  "ratatui",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "meltemi-client"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "meltemi-proto",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1259,6 +1273,7 @@ dependencies = [
  "directories",
  "ignore",
  "libc",
+ "meltemi-client",
  "meltemi-proto",
  "meltemi-spec",
  "serde",

@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 use tokio::sync::mpsc;
 
+use meltemi_client::transport::Listener;
 use meltemid::server::{DaemonState, serve_until_shutdown};
-use meltemid::transport::Listener;
 
 /// A fresh, process-unique endpoint for an ephemeral test daemon.
 pub fn test_endpoint(tag: &str) -> String {
