@@ -27,3 +27,8 @@ serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+
+[dev-dependencies]
+# The bridge tests spawn an in-process daemon over the real transport, the
+# same harness the TUI e2e suite uses.
+meltemid.workspace = true
