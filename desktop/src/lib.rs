@@ -8,6 +8,8 @@
 //! sockets nor fetches remote content (CSP, deny-by-default capabilities).
 
 pub mod bridge;
+pub mod fsops;
+pub mod lsp;
 
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager};
@@ -111,6 +113,7 @@ pub fn run() {
             });
 
             app.manage(BridgeHandle(command_tx));
+            app.manage(lsp::LspHub::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -118,7 +121,14 @@ pub fn run() {
             daemon_notify,
             project_root,
             onboarding_seen,
-            onboarding_mark_seen
+            onboarding_mark_seen,
+            fsops::tree_read,
+            fsops::tree_search,
+            fsops::open_with,
+            lsp::lsp_ensure,
+            lsp::lsp_open,
+            lsp::lsp_change,
+            lsp::lsp_request
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Meltemi desktop client");

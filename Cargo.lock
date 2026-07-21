@@ -2344,6 +2344,7 @@ dependencies = [
 name = "meltemi-desktop"
 version = "0.1.0"
 dependencies = [
+ "ignore",
  "meltemi-client",
  "meltemi-proto",
  "meltemid",

@@ -23,8 +23,8 @@
 
 ## 4. Specs y diffs
 
-- [ ] 4.1 Editor de specs enriquecido con findings de `validate` en vivo y guardado trazable _(Req: Editor de specs enriquecido)_
-- [ ] 4.2 Revisión de diffs línea a línea por archivo/hunk para asignaciones y carreras, con comparación contra la base común _(Req: Revisión de diffs)_
+- [x] 4.1 Editor de specs enriquecido con findings de `validate` en vivo y guardado trazable _(Req: Editor de specs enriquecido)_
+- [x] 4.2 Revisión de diffs línea a línea por archivo/hunk para asignaciones y carreras, con comparación contra la base común _(Req: Revisión de diffs)_
 
 ## 5. Edición in situ y concurrencia
 
@@ -32,9 +32,9 @@
 - [x] 5.2 Daemon: validación de ruta dentro del worktree + escritura + evento `human_edit` en el JSONL + estado turno-en-vuelo observable por worktree _(Req edit-surface: política de concurrencia; design D4)_
 - [x] 5.3 Nota de ediciones humanas antepuesta al siguiente turno del agente, evidenciada en el log _(Req edit-surface: Nota al siguiente turno)_
 - [x] 5.4 Paridad del método nuevo: subcomando CLI + registro en la paleta de la TUI _(constitución §4; design D5)_
-- [ ] 5.5 GUI: árbol/pestañas/búsqueda/resaltado + guardado vía daemon aplicando la política (reforzada/simple/directa) _(Req: Edición utilitaria in situ; edit-surface)_
-- [ ] 5.6 LSP BYO: detección/config de servidores del usuario + degradación honesta sin servidor _(Req: Edición utilitaria con LSP BYO)_
-- [ ] 5.7 "Abrir con…" hacia el editor del usuario con archivo:línea desde diff y árbol _(Req edit-surface: Deep-link; Req: Revisión de diffs)_
+- [x] 5.5 GUI: árbol/pestañas/búsqueda/resaltado + guardado vía daemon aplicando la política (reforzada/simple/directa) _(Req: Edición utilitaria in situ; edit-surface)_
+- [x] 5.6 LSP BYO: detección/config de servidores del usuario + degradación honesta sin servidor _(Req: Edición utilitaria con LSP BYO)_
+- [x] 5.7 "Abrir con…" hacia el editor del usuario con archivo:línea desde diff y árbol _(Req edit-surface: Deep-link; Req: Revisión de diffs)_
 
 ## 6. Distribución y presupuestos
 

@@ -6,6 +6,11 @@
   import { projectRoot, type ChangeInfo, type SpecInfo } from "../stores";
   import EmptyState from "../components/EmptyState.svelte";
 
+  let {
+    onOpenEditor,
+    onOpenReview,
+  }: { onOpenEditor: () => void; onOpenReview: () => void } = $props();
+
   let changes: ChangeInfo[] = $state([]);
   let specs: SpecInfo[] = $state([]);
   let isProject = $state(true);
@@ -82,6 +87,8 @@
       <header>
         <h2 id="changes-title">{$t("project.changes")}</h2>
         <div class="validate">
+          <button onclick={onOpenEditor}>{$t("project.openEditor")}</button>
+          <button onclick={onOpenReview}>{$t("project.openReview")}</button>
           <button disabled={validating} onclick={() => void validate()}>
             {validating ? $t("common.loading") : $t("project.validate")}
           </button>

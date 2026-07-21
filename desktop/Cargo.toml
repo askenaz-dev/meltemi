@@ -21,6 +21,9 @@ path = "src/main.rs"
 tauri-build.workspace = true
 
 [dependencies]
+# Project search honoring nested .gitignore, same crate the daemon's repo map
+# uses (already pinned in the workspace).
+ignore.workspace = true
 meltemi-client.workspace = true
 meltemi-proto.workspace = true
 serde.workspace = true

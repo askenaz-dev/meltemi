@@ -18,6 +18,9 @@
   import Project from "./lib/views/Project.svelte";
   import Permissions from "./lib/views/Permissions.svelte";
   import Fleet from "./lib/views/Fleet.svelte";
+  import Editor from "./lib/views/Editor.svelte";
+  import Review from "./lib/views/Review.svelte";
+  import { projectRoot } from "./lib/stores";
   import Palette from "./lib/components/Palette.svelte";
   import Onboarding from "./lib/components/Onboarding.svelte";
   import { get } from "svelte/store";
@@ -29,7 +32,22 @@
   let paletteOpen = $state(false);
   let onboardingOpen = $state(false);
 
+  /** The utilitarian editor, over the project root or a managed worktree. */
+  let editorContext: {
+    root: string;
+    target: { change: string; task: string; agent: string } | null;
+    initialFile: string | null;
+  } | null = $state(null);
+  let reviewOpen = $state(false);
+
   const overlayOpen = $derived(paletteOpen || onboardingOpen);
+
+  function openProjectEditor() {
+    const root = $projectRoot;
+    if (root) {
+      editorContext = { root, target: null, initialFile: null };
+    }
+  }
 
   onMount(() => {
     const cleanups: Promise<() => void>[] = [];
@@ -57,6 +75,8 @@
   function navigate(target: ViewId) {
     view = target;
     detailSession = null;
+    editorContext = null;
+    reviewOpen = false;
   }
 
   function isTextEntry(target: EventTarget | null): boolean {
@@ -95,8 +115,14 @@
       onboardingOpen = true;
       return;
     }
-    if (event.key === "Escape" && detailSession) {
-      detailSession = null;
+    if (event.key === "Escape") {
+      if (editorContext) {
+        editorContext = null;
+      } else if (reviewOpen) {
+        reviewOpen = false;
+      } else if (detailSession) {
+        detailSession = null;
+      }
     }
   }
 </script>
@@ -157,6 +183,28 @@
       <span aria-hidden="true">›</span>
       <code>{detailSession.slice(0, 8)}</code>
     </div>
+  {:else if editorContext}
+    <div class="breadcrumb" aria-label={$t("nav.breadcrumb")}>
+      <button class="link" onclick={() => (editorContext = null)}>
+        {$t("nav.project")}
+      </button>
+      <span aria-hidden="true">›</span>
+      <span>{$t("editor.title")}</span>
+      {#if editorContext.target}
+        <code>
+          {editorContext.target.change}/{editorContext.target.task}-{editorContext
+            .target.agent}
+        </code>
+      {/if}
+    </div>
+  {:else if reviewOpen}
+    <div class="breadcrumb" aria-label={$t("nav.breadcrumb")}>
+      <button class="link" onclick={() => (reviewOpen = false)}>
+        {$t("nav.project")}
+      </button>
+      <span aria-hidden="true">›</span>
+      <span>{$t("review.title")}</span>
+    </div>
   {/if}
 
   <!-- Signal priority: daemon down outranks everything (assertive). -->
@@ -184,7 +232,27 @@
   {/if}
 
   <main>
-    {#if detailSession}
+    {#if editorContext}
+      {#key editorContext.root}
+        <Editor
+          root={editorContext.root}
+          target={editorContext.target}
+          initialFile={editorContext.initialFile}
+          onBack={() => (editorContext = null)}
+        />
+      {/key}
+    {:else if reviewOpen && $projectRoot}
+      <Review
+        root={$projectRoot}
+        onEditWorktree={(worktreePath, target, file) =>
+          (editorContext = {
+            root: worktreePath,
+            target,
+            initialFile: file ?? null,
+          })}
+        onBack={() => (reviewOpen = false)}
+      />
+    {:else if detailSession}
       <SessionDetail
         sessionId={detailSession}
         onBack={() => (detailSession = null)}
@@ -195,7 +263,10 @@
         onNavigate={navigate}
       />
     {:else if view === "project"}
-      <Project />
+      <Project
+        onOpenEditor={openProjectEditor}
+        onOpenReview={() => (reviewOpen = true)}
+      />
     {:else if view === "permissions"}
       <Permissions />
     {:else}
