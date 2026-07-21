@@ -118,6 +118,9 @@ pub enum BridgeCommand {
         params: Value,
         reply: oneshot::Sender<Result<Value, BridgeError>>,
     },
+    /// Fire-and-forget notification (e.g. `session/cancel`). Lost while
+    /// disconnected — there is nothing meaningful to notify then.
+    Notify { method: String, params: Value },
 }
 
 /// Runs the bridge until the host drops its command sender.
@@ -216,6 +219,9 @@ async fn serve_connection(
                         let _ = reply.send(result);
                     });
                 }
+                Some(BridgeCommand::Notify { method, params }) => {
+                    peer.notify(&method, &params);
+                }
             },
             _ = ticker.tick() => push_status(&peer, events, endpoint).await,
         }
@@ -239,6 +245,7 @@ async fn drain_or_stop(
                 Some(BridgeCommand::Request { reply, .. }) => {
                     let _ = reply.send(Err(BridgeError::unreachable(detail)));
                 }
+                Some(BridgeCommand::Notify { .. }) => {}
             },
         }
     }

@@ -40,6 +40,50 @@ async fn daemon_request(
         .map_err(|_| BridgeError::unreachable("bridge stopped"))?
 }
 
+/// Fire-and-forget notification passthrough (e.g. `session/cancel`).
+#[tauri::command]
+fn daemon_notify(
+    state: tauri::State<'_, BridgeHandle>,
+    method: String,
+    params: Option<Value>,
+) -> Result<(), BridgeError> {
+    state
+        .0
+        .send(BridgeCommand::Notify {
+            method,
+            params: params.unwrap_or_else(|| json!({})),
+        })
+        .map_err(|_| BridgeError::unreachable("bridge stopped"))
+}
+
+/// The project scope of this process, like the TUI: its working directory.
+#[tauri::command]
+fn project_root() -> Option<String> {
+    std::env::current_dir()
+        .ok()
+        .map(|root| root.display().to_string())
+}
+
+/// First-use flag, persisted in the user's data directory (gui-shell
+/// "Onboarding de primer uso"): no account, no network, no telemetry.
+fn onboarding_flag() -> std::path::PathBuf {
+    meltemi_client::paths::data_dir().join("desktop-onboarding-seen")
+}
+
+#[tauri::command]
+fn onboarding_seen() -> bool {
+    onboarding_flag().exists()
+}
+
+#[tauri::command]
+fn onboarding_mark_seen() {
+    let flag = onboarding_flag();
+    if let Some(parent) = flag.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(flag, b"seen\n");
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -69,7 +113,13 @@ pub fn run() {
             app.manage(BridgeHandle(command_tx));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![daemon_request])
+        .invoke_handler(tauri::generate_handler![
+            daemon_request,
+            daemon_notify,
+            project_root,
+            onboarding_seen,
+            onboarding_mark_seen
+        ])
         .run(tauri::generate_context!())
         .expect("error while running the Meltemi desktop client");
 }
