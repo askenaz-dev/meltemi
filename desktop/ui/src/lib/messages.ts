@@ -99,6 +99,7 @@ const es = {
   "permissions.timeout.notice":
     "permiso vencido: denegado por plazo (sesión {session}, operación {tool})",
   "permissions.decided": "decisión enviada",
+  "permissions.persistRule": "guardar la regla sugerida al decidir",
 
   "fleet.title": "Flota",
   "fleet.col.agent": "Agente",
@@ -290,6 +291,7 @@ const en: Record<MessageKey, string> = {
   "permissions.timeout.notice":
     "permission expired: denied on deadline (session {session}, operation {tool})",
   "permissions.decided": "decision sent",
+  "permissions.persistRule": "save the suggested rule when deciding",
 
   "fleet.title": "Fleet",
   "fleet.col.agent": "Agent",

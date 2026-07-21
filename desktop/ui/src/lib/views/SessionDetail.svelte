@@ -28,10 +28,28 @@
   let wasStreaming = false;
   let wasUnreachable = false;
 
+  function payloadText(payload: unknown): string {
+    if (!payload || typeof payload !== "object") return "";
+    const record = payload as Record<string, unknown>;
+    for (const key of ["text", "message", "instruction", "title", "detail"]) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) {
+        const flat = value.replaceAll(/\s+/g, " ").trim();
+        return flat.length > 160 ? `${flat.slice(0, 160)}…` : flat;
+      }
+    }
+    return "";
+  }
+
   function summarize(raw: string): string {
     try {
-      const event = JSON.parse(raw) as { ts?: string; type?: string };
-      return `${event.ts ?? ""}  ${event.type ?? "event"}`;
+      const event = JSON.parse(raw) as {
+        ts?: string;
+        type?: string;
+        payload?: unknown;
+      };
+      const text = payloadText(event.payload);
+      return `${event.ts ?? ""}  ${event.type ?? "event"}${text ? "  " + text : ""}`;
     } catch {
       return raw;
     }
@@ -70,7 +88,12 @@
     return onSessionEvent((message) => {
       if (message.sessionId !== sessionId) return;
       wasStreaming = true;
-      append(`${new Date().toISOString().slice(0, 19)}  ${message.event.type}`);
+      const text = payloadText(
+        (message.event as { payload?: unknown }).payload,
+      );
+      append(
+        `${new Date().toISOString().slice(0, 19)}  ${message.event.type}${text ? "  " + text : ""}`,
+      );
     });
   });
 

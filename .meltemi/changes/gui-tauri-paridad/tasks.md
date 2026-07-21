@@ -17,9 +17,9 @@
 
 ## 3. Permisos, sesiones y flota
 
-- [ ] 3.1 Bandeja de permisos + indicador símbolo/contador/palabra + prioridad de señales + avisos de vencimiento persistentes _(Req: Bandeja de permisos y prioridad de señales)_
-- [ ] 3.2 Transcript de sesión en streaming con congelado y marca de corte en caída + reconexión honesta _(Req: Desconexión ruidosa y streaming honesto)_
-- [ ] 3.3 Panel de flota con perfiles, detección y niveles de integración _(Req: Paridad de vistas)_
+- [x] 3.1 Bandeja de permisos + indicador símbolo/contador/palabra + prioridad de señales + avisos de vencimiento persistentes _(Req: Bandeja de permisos y prioridad de señales)_
+- [x] 3.2 Transcript de sesión en streaming con congelado y marca de corte en caída + reconexión honesta _(Req: Desconexión ruidosa y streaming honesto)_
+- [x] 3.3 Panel de flota con perfiles, detección y niveles de integración _(Req: Paridad de vistas)_
 
 ## 4. Specs y diffs
 

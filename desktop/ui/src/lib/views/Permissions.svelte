@@ -2,8 +2,15 @@
 <script lang="ts">
   import { request } from "../daemon";
   import { t } from "../i18n";
-  import { pending, pushNotice, refreshPending } from "../stores";
+  import {
+    pending,
+    pushNotice,
+    refreshPending,
+    type PermissionRule,
+  } from "../stores";
   import EmptyState from "../components/EmptyState.svelte";
+
+  let persistRules: Record<string, boolean> = $state({});
 
   $effect(() => {
     void refreshPending().catch(() => {});
@@ -13,9 +20,22 @@
     return () => clearInterval(timer);
   });
 
-  async function decide(requestId: string, optionId: string) {
+  function ruleLabel(rule: PermissionRule): string {
+    const match = rule.tool ?? rule.commandPrefix ?? rule.pathPrefix ?? "*";
+    return `${rule.effect}: ${match}`;
+  }
+
+  async function decide(
+    requestId: string,
+    optionId: string,
+    persistRule?: PermissionRule,
+  ) {
     try {
-      await request("permission/decide", { requestId, optionId });
+      await request("permission/decide", {
+        requestId,
+        optionId,
+        persistRule,
+      });
       pushNotice($t("permissions.decided"), "info");
     } catch (raw) {
       const e = raw as { message?: string };
@@ -51,13 +71,25 @@
           {$t("permissions.waitingFor", { s: item.waitingSeconds })}
         </p>
         {#if !item.expired}
+          {#if item.suggestedRule}
+            <label class="rule">
+              <input type="checkbox" bind:checked={persistRules[item.requestId]} />
+              {$t("permissions.persistRule")}
+              <code>{ruleLabel(item.suggestedRule)}</code>
+            </label>
+          {/if}
           <div class="options">
             {#each item.options as option (option.optionId)}
               <button
                 data-autofocus={index === 0 ? "true" : undefined}
-                onclick={() => void decide(item.requestId, option.optionId)}
+                onclick={() =>
+                  void decide(
+                    item.requestId,
+                    option.optionId,
+                    persistRules[item.requestId] ? item.suggestedRule : undefined,
+                  )}
               >
-                {option.label ?? option.optionId}
+                {option.name}
               </button>
             {/each}
           </div>
@@ -104,6 +136,13 @@
   }
   .meta {
     margin: 0;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+  }
+  .rule {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
     color: var(--text-muted);
     font-size: 0.8125rem;
   }

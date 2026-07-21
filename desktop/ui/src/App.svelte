@@ -84,7 +84,11 @@
       return;
     }
     if (event.key === "a") {
+      // Jump to the tray AND focus a pending request (tui-shell parity).
       navigate("permissions");
+      setTimeout(() => {
+        document.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+      }, 50);
       return;
     }
     if (event.key === "?") {

@@ -28,15 +28,24 @@ export interface SessionInfo {
   resumable: boolean;
 }
 
+export interface PermissionRule {
+  effect: string;
+  tool?: string;
+  commandPrefix?: string;
+  pathPrefix?: string;
+  scope: string;
+}
+
 export interface PendingPermission {
   requestId: string;
   sessionId: string;
   tool: string;
   summary: string;
-  options: { optionId: string; label?: string; kind?: string }[];
+  options: { optionId: string; name: string; kind?: string }[];
   waitingSeconds: number;
   expiresInSeconds: number;
   expired: boolean;
+  suggestedRule?: PermissionRule;
 }
 
 export interface FleetAgent {
