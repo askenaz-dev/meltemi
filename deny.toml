@@ -7,6 +7,34 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+# Informational "unmaintained" advisories carried by the Tauri 2 stack
+# (gui-tauri-paridad design D2). None is a vulnerability; each is transitive
+# under tauri/wry/tao and goes away when upstream migrates. Revisited on every
+# tauri bump.
+ignore = [
+    # gtk-rs GTK3 bindings (Linux webview path): archived upstream; wry/tao
+    # still bind GTK3 until their GTK4 migration lands.
+    "RUSTSEC-2024-0411",
+    "RUSTSEC-2024-0412",
+    "RUSTSEC-2024-0413",
+    "RUSTSEC-2024-0414",
+    "RUSTSEC-2024-0415",
+    "RUSTSEC-2024-0416",
+    "RUSTSEC-2024-0417",
+    "RUSTSEC-2024-0418",
+    "RUSTSEC-2024-0419",
+    "RUSTSEC-2024-0420",
+    # proc-macro-error: unmaintained, transitive of the gtk3 macro stack.
+    "RUSTSEC-2024-0370",
+    # paste: unmaintained macro helper, transitive of tauri's codegen.
+    "RUSTSEC-2024-0436",
+    # unic-*: unmaintained Unicode helpers, transitive of tauri's codegen.
+    "RUSTSEC-2025-0075",
+    "RUSTSEC-2025-0080",
+    "RUSTSEC-2025-0081",
+    "RUSTSEC-2025-0098",
+    "RUSTSEC-2025-0100",
+]
 
 [licenses]
 allow = [
@@ -27,6 +55,9 @@ confidence-threshold = 0.9
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Workspace path dependencies (private crates) carry no version by design;
+# every external dependency stays pinned exactly.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

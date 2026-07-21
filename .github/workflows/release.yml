@@ -12,6 +12,9 @@ env:
   RUST_BACKTRACE: "1"
   # Performance budget (constitution §12): the TUI binary stays under 25 MB.
   MELTEMI_TUI_BUDGET_BYTES: "26214400"
+  # GUI installer budget (gui-tauri-paridad; foundational §12): under 15 MB
+  # per platform — the OS webview is used or bootstrapped, never embedded.
+  MELTEMI_GUI_INSTALLER_BUDGET_BYTES: "15728640"
 
 jobs:
   gates:
@@ -125,3 +128,71 @@ jobs:
         with:
           name: meltemi-${{ runner.os }}
           path: dist/
+
+  package-gui:
+    name: GUI installers (${{ matrix.os }})
+    needs: [gates, deny]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Desktop system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl \
+            wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/ui/package-lock.json
+      - name: Desktop frontend install (locked)
+        run: npm ci --prefix desktop/ui
+      # tauri build compiles the release binary and emits the per-platform
+      # installers (MSI on Windows, DMG on macOS, AppImage+deb on Linux). The
+      # webview is the OS's own (bootstrapped on Windows), never embedded.
+      - name: Build GUI installers
+        shell: bash
+        # The tauri binary is called directly (not through `npm run`): nested
+        # npm invocations pollute the hook's environment and cwd.
+        run: cd desktop && ui/node_modules/.bin/tauri build
+      # Budget gate (blocking): every installer stays under 15 MB.
+      - name: GUI installer size budget
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          found=0
+          for installer in target/release/bundle/**/*.{msi,dmg,AppImage,deb}; do
+            found=1
+            size=$(wc -c < "$installer")
+            echo "$installer is $size bytes (budget ${MELTEMI_GUI_INSTALLER_BUDGET_BYTES})"
+            if [ "$size" -gt "${MELTEMI_GUI_INSTALLER_BUDGET_BYTES}" ]; then
+              echo "::error::GUI installer exceeds its budget; aborting release"
+              exit 1
+            fi
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::error::no GUI installer was produced"
+            exit 1
+          fi
+      - name: Collect and checksum
+        shell: bash
+        run: |
+          mkdir -p dist-gui
+          shopt -s globstar nullglob
+          cp target/release/bundle/**/*.{msi,dmg,AppImage,deb} dist-gui/ 2>/dev/null || true
+          cd dist-gui
+          # Signed with the same custody as every release artifact: the
+          # detached signature of SHA256SUMS is produced with the maintainer's
+          # key outside this file (docs/release.md).
+          if command -v sha256sum >/dev/null; then sha256sum * > SHA256SUMS; else shasum -a 256 * > SHA256SUMS; fi
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meltemi-gui-${{ runner.os }}
+          path: dist-gui/

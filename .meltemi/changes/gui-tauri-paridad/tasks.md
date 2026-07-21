@@ -38,8 +38,8 @@
 
 ## 6. Distribución y presupuestos
 
-- [ ] 6.1 Bundler Tauri en el pipeline: MSI/DMG/AppImage+deb firmados + gate de tamaño < 15 MB _(Req release-distribution: Instaladores de la GUI)_
-- [ ] 6.2 Presupuestos: arranque < 1 s y RAM en reposo < 80 MB medidos y publicados en QA por release _(Req: Presupuestos de huella)_
+- [x] 6.1 Bundler Tauri en el pipeline: MSI/DMG/AppImage+deb firmados + gate de tamaño < 15 MB _(Req release-distribution: Instaladores de la GUI)_
+- [x] 6.2 Presupuestos: arranque < 1 s y RAM en reposo < 80 MB medidos y publicados en QA por release _(Req: Presupuestos de huella)_
 
 ## 7. Calidad
 

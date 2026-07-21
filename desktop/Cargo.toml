@@ -29,7 +29,16 @@ meltemi-proto.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+    "net",
+    "io-util",
+    # The BYO-LSP hub spawns the user's language servers.
+    "process",
+] }
 
 [dev-dependencies]
 # The bridge tests spawn an in-process daemon over the real transport, the

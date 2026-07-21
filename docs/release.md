@@ -15,7 +15,11 @@ Each release publishes, per supported platform (see
 the `meltemid` daemon, plus:
 
 - a `SHA256SUMS` file with the checksum of every archive;
-- a detached signature for the checksums file.
+- a detached signature for the checksums file;
+- the **desktop client installer** (gui-tauri-paridad): MSI on Windows, DMG on
+  macOS, AppImage and deb on Linux, with its own `SHA256SUMS` under the same
+  signing custody. The installer bundles no webview: it uses the OS engine
+  (bootstrapping WebView2 on Windows when missing).
 
 ## Verifying a download
 
@@ -58,9 +62,12 @@ the `mel` alias) is documented in each script's header as the equivalent path.
 The release pipeline (`.github/workflows/release.yml`) is triggered by a `vX.Y.Z`
 tag and runs on Windows, macOS, and Linux with **hard gates**: the full test
 suite, `cargo clippy -- -D warnings`, `cargo fmt --check`, `cargo deny`, and the
-**performance budgets** (constitution §12) — including the TUI binary staying
-under **25 MB**. Any red gate aborts the release and **no artifact is
-published**.
+**performance budgets** (constitution §12) — the TUI binary staying under
+**25 MB** and every GUI installer under **15 MB**. Any red gate aborts the
+release and **no artifact is published**. The GUI's runtime budgets (startup
+under 1 s, idle memory under 80 MB) are measured per release and published in
+`docs/qa/` — honest measurements, not blocking CI gates, because they depend
+on the OS webview.
 
 ## Crate namespaces
 
@@ -79,6 +86,8 @@ instaladores (`scripts/install.sh`, `scripts/install.ps1`) lo hacen por él, son
 legibles y con hash publicado, e instalan los binarios y el alias `mel`. La
 custodia de la clave es del mantenedor (documentada, nunca en el repo). El
 pipeline de release corre las tres plataformas con gates duros —suite, clippy,
-fmt, cargo-deny y presupuestos §12 (TUI < 25 MB)— y aborta sin publicar ante
-cualquier rojo. Los crates `meltemi`/`meltemid`/`meltemi-proto` reservan el
-namespace.
+fmt, cargo-deny y presupuestos §12 (TUI < 25 MB; instalador GUI < 15 MB)— y
+aborta sin publicar ante cualquier rojo. La GUI se publica como instalador por
+plataforma (MSI/DMG/AppImage+deb) bajo la misma custodia de firmas; sus
+presupuestos de arranque y memoria se miden y publican en `docs/qa/` por
+release. Los crates `meltemi`/`meltemid`/`meltemi-proto` reservan el namespace.
