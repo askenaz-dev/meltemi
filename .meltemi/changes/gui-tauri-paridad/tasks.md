@@ -11,7 +11,7 @@
 - [ ] 2.1 Chrome + vistas Sesiones/Proyecto/Permisos/Flota + drill-in con breadcrumb + estados vacíos honestos (incl. sin proyecto) _(Req: Paridad de vistas y modelo de navegación)_
 - [ ] 2.2 Paleta de comandos con registro tipado de métodos RPC y autocompletado _(Req: Paleta y registro obligatorio)_
 - [ ] 2.3 `docs/paridad-nucleo.md` + check de CI contra `proto/schemas/v1/` que cubre los registros de TUI y GUI _(Req: Matriz de paridad; design D3)_
-- [ ] 2.4 i18n: catálogo ES/EN con override de idioma + lint anti-hardcodeo en la webview _(Req: Internacionalización ES/EN; design D6)_
+- [x] 2.4 i18n: catálogo ES/EN con override de idioma + lint anti-hardcodeo en la webview _(Req: Internacionalización ES/EN; design D6)_
 - [ ] 2.5 Accesibilidad base: operación 100% teclado, roles/etiquetas del árbol accesible, símbolo+palabra, alto contraste y movimiento reducido _(Req: Accesibilidad)_
 - [ ] 2.6 Onboarding de primer uso con flag persistente, sin cuenta/red/telemetría _(Req: Onboarding)_
 

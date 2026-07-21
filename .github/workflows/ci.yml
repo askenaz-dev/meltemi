@@ -54,6 +54,10 @@ jobs:
       - name: Desktop frontend check
         run: npm run check --prefix desktop/ui
 
+      # Every visible string routes through the ES/EN catalog (§11).
+      - name: Desktop i18n lint
+        run: npm run lint:i18n --prefix desktop/ui
+
       # tauri::generate_context! embeds ui/dist at compile time, so the
       # frontend build precedes every cargo gate that compiles desktop/.
       - name: Desktop frontend build
