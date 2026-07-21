@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "meltemi-desktop"
+description = "Meltemi desktop client: a thin Tauri surface over the meltemid daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "meltemi_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "meltemi-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+meltemi-client.workspace = true
+meltemi-proto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }

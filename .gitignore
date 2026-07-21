@@ -2,6 +2,11 @@
 /target/
 **/*.rs.bk
 
+# Desktop frontend
+/desktop/ui/node_modules/
+/desktop/ui/dist/
+/desktop/gen/
+
 # IDE / editor
 .idea/
 .vscode/

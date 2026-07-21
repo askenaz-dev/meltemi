@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimal deny-by-default surface: the webview may only use core window/event/webview IPC. No fs, no shell, no network plugins — the Rust side owns the daemon connection.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -6,6 +6,7 @@ members = [
     "core/meltemi-spec",
     "core/mock-agent",
     "core/mock-headless",
+    "desktop",
     "proto/meltemi-proto",
     "tui",
 ]
@@ -47,6 +48,11 @@ libc = "=0.2.186"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 sha2 = "=0.11.0"
+# Desktop client shell (gui-tauri-paridad design D1/D2): native-webview app
+# frame with deny-by-default capabilities; the webview never opens sockets —
+# the Rust side owns the daemon connection via meltemi-client.
+tauri = "=2.11.5"
+tauri-build = "=2.6.3"
 thiserror = "=2.0.18"
 tokio = "=1.52.3"
 toml = "=1.1.2"
