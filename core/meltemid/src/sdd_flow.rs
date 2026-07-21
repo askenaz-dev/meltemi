@@ -461,7 +461,7 @@ async fn run_turn(
         .set_state(&session_id, SessionState::Active)
         .await;
 
-    let edit_scope = state.edits.enter(&project_root, &session_id, log.clone());
+    let edit_scope = state.edits.enter(project_root, &session_id, log.clone());
     let outcome = acp::run_session(SessionParams {
         agent_command,
         project_root: project_root.to_path_buf(),
