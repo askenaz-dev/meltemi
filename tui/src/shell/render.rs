@@ -1394,7 +1394,9 @@ mod tests {
         // Scenario: Capacidad sin vista dedicada alcanzable por la paleta.
         let mut s = ShellState::new();
         s.reduce(crate::shell::keymap::Action::OpenPalette);
-        let out = draw(&s, &LiveData::new(), &ctx(default_present()), 80, 24);
+        // The registry now spans every contract method (paridad D3): render
+        // tall enough that the full list fits.
+        let out = draw(&s, &LiveData::new(), &ctx(default_present()), 80, 48);
         assert!(out.contains("status"), "operational commands are listed");
         assert!(out.contains("archive"), "reserved SDD verbs are listed");
         assert!(
