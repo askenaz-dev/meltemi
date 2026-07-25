@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/project-list.schema.json",
+  "title": "project/list",
+  "description": "The projects this user has pointed Meltemi at, most recently seen first. Read-only catalog fed by real use; nothing is discovered by walking the disk.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "properties": {
+        "existingOnly": {
+          "type": "boolean"
+        }
+      }
+    },
+    "projectInfo": {
+      "type": "object",
+      "required": [
+        "projectKey",
+        "root",
+        "exists",
+        "firstSeenAt",
+        "lastSeenAt",
+        "sessionsTotal",
+        "resumableSessions"
+      ],
+      "properties": {
+        "projectKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "firstSeenAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lastSeenAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sessionsTotal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resumableSessions": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "projects"
+      ],
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectInfo"
+          }
+        }
+      }
+    }
+  }
+}

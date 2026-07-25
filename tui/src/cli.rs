@@ -55,6 +55,7 @@ SUBCOMMANDS:
     verify <change>     the per-requirement verification checklist of a change
     archive <change> [confirm]
                         fold a verified change's deltas into the living truth
+    projects            list the projects Meltemi has been pointed at
     changes             list changes (active and archived) with their state
     show <change>       show a change: its artifacts and per-capability deltas
     specs [capability]  list living-truth capabilities, or show one
@@ -125,6 +126,8 @@ pub enum Command {
     Review { change: String },
     /// List the worktrees the daemon manages (`worktree/list`).
     Worktrees { project_root: Option<String> },
+    /// List the registered projects (`project/list`).
+    Projects,
     /// Assign a task to one or more agents in isolated worktrees from a common
     /// base (`worktree/assign`); more than one agent races them.
     Assign {
@@ -515,6 +518,8 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool) -> Action {
                 "`implement` requires: meltemi implement <change> <agent> [plan]".into(),
             ),
         },
+        "projects" if rest.is_empty() => Action::Run(Command::Projects),
+        "projects" => Action::Usage("`projects` takes no arguments".into()),
         "changes" if rest.is_empty() => Action::Run(Command::Changes),
         "changes" => Action::Usage("`changes` takes no arguments".into()),
         "show" => match rest {

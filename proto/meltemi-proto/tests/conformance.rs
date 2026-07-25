@@ -404,6 +404,9 @@ fn session_list_and_log_conform() {
         started_at: "2026-07-11T12:00:00Z".into(),
         ended_at: Some("2026-07-11T12:05:00Z".into()),
         resumable: true,
+        // The additive resolution fields (multiproyecto-suscripciones D4).
+        agent_id: Some("opencode".into()),
+        profile: Some("work".into()),
     };
     assert_conforms("session-list", "sessionInfo", &info);
     // An interrupted session has no end and is not resumable.
@@ -707,6 +710,15 @@ fn session_events_conform() {
             binary: "native-agent".into(),
             source: FleetResolutionSource::Profile,
             profile: Some("work".into()),
+            agent_id: Some("claude-code".into()),
+            level: 1,
+        },
+        // The same agent under no profile: the id is still recorded.
+        SessionEventKind::AgentResolved {
+            binary: "native-agent".into(),
+            source: FleetResolutionSource::Catalog,
+            profile: None,
+            agent_id: Some("claude-code".into()),
             level: 1,
         },
         SessionEventKind::TaskStarted {
@@ -756,6 +768,55 @@ fn session_events_conform() {
                 text: "hello".into(),
             }),
         },
+    );
+}
+
+// The project registry catalog (multiproyecto-suscripciones D4).
+#[test]
+fn project_list_conforms() {
+    assert_conforms("project-list", "params", &ProjectListParams::default());
+    assert_conforms(
+        "project-list",
+        "params",
+        &ProjectListParams {
+            existing_only: Some(true),
+        },
+    );
+    let project = ProjectInfo {
+        project_key: "a1b2c3d4e5f60718".into(),
+        root: "C:\\repos\\fixture".into(),
+        exists: true,
+        first_seen_at: TS.into(),
+        last_seen_at: TS.into(),
+        sessions_total: 7,
+        resumable_sessions: 2,
+    };
+    assert_conforms("project-list", "projectInfo", &project);
+    // A vanished root is reported honestly, never dropped.
+    assert_conforms(
+        "project-list",
+        "projectInfo",
+        &ProjectInfo {
+            exists: false,
+            ..project.clone()
+        },
+    );
+    assert_conforms(
+        "project-list",
+        "result",
+        &ProjectListResult {
+            projects: vec![project],
+        },
+    );
+    assert_conforms(
+        "project-list",
+        "result",
+        &ProjectListResult { projects: vec![] },
+    );
+    assert_rejected(
+        "project-list",
+        "projectInfo",
+        &json!({ "projectKey": "", "root": "/r", "exists": true }),
     );
 }
 

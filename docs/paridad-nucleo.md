@@ -40,6 +40,7 @@ future change — never a silent omission.
 | `sdd/archive` | `archive` | `archive` | registry |
 | `sdd/implement` | `implement` | `implement` | registry |
 | `sdd/validate` | `validate` | `validate` | registry |
+| `project/list` | `projects` | `projects` | registry + project switcher |
 | `change/list` | `changes` | `changes` | registry + Project view |
 | `change/show` | `show` | `show` | registry |
 | `spec/list` | `specs` | `specs` | registry + Project view |

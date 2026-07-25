@@ -6,54 +6,111 @@
   "$defs": {
     "sessionState": {
       "type": "string",
-      "enum": ["starting", "active", "waiting_permission", "ended", "interrupted"]
+      "enum": [
+        "starting",
+        "active",
+        "waiting_permission",
+        "ended",
+        "interrupted"
+      ]
     },
     "turnStatus": {
       "type": "string",
-      "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"]
+      "enum": [
+        "completed",
+        "cancelled",
+        "refused",
+        "max_tokens",
+        "max_turn_requests"
+      ]
     },
     "params": {
       "type": "object",
       "properties": {
-        "projectRoot": { "type": "string", "minLength": 1 },
-        "state": { "$ref": "#/$defs/sessionState" },
-        "limit": { "type": "integer", "minimum": 0 }
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "$ref": "#/$defs/sessionState"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "sessionInfo": {
       "type": "object",
-      "required": ["sessionId", "agentCommand", "projectRoot", "state", "startedAt", "resumable"],
+      "required": [
+        "sessionId",
+        "agentCommand",
+        "projectRoot",
+        "state",
+        "startedAt",
+        "resumable"
+      ],
       "properties": {
-        "sessionId": { "type": "string", "minLength": 1 },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1
+        },
         "agentCommand": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "minItems": 1
         },
-        "projectRoot": { "type": "string", "minLength": 1 },
-        "state": { "$ref": "#/$defs/sessionState" },
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "$ref": "#/$defs/sessionState"
+        },
         "level": {
           "type": "integer",
           "minimum": 1,
           "maximum": 4,
           "description": "The integration level the session ran at."
         },
-        "finalStatus": { "$ref": "#/$defs/turnStatus" },
-        "startedAt": { "type": "string", "format": "date-time" },
-        "endedAt": { "type": "string", "format": "date-time" },
+        "finalStatus": {
+          "$ref": "#/$defs/turnStatus"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
         "resumable": {
           "type": "boolean",
           "description": "Whether the session can be resumed (agent announced session load and the agent session id is known)."
+        },
+        "agentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
     "result": {
       "type": "object",
-      "required": ["sessions"],
+      "required": [
+        "sessions"
+      ],
       "properties": {
         "sessions": {
           "type": "array",
-          "items": { "$ref": "#/$defs/sessionInfo" }
+          "items": {
+            "$ref": "#/$defs/sessionInfo"
+          }
         }
       }
     }

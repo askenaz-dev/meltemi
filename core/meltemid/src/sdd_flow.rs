@@ -444,6 +444,7 @@ async fn run_turn(
         .sessions
         .register(&session_id, agent_command.clone())
         .await;
+    crate::projects::touch(&state.data_dir, project_root);
     let mut log = SessionLog::create(
         &state.data_dir,
         &crate::paths::project_key(project_root),

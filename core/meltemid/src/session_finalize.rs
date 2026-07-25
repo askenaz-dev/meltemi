@@ -37,6 +37,10 @@ pub struct SessionContext<'a> {
     /// The original session, when this run resumed another; recorded on the end
     /// record so the resume chain stays auditable.
     pub resumed_from: Option<String>,
+    /// The catalog id and profile the agent resolved to, so the record states
+    /// which agent and which subscription ran (multiproyecto-suscripciones D4).
+    pub agent_id: Option<String>,
+    pub profile: Option<String>,
 }
 
 /// The pieces a caller reports after a finalized successful turn.
@@ -85,6 +89,8 @@ pub async fn finalize_ok(ctx: &SessionContext<'_>, outcome: SessionOutcome) -> F
             agent_session_id: outcome.agent_session_id.clone(),
             supports_load: outcome.supports_load,
             resumed_from: ctx.resumed_from.clone(),
+            agent_id: ctx.agent_id.clone(),
+            profile: ctx.profile.clone(),
         },
     );
     ctx.sessions.deregister(ctx.session_id).await;
@@ -129,6 +135,8 @@ pub async fn finalize_err(ctx: &SessionContext<'_>, kind: &str, detail: String) 
             agent_session_id: None,
             supports_load: false,
             resumed_from: ctx.resumed_from.clone(),
+            agent_id: ctx.agent_id.clone(),
+            profile: ctx.profile.clone(),
         },
     );
     ctx.sessions.deregister(ctx.session_id).await;

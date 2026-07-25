@@ -206,6 +206,9 @@ export const REGISTRY: RegistryEntry[] = [
     template: { projectRoot: "", change: "", agent: "" },
     injectRoot: "projectRoot",
   }),
+  R("project/list", "palette.m.project.list", {
+    view: "sessions",
+  }),
   R("change/list", "palette.m.change.list", {
     template: { projectRoot: "" },
     injectRoot: "projectRoot",

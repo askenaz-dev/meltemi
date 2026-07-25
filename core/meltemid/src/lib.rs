@@ -25,6 +25,7 @@ pub mod mcp;
 pub mod navigate;
 pub mod pending;
 pub mod permissions;
+pub mod projects;
 pub mod propose;
 pub mod repo_map;
 pub mod review;

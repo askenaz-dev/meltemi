@@ -79,6 +79,11 @@ pub struct ResolvedAgent {
     pub env: Vec<(String, String)>,
     pub source: meltemi_proto::FleetResolutionSource,
     pub profile: Option<String>,
+    /// The catalog id the name resolved to, when the resolution named one: a
+    /// profile's underlying agent, the matched id, or the configured id. `None`
+    /// only when the project configures a bare `agent.command`
+    /// (multiproyecto-suscripciones D4).
+    pub agent_id: Option<String>,
 }
 
 /// Resolves an agent named per session against the fleet, in order: a launch
@@ -118,6 +123,7 @@ pub fn resolve_fleet_agent(
             env,
             source: FleetResolutionSource::Profile,
             profile: Some(name.to_string()),
+            agent_id: Some(profile.agent.clone()),
         });
     }
 
@@ -129,6 +135,7 @@ pub fn resolve_fleet_agent(
             env: Vec::new(),
             source: FleetResolutionSource::Catalog,
             profile: None,
+            agent_id: Some(name.to_string()),
         });
     }
 
@@ -139,6 +146,8 @@ pub fn resolve_fleet_agent(
         env: Vec::new(),
         source: FleetResolutionSource::Configured,
         profile: None,
+        // The configured agent names an id unless the project pins a bare argv.
+        agent_id: config.agent_id.clone(),
     })
 }
 

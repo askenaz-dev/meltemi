@@ -275,6 +275,7 @@ async fn dispatch_request(
         methods::SPEC_LIST => crate::navigate::handle_spec_list(params).await,
         methods::SPEC_SHOW => crate::navigate::handle_spec_show(params).await,
         methods::SDD_VALIDATE => crate::navigate::handle_sdd_validate(params).await,
+        methods::PROJECT_LIST => crate::projects::handle_project_list(params, state),
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -622,6 +623,8 @@ async fn handle_worktree_dispatch(
         .register(&session_id, agent_command.clone())
         .await;
     let project_key = crate::paths::project_key(&root);
+    // The project registry is fed by real use only (multiproyecto D3).
+    crate::projects::touch(&state.data_dir, &root);
     let mut log =
         crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)
             .map_err(RpcError::internal)?;
@@ -634,6 +637,7 @@ async fn handle_worktree_dispatch(
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
+        agent_id: resolved.agent_id.clone(),
         level,
     });
     let log = std::sync::Arc::new(tokio::sync::Mutex::new(log));
@@ -1421,6 +1425,8 @@ async fn handle_sdd_implement(
         .register(&session_id, agent_command.clone())
         .await;
     let project_key = crate::paths::project_key(&root);
+    // The project registry is fed by real use only (multiproyecto D3).
+    crate::projects::touch(&state.data_dir, &root);
     let mut log =
         crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)
             .map_err(RpcError::internal)?;
@@ -1434,6 +1440,7 @@ async fn handle_sdd_implement(
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
+        agent_id: resolved.agent_id.clone(),
         level,
     });
     let log = std::sync::Arc::new(tokio::sync::Mutex::new(log));
@@ -1644,6 +1651,8 @@ async fn handle_session_list(params: Value, state: &Arc<DaemonState>) -> Result<
                 started_at: record.started_at.clone(),
                 ended_at: record.ended_at.clone(),
                 resumable: record.resumable(),
+                agent_id: record.agent_id.clone(),
+                profile: record.profile.clone(),
             });
         }
     }
@@ -1802,6 +1811,7 @@ async fn resume_with_instruction(
     let project_root = std::path::PathBuf::from(&record.project_root);
     let agent_command = record.agent_command.clone();
     let project_key = crate::paths::project_key(&project_root);
+    crate::projects::touch(&state.data_dir, &project_root);
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
@@ -1843,6 +1853,9 @@ async fn resume_with_instruction(
             agent_session_id: None,
             supports_load: false,
             resumed_from: Some(record.session_id.clone()),
+            // A resume runs the same agent and subscription it resumed.
+            agent_id: record.agent_id.clone(),
+            profile: record.profile.clone(),
         },
     );
 
@@ -1887,6 +1900,8 @@ async fn resume_with_instruction(
         level: record.level,
         started_at: &started_at,
         resumed_from: Some(record.session_id.clone()),
+        agent_id: record.agent_id.clone(),
+        profile: record.profile.clone(),
     };
     match outcome {
         Ok(session_outcome) => {

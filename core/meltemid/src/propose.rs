@@ -115,6 +115,8 @@ pub async fn handle_propose(
         .register(&session_id, agent_command.clone())
         .await;
     let project_key = paths::project_key(&project_root);
+    // The project registry is fed by real use only (multiproyecto D3).
+    crate::projects::touch(&state.data_dir, &project_root);
     let mut log = SessionLog::create(&state.data_dir, &project_key, &session_id)
         .map_err(RpcError::internal)?;
     let _ = log.append(SessionEventKind::SessionStarted {
@@ -152,6 +154,9 @@ pub async fn handle_propose(
             agent_session_id: None,
             supports_load: false,
             resumed_from: None,
+            // The SDD flow runs the project-configured agent, never a profile.
+            agent_id: config.agent_id.clone(),
+            profile: None,
         },
     );
 
@@ -221,6 +226,8 @@ pub async fn handle_propose(
         level,
         started_at: &started_at,
         resumed_from: None,
+        agent_id: config.agent_id.clone(),
+        profile: None,
     };
     let result = match outcome {
         Ok(session_outcome) => {

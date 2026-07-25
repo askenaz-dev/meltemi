@@ -51,6 +51,7 @@ SUBCOMMANDS:
     verify <change>     the per-requirement verification checklist of a change
     archive <change> [confirm]
                         fold a verified change's deltas into the living truth
+    projects            list the projects Meltemi has been pointed at
     changes             list changes (active and archived) with their state
     show <change>       show a change: its artifacts and per-capability deltas
     specs [capability]  list living-truth capabilities, or show one

@@ -98,6 +98,7 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             agent,
             plan_only,
         } => implement(change, agent, plan_only, endpoint).await,
+        Command::Projects => projects(endpoint).await,
         Command::Changes => changes(endpoint).await,
         Command::Show { change } => show(change, endpoint).await,
         Command::Specs { capability } => specs(capability, endpoint).await,
@@ -755,6 +756,45 @@ fn render_apply_edit(result: &WorktreeApplyEditResult) -> String {
         "wrote {} ({} bytes) — tree {}; human_edit -> {}",
         result.file, result.bytes_written, state, destination
     )
+}
+
+/// `projects`: the repositories this user has pointed Meltemi at, most
+/// recently seen first — the catalog the surfaces build their tree from.
+async fn projects(endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::PROJECT_LIST,
+            &meltemi_proto::ProjectListParams::default(),
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: meltemi_proto::ProjectListResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_projects(&result),
+        json: value,
+    })
+}
+
+fn render_projects(result: &meltemi_proto::ProjectListResult) -> String {
+    use std::fmt::Write;
+    if result.projects.is_empty() {
+        return "no projects recorded yet — run a session in a repository".into();
+    }
+    let mut out = format!("{} project(s), most recent first", result.projects.len());
+    for project in &result.projects {
+        let mark = if project.exists { "present" } else { "missing" };
+        let _ = write!(
+            out,
+            "\n  {mark:<8} {:>3} session(s), {:>2} resumable  {}",
+            project.sessions_total, project.resumable_sessions, project.root
+        );
+    }
+    out
 }
 
 async fn changes(endpoint: &str) -> Result<Outcome, CliError> {

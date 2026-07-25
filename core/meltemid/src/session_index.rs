@@ -43,6 +43,14 @@ pub struct SessionRecord {
     /// When this session resumed another, the original session id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resumed_from: Option<String>,
+    /// The catalog id the agent resolved to, when the resolution named one
+    /// (multiproyecto-suscripciones design D4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// The launch profile — the subscription — the session ran under: the NAME
+    /// only, never its env overlay (§2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 /// Serde default for the level field (level 1).
@@ -135,6 +143,13 @@ fn merge_into(folded: &mut BTreeMap<String, SessionRecord>, record: SessionRecor
             if record.resumed_from.is_some() {
                 existing.resumed_from = record.resumed_from;
             }
+            // A known resolution is never clobbered by a record that omits it.
+            if record.agent_id.is_some() {
+                existing.agent_id = record.agent_id;
+            }
+            if record.profile.is_some() {
+                existing.profile = record.profile;
+            }
         }
     }
 }
@@ -169,6 +184,8 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
     let mut started_at = None;
     let mut ended_at = None;
     let mut final_status = None;
+    let mut agent_id = None;
+    let mut profile = None;
 
     for line in contents.lines().filter(|l| !l.trim().is_empty()) {
         let Ok(event) = serde_json::from_str::<SessionEvent>(line) else {
@@ -185,6 +202,16 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
             } => {
                 agent_command = cmd;
                 project_root = root;
+            }
+            // The resolution event is what makes agent and subscription
+            // recoverable without the index (multiproyecto-suscripciones D2).
+            SessionEventKind::AgentResolved {
+                agent_id: id,
+                profile: prof,
+                ..
+            } => {
+                agent_id = id;
+                profile = prof;
             }
             SessionEventKind::TurnCompleted { stop_reason } => final_status = Some(stop_reason),
             SessionEventKind::SessionEnded { .. } => ended_at = Some(event.ts.clone()),
@@ -212,6 +239,10 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
         agent_session_id: None,
         supports_load: false,
         resumed_from: None,
+        // Agent and subscription come from the resolution event when the log
+        // recorded one; a log without it states nothing rather than guessing.
+        agent_id,
+        profile,
     })
 }
 
@@ -250,6 +281,8 @@ mod tests {
             agent_session_id: None,
             supports_load: false,
             resumed_from: None,
+            agent_id: None,
+            profile: None,
         }
     }
 
@@ -350,6 +383,90 @@ mod tests {
         let records = records_for_project(&data, "k");
         assert_eq!(records.len(), 1);
         assert!(records[0].ended_at.is_none(), "no recorded end");
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    #[test]
+    fn the_resolution_event_repopulates_agent_and_subscription() {
+        // Scenario: Reconstruccion del agente y la suscripcion desde el log.
+        let data = temp("resolution");
+        let dir = sessions_dir(&data, "k");
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = format!(
+            "{}
+{}
+",
+            event_line(
+                "session_started",
+                "2026-07-11T10:00:00Z",
+                r#""sessionId":"s3","agentCommand":["claude"],"projectRoot":"/repo""#
+            ),
+            event_line(
+                "agent_resolved",
+                "2026-07-11T10:00:01Z",
+                r#""binary":"claude","source":"profile","profile":"work","agentId":"claude-code","level":1"#
+            ),
+        );
+        std::fs::write(dir.join("s3.jsonl"), log).unwrap();
+
+        let records = records_for_project(&data, "k");
+        assert_eq!(records[0].agent_id.as_deref(), Some("claude-code"));
+        assert_eq!(records[0].profile.as_deref(), Some("work"));
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    #[test]
+    fn a_record_written_before_the_resolution_fields_still_reads() {
+        // Older index lines have neither agentId nor profile: the defaults keep
+        // them readable instead of dropping the whole session.
+        let data = temp("compat");
+        let dir = sessions_dir(&data, "k");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("index.jsonl"),
+            concat!(
+                r#"{"sessionId":"s4","agentCommand":["mock-agent"],"#,
+                r#""projectRoot":"/repo","level":1,"#,
+                r#""startedAt":"2026-07-11T10:00:00Z"}"#,
+                "
+"
+            ),
+        )
+        .unwrap();
+        let records = records_for_project(&data, "k");
+        assert_eq!(records.len(), 1, "the pre-field record survives");
+        assert!(records[0].agent_id.is_none(), "unknown, not invented");
+        assert!(records[0].profile.is_none());
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    #[test]
+    fn the_fold_keeps_a_known_resolution_over_a_record_that_omits_it() {
+        let data = temp("keep-resolution");
+        append(
+            &data,
+            "k",
+            &SessionRecord {
+                agent_id: Some("claude-code".into()),
+                profile: Some("work".into()),
+                ..started("s5", "2026-07-11T10:00:00Z")
+            },
+        )
+        .unwrap();
+        // An end record from a path that does not know the resolution.
+        append(
+            &data,
+            "k",
+            &SessionRecord {
+                ended_at: Some("2026-07-11T10:05:00Z".into()),
+                final_status: Some(TurnStatus::Completed),
+                ..started("s5", "2026-07-11T10:00:00Z")
+            },
+        )
+        .unwrap();
+        let records = records_for_project(&data, "k");
+        assert_eq!(records[0].agent_id.as_deref(), Some("claude-code"));
+        assert_eq!(records[0].profile.as_deref(), Some("work"));
         std::fs::remove_dir_all(&data).ok();
     }
 

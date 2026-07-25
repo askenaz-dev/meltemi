@@ -124,6 +124,11 @@ pub mod methods {
     /// Request: validate a change (engine + dry-run merge) or the whole living
     /// truth, without archiving; findings are a result, not an error.
     pub const SDD_VALIDATE: &str = "sdd/validate";
+    /// Request: the projects this user has pointed Meltemi at, most recently
+    /// seen first — the catalog the surfaces build their project tree from
+    /// (multiproyecto-suscripciones). Read-only; nothing is discovered by
+    /// walking the disk.
+    pub const PROJECT_LIST: &str = "project/list";
 }
 
 /// Application error codes, outside the JSON-RPC reserved range and grouped
@@ -337,6 +342,14 @@ pub struct SessionInfo {
     /// Whether the session can be resumed (the agent announced session load
     /// and the agent session id is known).
     pub resumable: bool,
+    /// The catalog id the session's agent resolved to, when the resolution
+    /// named one (multiproyecto-suscripciones design D4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// The launch profile — the "subscription" — the session ran under. The
+    /// NAME only: no field ever carries the profile's env overlay (§2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 /// Result of `session/list`, most recent first.
@@ -412,6 +425,40 @@ pub enum FleetResolutionSource {
     Catalog,
     /// The project-configured agent (the free-label fallback).
     Configured,
+}
+
+/// Parameters of `project/list`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectListParams {
+    /// Keep only the projects whose root still exists on disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing_only: Option<bool>,
+}
+
+/// One registered project (multiproyecto-suscripciones design D4).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectInfo {
+    /// The stable key the daemon derives from the canonical root.
+    pub project_key: String,
+    /// Absolute repository root, as it was used.
+    pub root: String,
+    /// Whether that root still exists on this machine.
+    pub exists: bool,
+    pub first_seen_at: String,
+    pub last_seen_at: String,
+    /// Sessions recorded for this project (historical included).
+    pub sessions_total: u32,
+    /// How many of them can be resumed.
+    pub resumable_sessions: u32,
+}
+
+/// Result of `project/list`, most recently seen first.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectListResult {
+    pub projects: Vec<ProjectInfo>,
 }
 
 /// Which layer of an entry a detection result describes: the provider's own
@@ -1163,6 +1210,11 @@ pub enum SessionEventKind {
         /// The profile name, when resolved via a launch profile.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         profile: Option<String>,
+        /// The catalog id the name resolved to, when it named one — so a
+        /// rebuild from the log recovers which agent ran
+        /// (multiproyecto-suscripciones D5).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_id: Option<String>,
         /// The integration level of the resolved agent.
         level: u8,
     },

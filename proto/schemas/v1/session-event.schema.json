@@ -214,6 +214,7 @@
                 "binary": { "type": "string" },
                 "source": { "type": "string", "enum": ["profile", "catalog", "configured"] },
                 "profile": { "type": "string" },
+                "agentId": { "type": "string" },
                 "level": { "type": "integer", "minimum": 1, "maximum": 4 }
               }
             }
