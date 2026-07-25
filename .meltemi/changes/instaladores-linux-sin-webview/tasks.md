@@ -17,4 +17,4 @@
 
 ## 4. Medición
 
-- [ ] 4.1 Publicar en `docs/qa/` el tamaño del `.deb` medido en el runner, junto al MSI ya publicado; nada estimado
+- [x] 4.1 Publicar en `docs/qa/` el tamaño del `.deb` medido en el runner, junto al MSI ya publicado; nada estimado
