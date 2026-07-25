@@ -187,8 +187,11 @@ jobs:
       - name: Desktop frontend install (locked)
         run: npm ci --prefix desktop/ui
       # tauri build compiles the release binary and emits the per-platform
-      # installers (MSI on Windows, DMG on macOS, AppImage+deb on Linux). The
-      # webview is the OS's own (bootstrapped on Windows), never embedded.
+      # installers (MSI on Windows, DMG on macOS, deb on Linux). The webview is
+      # the OS's own — used, bootstrapped on Windows, or declared as a package
+      # dependency on Linux — and never embedded, which is why no self-contained
+      # format is built: an AppImage carries WebKitGTK and weighs ~79 MB
+      # (instaladores-linux-sin-webview D1).
       - name: Build GUI installers
         shell: bash
         # The tauri binary is called directly (not through `npm run`): nested
@@ -205,7 +208,7 @@ jobs:
           # start at column 0 and break this YAML block, and a pipe would put the
           # loop in a subshell where `found` never comes back.
           list=installers.list
-          find target/release/bundle -type f \( -name '*.msi' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) | sort > "$list"
+          find target/release/bundle -type f \( -name '*.msi' -o -name '*.dmg' -o -name '*.deb' \) | sort > "$list"
           found=0
           while IFS= read -r installer; do
             found=1
@@ -242,7 +245,6 @@ jobs:
               for f in target/release/bundle/dmg/*.dmg; do normalize "$f" "meltemi-desktop-macOS.dmg"; done
               ;;
             Linux)
-              for f in target/release/bundle/appimage/*.AppImage; do normalize "$f" "meltemi-desktop-Linux.AppImage"; done
               for f in target/release/bundle/deb/*.deb; do normalize "$f" "meltemi-desktop-Linux.deb"; done
               ;;
           esac
