@@ -91,6 +91,7 @@ fn the_tui_palette_registers_every_contract_method_and_nothing_else() {
 }
 
 // Scenario: Método sin casa rompe la CI
+// Scenario: Capacidad sin vista dedicada alcanzable
 #[test]
 fn the_gui_registry_registers_every_contract_method_and_nothing_else() {
     let contract = client_invocable();

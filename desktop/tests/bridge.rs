@@ -52,6 +52,7 @@ async fn request(
     response.await.expect("reply delivered")
 }
 
+// Scenario: Shell inmediato con conexión asíncrona
 #[tokio::test]
 async fn bridge_connects_initializes_and_serves_a_status_passthrough() {
     let (endpoint, _daemon) = spawn_daemon("bridge-status").await;
@@ -108,6 +109,7 @@ async fn a_contract_error_surfaces_kind_detail_and_remedy() {
     assert!(error.message.contains("method not found"));
 }
 
+// Scenario: Fallo de arranque diagnosticado
 #[tokio::test]
 async fn requests_while_unreachable_fail_fast_with_the_endpoint_diagnosed() {
     // No daemon here, and the spawn fast-fails: the actor stays in backoff.
