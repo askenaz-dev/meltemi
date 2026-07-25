@@ -62,8 +62,19 @@ mod imp {
         pub async fn bind(endpoint: &str) -> io::Result<Self> {
             let path = PathBuf::from(endpoint);
             if let Some(dir) = path.parent() {
+                // The directory is hardened to 0700 only when WE create it: the
+                // socket normally lives in the user's own runtime directory, but
+                // an endpoint can be pointed anywhere (a test, `MELTEMI_ENDPOINT`,
+                // a socket under `/tmp`). Chmod-ing a directory somebody else owns
+                // is either refused by the OS — which is how this surfaced, as
+                // `EPERM` on `/tmp` — or, worse, would lock other users out of a
+                // shared directory. The socket file itself is 0700 below, which is
+                // what actually keeps the endpoint private (§3).
+                let existed = dir.exists();
                 std::fs::create_dir_all(dir)?;
-                std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+                if !existed {
+                    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+                }
             }
             if path.exists() {
                 // Single instance: if something answers on the socket, a

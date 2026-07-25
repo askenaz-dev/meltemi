@@ -75,15 +75,27 @@ fn fixture(tag: &str) -> PathBuf {
             .exists(),
         "run `cargo test` at the workspace root"
     );
-    let mock_dir_toml = mock_dir.display().to_string().replace('\\', "/");
+    // A candidate path is a FILE: the binary itself, not the directory
+    // holding it. A directory candidate resolves to nothing on every
+    // platform — Windows only appeared to work because cargo puts the target
+    // dir on the test process's PATH there.
+    let mock_candidate = mock_dir
+        .join(if cfg!(windows) {
+            "mock-agent.exe"
+        } else {
+            "mock-agent"
+        })
+        .display()
+        .to_string()
+        .replace('\\', "/");
 
     // A local registry: two providers, both resolving to the mock binary.
     std::fs::write(
         root.join(".meltemi/registry.toml"),
         format!(
             "version = \"flota-e2e\"\n\
-             [[agents]]\nid = \"provider-a\"\nname = \"Provider A\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_dir_toml}']\n\n\
-             [[agents]]\nid = \"provider-b\"\nname = \"Provider B\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_dir_toml}']\n"
+             [[agents]]\nid = \"provider-a\"\nname = \"Provider A\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_candidate}']\n\n\
+             [[agents]]\nid = \"provider-b\"\nname = \"Provider B\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_candidate}']\n"
         ),
     )
     .unwrap();

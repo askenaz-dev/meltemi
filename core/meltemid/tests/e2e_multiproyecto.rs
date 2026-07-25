@@ -73,7 +73,8 @@ fn fixture(tag: &str, subscription: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join(".meltemi/changes/dark-mode")).unwrap();
 
-    let mock_dir = mock_agent_dir().display().to_string().replace('\\', "/");
+    // A candidate path is the binary FILE, not its directory (see e2e_flota).
+    let mock_candidate = mock_bin();
     assert!(
         std::path::Path::new(&mock_bin()).exists(),
         "run `cargo test` at the workspace root"
@@ -83,7 +84,7 @@ fn fixture(tag: &str, subscription: &str) -> PathBuf {
         format!(
             "version = \"multi-e2e\"\n\
              [[agents]]\nid = \"provider-a\"\nname = \"Provider A\"\nlevel = 1\n\
-             bin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_dir}']\n"
+             bin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_candidate}']\n"
         ),
     )
     .unwrap();

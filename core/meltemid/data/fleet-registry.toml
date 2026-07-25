@@ -21,8 +21,11 @@
 #                   Windows the executable extensions .exe/.cmd/.bat are
 #                   probed (npm shims), so names stay extension-less.
 #   acp-args        arguments that put the binary in ACP mode on stdio
-#   candidate-paths well-known install locations probed besides PATH
-#                   (`~/` expands to the user's home directory)
+#   candidate-paths well-known install locations probed besides PATH. Each entry
+#                   is the FULL PATH OF THE BINARY, not the directory holding it
+#                   (`~/.local/bin/claude`, never `~/.local/bin`): a directory
+#                   here detects nothing, silently. `~/` expands to the user's
+#                   home directory.
 #
 # For level-2 entries, `bin` names the ACP adapter binary — the entry point
 # meltemid can actually pilot today; the official CLI itself and the finer
