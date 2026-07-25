@@ -247,6 +247,59 @@ jobs:
           name: meltemi-gui-${{ runner.os }}
           path: dist-gui/
 
+  # Assembles the DRAFT release: every artifact of the six packaging jobs under
+  # ONE merged SHA256SUMS, so the stable-name URLs the site and the README
+  # promise (`releases/latest/download/<asset>`) have something to resolve to.
+  # It stays a draft on purpose: the maintainer downloads SHA256SUMS, signs it
+  # with the key CI never holds, uploads `SHA256SUMS.sig` and publishes
+  # (docs/release.md) — a red gate upstream means this job never runs and
+  # nothing is published, not even as a draft.
+  release:
+    name: draft release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [gates, deny, package, package-gui]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: collected
+      - name: Merge artifacts under one checksum file
+        shell: bash
+        # The per-OS SHA256SUMS are working files of their packaging jobs; the
+        # published truth is ONE file computed over the merged set (the installer
+        # scripts appear identically in all three core artifacts — first copy
+        # wins). Any name collision with DIFFERENT content is a packaging bug
+        # and must abort, not be papered over.
+        run: |
+          mkdir -p release-assets
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            if [ -e "release-assets/$name" ]; then
+              if ! cmp -s "$file" "release-assets/$name"; then
+                echo "::error::asset name collision with different content: $name"
+                exit 1
+              fi
+              continue
+            fi
+            cp "$file" "release-assets/$name"
+          done < <(find collected -type f ! -name 'SHA256SUMS' -print0)
+          cd release-assets
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --verify-tag \
+            --title "Meltemi $GITHUB_REF_NAME" \
+            --notes "Signed release pending: the maintainer verifies the draft, signs SHA256SUMS with the project key (docs/release.md) and attaches SHA256SUMS.sig before publishing. Checksums cover every asset, including the installer scripts." \
+            release-assets/*
+
   # The site lint is a precondition of publishing on both paths: a tagged
   # release and a content-only push to main.
   site-lint:
