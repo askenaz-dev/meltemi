@@ -78,6 +78,29 @@ fn the_shell_has_three_zones_and_lands_on_sessions() {
     );
 }
 
+#[test]
+fn the_chrome_seeds_the_project_registry_on_connect() {
+    // The sidebar tree groups sessions under the KNOWN projects, so the registry
+    // must be fetched as part of connecting. Without it every session becomes its
+    // own inferred node and a worktree session reads as a separate project.
+    let app = app();
+    let seed = app
+        .split("const seed = conn.subscribe")
+        .nth(1)
+        .expect("the shell seeds state on connect")
+        // The closing brace of the subscribe, at its own indentation: `});`
+        // alone also matches the `.catch(() => {});` inside the block.
+        .split(
+            "
+    });",
+        )
+        .next()
+        .expect("seed body");
+    for fetch in ["refreshPending()", "refreshProjects()", "refreshSessions()"] {
+        assert!(seed.contains(fetch), "connecting must seed {fetch}: {seed}");
+    }
+}
+
 // Scenario: Contadores vivos en el sidebar
 #[test]
 fn the_sidebar_counters_come_from_live_state() {

@@ -13,6 +13,8 @@
     pending,
     pushNotice,
     refreshPending,
+    refreshProjects,
+    refreshSessions,
     startIncomingRouter,
   } from "./lib/stores";
   import { loadUiState, setLastView } from "./lib/ui-state";
@@ -132,8 +134,16 @@
       }),
     );
 
+    // On connect, seed everything the always-visible chrome renders: the
+    // permission tray, the session list and the PROJECT REGISTRY. Without the
+    // registry the sidebar tree has no projects to group under, so every
+    // session shows up as its own inferred node — a worktree session looked
+    // like a separate project until the switcher happened to be opened.
     const seed = conn.subscribe((state) => {
-      if (state.state === "connected") void refreshPending().catch(() => {});
+      if (state.state !== "connected") return;
+      void refreshPending().catch(() => {});
+      void refreshProjects().catch(() => {});
+      void refreshSessions().catch(() => {});
     });
 
     return () => {
