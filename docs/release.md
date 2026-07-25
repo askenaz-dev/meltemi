@@ -8,7 +8,37 @@ are decided.
 
 _Resumen en español al final._
 
+## Canonical download base
+
+Every download resolves against **one** base, declared here once and nowhere
+else. The site, the installer scripts and this document must all name it, and
+`core/meltemid/tests/site.rs` fails the build if they diverge:
+
+```
+CANONICAL_DOWNLOAD_BASE=https://github.com/askenaz-dev/meltemi/releases
+```
+
+Downloads use the version-free `…/releases/latest/download/<stable-name>` form,
+so a consumer never has to know a version and the site never has to be
+republished for a patch.
+
 ## Artifacts
+
+Artifact names are **stable and version-free** per platform, so the
+latest-release URL always resolves to the right file. Where the packaging tool
+emits a version inside a name — the desktop installers do — the pipeline renames
+it to the stable scheme before publishing, and the published checksum is the one
+of the stable name.
+
+| Platform | Core archive | Desktop installer |
+|---|---|---|
+| Windows | `meltemi-Windows.zip` | `meltemi-desktop-Windows.msi` |
+| macOS | `meltemi-macOS.tar.gz` | `meltemi-desktop-macOS.dmg` |
+| Linux | `meltemi-Linux.tar.gz` | `meltemi-desktop-Linux.AppImage`, `meltemi-desktop-Linux.deb` |
+
+The installer scripts (`install.sh`, `install.ps1`) are published as release
+assets too, with their checksums inside the signed `SHA256SUMS`: the site links
+a script whose hash travels signed, instead of hosting a copy of it.
 
 Each release publishes, per supported platform (see
 [platform notes](plataformas.md)), an archive containing the `meltemi` client and
@@ -56,6 +86,12 @@ One-line, auditable installers place `meltemi` and `meltemid` on the user's
 Each script is short and legible; its published hash lets you verify it before
 running. Manual installation (download, verify, extract, add to `PATH`, create
 the `mel` alias) is documented in each script's header as the equivalent path.
+Both are published as assets of every release, reachable at the version-free
+latest-release URL, so the copy you download is the copy whose checksum is
+signed.
+
+The published site's [downloads page](https://meltemi.dev/downloads.html) is the
+public entry point for all of the above.
 
 ## Release pipeline and budgets
 

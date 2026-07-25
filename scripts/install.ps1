@@ -21,7 +21,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $version = if ($env:MELTEMI_VERSION) { $env:MELTEMI_VERSION } else { "latest" }
-$baseUrl = if ($env:MELTEMI_BASE_URL) { $env:MELTEMI_BASE_URL } else { "https://github.com/meltemi/meltemi/releases/download" }
+# Canonical download base — declared once in docs/release.md and verified by
+# the site lint; override only for a local mirror while testing.
+$baseUrl = if ($env:MELTEMI_BASE_URL) { $env:MELTEMI_BASE_URL } else { "https://github.com/askenaz-dev/meltemi/releases/download" }
 $asset = "meltemi-Windows.zip"
 
 $tmp = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ("meltemi-" + [System.Guid]::NewGuid()))

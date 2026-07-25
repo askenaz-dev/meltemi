@@ -86,6 +86,13 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      # Named explicitly so a red site lint is legible in the checks list; it is
+      # part of the workspace suite above and runs on all three platforms
+      # (sitio-web-producto 5.5). Its failure blocks the merge and, with it, the
+      # publication of the site.
+      - name: Site lint
+        run: cargo test -p meltemid --test site
+
   deny:
     name: cargo-deny (licenses & advisories)
     runs-on: ubuntu-latest

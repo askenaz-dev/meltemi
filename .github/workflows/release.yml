@@ -3,9 +3,17 @@ name: Release
 
 # Releases originate from a tag and its pipeline (docs/versionado.md). A red
 # gate aborts the release: no artifact is published (docs/release.md).
+#
+# A push to main republishes the SITE only (sitio-web-producto D7): the release
+# jobs are gated on a tag, the site lint stays a precondition, and the download
+# links are version-free — so republishing content never desynchronizes them from
+# the published release. (A path filter cannot be scoped per ref type in a single
+# `push` trigger, so main runs the cheap site path unconditionally rather than
+# risking a filtered tag.)
 on:
   push:
     tags: ["v*.*.*"]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,6 +27,8 @@ env:
 jobs:
   gates:
     name: release gates (${{ matrix.os }})
+    # The release pipeline belongs to a tag; a site-only push skips it.
+    if: startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: true
       matrix:
@@ -74,6 +84,7 @@ jobs:
 
   deny:
     name: cargo-deny
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,6 +94,7 @@ jobs:
 
   package:
     name: package & checksums (${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [gates, deny]
     strategy:
       matrix:
@@ -111,13 +123,26 @@ jobs:
         run: cargo build --workspace --release
       - name: Package and checksum
         shell: bash
+        # Stable, version-free names per platform (sitio-web-producto D2): the
+        # latest-release URL must resolve without anyone knowing the version.
         run: |
           mkdir -p dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            7z a "dist/meltemi-${{ runner.os }}.zip" ./target/release/meltemi.exe ./target/release/meltemid.exe
-          else
-            tar -czf "dist/meltemi-${{ runner.os }}.tar.gz" -C target/release meltemi meltemid
-          fi
+          case "${{ runner.os }}" in
+            Windows)
+              7z a "dist/meltemi-Windows.zip" ./target/release/meltemi.exe ./target/release/meltemid.exe
+              ;;
+            macOS)
+              tar -czf "dist/meltemi-macOS.tar.gz" -C target/release meltemi meltemid
+              ;;
+            Linux)
+              tar -czf "dist/meltemi-Linux.tar.gz" -C target/release meltemi meltemid
+              ;;
+            *) echo "::error::unknown runner os"; exit 1 ;;
+          esac
+          # The installer scripts ship as release assets, so the site can link a
+          # script whose checksum travels inside the signed SHA256SUMS instead of
+          # hosting a copy of it.
+          cp scripts/install.sh scripts/install.ps1 dist/
           cd dist
           # Publish a checksum for every artifact. The detached signature of
           # SHA256SUMS is produced with the maintainer's key (docs/release.md);
@@ -131,6 +156,7 @@ jobs:
 
   package-gui:
     name: GUI installers (${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [gates, deny]
     strategy:
       matrix:
@@ -180,12 +206,36 @@ jobs:
             echo "::error::no GUI installer was produced"
             exit 1
           fi
-      - name: Collect and checksum
+      - name: Collect, normalize names and checksum
         shell: bash
+        # The bundler embeds the version in each installer name; the stable
+        # scheme is what the site links, so rename before publishing and let the
+        # checksum be the one of the stable name (sitio-web-producto D2).
         run: |
           mkdir -p dist-gui
           shopt -s globstar nullglob
-          cp target/release/bundle/**/*.{msi,dmg,AppImage,deb} dist-gui/ 2>/dev/null || true
+          normalize() {
+            src="$1"; dest="$2"
+            [ -e "$src" ] || return 0
+            cp "$src" "dist-gui/$dest"
+            echo "normalized $(basename "$src") -> $dest"
+          }
+          case "${{ runner.os }}" in
+            Windows)
+              for f in target/release/bundle/msi/*.msi; do normalize "$f" "meltemi-desktop-Windows.msi"; done
+              ;;
+            macOS)
+              for f in target/release/bundle/dmg/*.dmg; do normalize "$f" "meltemi-desktop-macOS.dmg"; done
+              ;;
+            Linux)
+              for f in target/release/bundle/appimage/*.AppImage; do normalize "$f" "meltemi-desktop-Linux.AppImage"; done
+              for f in target/release/bundle/deb/*.deb; do normalize "$f" "meltemi-desktop-Linux.deb"; done
+              ;;
+          esac
+          if [ -z "$(ls -A dist-gui)" ]; then
+            echo "::error::no installer was normalized for ${{ runner.os }}"
+            exit 1
+          fi
           cd dist-gui
           # Signed with the same custody as every release artifact: the
           # detached signature of SHA256SUMS is produced with the maintainer's
@@ -196,3 +246,55 @@ jobs:
         with:
           name: meltemi-gui-${{ runner.os }}
           path: dist-gui/
+
+  # The site lint is a precondition of publishing on both paths: a tagged
+  # release and a content-only push to main.
+  site-lint:
+    name: site lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Site lint
+        run: cargo test -p meltemid --test site
+
+  # The product site is published only after the gates and the packaging have
+  # published their artifacts: the site must never announce a release whose
+  # artifacts were not published (sitio-web-producto D7). A red gate leaves the
+  # previous edition of the site untouched, because this condition is false.
+  publish-site:
+    name: publish site
+    needs: [site-lint, gates, deny, package, package-gui]
+    if: >-
+      !cancelled() &&
+      needs.site-lint.result == 'success' &&
+      (
+        !startsWith(github.ref, 'refs/tags/') ||
+        (needs.gates.result == 'success' &&
+         needs.deny.result == 'success' &&
+         needs.package.result == 'success' &&
+         needs['package-gui'].result == 'success')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      # Marks come from brand/ (single source): they are staged into the
+      # artifact, never committed as copies under site/.
+      - name: Stage brand marks
+        run: |
+          mkdir -p site/media
+          cp brand/meltemi-mark-gradient.svg site/media/
+          cp brand/meltemi-lockup-dark.svg site/media/
+          cp brand/meltemi-lockup-light.svg site/media/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

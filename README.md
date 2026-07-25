@@ -9,6 +9,9 @@ is written without a reviewed specification.
 > **One course, many sails.** A clear spec drives any number of agents, from any
 > vendor, without locking you to one.
 
+**[meltemi.dev](https://meltemi.dev)** is the product site: what it is, the
+method, the agents it orchestrates and every download.
+
 _Léeme en español: [LEEME.md](LEEME.md)._
 
 ## What it is
@@ -47,14 +50,17 @@ marketplace. No accounts, no credits, no fees, no lock-in, no telemetry.
 
 ### Option A — the release installers (recommended)
 
-Download the artifacts for your platform from the latest release, verify them,
-and install:
+Artifact names are stable and version-free, so every link below always resolves
+to the **latest signed release** — you never have to know a version number:
 
-| Platform | Desktop app | Terminal client |
+| Platform | Desktop app | Core (daemon + terminal) |
 |---|---|---|
-| Windows 10 1809+ / 11 | `Meltemi_<version>_x64_en-US.msi` | `meltemi-Windows.zip` |
-| macOS 13+ | `Meltemi_<version>_x64.dmg` | `meltemi-macOS.tar.gz` |
-| Linux (glibc) | `meltemi_<version>_amd64.AppImage` or `.deb` | `meltemi-Linux.tar.gz` |
+| Windows 10 1809+ / 11 | [`meltemi-desktop-Windows.msi`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Windows.msi) | [`meltemi-Windows.zip`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-Windows.zip) |
+| macOS 13+ | [`meltemi-desktop-macOS.dmg`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-macOS.dmg) | [`meltemi-macOS.tar.gz`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-macOS.tar.gz) |
+| Linux (glibc) | [`meltemi-desktop-Linux.AppImage`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.AppImage) · [`meltemi-desktop-Linux.deb`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.deb) | [`meltemi-Linux.tar.gz`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-Linux.tar.gz) |
+
+The core archive carries both binaries: the daemon `meltemid` and the terminal
+client `meltemi`. The desktop installer carries the desktop app.
 
 Every release publishes `SHA256SUMS` with a detached signature. Verify before
 installing:
@@ -69,39 +75,72 @@ The desktop installer stays under 15 MB because it uses your operating system's
 own web engine — nothing is embedded; on Windows it bootstraps the system
 runtime when missing.
 
-**Windows**
+#### Windows, step by step
 
 ```powershell
-Get-FileHash .\Meltemi_0.1.0_x64_en-US.msi -Algorithm SHA256
-msiexec /i .\Meltemi_0.1.0_x64_en-US.msi
+# 1. The desktop app.
+irm -OutFile meltemi-desktop-Windows.msi https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Windows.msi
+irm -OutFile SHA256SUMS https://github.com/askenaz-dev/meltemi/releases/latest/download/SHA256SUMS
+Get-FileHash .\meltemi-desktop-Windows.msi -Algorithm SHA256   # compare against SHA256SUMS
+msiexec /i .\meltemi-desktop-Windows.msi
+
+# 2. The daemon and the terminal client, via the install script.
+irm -OutFile install.ps1 https://github.com/askenaz-dev/meltemi/releases/latest/download/install.ps1
+notepad install.ps1        # read it first: it is short on purpose
+./install.ps1
 ```
 
-Then the terminal client, with its one-line installer:
-
-```powershell
-iwr -useb https://meltemi.dev/install.ps1 | iex
-```
-
-**macOS and Linux**
+#### macOS, step by step
 
 ```bash
-curl -fsSL https://meltemi.dev/install.sh | sh
+# 1. The daemon and the terminal client.
+curl -fsSLO https://github.com/askenaz-dev/meltemi/releases/latest/download/install.sh
+less install.sh            # read it first
+sh install.sh
+
+# 2. The desktop app.
+curl -fsSLO https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-macOS.dmg
+shasum -a 256 meltemi-desktop-macOS.dmg    # compare against SHA256SUMS
+open meltemi-desktop-macOS.dmg
 ```
 
-That places `meltemi`, `meltemid` and the short `mel` alias on your `PATH`. For
-the desktop app, open the `.dmg`, or on Linux install the `.deb` (or run the
-`.AppImage`):
+#### Linux, step by step
 
 ```bash
-sudo dpkg -i meltemi_0.1.0_amd64.deb
+# 1. The daemon and the terminal client.
+curl -fsSLO https://github.com/askenaz-dev/meltemi/releases/latest/download/install.sh
+less install.sh            # read it first
+sh install.sh
+
+# 2. The desktop app — the .deb, or the AppImage if you prefer no package manager.
+curl -fsSLO https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.deb
+sha256sum meltemi-desktop-Linux.deb        # compare against SHA256SUMS
+sudo dpkg -i meltemi-desktop-Linux.deb
 ```
 
-Both installer scripts are short, auditable, publish their own hash, verify what
-they download and refuse to proceed on a mismatch — there is no blind
-`curl | sh`. Manual instructions live in each script's header and in
+Both installer scripts place `meltemi`, `meltemid` and the short `mel` alias on
+your `PATH`. They are short and auditable, they publish their own hash inside the
+signed `SHA256SUMS`, they verify what they download and they refuse to proceed on
+a mismatch — **there is no blind `curl | sh` here: download, read, then run.**
+The manual equivalent is written at the top of each script and in
 [`docs/release.md`](docs/release.md).
 
+#### Check it worked
+
+```bash
+meltemid --version        # the daemon
+meltemi status            # starts the daemon on demand and reports its state
+meltemi fleet             # which agents Meltemi can see, and what to install
+```
+
+If `meltemi fleet` shows an agent as not detected, it names the missing layer and
+the exact command that installs it — start there, or read
+[the agents guide](docs/agentes.md).
+
 ### Option B — from source
+
+Prefer a browser? Every artifact above is also listed on
+[meltemi.dev/downloads](https://meltemi.dev/downloads.html).
 
 You need the pinned Rust toolchain (`rust-toolchain.toml` selects it
 automatically) and, for the desktop app, Node 24+.
