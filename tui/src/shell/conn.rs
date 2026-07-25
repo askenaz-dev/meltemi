@@ -22,7 +22,7 @@ use meltemi_proto::{
     SessionListResult, SessionLogParams, SessionLogResult, StatusResult, methods,
 };
 
-use crate::shell::live::{FleetRow, FleetSnapshot, SessionRow, Update};
+use crate::shell::live::{FleetRow, FleetSnapshot, ProjectRow, SessionRow, Update};
 use crate::shell::render::ConnState;
 
 /// A command from the UI to the connection actor.
@@ -36,6 +36,8 @@ pub enum Command {
     Refresh,
     /// Query the fleet catalog (`fleet/list`).
     FleetList,
+    /// Query the known-project registry (`project/list`).
+    ProjectList,
     /// Regenerate the projected context (`context/project`).
     ProjectContext,
     /// Fetch a historical session's log (`session/log`) for the detail view.
@@ -172,6 +174,7 @@ async fn serve_connection(
                     refresh_sessions(&peer, updates).await;
                 }
                 Some(Command::FleetList) => refresh_fleet(&peer, updates).await,
+                Some(Command::ProjectList) => refresh_projects(&peer, updates).await,
                 Some(Command::ProjectContext) => project_context(&peer, updates).await,
                 Some(Command::FetchSessionLog { session_id, project_root }) => {
                     fetch_session_log(&peer, updates, &session_id, &project_root).await;
@@ -222,17 +225,31 @@ async fn refresh_status(peer: &Peer, updates: &UnboundedSender<Update>) {
 /// Populates the Sessions table from `session/list` (active and historical) for
 /// the current project, so the table shows history and survives reconnection.
 async fn refresh_sessions(peer: &Peer, updates: &UnboundedSender<Update>) {
-    let params = SessionListParams {
-        project_root: std::env::current_dir()
-            .ok()
-            .map(|root| root.display().to_string()),
-        ..SessionListParams::default()
-    };
+    // Unfiltered on purpose (multiproyecto-suscripciones D7): one query brings
+    // every session with its own root, and the shell groups by project.
+    let params = SessionListParams::default();
     if let Ok(value) = peer.request(methods::SESSION_LIST, &params).await
         && let Ok(result) = serde_json::from_value::<SessionListResult>(value)
     {
         let rows = result.sessions.into_iter().map(SessionRow::from).collect();
         let _ = updates.send(Update::Sessions(rows));
+    }
+}
+
+/// Queries `project/list` and pushes the known-project registry, so the
+/// Sessions view can group by project and mark a root that vanished.
+async fn refresh_projects(peer: &Peer, updates: &UnboundedSender<Update>) {
+    let params = meltemi_proto::ProjectListParams::default();
+    match peer.request(methods::PROJECT_LIST, &params).await {
+        Ok(value) => {
+            if let Ok(result) = serde_json::from_value::<meltemi_proto::ProjectListResult>(value) {
+                let rows = result.projects.into_iter().map(ProjectRow::from).collect();
+                let _ = updates.send(Update::Projects(rows));
+            }
+        }
+        Err(error) => {
+            let _ = updates.send(Update::Notice(format!("project/list: {error}")));
+        }
     }
 }
 

@@ -84,9 +84,15 @@ pub const ENDED: Glyph = Glyph {
     ascii: "x",
 };
 
+/// Group header of a list grouped by project (multiproyecto-suscripciones D7).
+pub const GROUP: Glyph = Glyph {
+    unicode: "▾",
+    ascii: "-",
+};
+
 /// Every glyph in the table, for the twin-invariant test and audits.
 pub const ALL: &[Glyph] = &[
-    FOCUS, SELECT, PERMISSION, OK, ABSENT, ERROR, PENDING, STARTING, ACTIVE, WAITING, ENDED,
+    FOCUS, SELECT, PERMISSION, OK, ABSENT, ERROR, PENDING, STARTING, ACTIVE, WAITING, ENDED, GROUP,
 ];
 
 #[cfg(test)]

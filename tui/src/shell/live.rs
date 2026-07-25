@@ -21,9 +21,30 @@ pub struct SessionRow {
     pub project_root: String,
     /// Whether the session can be resumed (agent supports load).
     pub resumable: bool,
+    /// The catalog id the agent resolved to, when the daemon recorded one
+    /// (multiproyecto-suscripciones D5).
+    pub agent_id: Option<String>,
+    /// The launch profile — the subscription — by name only, never its env.
+    pub profile: Option<String>,
 }
 
 impl SessionRow {
+    /// The agent identity to show: the resolved catalog id when the daemon
+    /// recorded one, else the leaf of the command — never a guess dressed up
+    /// as a catalog id.
+    #[must_use]
+    pub fn agent_label(&self) -> &str {
+        if let Some(id) = &self.agent_id {
+            return id;
+        }
+        let program = self.agent.split_whitespace().next().unwrap_or(&self.agent);
+        let leaf = program.rsplit(['/', '\\']).next().unwrap_or(program);
+        leaf.strip_suffix(".exe")
+            .or_else(|| leaf.strip_suffix(".cmd"))
+            .or_else(|| leaf.strip_suffix(".bat"))
+            .unwrap_or(leaf)
+    }
+
     /// Whether the session is historical (finished or interrupted) rather than
     /// currently live.
     #[must_use]
@@ -40,6 +61,27 @@ impl From<SessionInfo> for SessionRow {
             state: s.state,
             project_root: s.project_root,
             resumable: s.resumable,
+            agent_id: s.agent_id,
+            profile: s.profile,
+        }
+    }
+}
+
+/// One known project from `project/list` (multiproyecto-suscripciones D2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectRow {
+    pub root: String,
+    /// False when the root no longer exists on disk; the entry stays listed.
+    pub exists: bool,
+    pub sessions_total: u32,
+}
+
+impl From<meltemi_proto::ProjectInfo> for ProjectRow {
+    fn from(p: meltemi_proto::ProjectInfo) -> Self {
+        Self {
+            root: p.root,
+            exists: p.exists,
+            sessions_total: p.sessions_total,
         }
     }
 }
@@ -106,6 +148,8 @@ pub enum Update {
     Sessions(Vec<SessionRow>),
     /// The fleet catalog was (re)queried.
     Fleet(FleetSnapshot),
+    /// The known-project registry was (re)queried.
+    Projects(Vec<ProjectRow>),
     /// The pending-permission queue snapshot (from `permission/pending` on
     /// connect, or a `permission/changed` broadcast). Drives the tray and the
     /// chrome counter, so it survives reconnection.
@@ -129,6 +173,9 @@ pub enum Update {
 pub struct LiveData {
     pub conn: ConnState,
     pub sessions: Vec<SessionRow>,
+    /// The known projects, most recently used first; the spine of the grouped
+    /// Sessions view. Empty until the first `project/list` answer arrives.
+    pub projects: Vec<ProjectRow>,
     /// The fleet catalog; `None` until the first `fleet/list` answer arrives.
     pub fleet: Option<FleetSnapshot>,
     pub selected: usize,
@@ -164,6 +211,7 @@ impl LiveData {
         Self {
             conn: ConnState::Connecting,
             sessions: Vec::new(),
+            projects: Vec::new(),
             fleet: None,
             selected: 0,
             permission_queue: Vec::new(),
@@ -212,6 +260,7 @@ impl LiveData {
                 }
             }
             Update::Fleet(snapshot) => self.fleet = Some(snapshot),
+            Update::Projects(rows) => self.projects = rows,
             Update::PermissionQueue(queue) => {
                 self.permission_queue = queue;
                 if self.permission_selected >= self.permission_queue.len() {
@@ -366,6 +415,8 @@ mod tests {
             state,
             project_root: "/repo".into(),
             resumable: false,
+            agent_id: None,
+            profile: None,
         }
     }
 

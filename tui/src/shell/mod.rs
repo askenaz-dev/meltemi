@@ -171,6 +171,10 @@ fn handle_action(
             let _ = commands.send(Command::Refresh);
         }
         Some(Effect::RefreshFleet) => refresh_fleet = true,
+        Some(Effect::RefreshProjects) => {
+            let _ = commands.send(Command::ProjectList);
+            let _ = commands.send(Command::Refresh);
+        }
         Some(Effect::ProjectContext) => {
             let _ = commands.send(Command::ProjectContext);
         }

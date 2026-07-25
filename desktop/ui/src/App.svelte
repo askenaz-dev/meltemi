@@ -13,7 +13,6 @@
     pushNotice,
     refreshPending,
     startIncomingRouter,
-    switchProject,
   } from "./lib/stores";
   import { loadUiState, setLastView } from "./lib/ui-state";
   import { dirtyFiles } from "./lib/editor/dirty";
@@ -23,6 +22,7 @@
   import Notices from "./lib/components/Notices.svelte";
   import Palette from "./lib/components/Palette.svelte";
   import NewSession from "./lib/components/NewSession.svelte";
+  import ProjectSwitcher from "./lib/components/ProjectSwitcher.svelte";
   import Onboarding from "./lib/components/Onboarding.svelte";
   import ConfirmDialog from "./lib/components/ConfirmDialog.svelte";
   import Icon from "./lib/components/Icon.svelte";
@@ -47,13 +47,16 @@
   } | null = $state(null);
 
   let paletteOpen = $state(false);
+  let switcherOpen = $state(false);
   let launcherOpen = $state(false);
   let launcherSession: string | null = $state(null);
   let onboardingOpen = $state(false);
   /** Pending navigation held by the unsaved-work guard. */
   let guard: { kind: "close" } | { kind: "leave"; go: () => void } | null = $state(null);
 
-  const overlayOpen = $derived(paletteOpen || launcherOpen || onboardingOpen || guard !== null);
+  const overlayOpen = $derived(
+    paletteOpen || launcherOpen || onboardingOpen || switcherOpen || guard !== null,
+  );
 
   const viewTitle = $derived.by(() => {
     if (editorContext) return $t("editor.title");
@@ -209,12 +212,19 @@
   <Sidebar
     {view}
     onNavigate={navigate}
-    onPickProject={() => {
-      const root = get(activeProject);
-      if (root) switchProject(root);
-      navigate("project");
-    }}
+    onPickProject={() => (switcherOpen = true)}
+    onOpenSession={(sessionId) =>
+      leaveEditor(() => {
+        view = "sessions";
+        editorContext = null;
+        reviewOpen = false;
+        detailSession = sessionId;
+      })}
   />
+
+  {#if switcherOpen}
+    <ProjectSwitcher onClose={() => (switcherOpen = false)} />
+  {/if}
 
   <div class="main">
     <TopBar

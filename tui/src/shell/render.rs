@@ -17,7 +17,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use meltemi_proto::SessionState;
 
 use crate::shell::glyphs::{self, Glyph};
-use crate::shell::live::LiveData;
+use crate::shell::live::{LiveData, ProjectRow, SessionRow};
 use crate::shell::messages::{Lang, Msg, text};
 use crate::shell::present::Presentation;
 use crate::shell::state::{ConfirmAction, Overlay, ShellState, View};
@@ -259,7 +259,7 @@ fn render_body(frame: &mut Frame, area: Rect, state: &ShellState, live: &LiveDat
 
     match state.view() {
         View::Sessions if state.is_drilled() => render_session_detail(frame, inner, live, ctx),
-        View::Sessions => render_sessions(frame, inner, live, ctx),
+        View::Sessions => render_sessions(frame, inner, state, live, ctx),
         View::Project => render_project(frame, inner, ctx),
         View::Permissions => render_permissions(frame, inner, live, ctx),
         View::Fleet => render_fleet(frame, inner, live, ctx),
@@ -519,7 +519,64 @@ fn render_unreachable(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &Shel
     frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: true }), area);
 }
 
-fn render_sessions(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
+/// The project a session belongs to: the longest known root that contains it,
+/// so a session started in a worktree lands under its repository instead of
+/// inventing a project. `None` when no known project matches.
+fn project_of<'a>(session: &SessionRow, projects: &'a [ProjectRow]) -> Option<&'a str> {
+    let own = normalize_root(&session.project_root);
+    projects
+        .iter()
+        .map(|project| (normalize_root(&project.root), project))
+        .filter(|(root, _)| own == *root || own.starts_with(&format!("{root}/")))
+        .max_by_key(|(root, _)| root.len())
+        .map(|(_, project)| project.root.as_str())
+}
+
+/// Separator- and case-normalized root, for comparison only.
+fn normalize_root(root: &str) -> String {
+    root.replace('\\', "/").trim_end_matches('/').to_lowercase()
+}
+
+/// The last path segment of a root (the group name).
+fn root_leaf(root: &str) -> &str {
+    let trimmed = root.trim_end_matches(['/', '\\']);
+    match trimmed.rfind(['/', '\\']) {
+        Some(at) => &trimmed[at + 1..],
+        None => trimmed,
+    }
+}
+
+/// Whether a row matches the typed filter: id, agent, subscription or root.
+fn row_matches(session: &SessionRow, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    let needle = needle.to_lowercase();
+    session.id.to_lowercase().contains(&needle)
+        || session.agent_label().to_lowercase().contains(&needle)
+        || session
+            .profile
+            .as_deref()
+            .is_some_and(|p| p.to_lowercase().contains(&needle))
+        || session.project_root.to_lowercase().contains(&needle)
+}
+
+/// Applies the horizontal scroll offset to one row (panning, not truncation).
+fn pan(label: &str, h_scroll: usize) -> String {
+    label.chars().skip(h_scroll).collect()
+}
+
+/// The Sessions view: sessions grouped by project (multiproyecto-suscripciones
+/// D7), each row carrying agent identity and the subscription that ran it. The
+/// grouping is client-side over one global `session/list` joined with
+/// `project/list`; meaning is glyph + word, so it survives ASCII and NO_COLOR.
+fn render_sessions(
+    frame: &mut Frame,
+    area: Rect,
+    state: &ShellState,
+    live: &LiveData,
+    ctx: &ShellCtx,
+) {
     if live.sessions.is_empty() {
         // Launchpad, not a mute table.
         let text = format!(
@@ -534,34 +591,107 @@ fn render_sessions(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCt
         frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
         return;
     }
-    // Reflow: rows are not wrapped; content wider than the area is reached by
-    // horizontal scroll (Left/Right) instead of being truncated-and-hidden.
-    let lines: Vec<Line> = live
-        .sessions
+
+    let needle = state.effective_filter();
+    let scope = state.project_scope().unwrap_or("").to_lowercase();
+    // Group order: the project registry (recency) first, then any root the
+    // registry does not know — a session is never hidden because its project
+    // is not registered.
+    let mut order: Vec<String> = live
+        .projects
         .iter()
-        .enumerate()
-        .map(|(i, row)| {
-            let (glyph, word) = session_state_label(row.state, ctx.lang);
-            let marker = if i == live.selected {
+        .map(|project| project.root.clone())
+        .collect();
+    let mut grouped: Vec<(String, Vec<&SessionRow>)> = Vec::new();
+    for session in &live.sessions {
+        let root = project_of(session, &live.projects)
+            .map(str::to_string)
+            .unwrap_or_else(|| session.project_root.clone());
+        if !order.contains(&root) {
+            order.push(root.clone());
+        }
+        match grouped.iter_mut().find(|(existing, _)| *existing == root) {
+            Some((_, rows)) => rows.push(session),
+            None => grouped.push((root, vec![session])),
+        }
+    }
+    grouped.sort_by_key(|(root, _)| order.iter().position(|r| r == root).unwrap_or(usize::MAX));
+
+    let mut lines: Vec<Line> = Vec::new();
+    let mut shown = 0usize;
+    for (root, rows) in &grouped {
+        if !scope.is_empty() && !normalize_root(root).contains(&scope) {
+            continue;
+        }
+        let visible: Vec<&&SessionRow> = rows
+            .iter()
+            .filter(|session| row_matches(session, needle))
+            .collect();
+        if visible.is_empty() {
+            continue;
+        }
+        let absent = live
+            .projects
+            .iter()
+            .find(|project| project.root == *root)
+            .is_some_and(|project| !project.exists);
+        let mark = match (absent, ctx.lang) {
+            (false, _) => "",
+            (true, Lang::Es) => " (raiz ausente)",
+            (true, Lang::En) => " (root missing)",
+        };
+        let header = format!(
+            "{} {} ({}){}",
+            glyphs::GROUP.text(&ctx.present),
+            root_leaf(root),
+            visible.len(),
+            mark
+        );
+        lines.push(Line::styled(pan(&header, live.h_scroll), ctx.emphasis()));
+        for session in visible {
+            // The selection index is the flat one, so the cursor keeps working
+            // across groups exactly as it did in the flat list.
+            let index = live
+                .sessions
+                .iter()
+                .position(|candidate| candidate.id == session.id)
+                .unwrap_or(usize::MAX);
+            let (glyph, word) = session_state_label(session.state, ctx.lang);
+            let marker = if index == live.selected {
                 glyphs::FOCUS.text(&ctx.present)
             } else {
                 " "
             };
+            let subscription = match &session.profile {
+                Some(profile) => format!("  [{profile}]"),
+                None => String::new(),
+            };
             let label = format!(
-                "{marker} {} {} {}  {}",
+                "{marker}  {} {} {}  {}{}",
                 glyph.text(&ctx.present),
                 word,
-                row.id,
-                row.agent
+                session.id,
+                session.agent_label(),
+                subscription
             );
-            let shown: String = label.chars().skip(live.h_scroll).collect();
-            if i == live.selected {
-                Line::styled(shown, ctx.emphasis())
+            let panned = pan(&label, live.h_scroll);
+            if index == live.selected {
+                lines.push(Line::styled(panned, ctx.emphasis()));
             } else {
-                Line::from(shown)
+                lines.push(Line::from(panned));
             }
-        })
-        .collect();
+            shown += 1;
+        }
+    }
+
+    if shown == 0 {
+        lines.push(Line::from(if ctx.lang == Lang::Es {
+            "ninguna sesion coincide con el filtro"
+        } else {
+            "no session matches the filter"
+        }));
+    }
+
     // No wrap: long rows clip at the edge and are panned with h_scroll.
     frame.render_widget(Paragraph::new(lines), area);
 }
@@ -855,6 +985,19 @@ fn render_overlay(
             body.push_str(&format!("\n{}", ctx.msg(Msg::HintExitField)));
             (ctx.msg(Msg::PaletteTitle).to_string(), body)
         }
+        Overlay::Filter { input } => {
+            let title = if ctx.lang == Lang::Es {
+                "Filtrar sesiones"
+            } else {
+                "Filter sessions"
+            };
+            let hint = if ctx.lang == Lang::Es {
+                "por proyecto, agente, suscripcion o id | Enter aplica - Esc cancela"
+            } else {
+                "by project, agent, subscription or id | Enter applies - Esc cancels"
+            };
+            (title.to_string(), format!("/{input}\n\n{hint}"))
+        }
         Overlay::Confirm { action } => {
             let what = match action {
                 ConfirmAction::Quit => ctx.msg(Msg::QuitConfirm).to_string(),
@@ -1039,6 +1182,131 @@ mod tests {
         })
     }
 
+    /// Two projects, three sessions, two subscriptions of the same agent.
+    fn two_project_live() -> LiveData {
+        let mut live = LiveData::new();
+        live.apply(Update::Projects(vec![
+            ProjectRow {
+                root: "/repos/alpha".into(),
+                exists: true,
+                sessions_total: 2,
+            },
+            ProjectRow {
+                root: "/repos/beta".into(),
+                exists: false,
+                sessions_total: 1,
+            },
+        ]));
+        live.apply(Update::Sessions(vec![
+            SessionRow {
+                id: "s1".into(),
+                agent: "claude".into(),
+                state: SessionState::Active,
+                project_root: "/repos/alpha".into(),
+                resumable: false,
+                agent_id: Some("claude-code".into()),
+                profile: Some("work".into()),
+            },
+            SessionRow {
+                id: "s2".into(),
+                agent: "claude".into(),
+                state: SessionState::Ended,
+                project_root: "/repos/alpha/.meltemi/worktrees/x-1-1-claude".into(),
+                resumable: true,
+                agent_id: Some("claude-code".into()),
+                profile: Some("personal".into()),
+            },
+            SessionRow {
+                id: "s3".into(),
+                agent: "codex".into(),
+                state: SessionState::Ended,
+                project_root: "/repos/beta".into(),
+                resumable: false,
+                agent_id: Some("codex-cli".into()),
+                profile: None,
+            },
+        ]));
+        live
+    }
+
+    #[test]
+    fn sessions_group_by_project_with_agent_and_subscription() {
+        // Scenario: Sesiones agrupadas por proyecto en la TUI.
+        let live = two_project_live();
+        let out = draw(&ShellState::new(), &live, &ctx(default_present()), 100, 24);
+        assert!(out.contains("alpha"), "the project group header is shown");
+        assert!(out.contains("beta"), "every project with sessions is shown");
+        assert!(out.contains("claude-code"), "agent identity per row");
+        // The two subscriptions of the same agent stay distinguishable.
+        assert!(out.contains("work") && out.contains("personal"));
+        // The worktree session groups under its repository, not as its own node.
+        assert!(!out.contains("worktrees"), "no phantom project node");
+        // An absent root is marked, never dropped.
+        assert!(out.contains("ausente"));
+    }
+
+    #[test]
+    fn the_grouped_sessions_view_survives_ascii_and_no_color() {
+        // Scenario: Sesiones agrupadas por proyecto en la TUI (gemelo ASCII).
+        let live = two_project_live();
+        let ascii = Presentation::resolve(&PresentationEnv {
+            ascii_flag: true,
+            no_color: Some("1".into()),
+            ..Default::default()
+        });
+        let out = draw(&ShellState::new(), &live, &ctx(ascii), 100, 24);
+        assert!(out.contains("alpha") && out.contains("claude-code"));
+        for forbidden in ['▾', '▸', '▶', '●', '│'] {
+            assert!(
+                !out.contains(forbidden),
+                "ASCII must not contain {forbidden:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_filter_narrows_by_project_and_by_subscription() {
+        // Scenario: Filtro por proyecto en la TUI.
+        let live = two_project_live();
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::Filter);
+        for c in "beta".chars() {
+            state.reduce(crate::shell::keymap::Action::InsertChar(c));
+        }
+        let out = draw(&state, &live, &ctx(default_present()), 100, 24);
+        assert!(out.contains("beta"), "the matching project stays");
+        assert!(
+            !out.contains("claude-code"),
+            "the other project is filtered out"
+        );
+
+        // The same filter reaches a subscription name.
+        let mut by_profile = ShellState::new();
+        by_profile.reduce(crate::shell::keymap::Action::Filter);
+        for c in "personal".chars() {
+            by_profile.reduce(crate::shell::keymap::Action::InsertChar(c));
+        }
+        let out = draw(&by_profile, &live, &ctx(default_present()), 100, 24);
+        assert!(out.contains("personal"));
+        assert!(!out.contains("codex-cli"), "beta has no such subscription");
+    }
+
+    #[test]
+    fn the_project_scope_from_the_palette_narrows_the_groups() {
+        // Scenario: Ambito de proyecto conmutado desde la paleta.
+        let live = two_project_live();
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::OpenPalette);
+        for c in "projects beta".chars() {
+            state.reduce(crate::shell::keymap::Action::InsertChar(c));
+        }
+        let effect = state.reduce(crate::shell::keymap::Action::Submit);
+        assert_eq!(effect, Some(crate::shell::state::Effect::RefreshProjects));
+        let out = draw(&state, &live, &ctx(default_present()), 100, 24);
+        assert!(out.contains("beta"));
+        assert!(!out.contains("alpha"), "the scope hides the other project");
+    }
+
     #[test]
     fn permission_indicator_always_shows_count_and_word() {
         let mut live = LiveData::new();
@@ -1060,6 +1328,8 @@ mod tests {
             state: SessionState::Active,
             project_root: "/repo".into(),
             resumable: false,
+            agent_id: None,
+            profile: None,
         }]));
         let out = draw(&ShellState::new(), &live, &ctx(ascii), 80, 24);
         for forbidden in ['…', '▸', '·', '›', '┌', '│', '●', '▶'] {

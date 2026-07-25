@@ -6,12 +6,16 @@
   import { t } from "../i18n";
   import {
     activeProject,
+    allSessions,
     fleet,
+    projects,
     pushNotice,
     refreshFleet,
+    refreshProjects,
     refreshSessions,
-    sessions,
+    scopedTo,
   } from "../stores";
+  import { projectName } from "../tree";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
 
@@ -29,6 +33,8 @@
   let change = $state("");
   let task = $state("");
   let sessionId = $state(untrack(() => initialSession) ?? "");
+  /** The project this launch targets: the active one, changeable here (D6). */
+  let root = $state(untrack(() => get(activeProject)) ?? "");
   let running = $state(false);
   let firstField: HTMLElement | undefined = $state();
 
@@ -42,17 +48,25 @@
   const launchable = $derived(
     $fleet.filter((entry) => entry.detected || entry.source === "profile"),
   );
+  // Directing a session only makes sense inside the project it belongs to, so
+  // the candidates follow the selected project, not the active one.
   const resumable = $derived(
-    $sessions.filter(
+    scopedTo(root, $allSessions).filter(
       (session) =>
         session.resumable ||
         session.state === "active" ||
         session.state === "waiting_permission",
     ),
   );
+  /** The known projects, plus the selected root when it is not registered yet. */
+  const options = $derived.by(() => {
+    const roots = $projects.map((project) => project.root);
+    return roots.includes(root) || root === "" ? roots : [root, ...roots];
+  });
 
   $effect(() => {
     if ($fleet.length === 0) void refreshFleet().catch(() => {});
+    void refreshProjects().catch(() => {});
   });
 
   $effect(() => {
@@ -69,7 +83,6 @@
 
   async function launch() {
     if (!ready || running) return;
-    const root = get(activeProject);
     if (!root) {
       pushNotice($t("session.new.noProject"), "danger");
       return;
@@ -122,6 +135,18 @@
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="new-session-title">
     <h2 id="new-session-title">{$t("session.new.title")}</h2>
     <p class="hint">{$t("session.new.hint")}</p>
+
+    <label>
+      {$t("nav.project")}
+      <select bind:value={root} onchange={() => (sessionId = "")}>
+        {#if options.length === 0}
+          <option value="">{$t("nav.noProject")}</option>
+        {/if}
+        {#each options as option (option)}
+          <option value={option}>{projectName(option)} — {option}</option>
+        {/each}
+      </select>
+    </label>
 
     <div class="modes" role="group" aria-label={$t("session.new.mode")}>
       {#each MODES as option (option.id)}
@@ -177,10 +202,14 @@
                 aria-pressed={agent === entry.id}
                 onclick={() => (agent = entry.id)}
               >
-                <Avatar id={entry.id} name={entry.displayName} size={20} />
-                <span class="aname">{entry.displayName}</span>
+                <Avatar
+                  id={entry.underlyingAgent ?? entry.id}
+                  name={entry.underlyingAgent ?? entry.displayName}
+                  size={20}
+                />
+                <span class="aname">{entry.underlyingAgent ?? entry.displayName}</span>
                 {#if entry.source === "profile"}
-                  <span class="pill info">{$t("fleet.source.profile")}</span>
+                  <span class="pill" title={$t("sessions.subscription")}>{entry.displayName}</span>
                 {/if}
               </button>
             {/each}

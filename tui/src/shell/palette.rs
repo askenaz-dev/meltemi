@@ -164,6 +164,13 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "validate a change or the living truth",
     },
     Entry {
+        name: "projects",
+        reserved: false,
+        methods: &[m::PROJECT_LIST],
+        desc_es: "proyectos conocidos; `projects <texto>` acota el ambito",
+        desc_en: "known projects; `projects <text>` narrows the scope",
+    },
+    Entry {
         name: "changes",
         reserved: true,
         methods: &[m::CHANGE_LIST],

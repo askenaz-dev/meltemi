@@ -11,6 +11,7 @@
     refreshSessions,
     sessions,
   } from "../stores";
+  import { agentLabelOf } from "../tree";
   import Avatar from "../components/Avatar.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Icon from "../components/Icon.svelte";
@@ -228,15 +229,16 @@
   <header>
     <div class="who">
       {#if session}
-        <Avatar
-          id={binaryName(session.agentCommand)}
-          name={binaryName(session.agentCommand)}
-          size={26}
-        />
+        <Avatar id={agentLabelOf(session)} name={agentLabelOf(session)} size={26} />
         <div class="ids">
           <code>{sessionId.slice(0, 8)}</code>
-          <span class="faint">{binaryName(session.agentCommand)}</span>
+          <span class="faint">
+            {agentLabelOf(session)} · <span class="mono">{binaryName(session.agentCommand)}</span>
+          </span>
         </div>
+        {#if session.profile}
+          <span class="pill" title={$t("sessions.subscription")}>{session.profile}</span>
+        {/if}
         <StatusBadge state={session.state} />
         <span class="faint">{durationLabel(session.startedAt, session.endedAt)}</span>
         <span

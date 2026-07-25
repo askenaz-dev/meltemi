@@ -2,6 +2,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { binaryName } from "../agents";
+  import { agentLabelOf } from "../tree";
   import { locale, t } from "../i18n";
   import { absoluteTime, durationLabel, relativeTime } from "../time";
   import {
@@ -69,14 +70,15 @@
       if (!needle) return true;
       return (
         session.sessionId.toLowerCase().includes(needle) ||
-        binaryName(session.agentCommand).toLowerCase().includes(needle) ||
+        agentLabelOf(session).toLowerCase().includes(needle) ||
+        (session.profile ?? "").toLowerCase().includes(needle) ||
         session.projectRoot.toLowerCase().includes(needle)
       );
     });
     const direction = ascending ? 1 : -1;
     list = [...list].sort((a, b) => {
       if (sortKey === "agent") {
-        return direction * binaryName(a.agentCommand).localeCompare(binaryName(b.agentCommand));
+        return direction * agentLabelOf(a).localeCompare(agentLabelOf(b));
       }
       if (sortKey === "state") return direction * a.state.localeCompare(b.state);
       return direction * a.startedAt.localeCompare(b.startedAt);
@@ -183,6 +185,7 @@
                 {$t("sessions.col.agent")}
               </button>
             </th>
+            <th scope="col">{$t("sessions.subscription")}</th>
             <th scope="col" aria-sort={ariaSort("state")}>
               <button class="ghost sortBtn" onclick={() => sortBy("state")}>
                 {$t("sessions.col.state")}
@@ -208,12 +211,22 @@
               <td>
                 <span class="agent">
                   <Avatar
-                    id={binaryName(session.agentCommand)}
-                    name={binaryName(session.agentCommand)}
+                    id={agentLabelOf(session)}
+                    name={agentLabelOf(session)}
                     size={20}
                   />
-                  {binaryName(session.agentCommand)}
+                  <span class="agentText">
+                    {agentLabelOf(session)}
+                    <span class="binary mono">{binaryName(session.agentCommand)}</span>
+                  </span>
                 </span>
+              </td>
+              <td>
+                {#if session.profile}
+                  <span class="pill" title={$t("sessions.subscription")}>{session.profile}</span>
+                {:else}
+                  <span class="faint">{$t("sessions.subscription.none")}</span>
+                {/if}
               </td>
               <td>
                 <StatusBadge state={session.state} />
@@ -332,6 +345,15 @@
     display: inline-flex;
     align-items: center;
     gap: var(--sp-2);
+  }
+  .agentText {
+    display: inline-flex;
+    flex-direction: column;
+    line-height: 1.2;
+  }
+  .binary {
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
   }
   code {
     font-family: var(--font-mono);

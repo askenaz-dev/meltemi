@@ -3,18 +3,35 @@
   import { t } from "../i18n";
   import type { IconName } from "../icons";
   import type { ViewId } from "../registry";
-  import { activeProject, pending, sessions } from "../stores";
+  import { activeProject, allSessions, pending, projects, sessions, switchProject } from "../stores";
+  import { agentLabelOf, groupSessions, projectName as leafOf } from "../tree";
+  import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
 
   let {
     view,
     onNavigate,
     onPickProject,
+    onOpenSession,
   }: {
     view: ViewId;
     onNavigate: (view: ViewId) => void;
     onPickProject: () => void;
+    onOpenSession: (sessionId: string) => void;
   } = $props();
+
+  /** Collapsed project nodes, by root. The tree opens expanded. */
+  let collapsed = $state(new Set<string>());
+
+  // Project -> Sessions, aggregated in the client from the global session list
+  // joined with the project registry (design D7).
+  const tree = $derived(groupSessions($projects, $allSessions));
+
+  function toggle(root: string) {
+    const next = new Set(collapsed);
+    if (!next.delete(root)) next.add(root);
+    collapsed = next;
+  }
 
   const ITEMS: { id: ViewId; icon: IconName; key?: string }[] = [
     { id: "sessions", icon: "sessions", key: "1" },
@@ -33,12 +50,7 @@
     ).length,
   );
 
-  const projectName = $derived.by(() => {
-    const root = $activeProject;
-    if (!root) return null;
-    const parts = root.replaceAll("\\", "/").split("/").filter(Boolean);
-    return parts[parts.length - 1] ?? root;
-  });
+  const projectName = $derived($activeProject ? leafOf($activeProject) : null);
 
   function counterFor(id: ViewId): { value: number; warn: boolean } | null {
     if (id === "sessions" && liveSessions > 0) {
@@ -77,6 +89,66 @@
       </button>
     {/each}
   </nav>
+
+  <div class="tree" role="tree" aria-label={$t("nav.tree")}>
+    {#each tree as group (group.root)}
+      {@const open = !collapsed.has(group.root)}
+      {@const current = group.root === $activeProject}
+      <div class="group" role="treeitem" aria-expanded={open} aria-selected={current}>
+        <div class="groupRow" class:current>
+          <button
+            class="twisty ghost"
+            aria-label={$t(open ? "nav.tree.collapse" : "nav.tree.expand", {
+              project: group.name,
+            })}
+            onclick={() => toggle(group.root)}
+          >
+            <Icon name={open ? "chevronDown" : "chevronRight"} size={12} />
+          </button>
+          <button
+            class="groupName ghost"
+            title={group.root}
+            onclick={() => switchProject(group.root)}
+          >
+            <span class="name">{group.name}</span>
+            {#if !group.exists}
+              <span class="pill danger">{$t("projects.absent")}</span>
+            {:else if group.live > 0}
+              <span class="pill ok">{group.live}</span>
+            {:else}
+              <span class="count">{group.sessions.length}</span>
+            {/if}
+          </button>
+        </div>
+
+        {#if open}
+          <ul role="group">
+            {#each group.sessions.slice(0, 8) as session (session.sessionId)}
+              <li>
+                <button class="leaf ghost" onclick={() => onOpenSession(session.sessionId)}>
+                  <Avatar id={agentLabelOf(session)} size={16} />
+                  <span class="agent">{agentLabelOf(session)}</span>
+                  {#if session.profile}
+                    <span class="pill sub">{session.profile}</span>
+                  {/if}
+                  <span class="dot" data-state={session.state} aria-hidden="true"></span>
+                </button>
+              </li>
+            {/each}
+            {#if group.sessions.length === 0}
+              <li class="hint">{$t("nav.tree.empty")}</li>
+            {:else if group.sessions.length > 8}
+              <li class="hint">
+                <button class="ghost more" onclick={() => { switchProject(group.root); onNavigate("sessions"); }}>
+                  {$t("sessions.showAll", { n: String(group.sessions.length) })}
+                </button>
+              </li>
+            {/if}
+          </ul>
+        {/if}
+      </div>
+    {/each}
+  </div>
 
   <div class="bottom">
     <button
@@ -158,6 +230,108 @@
     border: 1px solid var(--border);
     border-radius: 3px;
     padding: 0 4px;
+  }
+  .tree {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    border-top: 1px solid var(--hair);
+    padding-top: var(--sp-2);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .groupRow {
+    display: flex;
+    align-items: center;
+    height: var(--row-h);
+    border-radius: var(--radius-control);
+  }
+  .groupRow.current {
+    background: var(--surface-2);
+  }
+  .twisty {
+    flex: none;
+    padding: 0 2px;
+    color: var(--text-faint);
+  }
+  .groupName {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    padding: 0 4px;
+    font-size: var(--fs-dense);
+    font-weight: 500;
+    color: var(--text);
+  }
+  .groupName .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .count {
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
+  }
+  ul[role="group"] {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 18px;
+  }
+  .leaf {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    height: 28px;
+    padding: 0 4px;
+    border-radius: var(--radius-control);
+    text-align: left;
+    font-size: var(--fs-caption);
+    color: var(--text-muted);
+  }
+  .leaf .agent {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pill.sub {
+    flex: none;
+    max-width: 74px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dot {
+    margin-left: auto;
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--text-faint);
+  }
+  .dot[data-state="active"],
+  .dot[data-state="starting"] {
+    background: var(--tint-ok);
+  }
+  .dot[data-state="waiting_permission"] {
+    background: var(--tint-warn);
+  }
+  .dot[data-state="interrupted"] {
+    background: var(--tint-danger);
+  }
+  .hint {
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
+    padding: 2px 4px;
+  }
+  .more {
+    font: inherit;
+    color: var(--accent);
+    padding: 0;
   }
   .bottom {
     margin-top: auto;

@@ -52,11 +52,17 @@ pub enum ConfirmAction {
     CreateRule,
 }
 
-/// An overlay stacked above the views. Only [`Overlay::Palette`] captures text.
+/// An overlay stacked above the views. [`Overlay::Palette`] and
+/// [`Overlay::Filter`] capture text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Overlay {
     Help,
     Palette {
+        input: String,
+    },
+    /// The list filter of the focused view (`/`): narrows rows while it is
+    /// open, commits on Enter, reverts on Esc.
+    Filter {
         input: String,
     },
     Confirm {
@@ -82,6 +88,8 @@ pub enum Effect {
     DenyPermission,
     /// Approve the selected permission and persist the proposed rule.
     CreateRuleForPermission,
+    /// Re-query the known-project registry (`project/list`).
+    RefreshProjects,
 }
 
 /// The full navigation state of the shell.
@@ -91,6 +99,11 @@ pub struct ShellState {
     /// Whether the Sessions view is drilled into a Session detail (one level).
     drilled: bool,
     overlays: Vec<Overlay>,
+    /// The committed list filter of the Sessions view (`/`).
+    session_filter: String,
+    /// The project the shell is scoped to, as typed in the palette. `None`
+    /// means every known project (multiproyecto-suscripciones D6).
+    project_scope: Option<String>,
 }
 
 impl Default for ShellState {
@@ -106,6 +119,8 @@ impl ShellState {
             view: View::Sessions,
             drilled: false,
             overlays: Vec::new(),
+            session_filter: String::new(),
+            project_scope: None,
         }
     }
 
@@ -124,14 +139,30 @@ impl ShellState {
         self.overlays.last()
     }
 
-    /// Text is captured only while a palette overlay is on top; confirmations
-    /// and help navigate modally, not as text.
+    /// Text is captured while a palette or filter overlay is on top;
+    /// confirmations and help navigate modally, not as text.
     #[must_use]
     pub fn input_mode(&self) -> InputMode {
         match self.overlays.last() {
-            Some(Overlay::Palette { .. }) => InputMode::TextInput,
+            Some(Overlay::Palette { .. } | Overlay::Filter { .. }) => InputMode::TextInput,
             _ => InputMode::Navigation,
         }
+    }
+
+    /// The filter the Sessions view must apply right now: the live text while
+    /// the filter is being typed, else the committed one.
+    #[must_use]
+    pub fn effective_filter(&self) -> &str {
+        match self.overlays.last() {
+            Some(Overlay::Filter { input }) => input,
+            _ => &self.session_filter,
+        }
+    }
+
+    /// The project scope, as typed in the palette (a root substring).
+    #[must_use]
+    pub fn project_scope(&self) -> Option<&str> {
+        self.project_scope.as_deref()
     }
 
     /// Pushes the first-run onboarding overlay.
@@ -144,6 +175,7 @@ impl ShellState {
         match self.overlays.last() {
             Some(Overlay::Confirm { .. }) => self.reduce_confirm(action),
             Some(Overlay::Palette { .. }) => self.reduce_palette(action),
+            Some(Overlay::Filter { .. }) => self.reduce_filter(action),
             // Help and onboarding are passive overlays: Back closes them.
             Some(Overlay::Help | Overlay::Onboarding) => self.reduce_passive(action),
             None => self.reduce_navigation(action),
@@ -189,6 +221,14 @@ impl ShellState {
             Action::OpenPalette => {
                 self.overlays.push(Overlay::Palette {
                     input: String::new(),
+                });
+                None
+            }
+            // `/` opens the filter of the focused list. Only the Sessions view
+            // has one today; elsewhere the key stays inert rather than lying.
+            Action::Filter if self.view == View::Sessions && !self.drilled => {
+                self.overlays.push(Overlay::Filter {
+                    input: self.session_filter.clone(),
                 });
                 None
             }
@@ -283,6 +323,21 @@ impl ShellState {
                         None
                     }
                     "status" | "refresh" => Some(Effect::RefreshStatus),
+                    // `projects` alone widens to every known project; with an
+                    // argument it scopes to the projects matching that text.
+                    _ if command == "projects" || command == "proyectos" => {
+                        self.project_scope = None;
+                        self.view = View::Sessions;
+                        self.drilled = false;
+                        Some(Effect::RefreshProjects)
+                    }
+                    _ if command.starts_with("projects ") || command.starts_with("proyectos ") => {
+                        let arg = command.split_once(' ').map(|(_, rest)| rest).unwrap_or("");
+                        self.project_scope = Some(arg.trim().to_string());
+                        self.view = View::Sessions;
+                        self.drilled = false;
+                        Some(Effect::RefreshProjects)
+                    }
                     "sessions" | "sesiones" => {
                         self.view = View::Sessions;
                         self.drilled = false;
@@ -302,6 +357,34 @@ impl ShellState {
                     }
                     _ => None,
                 };
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// The list filter: live while open, committed on Enter, reverted on Esc.
+    fn reduce_filter(&mut self, action: Action) -> Option<Effect> {
+        match action {
+            Action::InsertChar(c) => {
+                if let Some(Overlay::Filter { input }) = self.overlays.last_mut() {
+                    input.push(c);
+                }
+            }
+            Action::DeleteBack => {
+                if let Some(Overlay::Filter { input }) = self.overlays.last_mut() {
+                    input.pop();
+                }
+            }
+            Action::Submit => {
+                if let Some(Overlay::Filter { input }) = self.overlays.last() {
+                    self.session_filter = input.trim().to_string();
+                }
+                self.overlays.pop();
+            }
+            // Esc abandons the edit: the committed filter is untouched.
+            Action::Back => {
+                self.overlays.pop();
             }
             _ => {}
         }
@@ -520,5 +603,62 @@ mod tests {
         assert!(matches!(s.top_overlay(), Some(Overlay::Onboarding)));
         press(&mut s, Key::Char('q'));
         assert!(s.top_overlay().is_none());
+    }
+    #[test]
+    fn the_filter_captures_text_commits_on_enter_and_reverts_on_esc() {
+        // Scenario: Filtro por proyecto en la TUI.
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char('/'));
+        assert!(matches!(s.top_overlay(), Some(Overlay::Filter { .. })));
+        assert_eq!(
+            s.input_mode(),
+            InputMode::TextInput,
+            "the filter takes text"
+        );
+        // A digit typed into the filter is text, not navigation.
+        for c in "beta2".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(s.view(), View::Sessions, "typing 2 did not switch views");
+        assert_eq!(s.effective_filter(), "beta2", "filtering is live");
+        press(&mut s, Key::Backspace);
+        press(&mut s, Key::Enter);
+        assert!(s.top_overlay().is_none());
+        assert_eq!(s.effective_filter(), "beta", "Enter commits the filter");
+
+        // Esc abandons the edit and keeps the committed filter.
+        press(&mut s, Key::Char('/'));
+        press(&mut s, Key::Char('x'));
+        press(&mut s, Key::Esc);
+        assert_eq!(s.effective_filter(), "beta");
+    }
+
+    #[test]
+    fn the_filter_is_inert_where_no_list_has_one() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char('2')); // Project view
+        press(&mut s, Key::Char('/'));
+        assert!(s.top_overlay().is_none(), "no filter is announced falsely");
+    }
+
+    #[test]
+    fn the_palette_switches_and_clears_the_project_scope() {
+        // Scenario: Ambito de proyecto conmutado desde la paleta.
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "projects beta".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(press(&mut s, Key::Enter), Some(Effect::RefreshProjects));
+        assert_eq!(s.project_scope(), Some("beta"));
+        assert_eq!(s.view(), View::Sessions);
+
+        // The bare verb widens back to every known project.
+        press(&mut s, Key::Char(':'));
+        for c in "projects".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(press(&mut s, Key::Enter), Some(Effect::RefreshProjects));
+        assert_eq!(s.project_scope(), None);
     }
 }

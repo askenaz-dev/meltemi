@@ -27,6 +27,22 @@ export interface SessionInfo {
   startedAt: string;
   endedAt?: string;
   resumable: boolean;
+  /** The catalog id the agent resolved to, when the resolution named one. */
+  agentId?: string;
+  /** The launch profile — the subscription — by NAME only, never its env. */
+  profile?: string;
+}
+
+/** A known project (`project/list`): the registry, fed by real use. */
+export interface ProjectInfo {
+  projectKey: string;
+  root: string;
+  /** False when the root no longer exists on disk; the entry stays listed. */
+  exists: boolean;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sessionsTotal: number;
+  resumableSessions: number;
 }
 
 export interface PermissionRule {
@@ -108,7 +124,12 @@ export interface SpecInfo {
 
 /** The project every project-scoped call is made against. */
 export const activeProject = writable<string | null>(null);
+/** The active project's sessions (what the scoped views render). */
 export const sessions = writable<SessionInfo[]>([]);
+/** Every session of every project — the spine of the sidebar tree (D7). */
+export const allSessions = writable<SessionInfo[]>([]);
+/** The known projects, most recently used first. */
+export const projects = writable<ProjectInfo[]>([]);
 export const pending = writable<PendingPermission[]>([]);
 export const fleet = writable<FleetAgent[]>([]);
 
@@ -152,15 +173,41 @@ export async function initProjectScope(persisted: string | null): Promise<string
 export function switchProject(root: string): void {
   activeProject.set(root);
   setActiveProject(root);
+  // The scope changed: renarrow what the views show from the list we hold, so
+  // switching is instant, then refetch for the authoritative answer.
+  sessions.set(scopedTo(root, get(allSessions)));
+  void refreshSessions().catch(() => {});
 }
 
 // ---- refreshers --------------------------------------------------------------
 
+/**
+ * One unfiltered `session/list` feeds both the tree and the scoped views
+ * (design D7): the daemon reports every session with its own root, and the
+ * client narrows to the active project — including sessions that ran in a
+ * worktree under it.
+ */
 export async function refreshSessions(): Promise<void> {
-  const result = await request<{ sessions: SessionInfo[] }>("session/list", {
-    projectRoot: get(activeProject) ?? undefined,
+  const result = await request<{ sessions: SessionInfo[] }>("session/list", {});
+  allSessions.set(result.sessions);
+  const root = get(activeProject);
+  sessions.set(root ? scopedTo(root, result.sessions) : result.sessions);
+}
+
+/** The sessions of one project root, worktree sessions included. */
+export function scopedTo(root: string, all: SessionInfo[]): SessionInfo[] {
+  const norm = (p: string) => p.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
+  const scope = norm(root);
+  return all.filter((session) => {
+    const own = norm(session.projectRoot);
+    return own === scope || own.startsWith(scope + "/");
   });
-  sessions.set(result.sessions);
+}
+
+/** Refreshes the known-project registry (the switcher and the tree). */
+export async function refreshProjects(): Promise<void> {
+  const result = await request<{ projects: ProjectInfo[] }>("project/list", {});
+  projects.set(result.projects);
 }
 
 export async function refreshPending(): Promise<void> {
