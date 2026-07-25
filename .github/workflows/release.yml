@@ -292,7 +292,12 @@ jobs:
           cp brand/meltemi-mark-gradient.svg site/media/
           cp brand/meltemi-lockup-dark.svg site/media/
           cp brand/meltemi-lockup-light.svg site/media/
+      # `enablement` lets the workflow turn Pages on itself: without it the very
+      # first publication fails on a repository where nobody clicked the setting,
+      # which is a poor way to greet a fresh clone or a fork.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
