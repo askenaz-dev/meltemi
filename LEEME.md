@@ -60,12 +60,20 @@ número de versión.
 |---|---|---|
 | Windows 10 1809+ / 11 | [`meltemi-desktop-Windows.msi`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Windows.msi) | [`meltemi-Windows.zip`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-Windows.zip) |
 | macOS 13+ | [`meltemi-desktop-macOS.dmg`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-macOS.dmg) | [`meltemi-macOS.tar.gz`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-macOS.tar.gz) |
-| Linux (glibc) | [`meltemi-desktop-Linux.AppImage`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.AppImage) · [`meltemi-desktop-Linux.deb`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.deb) | [`meltemi-Linux.tar.gz`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-Linux.tar.gz) |
+| Linux (Debian/Ubuntu) | [`meltemi-desktop-Linux.deb`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.deb) | [`meltemi-Linux.tar.gz`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-Linux.tar.gz) |
 
 El archivo del núcleo trae ambos binarios: el daemon `meltemid` y el cliente de
-terminal `meltemi`. El instalador de escritorio trae la app de escritorio y usa
-la vista web de tu propio sistema (en Windows arranca el runtime del sistema si
-falta), así que se mantiene por debajo de 15 MB.
+terminal `meltemi`. Todo instalador de escritorio se mantiene por debajo de 15 MB
+porque ninguno empaqueta un motor de navegador: cada uno usa el de tu propio
+sistema. Windows arranca su runtime si falta, macOS ya lo trae, y el paquete
+Debian lo declara como dependencia para que tu gestor de paquetes lo instale. Por
+eso mismo no hay AppImage: ese formato es autocontenido por construcción, así que
+tendría que llevar el motor dentro — unos 79 MB de motor.
+
+En una distribución fuera de la familia Debian todavía no hay instalador de
+escritorio. El cliente de terminal y el daemon funcionan en cualquiera desde el
+archivo de arriba, y la app de escritorio se compila desde el código (más abajo).
+Un `.rpm` es el siguiente paso.
 
 Cada release publica `SHA256SUMS` con firma separada. Verifica antes de instalar:
 

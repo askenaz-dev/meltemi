@@ -5,6 +5,28 @@ Meltemi supports Windows 10 1809+ / Windows 11, macOS 13+, and mainstream glibc
 Linux. CI runs on all three; **Windows is first class, not a later port**. This
 page collects the real, discovered gotchas.
 
+## The desktop app on Linux: deb only, on purpose
+
+The core — daemon and terminal client — runs on any mainstream glibc
+distribution from the release archive. The desktop app is published **only as a
+`.deb`**, which declares `libwebkit2gtk-4.1-0` and `libgtk-3-0` so the package
+manager installs the engine it uses.
+
+There is no AppImage, and the reason is the product's own promise rather than an
+oversight: an AppImage is self-contained by construction, so it would have to
+carry WebKitGTK and its whole closure. Built once to check, it measured
+78,678,520 bytes — five times the 15 MB installer budget, which exists precisely
+to encode "no bundled browser engine" (`instaladores-linux-sin-webview`). There is
+no configuration that shrinks it: the pinned bundler copies the WebKit helper
+processes and runs `linuxdeploy` with the GTK plugin in code, not in options.
+
+So on Fedora, RHEL, openSUSE, Arch or NixOS there is no desktop installer yet.
+Build it from source — the readme documents the Tauri invocation and the
+development packages — or use the terminal client, which needs none of this. An
+`.rpm` is the next step: the format can declare the engine as a dependency the
+same way the `.deb` does, and it only waits on verifying those distributions'
+package names rather than guessing them.
+
 ## Data paths
 
 The daemon stores session logs (append-only JSONL) and local metrics under the

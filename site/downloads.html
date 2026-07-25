@@ -76,13 +76,11 @@
                 </td>
               </tr>
               <tr>
-                <th scope="row">Linux (glibc)</th>
+                <th scope="row">Linux (Debian/Ubuntu)</th>
                 <td>
                   <a href="https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-Linux.tar.gz">meltemi-Linux.tar.gz</a>
                 </td>
                 <td>
-                  <a href="https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.AppImage">meltemi-desktop-Linux.AppImage</a>
-                  ·
                   <a href="https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.deb">meltemi-desktop-Linux.deb</a>
                 </td>
               </tr>
@@ -91,9 +89,16 @@
         </div>
         <p>
           The core archive carries both binaries: the daemon <code>meltemid</code>
-          and the terminal client <code>meltemi</code>. The desktop installer carries
-          the desktop client and uses your operating system's own web view — it does
-          not embed a browser.
+          and the terminal client <code>meltemi</code>. No desktop installer embeds a
+          browser: each one uses your operating system's own web view — bootstrapped
+          on Windows, already there on macOS, declared as a package dependency on
+          Linux. That is why there is no AppImage: the format is self-contained by
+          construction, so it would have to carry the engine, about 79&nbsp;MB of it.
+        </p>
+        <p>
+          Outside the Debian family there is no desktop installer yet. The terminal
+          client and the daemon run on any distribution from the core archive, and
+          the desktop app builds from source. An <code>.rpm</code> is the next step.
         </p>
       </section>
 

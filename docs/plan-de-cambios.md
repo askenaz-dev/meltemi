@@ -169,6 +169,18 @@ contra las versiones vigentes y no citada de memoria.
 El design system del mantenedor vive en `design-system/` y es la fuente visual
 normativa (gui-clase-mundial D11).
 
+### `instaladores-linux-sin-webview` — activa desde el 2026-07-25
+
+El gate de tamaño disparó en Linux la primera vez que llegó a apuntar ahí: el
+AppImage pesa 78 678 520 B contra 15 MB. El número no se ensancha porque no es un
+número: el design D7 de `gui-tauri-paridad` dejó escrito que codifica «no
+empaquetamos motor de navegador», y meltemi.md §7 rechaza esa vía por su nombre.
+La change retira el AppImage, declara `libwebkit2gtk-4.1-0` y `libgtk-3-0` en el
+`.deb` —que hoy instala limpio y no arranca— y corrige la prosa pública en los
+dos idiomas. El hueco queda nombrado: fuera de la familia Debian no hay
+instalador gráfico hasta que exista un `.rpm`, que es change propia porque exige
+verificar los nombres de paquete en Fedora/RHEL en vez de adivinarlos.
+
 **Deuda declarada al archivar** (no se archivó nada fingiendo que estaba
 hecho): ✅ la captura de escritorio del sitio está publicada y su procedimiento
 es un script (`scripts/capture-desktop.ps1`, `docs/ux/capturas.md`); la firma de MSI/DMG sigue pendiente

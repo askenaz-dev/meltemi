@@ -34,7 +34,7 @@ of the stable name.
 |---|---|---|
 | Windows | `meltemi-Windows.zip` | `meltemi-desktop-Windows.msi` |
 | macOS | `meltemi-macOS.tar.gz` | `meltemi-desktop-macOS.dmg` |
-| Linux | `meltemi-Linux.tar.gz` | `meltemi-desktop-Linux.AppImage`, `meltemi-desktop-Linux.deb` |
+| Linux | `meltemi-Linux.tar.gz` | `meltemi-desktop-Linux.deb` |
 
 The installer scripts (`install.sh`, `install.ps1`) are published as release
 assets too, with their checksums inside the signed `SHA256SUMS`: the site links
@@ -47,9 +47,14 @@ the `meltemid` daemon, plus:
 - a `SHA256SUMS` file with the checksum of every archive;
 - a detached signature for the checksums file;
 - the **desktop client installer** (gui-tauri-paridad): MSI on Windows, DMG on
-  macOS, AppImage and deb on Linux, with its own `SHA256SUMS` under the same
-  signing custody. The installer bundles no webview: it uses the OS engine
-  (bootstrapping WebView2 on Windows when missing).
+  macOS, deb on Linux, with its own `SHA256SUMS` under the same signing custody.
+  No installer bundles a webview: it uses the OS engine — bootstrapping WebView2
+  on Windows when missing, already present on macOS, declared as a package
+  dependency (`libwebkit2gtk-4.1-0`, `libgtk-3-0`) on Linux. No self-contained
+  format is published for exactly that reason: an AppImage would have to carry
+  the engine, and measured ~79 MB against a 15 MB budget
+  (instaladores-linux-sin-webview). Outside the Debian family the desktop app is
+  built from source until an `.rpm` exists; the core archive runs anywhere.
 
 ## Verifying a download
 
@@ -171,7 +176,7 @@ public entry point for all of the above.
 The release pipeline (`.github/workflows/release.yml`) is triggered by a `vX.Y.Z`
 tag and runs on Windows, macOS, and Linux with **hard gates**: the full test
 suite, `cargo clippy -- -D warnings`, `cargo fmt --check`, `cargo deny`, and the
-**performance budgets** (constitution §12) — the TUI binary staying under
+**performance budgets** (meltemi.md §12, "Métricas de Éxito") — the TUI binary staying under
 **25 MB** and every GUI installer under **15 MB**. Any red gate aborts the
 release and **no artifact is published**. The GUI's runtime budgets (startup
 under 1 s, idle memory under 80 MB) are measured per release and published in
@@ -197,6 +202,6 @@ custodia de la clave es del mantenedor (documentada, nunca en el repo). El
 pipeline de release corre las tres plataformas con gates duros —suite, clippy,
 fmt, cargo-deny y presupuestos §12 (TUI < 25 MB; instalador GUI < 15 MB)— y
 aborta sin publicar ante cualquier rojo. La GUI se publica como instalador por
-plataforma (MSI/DMG/AppImage+deb) bajo la misma custodia de firmas; sus
+plataforma (MSI/DMG/deb) bajo la misma custodia de firmas; sus
 presupuestos de arranque y memoria se miden y publican en `docs/qa/` por
 release. Los crates `meltemi`/`meltemid`/`meltemi-proto` reservan el namespace.

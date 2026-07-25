@@ -57,7 +57,7 @@ to the **latest signed release** — you never have to know a version number:
 |---|---|---|
 | Windows 10 1809+ / 11 | [`meltemi-desktop-Windows.msi`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Windows.msi) | [`meltemi-Windows.zip`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-Windows.zip) |
 | macOS 13+ | [`meltemi-desktop-macOS.dmg`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-macOS.dmg) | [`meltemi-macOS.tar.gz`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-macOS.tar.gz) |
-| Linux (glibc) | [`meltemi-desktop-Linux.AppImage`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.AppImage) · [`meltemi-desktop-Linux.deb`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.deb) | [`meltemi-Linux.tar.gz`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-Linux.tar.gz) |
+| Linux (Debian/Ubuntu) | [`meltemi-desktop-Linux.deb`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.deb) | [`meltemi-Linux.tar.gz`](https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-Linux.tar.gz) |
 
 The core archive carries both binaries: the daemon `meltemid` and the terminal
 client `meltemi`. The desktop installer carries the desktop app.
@@ -71,9 +71,16 @@ sha256sum --check SHA256SUMS
 
 (`shasum -a 256` on macOS; `Get-FileHash` on Windows.)
 
-The desktop installer stays under 15 MB because it uses your operating system's
-own web engine — nothing is embedded; on Windows it bootstraps the system
-runtime when missing.
+Every desktop installer stays under 15 MB because none of them embeds a browser
+engine: each one uses your operating system's own. Windows bootstraps its runtime
+when missing, macOS has it, and the Debian package declares it as a dependency so
+your package manager installs it. That is also why there is no AppImage: the
+format is self-contained by construction, so it would have to carry the engine
+— about 79 MB of it.
+
+On a distribution outside the Debian family there is no desktop installer yet.
+The terminal client and the daemon work everywhere from the archive above, and
+the desktop app builds from source (see below). An `.rpm` is the next step.
 
 #### Windows, step by step
 
@@ -112,10 +119,11 @@ curl -fsSLO https://github.com/askenaz-dev/meltemi/releases/latest/download/inst
 less install.sh            # read it first
 sh install.sh
 
-# 2. The desktop app — the .deb, or the AppImage if you prefer no package manager.
+# 2. The desktop app. Needs libwebkit2gtk-4.1-0 and libgtk-3-0; the package
+#    declares them, so apt resolves them for you.
 curl -fsSLO https://github.com/askenaz-dev/meltemi/releases/latest/download/meltemi-desktop-Linux.deb
 sha256sum meltemi-desktop-Linux.deb        # compare against SHA256SUMS
-sudo dpkg -i meltemi-desktop-Linux.deb
+sudo apt install ./meltemi-desktop-Linux.deb
 ```
 
 Both installer scripts place `meltemi`, `meltemid` and the short `mel` alias on
