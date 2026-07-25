@@ -201,6 +201,11 @@ jobs:
           # `find`, not `**`: the macOS runners ship bash 3.2, which has no
           # `globstar` at all — `shopt -s globstar` there is a hard error under
           # `set -e`, which is exactly how this surfaced.
+          # A file, not a heredoc and not a pipe: a heredoc body would have to
+          # start at column 0 and break this YAML block, and a pipe would put the
+          # loop in a subshell where `found` never comes back.
+          list=installers.list
+          find target/release/bundle -type f \( -name '*.msi' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) | sort > "$list"
           found=0
           while IFS= read -r installer; do
             found=1
@@ -210,9 +215,7 @@ jobs:
               echo "::error::GUI installer exceeds its budget; aborting release"
               exit 1
             fi
-          done <<EOF
-$(find target/release/bundle -type f \( -name '*.msi' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) | sort)
-EOF
+          done < "$list"
           if [ "$found" -eq 0 ]; then
             echo "::error::no GUI installer was produced"
             exit 1

@@ -60,6 +60,48 @@ fn the_release_pipeline_gates_and_budget_abort() {
 }
 
 #[test]
+fn every_workflow_script_stays_inside_its_block() {
+    // A `run: |` body is a YAML block scalar: one line at column 0 ends the
+    // block and the whole workflow stops parsing, which GitHub reports as a run
+    // with no jobs and no log — an expensive way to learn about a shell heredoc.
+    // Cheap structural check, no YAML parser and so no new dependency.
+    let root = repo_root();
+    let dir = root.join(".github/workflows");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&dir).expect("the workflows directory exists") {
+        let path = entry.expect("readable entry").path();
+        if path.extension().is_none_or(|ext| ext != "yml") {
+            continue;
+        }
+        checked += 1;
+        let name = path.file_name().expect("named file").to_string_lossy();
+        let text = std::fs::read_to_string(&path).expect("readable workflow");
+        let mut block: Option<usize> = None;
+        for (number, line) in text.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue; // blank lines belong to whatever block is open
+            }
+            let indent = line.len() - line.trim_start().len();
+            if let Some(opened) = block {
+                if indent > opened {
+                    continue; // body of the block, correctly indented
+                }
+                assert!(
+                    indent > 0,
+                    "{name}:{} leaves its block scalar at column 0: {line:?}",
+                    number + 1
+                );
+                block = None; // the block ended on a sibling key
+            }
+            if line.trim_end().ends_with(": |") {
+                block = Some(indent);
+            }
+        }
+    }
+    assert!(checked >= 2, "both workflows are linted, found {checked}");
+}
+
+#[test]
 fn signed_artifacts_and_verification_are_documented() {
     // Scenario: Verificación por el usuario
     // checksum and signature verifiable.
