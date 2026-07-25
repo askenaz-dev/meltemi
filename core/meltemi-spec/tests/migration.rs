@@ -38,6 +38,23 @@ fn shape(spec: &Spec) -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
+/// Scenarios a later change legitimately SUPERSEDED by refining their
+/// requirement, with the change that did it. Preservation is about the migration
+/// losing nothing, not about freezing the specs against evolution: a `MODIFIED`
+/// requirement that splits one coarse scenario into finer ones has not dropped a
+/// promise, it has sharpened it. Every entry here is a deliberate, reviewed and
+/// archived decision — the list is the audit trail, so an accidental deletion
+/// still fails this test.
+const SUPERSEDED: &[(&str, &str, &str, &str)] = &[(
+    "edit-surface",
+    "Advertencia por sesión de agente activa",
+    "Edición sobre worktree con agente trabajando",
+    // The migration-era spec itself deferred the concurrency policy to the
+    // phase-2 GUI change, which replaced this single warning with the three
+    // states of the soft lock (turn in flight / between turns / free tree).
+    "gui-tauri-paridad",
+)];
+
 fn parse_at(path: &Path, capability: &str) -> Option<Spec> {
     let content = std::fs::read_to_string(path).ok()?;
     Some(parse_spec(capability, &content, path))
@@ -90,9 +107,39 @@ fn the_migration_preserved_every_capability_shape() {
                     panic!("requirement `{req}` of `{capability}` was dropped after migration")
                 });
             for scenario in origin_scenarios {
+                if live_scenarios.contains(&scenario) {
+                    continue;
+                }
+                let superseded = SUPERSEDED.iter().find(|(cap, requirement, name, _)| {
+                    *cap == capability && *requirement == req && *name == scenario
+                });
+                let Some((_, _, _, by)) = superseded else {
+                    panic!(
+                        "scenario `{scenario}` of `{req}` (`{capability}`) was dropped after \
+                         migration; if a change superseded it, record it in SUPERSEDED"
+                    );
+                };
+                // A supersession must be traceable to an ARCHIVED change, and the
+                // requirement must still carry scenarios: a requirement left with
+                // none is a loss, whatever the reason given.
+                let archive = repo_root().join(".meltemi").join("changes").join("archive");
+                let archived = std::fs::read_dir(&archive)
+                    .map(|entries| {
+                        entries.flatten().any(|entry| {
+                            entry
+                                .file_name()
+                                .to_string_lossy()
+                                .ends_with(&format!("-{by}"))
+                        })
+                    })
+                    .unwrap_or(false);
                 assert!(
-                    live_scenarios.contains(&scenario),
-                    "scenario `{scenario}` of `{req}` (`{capability}`) was dropped after migration"
+                    archived,
+                    "`{scenario}` claims to be superseded by `{by}`, which is not archived"
+                );
+                assert!(
+                    !live_scenarios.is_empty(),
+                    "`{req}` (`{capability}`) lost every scenario it had"
                 );
             }
         }
