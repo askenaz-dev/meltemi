@@ -140,7 +140,7 @@ fn the_pipeline_builds_and_checksums_an_installer_per_platform() {
         .split("package-gui:")
         .nth(1)
         .expect("the GUI packaging job exists");
-    for target in ["msi", "dmg", "AppImage", "deb"] {
+    for target in ["msi", "dmg", "deb"] {
         assert!(
             job.contains(target),
             "the job collects the {target} installer"
@@ -159,6 +159,65 @@ fn the_pipeline_builds_and_checksums_an_installer_per_platform() {
     // The webview is never embedded: Windows bootstraps the OS runtime.
     let config = read("desktop/tauri.conf.json");
     assert!(config.contains("downloadBootstrapper"));
+}
+
+// Scenario: Formato autocontenido no se publica
+#[test]
+fn no_self_contained_installer_format_is_built_or_named() {
+    // An AppImage carries WebKitGTK and its whole closure — measured at
+    // 78,678,520 bytes, five times the budget — so the promise that no artifact
+    // embeds a browser engine holds only if the format is never built at all.
+    let config = read("desktop/tauri.conf.json");
+    let targets = config
+        .split("\"targets\"")
+        .nth(1)
+        .expect("the bundle declares its targets")
+        .split(']')
+        .next()
+        .expect("the target list closes");
+    assert!(
+        !targets.to_lowercase().contains("appimage"),
+        "no self-contained bundle target: {targets}"
+    );
+    // And nothing downstream may publish or advertise one.
+    for (file, text) in [
+        (
+            ".github/workflows/release.yml",
+            read(".github/workflows/release.yml"),
+        ),
+        ("README.md", read("README.md")),
+        ("LEEME.md", read("LEEME.md")),
+        ("site/downloads.html", read("site/downloads.html")),
+        ("site/es/downloads.html", read("site/es/downloads.html")),
+        ("docs/release.md", read("docs/release.md")),
+    ] {
+        assert!(
+            !text.contains("meltemi-desktop-Linux.AppImage"),
+            "{file} still names an artifact the pipeline does not produce"
+        );
+    }
+}
+
+// Scenario: El paquete declara el motor del sistema
+#[test]
+fn the_linux_package_declares_the_system_webview() {
+    // Declaring the dependency is what makes "uses your system's engine" a fact
+    // the package manager enforces. Without it the deb installs cleanly and then
+    // fails to launch, which is the worst failure mode on offer: the one
+    // component that could have resolved it reports success.
+    let config = read("desktop/tauri.conf.json");
+    // From `"linux"`, not from the first `"deb"`: the target list names the
+    // format too, and that occurrence comes first.
+    let deb = config
+        .split("\"linux\"")
+        .nth(1)
+        .expect("the bundle configures Linux");
+    for dependency in ["libwebkit2gtk", "libgtk-3-0"] {
+        assert!(
+            deb.contains(dependency),
+            "the deb depends on {dependency}: {deb}"
+        );
+    }
 }
 
 // Scenario: Medición publicada por release

@@ -290,7 +290,6 @@ fn the_desktop_installers_are_renamed_to_stable_names_before_publishing() {
     for stable in [
         "meltemi-desktop-Windows.msi",
         "meltemi-desktop-macOS.dmg",
-        "meltemi-desktop-Linux.AppImage",
         "meltemi-desktop-Linux.deb",
     ] {
         assert!(
