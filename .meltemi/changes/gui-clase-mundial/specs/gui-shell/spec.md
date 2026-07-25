@@ -25,11 +25,14 @@ conservarse; el sidebar es su representación visible, no su reemplazo.
 
 ### Requirement: Densidad y profundidad del design system
 Las vistas de datos SHALL usar la escala de elevación del design system
-(página, superficie, flotante) con sus sombras, y tablas densas: filas
-compactas con jerarquía tipográfica (principal + secundario), hover y
+normativo (`design-system/`; página, superficie, flotante — hairlines de 1 px
+y un único nivel de sombra reservado a overlays) y tablas densas: filas
+compactas (32 px) con jerarquía tipográfica (principal + secundario), hover y
 selección distinguibles sin depender solo del color. Los valores categóricos
 repetidos (nivel, origen, detección) SHALL presentarse como pills, badges o
-dots con palabra — MUST NOT repetirse como texto plano columna abajo.
+dots con palabra — MUST NOT repetirse como texto plano columna abajo. La
+bandeja de permisos y los banners de señal MUST NOT animar su layout: nada se
+mueve bajo el cursor mientras se decide un permiso.
 
 #### Scenario: Fila con jerarquía y selección visible
 - **WHEN** el usuario recorre una tabla con teclado o puntero
@@ -38,6 +41,11 @@ dots con palabra — MUST NOT repetirse como texto plano columna abajo.
 #### Scenario: Categorías como pills
 - **WHEN** la Flota lista el nivel de integración y la detección
 - **THEN** el nivel SHALL renderizarse como pill (con su verificación) y la detección como dot + palabra
+
+#### Scenario: La bandeja no se mueve bajo el cursor
+- **WHILE** el usuario tiene el puntero sobre una petición de permiso
+- **WHEN** llega o vence otra petición
+- **THEN** los controles bajo el puntero SHALL NOT desplazarse por animación de layout
 
 ### Requirement: Identidad visual de entidades
 Cada agente SHALL mostrarse con un avatar de iniciales con color estable
@@ -134,17 +142,26 @@ un cambio del contrato sin regenerar falle el build.
 - **WHEN** el contrato cambia y los formularios generados no se regeneran
 - **THEN** la verificación de frescura de CI SHALL fallar
 
-### Requirement: Acciones primarias y estados vacíos accionables
-La superficie SHALL exponer "proponer un cambio" como acción primaria del
-chrome — a un clic y con atajo — abriendo el flujo `propose` con su formulario;
-y todo estado vacío SHALL ofrecer su siguiente paso como control ejecutable y
+### Requirement: La sesión como acción primaria; proponer como herramienta
+La superficie SHALL exponer "Nueva sesión" como acción primaria del chrome —
+a un clic y con atajo — abriendo un lanzador sobre los métodos existentes:
+elegir agente o perfil de la flota y el modo (explorar, proponer, despachar
+una tarea, dirigir una sesión existente), sin introducir métodos nuevos.
+`propose` MUST seguir alcanzable a una tecla (paleta y vista Proyecto) como
+herramienta, pero MUST NOT ser la única entrada visible al trabajo. Todo
+estado vacío SHALL ofrecer su siguiente paso como control ejecutable y
 enfocable, nunca solo como texto (Proyecto sin `.meltemi/` SHALL ofrecer
 inicializar la constitución; Flota sin agentes SHALL ofrecer refrescar la
 detección).
 
-#### Scenario: Proponer desde el chrome
+#### Scenario: Nueva sesión desde el chrome
 - **WHEN** el usuario activa la acción primaria del chrome
-- **THEN** la superficie SHALL abrir el flujo `propose` listo para escribir la idea
+- **THEN** el lanzador SHALL ofrecer agente/perfil y modo (explorar, proponer, despachar, dirigir)
+- **AND** SHALL invocar únicamente métodos existentes del contrato
+
+#### Scenario: Proponer sigue a una tecla
+- **WHEN** el usuario abre la paleta o la vista Proyecto
+- **THEN** `propose` SHALL estar disponible como herramienta directa
 
 #### Scenario: Inicializar desde el vacío de Proyecto
 - **WHEN** la vista Proyecto muestra que el directorio no es un proyecto

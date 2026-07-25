@@ -41,6 +41,19 @@ superficie dentro de la cerca `edit-surface` y la constitución.
 
 ## What Changes
 
+- **El design system del mantenedor es la fuente visual normativa**
+  (`design-system/`: Design System, UI Kit Desktop, Compañero móvil): tokens
+  —incluidos los que faltaban y ya se usaban de facto (`--panel`, `--hair`,
+  `--text-faint`)—, densidad como característica (filas 32 px, celdas 8 px),
+  radios 4/8 sin botones pill (las pills son etiquetas, no controles),
+  hairlines + un único nivel de sombra, y las reglas duras: **la bandeja de
+  permisos y los banners jamás animan su layout**, un solo botón sólido por
+  zona, el degradado de marca solo en la acción primaria del shell.
+- **La sesión es el centro; proponer es una herramienta**: la acción primaria
+  del shell pasa a ser "Nueva sesión" — un lanzador sobre los métodos
+  existentes (explorar, proponer, despachar tarea, dirigir) con selección de
+  agente/perfil. `propose` sigue a una tecla en la paleta y en la vista
+  Proyecto, pero deja de ser el único camino visible de entrada.
 - **Rediseño del shell a arquitectura de app de escritorio** (referencia
   visual: `docs/ux/mockups/shell-clase-mundial.html`): sidebar persistente
   con conmutador de proyecto, navegación con iconos/etiquetas/contadores y

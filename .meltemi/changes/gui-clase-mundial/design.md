@@ -115,6 +115,24 @@ sin-telemetría (constitución §9 hecha visible). Resuelve la pregunta abierta
 del design original: el selector de tema vive aquí, no en el onboarding (el
 onboarding conserva idioma, que sí es decisión de primer arranque).
 
+### D11 — El design system del mantenedor manda
+`design-system/` (Design System, UI Kit Desktop, Compañero móvil) es la
+fuente visual normativa: sobre el mockup y sobre `docs/ux/design-system.md`,
+que se actualiza para reflejarlo (tokens formalizados `--panel`, `--hair`,
+`--text-faint`; densidad 32/8/16; radios 4/8; pills redondeadas solo como
+etiquetas; hairline + una sombra; degradado solo en la acción primaria; la
+bandeja y los banners sin animación de layout). Ante conflicto entre mockup,
+doc y `design-system/`, gana `design-system/` y el doc se corrige.
+
+### D12 — "Nueva sesión" como centro, sin métodos nuevos
+El lanzador de la acción primaria compone únicamente RPCs existentes:
+`sdd/explore` (deliberar), `propose` (proponer), `worktree/dispatch` (tarea
+asignada) y `session/direct` (dirigir), con selección de agente/perfil vía
+`fleet/list`. Cero impacto en contrato y paridad. Nota de posicionamiento: si
+el producto además quisiera re-declarar el SDD como opcional en su identidad
+(meltemi.md la define spec-driven), eso sería una enmienda fundacional aparte
+— este shell no la prejuzga: solo reequilibra la jerarquía visual de entrada.
+
 ## Risks / Trade-offs
 
 - **Deriva schema↔formulario** → el gate de frescura D1 la hace imposible en

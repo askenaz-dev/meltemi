@@ -1,6 +1,6 @@
 ## 1. Rediseño del shell (arquitectura visual)
 
-- [ ] 1.1 Escala de elevación y densidad en el design system (`docs/ux/design-system.md`: elevación, tablas densas, avatares, pills) + tokens en `app.css` _(Req: Densidad y profundidad; design D8)_
+- [ ] 1.1 Alinear tokens y reglas al design system normativo (`design-system/`): formalizar `--panel`/`--hair`/`--text-faint`, densidad 32/8/16, radios, sombra única, reglas duras; actualizar `docs/ux/design-system.md` y `app.css` _(Req: Densidad y profundidad; design D8, D11)_
 - [ ] 1.2 Shell de tres zonas: sidebar (proyecto, vistas con contadores, Ajustes), barra superior (contexto + buscador Ctrl+K + acción primaria), barra de estado (conexión, versión, endpoint, resumen) — keymap intacto _(Req: Arquitectura visual; design D8)_
 - [ ] 1.3 Tablas densas con jerarquía, hover/selección visibles y categorías como pills/dots (Flota, Sesiones, Proyecto) _(Req: Densidad y profundidad)_
 - [ ] 1.4 Avatares de inicial con color estable por hash + badges de estado unificados _(Req: Identidad de entidades; design D9)_
@@ -20,8 +20,9 @@
 
 ## 4. Acciones primarias y vistas
 
-- [ ] 4.1 "Proponer un cambio" como acción primaria de la barra superior (botón + atajo) con el formulario de `propose` _(Req: Acciones primarias)_
-- [ ] 4.2 Estados vacíos accionables: inicializar constitución (Proyecto), refrescar detección (Flota) _(Req: Acciones primarias)_
+- [ ] 4.1 Lanzador "Nueva sesión" como acción primaria (agente/perfil + modo: explorar/proponer/despachar/dirigir, solo RPCs existentes); `propose` a una tecla en paleta y Proyecto _(Req: La sesión como acción primaria; design D12)_
+- [ ] 4.2 Estados vacíos accionables: inicializar constitución (Proyecto), refrescar detección (Flota) _(Req: La sesión como acción primaria)_
+- [ ] 4.5 Bandeja de permisos según el UI kit: estados normal/por vencer/vencida, regla sugerida, y sin animación de layout _(Req: Densidad y profundidad; design D11)_
 - [ ] 4.3 Sesiones: filtro `/` + orden por columna + chips de resumen por estado _(Req: Sesiones filtrables)_
 - [ ] 4.4 Sesiones: tiempos relativos localizados (Intl) con absoluto accesible + acciones por fila (cancelar, dirigir) _(Req: Sesiones filtrables)_
 

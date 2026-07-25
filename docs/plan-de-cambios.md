@@ -125,6 +125,18 @@ de concurrencia humano↔agente resuelta con `worktree/apply-edit` +
 `plugins-skills-sdk` · `i18n-superficies` · `metricas-sdd-locales` ·
 `lsp-superficie-revision`.
 
+**Propuestas 2026-07-20 desde feedback del mantenedor** (proposal
+materializada en `.meltemi/changes/`, design/specs/tasks just-in-time; orden
+sugerido tras `gui-clase-mundial`): `flota-deteccion-guia` (detección en dos
+capas CLI+adaptador con remedios y guía de agentes para GitHub) ·
+`multiproyecto-suscripciones` (árbol proyecto→sesiones con perfiles/
+suscripciones visibles; el daemon ya lo soporta) · `analitica-consumo-local`
+(contabilidad local §2/§9: actividad siempre, tokens donde la interfaz
+oficial los emite) · `sitio-web-producto` (meltemi.dev estático con el
+design system; el producto completo: escritorio + terminal, 3 SO). El design
+system del mantenedor vive en `design-system/` y es la fuente visual
+normativa (gui-clase-mundial D11).
+
 > **Gobernanza de alcance** (change `enmienda-edicion-movil`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) está acotado a monitorear/aprobar/dirigir y al acceso solo por túnel SSH por la spec `mobile-companion`.
 
 ## Fase 3 — se planifica al cerrar Fase 2
