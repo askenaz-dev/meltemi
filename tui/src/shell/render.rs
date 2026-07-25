@@ -1231,7 +1231,7 @@ mod tests {
 
     #[test]
     fn sessions_group_by_project_with_agent_and_subscription() {
-        // Scenario: Sesiones agrupadas por proyecto en la TUI.
+        // Scenario: Sesiones agrupadas por proyecto
         let live = two_project_live();
         let out = draw(&ShellState::new(), &live, &ctx(default_present()), 100, 24);
         assert!(out.contains("alpha"), "the project group header is shown");
@@ -1247,7 +1247,7 @@ mod tests {
 
     #[test]
     fn the_grouped_sessions_view_survives_ascii_and_no_color() {
-        // Scenario: Sesiones agrupadas por proyecto en la TUI (gemelo ASCII).
+        // Scenario: Suscripción legible sin color ni Unicode
         let live = two_project_live();
         let ascii = Presentation::resolve(&PresentationEnv {
             ascii_flag: true,
@@ -1266,7 +1266,7 @@ mod tests {
 
     #[test]
     fn the_filter_narrows_by_project_and_by_subscription() {
-        // Scenario: Filtro por proyecto en la TUI.
+        // Scenario: Filtro por proyecto reduce a un grupo
         let live = two_project_live();
         let mut state = ShellState::new();
         state.reduce(crate::shell::keymap::Action::Filter);
@@ -1293,7 +1293,7 @@ mod tests {
 
     #[test]
     fn the_project_scope_from_the_palette_narrows_the_groups() {
-        // Scenario: Ambito de proyecto conmutado desde la paleta.
+        // Scenario: Ámbito de proyecto conmutado desde la paleta
         let live = two_project_live();
         let mut state = ShellState::new();
         state.reduce(crate::shell::keymap::Action::OpenPalette);
@@ -1512,7 +1512,8 @@ mod tests {
 
     #[test]
     fn disconnect_banner_outranks_pending_in_the_alert() {
-        // Scenario: Orden de prioridad — daemon caído por encima del permiso.
+        // Scenario: Orden de prioridad
+        // daemon caído por encima del permiso.
         let mut live = LiveData::new();
         live.apply(Update::Pending(5));
         live.apply(Update::Conn(ConnState::Unreachable {
@@ -1582,7 +1583,8 @@ mod tests {
 
     #[test]
     fn tray_lists_pending_with_state_word_timing_and_decide_hint() {
-        // Scenario: Bandeja interactiva — lista con edad/plazo y decisión.
+        // Scenario: Bandeja interactiva
+        // lista con edad/plazo y decisión.
         let mut live = connected();
         live.apply(Update::PermissionQueue(vec![
             pending("perm-1", "execute", false, false),
@@ -1617,7 +1619,8 @@ mod tests {
 
     #[test]
     fn tray_create_rule_confirm_names_the_proposed_rule() {
-        // Scenario: Aprobar y crear regla — confirmar la regla propuesta.
+        // Scenario: Aprobar y crear regla
+        // confirmar la regla propuesta.
         let mut live = connected();
         live.apply(Update::PermissionQueue(vec![pending(
             "perm-1", "execute", false, false,

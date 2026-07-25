@@ -502,7 +502,8 @@ mod tests {
 
     #[test]
     fn palette_shutdown_command_asks_to_confirm_then_effects_shutdown() {
-        // Scenario: Apagado del daemon superficiado — desde la paleta, con confirmación.
+        // Scenario: Apagado del daemon superficiado
+        // desde la paleta, con confirmación.
         let mut s = ShellState::new();
         press(&mut s, Key::Char(':'));
         for c in "shutdown".chars() {
@@ -531,7 +532,8 @@ mod tests {
 
     #[test]
     fn palette_status_command_refreshes() {
-        // Scenario: Capacidad alcanzable por la paleta — status refresca.
+        // Scenario: Capacidad alcanzable por la paleta
+        // status refresca.
         let mut s = ShellState::new();
         press(&mut s, Key::Char(':'));
         for c in "status".chars() {
@@ -552,7 +554,8 @@ mod tests {
 
     #[test]
     fn tray_create_rule_is_gated_by_confirmation() {
-        // Scenario: Aprobar y crear regla — confirmar la regla antes de persistir.
+        // Scenario: Aprobar y crear regla
+        // confirmar la regla antes de persistir.
         let mut s = ShellState::new();
         press(&mut s, Key::Char('3'));
         assert!(press(&mut s, Key::Char('r')).is_none());
@@ -597,7 +600,8 @@ mod tests {
 
     #[test]
     fn onboarding_shows_and_dismisses() {
-        // Scenario: Saltable — Esc/`q` descarta el onboarding.
+        // Scenario: Saltable
+        // Esc/`q` descarta el onboarding.
         let mut s = ShellState::new();
         s.show_onboarding();
         assert!(matches!(s.top_overlay(), Some(Overlay::Onboarding)));
@@ -606,7 +610,7 @@ mod tests {
     }
     #[test]
     fn the_filter_captures_text_commits_on_enter_and_reverts_on_esc() {
-        // Scenario: Filtro por proyecto en la TUI.
+        // Scenario: Filtro por proyecto reduce a un grupo
         let mut s = ShellState::new();
         press(&mut s, Key::Char('/'));
         assert!(matches!(s.top_overlay(), Some(Overlay::Filter { .. })));
@@ -643,7 +647,7 @@ mod tests {
 
     #[test]
     fn the_palette_switches_and_clears_the_project_scope() {
-        // Scenario: Ambito de proyecto conmutado desde la paleta.
+        // Scenario: Ámbito de proyecto conmutado desde la paleta
         let mut s = ShellState::new();
         press(&mut s, Key::Char(':'));
         for c in "projects beta".chars() {

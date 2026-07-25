@@ -201,9 +201,11 @@ fn project_of<'a>(list: &'a Value, root: &Path) -> &'a Value {
 
 #[tokio::test]
 async fn two_projects_two_subscriptions_are_listed_and_aggregatable() {
-    // Scenario: Dos proyectos con sesiones propias
-    // Scenario: Listado global de sesiones
-    // Scenario: Dos suscripciones del mismo agente
+    // Scenario: Dos proyectos listados por recencia
+    // Scenario: Proyecto sin sesiones vivas sigue presente
+    // Scenario: Listado global agregable por proyecto
+    // Scenario: Sesión de un perfil declara su suscripción
+    // Scenario: El listado nunca lleva el contexto de autenticación
     if !git_available() {
         eprintln!("skipping: git not on PATH");
         return;
@@ -285,7 +287,7 @@ async fn two_projects_two_subscriptions_are_listed_and_aggregatable() {
 
 #[tokio::test]
 async fn a_project_whose_root_moved_stays_listed_as_absent() {
-    // Scenario: Proyecto cuya raíz ya no existe
+    // Scenario: Raíz desaparecida se conserva marcada
     if !git_available() {
         eprintln!("skipping: git not on PATH");
         return;

@@ -45,7 +45,8 @@ fn parse_at(path: &Path, capability: &str) -> Option<Spec> {
 
 #[test]
 fn the_migration_preserved_every_capability_shape() {
-    // Scenario: Verdad viva idéntica tras migrar — scoped "WHEN la migración
+    // Scenario: Verdad viva idéntica tras migrar
+    // scoped "WHEN la migración
     // concluye": the migration lost nothing. It is a PRESERVATION invariant, not
     // eternal byte-identity: once the living truth hosts the method, later
     // changes legitimately grow `.meltemi/specs/` past its frozen origin
@@ -127,7 +128,8 @@ fn the_history_is_preserved_under_meltemi() {
 
 #[test]
 fn no_operative_reference_to_the_borrowed_tool_remains_in_ci() {
-    // Scenario: Sin referencias operativas a la etapa anterior — CI/config do
+    // Scenario: Sin referencias operativas a la etapa anterior
+    // CI/config do
     // not invoke the borrowed tool. Its tree may remain as consultable history
     // until the maintainer confirms its physical removal.
     let root = repo_root();

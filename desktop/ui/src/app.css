@@ -235,7 +235,8 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  border-radius: 9px;
+  /* 4 px like every other control: the design system has no lozenges. */
+  border-radius: var(--radius-control);
   padding: 1px 8px;
   font-size: var(--fs-caption);
   background: var(--surface-2);

@@ -61,6 +61,29 @@ export function readFile(root: string, file: string): Promise<{ content: string 
   return invoke<{ file: string; content: string }>("tree_read", { root, file });
 }
 
+/**
+ * Whether the directory is an initialized Meltemi project — that is, whether it
+ * carries `.meltemi/`. The daemon tolerates a directory without it (it answers
+ * with empty lists), so an empty answer is NOT evidence of absence: the Project
+ * view asks this instead of inferring, or it would show "no changes yet" where
+ * the honest answer is "this is not a project yet".
+ */
+export async function isMeltemiProject(root: string): Promise<boolean> {
+  for (const marker of [
+    ".meltemi/constitution.md",
+    ".meltemi/rumbo/product.md",
+    ".meltemi/config.toml",
+  ]) {
+    try {
+      await readFile(root, marker);
+      return true;
+    } catch {
+      // Keep probing: a project may carry only some of the markers.
+    }
+  }
+  return false;
+}
+
 export interface SearchMatch {
   file: string;
   line: number;

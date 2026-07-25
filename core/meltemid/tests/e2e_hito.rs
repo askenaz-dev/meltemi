@@ -163,7 +163,8 @@ async fn init_client(endpoint: &str) -> Peer {
 
 #[tokio::test]
 async fn the_milestone_cycle_reaches_implemented_verified_archived() {
-    // Scenario: Ciclo completo en terminal — the fixture ends implemented,
+    // Scenario: Ciclo completo en terminal
+    // the fixture ends implemented,
     // verified, and archived, every step via the product surfaces.
     if !git_available() {
         eprintln!("skipping: git not on PATH");
@@ -272,7 +273,8 @@ async fn the_milestone_cycle_reaches_implemented_verified_archived() {
 
 #[tokio::test]
 async fn two_distinct_profiles_work_in_parallel_worktrees_with_traceability() {
-    // Scenario: Paralelismo real de dos agentes — two profiles work in separate
+    // Scenario: Paralelismo real de dos agentes
+    // two profiles work in separate
     // worktrees from the same base, and their commits keep per-task traceability.
     if !git_available() {
         eprintln!("skipping: git not on PATH");

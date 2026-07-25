@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn the_resolution_event_repopulates_agent_and_subscription() {
-        // Scenario: Reconstruccion del agente y la suscripcion desde el log.
+        // Scenario: Suscripción reconstruida desde el log
         let data = temp("resolution");
         let dir = sessions_dir(&data, "k");
         std::fs::create_dir_all(&dir).unwrap();

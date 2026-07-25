@@ -246,7 +246,8 @@ async fn parallel_and_serialized_batches_are_reported() {
 
 #[tokio::test]
 async fn cleanup_is_safe_and_never_touches_foreign_worktrees() {
-    // Scenario: Limpieza segura — dirty exige confirmación; ajeno jamás tocado.
+    // Scenario: Limpieza segura
+    // dirty exige confirmación; ajeno jamás tocado.
     if !git_available() {
         eprintln!("skipping: git not on PATH");
         return;
@@ -317,7 +318,8 @@ async fn cleanup_is_safe_and_never_touches_foreign_worktrees() {
 
 #[tokio::test]
 async fn assisted_merge_applies_a_file_only_with_confirmation() {
-    // Scenario: Elección y aplicación selectiva — cada aplicación explícita.
+    // Scenario: Elección y aplicación selectiva
+    // cada aplicación explícita.
     if !git_available() {
         eprintln!("skipping: git not on PATH");
         return;
@@ -396,7 +398,8 @@ async fn assisted_merge_applies_a_file_only_with_confirmation() {
 
 #[tokio::test]
 async fn a_non_git_directory_degrades_honestly() {
-    // Scenario: Proyecto sin git — rehusar con diagnóstico y remedio.
+    // Scenario: Proyecto sin git
+    // rehusar con diagnóstico y remedio.
     let root = std::env::temp_dir().join(format!("meltemi-e2e-nogit-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();

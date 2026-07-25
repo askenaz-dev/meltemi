@@ -11,6 +11,7 @@
     onOpenPalette,
     onNewSession,
     onOpenPermissions,
+    urgent = false,
     children,
   }: {
     title: string;
@@ -18,6 +19,12 @@
     onOpenPalette: () => void;
     onNewSession: () => void;
     onOpenPermissions: () => void;
+    /**
+     * True when a pending permission is the TOP signal — that is, when the
+     * daemon is reachable. With the daemon down its banner outranks the tray,
+     * so the tray must not also shout (shell design D4).
+     */
+    urgent?: boolean;
     children?: Snippet;
   } = $props();
 </script>
@@ -37,10 +44,12 @@
       <kbd>Ctrl K</kbd>
     </button>
 
-    <!-- The always-visible permission signal: symbol + counter + word. -->
+    <!-- The always-visible permission signal: symbol + counter + word. It
+         announces itself only while it is the top signal. -->
     <button
       class="tray ghost"
       class:waiting={$pending.length > 0}
+      aria-live={urgent ? "polite" : "off"}
       onclick={onOpenPermissions}
     >
       {#if $pending.length > 0}

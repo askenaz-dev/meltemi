@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import { isMeltemiProject } from "../editor/files";
   import { get } from "svelte/store";
   import { request } from "../daemon";
   import { t } from "../i18n";
@@ -26,6 +27,16 @@
       return;
     }
     try {
+      // The daemon answers a directory without `.meltemi/` with empty lists, so
+      // emptiness is NOT evidence of absence: ask for the marker directly. Only
+      // this view degrades; every other one stays usable (shell design D2).
+      const initialized = await isMeltemiProject(root);
+      if (!initialized) {
+        isProject = false;
+        changes = [];
+        specs = [];
+        return;
+      }
       const [changesResult, specsResult] = await Promise.all([
         request<{ changes: ChangeInfo[] }>("change/list", {
           projectRoot: root,
@@ -36,8 +47,8 @@
       specs = specsResult.specs;
       isProject = true;
     } catch {
-      // The daemon refuses when the directory is not a `.meltemi/` project;
-      // the view shows the initialization path, everything else stays usable.
+      // A refusal from the daemon lands here too: the view shows the
+      // initialization path rather than a bare error.
       isProject = false;
     } finally {
       loading = false;

@@ -216,3 +216,154 @@ export async function gotoDefinition(
     line: range.start.line + 1,
   };
 }
+
+/** A text edit as the server expresses it (LSP `TextEdit`). */
+export interface LspTextEdit {
+  range: LspRange;
+  newText: string;
+}
+
+/** Applies LSP edits to a document string, last edit first so offsets hold. */
+export function applyTextEdits(content: string, edits: LspTextEdit[]): string {
+  const lines = content.split("\n");
+  const offsetOf = (line: number, character: number): number => {
+    let offset = 0;
+    for (let index = 0; index < line && index < lines.length; index += 1) {
+      offset += lines[index].length + 1;
+    }
+    return offset + character;
+  };
+  const sorted = [...edits].sort((a, b) => {
+    const byLine = b.range.start.line - a.range.start.line;
+    return byLine !== 0 ? byLine : b.range.start.character - a.range.start.character;
+  });
+  let out = content;
+  for (const edit of sorted) {
+    const from = offsetOf(edit.range.start.line, edit.range.start.character);
+    const to = offsetOf(edit.range.end.line, edit.range.end.character);
+    out = out.slice(0, from) + edit.newText + out.slice(to);
+  }
+  return out;
+}
+
+/**
+ * `textDocument/formatting`: the edits the user's server proposes, or `null`
+ * when no server is installed for the language — the honest degradation the
+ * spec asks for, never a local reformat pretending to be the server's.
+ */
+export async function formatDocument(
+  root: string,
+  file: string,
+): Promise<LspTextEdit[] | null> {
+  const language = lspLanguageFor(file);
+  if (!language) return null;
+  try {
+    const result = await invoke("lsp_request", {
+      root,
+      file,
+      language,
+      method: "textDocument/formatting",
+      params: {
+        options: { tabSize: 2, insertSpaces: true },
+      },
+    });
+    if (!Array.isArray(result) || result.length === 0) return null;
+    return result as LspTextEdit[];
+  } catch {
+    return null;
+  }
+}
+
+/** One reference the server reported, resolved inside the tree. */
+export interface ReferenceHit {
+  file: string;
+  line: number;
+}
+
+/** `textDocument/references`: every use of the symbol under the cursor. */
+export async function findReferences(
+  root: string,
+  file: string,
+  position: { line: number; character: number },
+): Promise<ReferenceHit[] | null> {
+  const language = lspLanguageFor(file);
+  if (!language) return null;
+  let result: unknown;
+  try {
+    result = await invoke("lsp_request", {
+      root,
+      file,
+      language,
+      method: "textDocument/references",
+      params: { position, context: { includeDeclaration: true } },
+    });
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(result)) return null;
+  const hits: ReferenceHit[] = [];
+  for (const raw of result) {
+    const location = raw as { uri?: string; range?: LspRange };
+    const inside = relativeToRoot(root, location.uri);
+    if (!inside || !location.range) continue;
+    hits.push({ file: inside, line: location.range.start.line + 1 });
+  }
+  return hits;
+}
+
+/** `textDocument/rename`: the whole-workspace edit the server proposes. */
+export async function renameSymbol(
+  root: string,
+  file: string,
+  position: { line: number; character: number },
+  newName: string,
+): Promise<Map<string, LspTextEdit[]> | null> {
+  const language = lspLanguageFor(file);
+  if (!language) return null;
+  let result: unknown;
+  try {
+    result = await invoke("lsp_request", {
+      root,
+      file,
+      language,
+      method: "textDocument/rename",
+      params: { position, newName },
+    });
+  } catch {
+    return null;
+  }
+  const edit = result as {
+    changes?: Record<string, LspTextEdit[]>;
+    documentChanges?: { textDocument?: { uri?: string }; edits?: LspTextEdit[] }[];
+  } | null;
+  const perFile = new Map<string, LspTextEdit[]>();
+  const push = (uri: string | undefined, edits: LspTextEdit[] | undefined) => {
+    const inside = relativeToRoot(root, uri);
+    // An edit outside the tree is dropped, never applied silently: the daemon
+    // is the only writer and it writes inside the tree.
+    if (!inside || !edits || edits.length === 0) return;
+    perFile.set(inside, [...(perFile.get(inside) ?? []), ...edits]);
+  };
+  for (const [uri, edits] of Object.entries(edit?.changes ?? {})) {
+    push(uri, edits);
+  }
+  for (const document of edit?.documentChanges ?? []) {
+    push(document.textDocument?.uri, document.edits);
+  }
+  return perFile.size > 0 ? perFile : null;
+}
+
+/** A `file://` URI as a path relative to the tree, or `null` when outside it. */
+export function relativeToRoot(root: string, uri: string | undefined): string | null {
+  if (!uri) return null;
+  const target = decodeURIComponent(uri)
+    .replace(/^file:\/\/\/?/, "")
+    .replaceAll("\\", "/")
+    .replace(/^\/+/, "");
+  const base = root
+    .replaceAll("\\", "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  if (!target.toLowerCase().startsWith(base.toLowerCase() + "/")) return null;
+  return target.slice(base.length + 1);
+}

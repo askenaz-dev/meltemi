@@ -106,7 +106,8 @@ mod tests {
 
     #[test]
     fn next_pending_is_the_resume_point() {
-        // Scenario: Progreso sobrevive reinicio — resume at the first undone.
+        // Scenario: Progreso sobrevive reinicio
+        // resume at the first undone.
         let tasks = parse_tasks(TASKS);
         assert_eq!(next_pending(&tasks).unwrap().id, "1.1");
         // With 1.1 ticked, the resume point advances past the done 1.2.

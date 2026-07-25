@@ -157,7 +157,8 @@ mod tests {
 
     #[test]
     fn reserved_keys_are_stable_categories() {
-        // Scenario: reserva global respetada — `a`/`x` no son Local.
+        // Scenario: reserva global respetada
+        // `a`/`x` no son Local.
         assert_eq!(
             resolve(Key::Char('a'), InputMode::Navigation),
             Action::AttendPermissions

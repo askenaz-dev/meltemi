@@ -191,7 +191,8 @@ mod tests {
         dir
     }
 
-    // Scenario: El registro recuerda los proyectos usados
+    // Scenario: Alta repetida no duplica el proyecto
+    // Scenario: Una sesión estrena el proyecto en el registro
     #[test]
     fn touching_a_project_registers_it_once_with_its_recency() {
         let data = temp("touch");
@@ -238,7 +239,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data);
     }
 
-    // Scenario: El registro no explora el disco
+    // Scenario: Ningún proyecto aparece sin haberse usado
     #[test]
     fn reading_the_registry_never_registers_anything() {
         let data = temp("read-only");

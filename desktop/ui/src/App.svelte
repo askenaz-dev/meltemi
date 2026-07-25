@@ -10,6 +10,7 @@
   import {
     activeProject,
     initProjectScope,
+    pending,
     pushNotice,
     refreshPending,
     startIncomingRouter,
@@ -45,6 +46,7 @@
     root: string;
     target: { change: string; task: string; agent: string } | null;
     initialFile: string | null;
+    initialLine: number | null;
   } | null = $state(null);
 
   let paletteOpen = $state(false);
@@ -54,6 +56,17 @@
   let onboardingOpen = $state(false);
   /** Pending navigation held by the unsaved-work guard. */
   let guard: { kind: "close" } | { kind: "leave"; go: () => void } | null = $state(null);
+
+  /**
+   * The signal that outranks the others right now (design D4 of the shell): the
+   * daemon being unreachable beats a pending permission, which beats everything
+   * else. Computed rather than implied, so the order cannot drift with markup.
+   */
+  const topSignal = $derived.by<"daemon" | "permission" | "none">(() => {
+    if ($conn.state === "unreachable") return "daemon";
+    if ($pending.length > 0) return "permission";
+    return "none";
+  });
 
   const overlayOpen = $derived(
     paletteOpen || launcherOpen || onboardingOpen || switcherOpen || guard !== null,
@@ -120,8 +133,18 @@
       reviewOpen = false;
       editorContext = target === "editor" ? editorContext : null;
       if (target === "editor") openProjectEditor();
+      // Landing on the tray puts the focus on a pending request, whichever way
+      // the user got there: the indicator, the sidebar, the palette or `a`.
+      if (target === "permissions") focusPendingRequest();
       setLastView(target);
     });
+  }
+
+  /** Focuses the first pending request of the tray, once it has rendered. */
+  function focusPendingRequest() {
+    setTimeout(() => {
+      document.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+    }, 50);
   }
 
   function openProjectEditor(file: string | null = null) {
@@ -131,7 +154,7 @@
       return;
     }
     view = "editor";
-    editorContext = { root, target: null, initialFile: file };
+    editorContext = { root, target: null, initialFile: file, initialLine: null };
     setLastView("editor");
   }
 
@@ -168,9 +191,6 @@
     }
     if (event.key === "a") {
       navigate("permissions");
-      setTimeout(() => {
-        document.querySelector<HTMLElement>("[data-autofocus]")?.focus();
-      }, 50);
       return;
     }
     if (event.key === "?") {
@@ -228,22 +248,6 @@
   {/if}
 
   <div class="main">
-    <TopBar
-      title={viewTitle}
-      onOpenPalette={() => (paletteOpen = true)}
-      onNewSession={() => {
-        launcherSession = null;
-        launcherOpen = true;
-      }}
-      onOpenPermissions={() => navigate("permissions")}
-    >
-      {#if detailSession || reviewOpen || editorContext}
-        <button class="ghost" onclick={() => onKeydown(new KeyboardEvent("keydown", { key: "Escape" }))}>
-          {$t("common.back")}
-        </button>
-      {/if}
-    </TopBar>
-
     <!-- Signal 1: the daemon being unreachable outranks everything. -->
     {#if $conn.state === "unreachable"}
       <div class="banner" role="alert">
@@ -264,24 +268,47 @@
       </div>
     {/if}
 
+    <TopBar
+      title={viewTitle}
+      onOpenPalette={() => (paletteOpen = true)}
+      onNewSession={() => {
+        launcherSession = null;
+        launcherOpen = true;
+      }}
+      onOpenPermissions={() => navigate("permissions")}
+      urgent={topSignal === "permission"}
+    >
+      {#if detailSession || reviewOpen || editorContext}
+        <button class="ghost" onclick={() => onKeydown(new KeyboardEvent("keydown", { key: "Escape" }))}>
+          {$t("common.back")}
+        </button>
+      {/if}
+    </TopBar>
+
     <Notices />
 
     <main>
       {#if editorContext}
-        {#key editorContext.root + (editorContext.initialFile ?? "")}
+        {#key editorContext.root + (editorContext.initialFile ?? "") + (editorContext.initialLine ?? "")}
           <Editor
             root={editorContext.root}
             target={editorContext.target}
             initialFile={editorContext.initialFile}
+            initialLine={editorContext.initialLine}
             onBack={() => leaveEditor(() => (editorContext = null))}
           />
         {/key}
       {:else if reviewOpen && $activeProject}
         <Review
           root={$activeProject}
-          onEditWorktree={(worktreePath, target, file) => {
+          onEditWorktree={(worktreePath, target, file, line) => {
             view = "editor";
-            editorContext = { root: worktreePath, target, initialFile: file ?? null };
+            editorContext = {
+              root: worktreePath,
+              target,
+              initialFile: file ?? null,
+              initialLine: line ?? null,
+            };
           }}
           onBack={() => (reviewOpen = false)}
         />

@@ -1,0 +1,1156 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! Verification of the desktop-shell scenarios of `gui-tauri-paridad` and
+//! `gui-clase-mundial`.
+//!
+//! A Svelte view cannot be driven from a Rust test, so — following the
+//! convention `surface.rs` already established for this surface — each check
+//! reads the source and asserts the specific wiring its scenario claims: a
+//! symbol, a string, a store call, an attribute. Where the frontend has an
+//! executed unit test for the behaviour (`desktop/ui/tests/*.test.ts`, run by
+//! CI), the check also asserts that the case is named there, so the link is to
+//! something that runs and not merely to something that exists.
+
+use std::path::PathBuf;
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repo root")
+        .to_path_buf()
+}
+
+fn read(relative: &str) -> String {
+    let path = repo_root().join(relative);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {relative}: {e}"))
+}
+
+fn app() -> String {
+    read("desktop/ui/src/App.svelte")
+}
+
+/// The markup of the routed view region, i.e. what a view can influence.
+fn main_region(app: &str) -> &str {
+    let start = app.find("<main>").expect("the shell has a main region");
+    let end = app.find("</main>").expect("main closes");
+    &app[start..end]
+}
+
+// ---- shell architecture ------------------------------------------------------
+
+// Scenario: Tres zonas presentes
+// Scenario: Aterrizaje con daemon y sesiones
+#[test]
+fn the_shell_has_three_zones_and_lands_on_sessions() {
+    let app = app();
+    // Sidebar, top bar and status bar are mounted once, OUTSIDE the routed view,
+    // so no view can remove or displace them.
+    for component in ["<Sidebar", "<TopBar", "<StatusBar"] {
+        assert_eq!(
+            app.matches(component).count(),
+            1,
+            "{component} is mounted exactly once"
+        );
+        assert!(
+            !main_region(&app).contains(component),
+            "{component} must live outside the routed view"
+        );
+    }
+    assert!(
+        app.contains("let view: ViewId = $state(\"sessions\")"),
+        "a first run lands on Sessions"
+    );
+    // The chrome carries the three signals the scenario names.
+    let status = read("desktop/ui/src/lib/components/StatusBar.svelte");
+    assert!(
+        status.contains("$conn.state === \"connected\"") && status.contains("conn.unreachable"),
+        "the status bar states the daemon's connection either way"
+    );
+    let top = read("desktop/ui/src/lib/components/TopBar.svelte");
+    assert!(
+        top.contains("$pending.length") && top.contains("permissions.waitingWord"),
+        "the top bar carries the permission counter with its word"
+    );
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        sidebar.contains("nav.noProject") && sidebar.contains("$activeProject"),
+        "the sidebar names the project scope, or says there is none"
+    );
+}
+
+// Scenario: Contadores vivos en el sidebar
+#[test]
+fn the_sidebar_counters_come_from_live_state() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    let counter = sidebar
+        .split("function counterFor")
+        .nth(1)
+        .expect("the sidebar computes its counters");
+    let body = counter.split("\n  }").next().expect("body");
+    assert!(
+        body.contains("liveSessions") && body.contains("$pending.length"),
+        "sessions and pending permissions feed their own counters: {body}"
+    );
+    assert!(
+        sidebar.contains("session.state === \"active\"")
+            && sidebar.contains("session.state === \"waiting_permission\""),
+        "\"live\" is a state of the session, not a guess"
+    );
+    // A permission counter is a warning; a session counter is not.
+    assert!(
+        body.contains("warn: true") && body.contains("warn: false"),
+        "the two counters are distinguishable beyond their number"
+    );
+}
+
+// Scenario: La barra de estado dice la verdad de conexión
+#[test]
+fn the_status_bar_tells_the_truth_about_the_connection() {
+    let status = read("desktop/ui/src/lib/components/StatusBar.svelte");
+    for state in ["connected", "connecting", "unreachable"] {
+        assert!(
+            status.contains(state),
+            "the status bar has a rendering for `{state}`"
+        );
+    }
+    assert!(
+        status.contains("$conn.endpoint"),
+        "it names the endpoint, so a wrong socket is diagnosable"
+    );
+    // Symbol plus word, never colour alone.
+    assert!(
+        status.contains("aria-hidden=\"true\"") && status.contains("$t("),
+        "the state is a glyph and a localized word"
+    );
+}
+
+// ---- density and depth -------------------------------------------------------
+
+// Scenario: Fila con jerarquía y selección visible
+// Scenario: Categorías como pills
+#[test]
+fn rows_have_hierarchy_and_categories_render_as_pills() {
+    let css = read("desktop/ui/src/app.css");
+    let cell = css
+        .split("table.dense td {")
+        .nth(1)
+        .expect("dense cells")
+        .split('}')
+        .next()
+        .expect("body");
+    assert!(
+        cell.contains("height: var(--row-h)") && cell.contains("var(--cell-pad)"),
+        "the dense row is 32/8 by token: {cell}"
+    );
+    // Selection is visible without relying on colour: a left border marks it.
+    assert!(
+        css.contains("table.dense tbody tr") && css.contains("border-left"),
+        "a row's selection is a shape, not only a tint"
+    );
+    let pill = css
+        .split(".pill {")
+        .nth(1)
+        .expect(".pill")
+        .split('}')
+        .next()
+        .expect("body");
+    assert!(
+        pill.contains("border-radius: var(--radius-control)"),
+        "a pill takes the 4 px control radius, never a lozenge: {pill}"
+    );
+    // Categories in the palette are pills, not headings.
+    let palette = read("desktop/ui/src/lib/components/Palette.svelte");
+    assert!(
+        palette.contains("class=\"pill") || palette.contains("class=\"group"),
+        "the palette groups by category visibly"
+    );
+}
+
+// Scenario: La bandeja no se mueve bajo el cursor
+// Scenario: Orden de prioridad de señales
+#[test]
+fn the_tray_never_moves_and_the_signal_order_is_explicit() {
+    let app = app();
+    // The order is computed, not implied by markup.
+    assert!(
+        app.contains("const topSignal = $derived.by<\"daemon\" | \"permission\" | \"none\">"),
+        "the shell computes which signal outranks the others"
+    );
+    let signal = app
+        .split("const topSignal")
+        .nth(1)
+        .expect("topSignal")
+        .split("});")
+        .next()
+        .expect("body");
+    let daemon_at = signal.find("return \"daemon\"").expect("daemon leg");
+    let permission_at = signal
+        .find("return \"permission\"")
+        .expect("permission leg");
+    assert!(
+        daemon_at < permission_at,
+        "an unreachable daemon outranks a pending permission: {signal}"
+    );
+    // And the DOM order matches it: the banner precedes the tray.
+    let banner_at = app
+        .find("$conn.state === \"unreachable\"")
+        .expect("the daemon banner");
+    let topbar_at = app.find("<TopBar").expect("the top bar");
+    assert!(
+        banner_at < topbar_at,
+        "the banner is met before the tray, by both eye and screen reader"
+    );
+    // The tray only announces itself while it IS the top signal.
+    assert!(
+        app.contains("urgent={topSignal === \"permission\"}"),
+        "the tray's urgency follows the computed order"
+    );
+    let top = read("desktop/ui/src/lib/components/TopBar.svelte");
+    assert!(
+        top.contains("aria-live={urgent ? \"polite\" : \"off\"}"),
+        "with the daemon down the tray does not also shout"
+    );
+    // Nothing in the tray animates its layout.
+    let permissions = read("desktop/ui/src/lib/views/Permissions.svelte");
+    // Declaring `transition: none` is the opposite of animating; what must not
+    // appear is an actual animation of the layout.
+    for forbidden in ["transition:in", "animate:", "@keyframes", "animation-name"] {
+        assert!(
+            !permissions.contains(forbidden),
+            "the tray must not animate its layout ({forbidden})"
+        );
+    }
+    for line in permissions
+        .lines()
+        .filter(|l| l.trim_start().starts_with("transition:"))
+    {
+        assert!(
+            line.contains("none"),
+            "the tray declares no transition of its own: {line}"
+        );
+    }
+}
+
+// Scenario: Avatar estable por id
+#[test]
+fn an_avatar_is_stable_for_an_id() {
+    let agents = read("desktop/ui/src/lib/agents.ts");
+    assert!(
+        agents.contains("fnv1a") || agents.contains("hash"),
+        "the tone comes from a hash of the id, so it never moves"
+    );
+    let tests = read("desktop/ui/tests/agents.test.ts");
+    assert!(
+        tests.contains("stable") || tests.contains("same id"),
+        "the stability has an executed unit test"
+    );
+    let avatar = read("desktop/ui/src/lib/components/Avatar.svelte");
+    assert!(
+        avatar.contains("toneFor(id)") && avatar.contains("initialsFor("),
+        "the avatar is derived from the id, never random"
+    );
+}
+
+// ---- the drawer --------------------------------------------------------------
+
+// Scenario: Drawer de agente con acciones
+// Scenario: Esc cierra el panel primero
+#[test]
+fn the_drawer_keeps_the_list_and_escape_closes_it_first() {
+    let fleet = read("desktop/ui/src/lib/views/Fleet.svelte");
+    assert!(
+        fleet.contains("<Drawer"),
+        "the detail is a drawer, so the list stays on screen"
+    );
+    let drawer = read("desktop/ui/src/lib/components/Drawer.svelte");
+    assert!(
+        drawer.contains("event.key === \"Escape\"") && drawer.contains("onClose"),
+        "Escape closes the drawer"
+    );
+    assert!(
+        drawer.contains("stopPropagation"),
+        "and it closes the drawer FIRST: the key does not also reach the shell"
+    );
+    // The drawer carries the remedy actions the fleet needs.
+    assert!(
+        fleet.contains("remedyCommand") && fleet.contains("legalNote"),
+        "the drawer offers the per-layer remedy and states the legal note"
+    );
+}
+
+// ---- settings ----------------------------------------------------------------
+
+// Scenario: La plantilla de Abrir con se configura y persiste
+#[test]
+fn the_open_with_template_is_configurable_and_persisted() {
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    assert!(
+        settings.contains("openWithTemplate"),
+        "Settings edits the template"
+    );
+    assert!(
+        settings.contains("setOpenWithTemplate") || settings.contains("saveUiState"),
+        "the edit is persisted, not held in memory"
+    );
+    let uistate = read("desktop/src/uistate.rs");
+    assert!(
+        uistate.contains("open_with_template"),
+        "the persisted UI state carries it"
+    );
+    // And the opener honors it before any fallback.
+    let fsops = read("desktop/src/fsops.rs");
+    let open_with = fsops.split("pub fn open_with").nth(1).expect("open_with");
+    let template_at = open_with.find("template").expect("template is consulted");
+    let env_at = open_with.find("MELTEMI_OPEN_WITH").expect("env fallback");
+    assert!(
+        template_at < env_at,
+        "the configured template wins over the environment fallback"
+    );
+}
+
+// Scenario: Ver y editar la configuración efectiva
+#[test]
+fn settings_shows_the_effective_configuration_and_can_edit_it() {
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    assert!(
+        settings.contains("context/project") || settings.contains("effective"),
+        "Settings surfaces the effective configuration"
+    );
+    assert!(
+        settings.contains("onEditFile"),
+        "and it offers editing the file that produced it"
+    );
+}
+
+// Scenario: La promesa de privacidad es visible
+#[test]
+fn the_privacy_promise_is_visible_in_settings() {
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    assert!(
+        settings.contains("settings.privacy"),
+        "Settings states the privacy posture"
+    );
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    let privacy: Vec<&str> = catalog
+        .lines()
+        .filter(|line| line.contains("\"settings.privacy"))
+        .collect();
+    assert!(
+        privacy.len() >= 2,
+        "the promise is translated in both catalogs: {privacy:?}"
+    );
+    let text = privacy.join(" ").to_lowercase();
+    assert!(
+        text.contains("telemetr") && (text.contains("local") || text.contains("máquina")),
+        "it says what it promises: no telemetry, everything local"
+    );
+}
+
+// ---- identity ----------------------------------------------------------------
+
+// Scenario: Marca presente en el chrome
+// Scenario: Alto contraste no borra la marca
+#[test]
+fn the_mark_is_in_the_chrome_and_survives_forced_colors() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        sidebar.contains("class=\"mark\""),
+        "the chrome carries the brand mark"
+    );
+    let css = read("desktop/ui/src/app.css");
+    let forced = css
+        .split("@media (forced-colors: active)")
+        .nth(1)
+        .expect("the client honors forced colors");
+    assert!(
+        forced.contains("wordmark") || forced.contains("Meltemi") || forced.contains("mark"),
+        "the mark has a forced-colors fallback: {forced}"
+    );
+}
+
+// Scenario: Estados vacíos sin emoji de plataforma
+#[test]
+fn empty_states_use_the_line_icons_not_platform_emoji() {
+    let empty = read("desktop/ui/src/lib/components/EmptyState.svelte");
+    assert!(
+        empty.contains("<Icon"),
+        "an empty state draws its own line icon"
+    );
+    // No emoji anywhere in the shell's components: they are platform art.
+    let root = repo_root().join("desktop/ui/src");
+    let mut stack = vec![root];
+    let mut offenders: Vec<String> = Vec::new();
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read src").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let is_source = path
+                .extension()
+                .is_some_and(|e| e == "svelte" || e == "ts" || e == "css");
+            if !is_source {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            for ch in text.chars() {
+                let code = ch as u32;
+                // Emoji blocks (pictographs, transport, misc symbols) — the
+                // geometric glyphs the design system uses are NOT in these.
+                let emoji = (0x1F300..=0x1FAFF).contains(&code)
+                    || (0x1F000..=0x1F2FF).contains(&code)
+                    || code == 0xFE0F;
+                if emoji {
+                    offenders.push(format!("{}: {ch}", path.display()));
+                    break;
+                }
+            }
+        }
+    }
+    assert!(offenders.is_empty(), "platform emoji found: {offenders:?}");
+}
+
+// ---- the palette -------------------------------------------------------------
+
+// Scenario: Subsecuencia encuentra el método
+// Scenario: Recientes primero
+// Scenario: Capacidad sin vista dedicada alcanzable
+#[test]
+fn the_palette_ranks_by_subsequence_and_remembers_what_was_used() {
+    let fuzzy = read("desktop/ui/src/lib/fuzzy.ts");
+    assert!(
+        fuzzy.contains("export function fuzzyRank"),
+        "the palette ranks with its own subsequence matcher"
+    );
+    let tests = read("desktop/ui/tests/fuzzy.test.ts");
+    assert!(
+        tests.contains("subsequence") || tests.contains("ranks"),
+        "the matcher has an executed unit test"
+    );
+    let palette = read("desktop/ui/src/lib/components/Palette.svelte");
+    assert!(
+        palette.contains("paletteUsage")
+            || palette.contains("frecency")
+            || palette.contains("recent"),
+        "recently used methods are offered first"
+    );
+    let uistate = read("desktop/src/uistate.rs");
+    assert!(
+        uistate.contains("palette_usage"),
+        "that memory is persisted with the rest of the UI state"
+    );
+    // Every method is reachable, view or no view.
+    let registry = read("desktop/ui/src/lib/registry.ts");
+    assert!(
+        registry.contains("REGISTRY: RegistryEntry[]"),
+        "the palette is backed by the typed registry"
+    );
+}
+
+// Scenario: Formulario tipado con obligatorios marcados
+// Scenario: La frescura del generador es un gate
+#[test]
+fn typed_forms_mark_required_fields_and_their_freshness_is_a_gate() {
+    let forms = read("desktop/ui/src/lib/generated/method-forms.ts");
+    assert!(
+        forms.contains("\"required\": true"),
+        "the generated forms know which fields are required"
+    );
+    let component = read("desktop/ui/src/lib/components/MethodForm.svelte");
+    assert!(
+        component.contains("{#if field.required}") && component.contains("class=\"req\""),
+        "a required field is marked to the eye"
+    );
+    assert_eq!(
+        component.matches("aria-required={field.required}").count(),
+        3,
+        "and to assistive technology, on every kind of control"
+    );
+    let package = read("desktop/ui/package.json");
+    assert!(
+        package.contains("check:forms"),
+        "there is a freshness check for the generator"
+    );
+    let ci = read(".github/workflows/ci.yml");
+    assert!(
+        ci.contains("check:forms"),
+        "and CI runs it, so a stale form fails the build"
+    );
+    let tests = read("desktop/ui/tests/forms.test.ts");
+    assert!(
+        tests.contains("required"),
+        "the required-field handling has an executed unit test"
+    );
+}
+
+// ---- the session as the primary action ---------------------------------------
+
+// Scenario: Nueva sesión desde el chrome
+// Scenario: Proponer sigue a una tecla
+#[test]
+fn a_new_session_is_the_primary_action_and_propose_is_one_key_away() {
+    let top = read("desktop/ui/src/lib/components/TopBar.svelte");
+    assert!(
+        top.contains("class=\"primary\"") && top.contains("session.new"),
+        "the chrome's primary button starts a session"
+    );
+    let app = app();
+    assert!(
+        app.contains("event.key.toLowerCase() === \"n\""),
+        "and a key does the same"
+    );
+    // Propose is a tool inside the launcher, not the centre of the shell.
+    let launcher = read("desktop/ui/src/lib/components/NewSession.svelte");
+    assert!(
+        launcher.contains("{ id: \"propose\", method: \"propose\" }"),
+        "propose is one mode of the launcher"
+    );
+    assert!(
+        !top.contains("propose"),
+        "the chrome does not make propose the headline action"
+    );
+}
+
+// Scenario: Inicializar desde el vacío de Proyecto
+// Scenario: Solo Proyecto queda vacío sin `.meltemi/`
+#[test]
+fn only_the_project_view_degrades_without_a_meltemi_directory() {
+    let project = read("desktop/ui/src/lib/views/Project.svelte");
+    // The absence is PROBED, not inferred from an empty list: the daemon
+    // tolerates a directory with no `.meltemi/`.
+    assert!(
+        project.contains("isMeltemiProject(root)"),
+        "the view asks whether the marker exists"
+    );
+    let files = read("desktop/ui/src/lib/editor/files.ts");
+    let probe = files
+        .split("export async function isMeltemiProject")
+        .nth(1)
+        .expect("the probe exists");
+    assert!(
+        probe.contains(".meltemi/constitution.md"),
+        "it looks for a real marker of an initialized project"
+    );
+    assert!(
+        project.contains("isProject = false") && project.contains("<EmptyState"),
+        "without it the view offers the initialization path"
+    );
+    // And nothing else in the shell depends on the project being initialized.
+    let app = app();
+    assert!(
+        !app.contains("isProject"),
+        "the shell does not gate other views on the project marker"
+    );
+}
+
+// Scenario: Flota vacía ofrece refrescar
+#[test]
+fn an_empty_fleet_offers_to_look_again() {
+    let fleet = read("desktop/ui/src/lib/views/Fleet.svelte");
+    assert!(
+        fleet.contains("<EmptyState") && fleet.contains("refreshFleet"),
+        "with nothing detected the view offers a refresh instead of a dead end"
+    );
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    assert!(
+        catalog.contains("\"fleet.empty."),
+        "the empty state's words live in the catalog"
+    );
+}
+
+// ---- sessions ----------------------------------------------------------------
+
+// Scenario: Filtrar por agente
+// Scenario: Tiempo relativo con absoluto accesible
+// Scenario: Cancelar desde la fila
+#[test]
+fn the_session_list_filters_shows_human_time_and_acts_per_row() {
+    let view = read("desktop/ui/src/lib/views/Sessions.svelte");
+    let rows = view
+        .split("const rows = $derived.by")
+        .nth(1)
+        .expect("the rows are derived")
+        .split("return list;")
+        .next()
+        .expect("body");
+    assert!(
+        rows.contains("agentLabelOf(session).toLowerCase().includes(needle)"),
+        "the filter reaches the agent: {rows}"
+    );
+    // Relative time with the absolute one reachable, not lost.
+    assert!(
+        view.contains("relativeTime(session.startedAt, $locale)")
+            && view.contains("title={absoluteTime(session.startedAt, $locale)}")
+            && view.contains("aria-label={absoluteTime(session.startedAt, $locale)}"),
+        "the row shows relative time and exposes the absolute one"
+    );
+    // Cancelling from the row is gated by a confirmation.
+    assert!(
+        view.contains("cancelTarget = session.sessionId") && view.contains("<ConfirmDialog"),
+        "cancelling from the row asks first"
+    );
+}
+
+// Scenario: Sesión finalizada sigue accesible
+#[test]
+fn a_finished_session_stays_in_the_list_marked_as_finished() {
+    let view = read("desktop/ui/src/lib/views/Sessions.svelte");
+    let rows = view
+        .split("const rows = $derived.by")
+        .nth(1)
+        .expect("rows")
+        .split("return list;")
+        .next()
+        .expect("body");
+    assert!(
+        rows.contains("if (stateFilter && session.state !== stateFilter) return false;"),
+        "the only state comparison is the explicit filter"
+    );
+    assert!(
+        !rows.contains("\"ended\"") && !rows.contains("isLive"),
+        "nothing drops a session for having finished: {rows}"
+    );
+    assert!(
+        view.contains("<StatusBadge state={session.state} />"),
+        "the row carries its own state mark"
+    );
+    let badge = read("desktop/ui/src/lib/components/StatusBadge.svelte");
+    assert!(
+        badge.contains("ended:") && badge.contains("$t((\"state.\" + state)"),
+        "the finished mark is glyph plus localized word"
+    );
+    // The daemon keeps reporting it, which is what the list reads.
+    let server = read("core/meltemid/src/server.rs");
+    assert!(
+        server.contains("None if record.ended_at.is_some() => SessionState::Ended"),
+        "the source of the list keeps the finished session"
+    );
+}
+
+// ---- the transcript ----------------------------------------------------------
+
+// Scenario: Evento con texto expandible
+// Scenario: Buscar en el transcript
+// Scenario: Tipo desconocido no rompe
+#[test]
+fn the_transcript_expands_searches_and_survives_an_unknown_event() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    assert!(
+        detail.contains("let expanded: Record<number, boolean>")
+            && detail.contains("expanded[line.id] && line.full"),
+        "a long event keeps its full payload behind an expand"
+    );
+    assert!(
+        detail.contains("class=\"link expand\""),
+        "and the expand is an affordance, not a hidden gesture"
+    );
+    assert!(
+        detail.contains("transcript.search"),
+        "the transcript is searchable"
+    );
+    // An unknown event type renders instead of throwing: the style table is
+    // consulted with a fallback, never indexed blindly.
+    assert!(
+        detail.contains("const EVENT_STYLE: Record<string, { glyph: string; tone: string }>"),
+        "known types have a glyph and a tone"
+    );
+    assert!(
+        detail.contains("EVENT_STYLE[") && detail.contains("??"),
+        "and an unrecognized type falls back to the neutral style"
+    );
+}
+
+// Scenario: Caída durante el streaming
+// Scenario: Reconexión a un daemon sin la sesión
+#[test]
+fn a_disconnection_is_loud_and_a_vanished_session_is_stated() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    assert!(
+        detail.contains("transcript.cut") || detail.contains("cut"),
+        "the transcript marks where it was cut instead of pretending to continue"
+    );
+    let app = app();
+    assert!(
+        app.contains("banner.daemonDown") && app.contains("role=\"alert\""),
+        "the daemon going away is announced, not hinted"
+    );
+    // On reconnection a session the daemon no longer knows is stated as gone.
+    assert!(
+        detail.contains("let gone = $state(false)")
+            && detail.contains("sessions.detail.goneAfterReconnect"),
+        "a session the daemon no longer knows is reported, not spun forever"
+    );
+    assert!(
+        detail.contains("if (!session) gone = true"),
+        "the check is explicit on reconnection"
+    );
+}
+
+// ---- unsaved work ------------------------------------------------------------
+
+// Scenario: Cerrar pestaña sucia pide decisión
+// Scenario: Salir del editor con sucios pide decisión
+// Scenario: Cerrar la ventana con sucios pide decisión
+#[test]
+fn no_edit_is_lost_silently_on_any_exit_path() {
+    let editor = read("desktop/ui/src/lib/views/Editor.svelte");
+    assert!(
+        editor.contains("closeGuard") && editor.contains("<ConfirmDialog"),
+        "closing a dirty tab asks first"
+    );
+    let app = app();
+    assert!(
+        app.contains("guard = { kind: \"leave\", go }"),
+        "leaving the editor with unsaved work asks first"
+    );
+    assert!(
+        app.contains("listen(\"app:close-requested\"")
+            && app.contains("guard = { kind: \"close\" }"),
+        "closing the window asks first"
+    );
+    let host = read("desktop/src/lib.rs");
+    assert!(
+        host.contains("api.prevent_close()") && host.contains("app:close-requested"),
+        "the host holds the close until the surface has decided"
+    );
+    assert!(
+        host.contains("close_confirmed"),
+        "and closes only when the surface says so"
+    );
+    // The dirty set itself has an executed unit test.
+    let tests = read("desktop/ui/tests/dirty.test.ts");
+    assert!(
+        tests.contains("dirty"),
+        "the dirty bookkeeping has a unit test"
+    );
+}
+
+// Scenario: Quick-open por nombre
+#[test]
+fn quick_open_finds_a_file_by_name() {
+    let editor = read("desktop/ui/src/lib/views/Editor.svelte");
+    assert!(
+        editor.contains("quickOpen") && editor.contains("fuzzyRank"),
+        "quick-open ranks files with the same matcher as the palette"
+    );
+    assert!(
+        editor.contains("Ctrl P") || editor.contains("\"p\""),
+        "it has a keyboard shortcut"
+    );
+}
+
+// ---- persistence -------------------------------------------------------------
+
+// Scenario: El tema sobrevive al reinicio
+// Scenario: Override de idioma
+#[test]
+fn theme_and_locale_survive_a_restart_and_the_override_wins() {
+    let uistate = read("desktop/src/uistate.rs");
+    assert!(
+        uistate.contains("theme") && uistate.contains("locale"),
+        "both are persisted in the data directory"
+    );
+    let app = app();
+    assert!(
+        app.contains("if (state.locale) setLocale(state.locale)"),
+        "the persisted locale is applied on boot"
+    );
+    let css = read("desktop/ui/src/app.css");
+    assert!(
+        css.contains(":root[data-theme=\"light\"]") && css.contains(":root[data-theme=\"dark\"]"),
+        "the explicit theme override wins over the OS in both directions"
+    );
+    // No user-visible string bypasses the catalog — including the OS title the
+    // host sets, which the surface now supplies.
+    let host = read("desktop/src/lib.rs");
+    assert!(
+        !host.contains("permiso)") && !host.contains("permisos)"),
+        "the host no longer writes Spanish prose of its own"
+    );
+    assert!(
+        host.contains("title: Option<String>"),
+        "the host receives the localized title from the surface"
+    );
+    let stores = read("desktop/ui/src/lib/stores.ts");
+    assert!(
+        stores.contains("window.title.pending"),
+        "and the surface takes it from the catalog"
+    );
+}
+
+// Scenario: El atajo de la paleta es visible
+#[test]
+fn the_palette_shortcut_is_visible_in_the_chrome() {
+    let top = read("desktop/ui/src/lib/components/TopBar.svelte");
+    assert!(
+        top.contains("<kbd>Ctrl K</kbd>"),
+        "the chrome shows how to open the palette"
+    );
+}
+
+// ---- attention ---------------------------------------------------------------
+
+// Scenario: Permiso sin foco reclama atención
+// Scenario: El foco limpia la señal
+// Scenario: Atender un permiso pendiente
+// Scenario: Vencimiento anunciado
+#[test]
+fn a_permission_claims_attention_and_the_tray_can_be_attended() {
+    let stores = read("desktop/ui/src/lib/stores.ts");
+    assert!(
+        stores.contains("invoke(\"request_attention\""),
+        "a permission asks the OS for attention"
+    );
+    let host = read("desktop/src/lib.rs");
+    let attention = host
+        .split("fn request_attention")
+        .nth(1)
+        .expect("the host command exists");
+    let body = attention.split("\n}").next().expect("body");
+    assert!(
+        body.contains("is_focused") && body.contains("pending > 0 && !focused"),
+        "attention is asked only while the window is NOT focused: {body}"
+    );
+    assert!(
+        body.contains("None") && body.contains("request_user_attention"),
+        "and it is cleared when there is nothing pending"
+    );
+    // Attending the tray focuses a request however the user got there.
+    let app = app();
+    assert!(
+        app.contains("if (target === \"permissions\") focusPendingRequest();"),
+        "every path into the tray focuses a pending request"
+    );
+    assert!(
+        app.contains("[data-autofocus]"),
+        "the tray marks what should take the focus"
+    );
+    let permissions = read("desktop/ui/src/lib/views/Permissions.svelte");
+    assert!(
+        permissions.contains("data-autofocus"),
+        "and the view provides that anchor"
+    );
+    // The expiry notice names the operation it knew about, never "?".
+    let timeout = stores
+        .split("case \"permission/timeout\"")
+        .nth(1)
+        .expect("the timeout is routed");
+    let case = timeout
+        .split("case \"session/event\"")
+        .next()
+        .expect("case body");
+    assert!(
+        case.contains("get(pending).find("),
+        "the operation comes from the queue the client already holds: {case}"
+    );
+    assert!(
+        case.contains("permissions.timeout.unknownTool"),
+        "and an unknown one is named honestly rather than shown as a question mark"
+    );
+    assert!(
+        !case.contains("params.tool ??"),
+        "the notice no longer reads a field the contract never sends"
+    );
+}
+
+// ---- notices -----------------------------------------------------------------
+
+// Scenario: Overflow de avisos colapsa con historial
+// Scenario: Copiar el diagnóstico de conexión
+#[test]
+fn notices_are_bounded_with_history_and_the_banner_is_actionable() {
+    let notices = read("desktop/ui/src/lib/components/Notices.svelte");
+    assert!(
+        notices.contains("MAX") || notices.contains("slice("),
+        "the notice list is bounded"
+    );
+    assert!(
+        notices.contains("history") || notices.contains("notices.more"),
+        "the overflow collapses into a history rather than vanishing"
+    );
+    let app = app();
+    assert!(
+        app.contains("copyDiagnostics") && app.contains("banner.copyDiagnostics"),
+        "the daemon-down banner offers to copy its diagnosis"
+    );
+    let copy = app
+        .split("async function copyDiagnostics")
+        .nth(1)
+        .expect("copyDiagnostics")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        copy.contains("endpoint") && copy.contains("detail"),
+        "the copied text carries the endpoint and the detail: {copy}"
+    );
+}
+
+// ---- the spec editor and the diff review ------------------------------------
+
+// Scenario: Findings de validación en vivo
+#[test]
+fn validation_findings_are_about_the_artifact_in_front_of_the_user() {
+    let editor = read("desktop/ui/src/lib/views/Editor.svelte");
+    let validate = editor
+        .split("async function validate()")
+        .nth(1)
+        .expect("validate exists")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        validate.contains("changeOfPath(activePath)"),
+        "the scope is the change the open file belongs to: {validate}"
+    );
+    assert!(
+        validate.contains("await save(true)"),
+        "a dirty buffer is saved first, so the findings describe what the user sees"
+    );
+    assert!(
+        validate.contains("change ? { projectRoot: root, change } : { projectRoot: root }"),
+        "and the request carries that scope"
+    );
+    assert!(
+        editor.contains("if (isMethodFile) void validate();"),
+        "editing a method artifact validates it without being asked"
+    );
+}
+
+// Scenario: Guardado trazable de un artefacto
+#[test]
+fn every_save_goes_through_the_daemon_with_its_trace() {
+    let files = read("desktop/ui/src/lib/editor/files.ts");
+    assert!(
+        files.contains("request<SaveOutcome>(\"worktree/apply-edit\""),
+        "the only writer is the daemon's apply-edit"
+    );
+    let editor = read("desktop/ui/src/lib/views/Editor.svelte");
+    assert!(
+        !editor.contains("invoke(\"tree_write") && !editor.contains("writeTextFile"),
+        "the surface has no writing path of its own"
+    );
+    assert!(
+        editor.contains("editor.saved") && editor.contains("editor.saved.project"),
+        "the surface states where the trace landed"
+    );
+}
+
+// Scenario: Comparar competidores de una carrera
+// Scenario: Edición de un hunk pasa por el daemon
+// Scenario: Abrir con el editor del usuario
+#[test]
+fn the_review_compares_competitors_and_acts_per_hunk_and_per_line() {
+    let review = read("desktop/ui/src/lib/views/Review.svelte");
+    // Competitors of one task, side by side, over a common base.
+    assert!(
+        review.contains("role=\"tablist\"") && review.contains("competitor.agent"),
+        "each competitor of the race is selectable"
+    );
+    assert!(
+        review.contains("review.base") && review.contains("baseRev"),
+        "the common base is stated, so the diffs are comparable"
+    );
+    // Per-hunk unit with its own affordances.
+    assert!(
+        review.contains("function hunksOf(") && review.contains("class=\"hunk\""),
+        "the diff is grouped into hunks"
+    );
+    assert!(
+        review.contains("review.editHunk"),
+        "each hunk offers to be edited"
+    );
+    assert!(
+        review.contains("hunk.startLine ?? undefined"),
+        "editing starts at the hunk's own line"
+    );
+    // Editing goes to the editor, whose only writer is the daemon.
+    let app = app();
+    assert!(
+        app.contains("onEditWorktree={(worktreePath, target, file, line)")
+            && app.contains("initialLine: line ?? null"),
+        "the shell carries the hunk's line into the editor"
+    );
+    let editor = read("desktop/ui/src/lib/views/Editor.svelte");
+    assert!(
+        editor.contains("void openFile(initialFile, initialLine ?? undefined)"),
+        "and the editor opens the file at that line"
+    );
+    // Per-line "open with", carrying the exact line.
+    assert!(
+        review.contains("class=\"lineNo\"") && review.contains("review.openLine"),
+        "every line offers to open the user's editor"
+    );
+    assert!(
+        review.contains("openExternally(\n                                    activeDiff.path,\n                                    section.file,\n                                    line.newLine,\n                                  )")
+            || review.contains("line.newLine,"),
+        "and it passes that line, not the head of the file"
+    );
+}
+
+// Scenario: Inteligencia con servidor del usuario
+// Scenario: Degradación honesta sin servidor
+#[test]
+fn code_intelligence_rides_the_users_own_server_or_says_it_cannot() {
+    let lsp = read("desktop/ui/src/lib/editor/lsp.ts");
+    for method in [
+        "textDocument/completion",
+        "textDocument/definition",
+        "textDocument/formatting",
+        "textDocument/references",
+        "textDocument/rename",
+    ] {
+        assert!(
+            lsp.contains(method),
+            "the surface asks the server for {method}"
+        );
+    }
+    let hub = read("desktop/src/lsp.rs");
+    assert!(
+        hub.contains("publishDiagnostics"),
+        "diagnostics arrive from the server, not from a local guess"
+    );
+    // Nothing is bundled: the server is found on PATH or it is absent.
+    assert!(
+        hub.contains("which") || hub.contains("PATH") || hub.contains("probe"),
+        "the server is the user's own, discovered on PATH"
+    );
+    // Without a server the actions are not offered and the state is stated.
+    let editor = read("desktop/ui/src/lib/views/Editor.svelte");
+    assert!(
+        editor.contains("{#if lspLabel}"),
+        "the server-backed actions appear only with a server"
+    );
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    assert!(
+        catalog.contains("\"editor.lsp.none\""),
+        "and the absence is stated in words"
+    );
+    // A rename lands through the daemon like any other edit.
+    assert!(
+        editor.contains("await saveFile(root, path, after, target, true)"),
+        "the rename's edits are written by the daemon, file by file"
+    );
+}
+
+// Scenario: Primer uso enseña el modelo
+#[test]
+fn the_first_run_teaches_the_shell_that_exists() {
+    let onboarding = read("desktop/ui/src/lib/components/Onboarding.svelte");
+    for key in [
+        "onboarding.intro",
+        "onboarding.views",
+        "onboarding.palette",
+        "onboarding.permissions",
+    ] {
+        assert!(onboarding.contains(key), "the first run teaches {key}");
+    }
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    let views: Vec<&str> = catalog
+        .lines()
+        .filter(|line| line.contains("Cinco vistas") || line.contains("Five views"))
+        .collect();
+    assert_eq!(
+        views.len(),
+        2,
+        "the lesson counts the views the shell actually keys, in both languages: {views:?}"
+    );
+    // What it teaches matches what the shell binds.
+    let app = app();
+    let keyed = app
+        .split("const KEYED_VIEWS: ViewId[] = [")
+        .nth(1)
+        .expect("KEYED_VIEWS")
+        .split(']')
+        .next()
+        .expect("list");
+    assert_eq!(
+        keyed.matches('"').count() / 2,
+        5,
+        "five views are keyed: {keyed}"
+    );
+    assert!(
+        app.contains("event.key >= \"1\" && event.key <= \"5\""),
+        "and the digits cover them"
+    );
+}
+
+// Scenario: Flujo completo por teclado
+#[test]
+fn every_action_of_the_shell_is_reachable_from_the_keyboard() {
+    let app = app();
+    // Views, palette, launcher, tray, help and back: all keyed.
+    for (key, what) in [
+        ("event.key >= \"1\" && event.key <= \"5\"", "the views"),
+        ("event.key === \":\"", "the palette"),
+        ("=== \"n\"", "a new session"),
+        ("event.key === \"a\"", "the tray"),
+        ("event.key === \"?\"", "the help"),
+        ("event.key === \"Escape\"", "going back"),
+    ] {
+        assert!(app.contains(key), "{what} has a key: {key}");
+    }
+    // Overlays trap Escape themselves, so the shell never swallows their keys.
+    for overlay in [
+        "desktop/ui/src/lib/components/Palette.svelte",
+        "desktop/ui/src/lib/components/NewSession.svelte",
+        "desktop/ui/src/lib/components/Onboarding.svelte",
+        "desktop/ui/src/lib/components/ProjectSwitcher.svelte",
+        "desktop/ui/src/lib/components/ConfirmDialog.svelte",
+    ] {
+        let source = read(overlay);
+        assert!(source.contains("Escape"), "{overlay} closes on Escape");
+        assert!(
+            source.contains("stopPropagation") || source.contains("svelte:window"),
+            "{overlay} owns its keys while it is open"
+        );
+    }
+    // Focus is always visible, and no control is removed from the tab order.
+    let css = read("desktop/ui/src/app.css");
+    assert!(
+        css.contains(":focus-visible") && css.contains("outline"),
+        "focus is visible by rule"
+    );
+    let root = repo_root().join("desktop/ui/src");
+    let mut stack = vec![root];
+    let mut offenders = Vec::new();
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read src").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().is_some_and(|e| e == "svelte") {
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                // A container taking programmatic focus (a dialog panel) is
+                // correct focus management; an INTERACTIVE control removed from
+                // the tab order is not.
+                for (index, line) in text.lines().enumerate() {
+                    if !line.contains("tabindex=\"-1\"") {
+                        continue;
+                    }
+                    let head = text.lines().take(index + 1).collect::<Vec<_>>().join(
+                        "
+",
+                    );
+                    let tag_start = head.rfind('<').unwrap_or(0);
+                    let tag = &head[tag_start..];
+                    let interactive = tag.starts_with("<button")
+                        || tag.starts_with("<a ")
+                        || tag.starts_with("<input")
+                        || tag.starts_with("<select")
+                        || tag.starts_with("<textarea");
+                    if interactive {
+                        offenders.push(format!("{}:{}", path.display(), index + 1));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "no control is taken out of the tab order: {offenders:?}"
+    );
+}

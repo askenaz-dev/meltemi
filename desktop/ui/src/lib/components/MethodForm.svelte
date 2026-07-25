@@ -52,17 +52,19 @@
         <span class="name">
           {field.name}
           {#if field.required}
-            <span class="req" title={$t("palette.form.required")}>*</span>
+            <span class="req" title={$t("palette.form.required")} aria-hidden="true">*</span>
           {/if}
         </span>
         {#if field.kind === "boolean"}
           <input
             type="checkbox"
+            aria-required={field.required}
             checked={Boolean(values[field.name])}
             onchange={(event) => update(field, event.currentTarget.checked)}
           />
         {:else if field.options}
           <select
+            aria-required={field.required}
             value={toText(values[field.name])}
             onchange={(event) => update(field, event.currentTarget.value)}
           >
@@ -74,6 +76,7 @@
         {:else}
           <input
             type={field.kind === "number" ? "number" : "text"}
+            aria-required={field.required}
             value={toText(values[field.name])}
             placeholder={field.kind === "array" ? "a, b, c" : ""}
             oninput={(event) => update(field, event.currentTarget.value)}

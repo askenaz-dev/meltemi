@@ -248,7 +248,8 @@ async fn archive_is_gated_then_folds_and_preserves() {
 
 #[tokio::test]
 async fn a_merge_conflict_blocks_and_leaves_the_truth_intact() {
-    // Scenario: Fusión total o nada — un conflicto no toca la verdad viva.
+    // Scenario: Fusión total o nada
+    // un conflicto no toca la verdad viva.
     // A delta that MODIFIES a requirement absent from the living truth.
     let bad_delta = "## MODIFIED Requirements\n\n### Requirement: Ghost thing\nDoes not exist.\n\n#### Scenario: Linked one\n- **WHEN** a\n- **THEN** b\n";
     let root = fixture("conflict", "bad-demo", bad_delta);

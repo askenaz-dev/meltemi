@@ -95,19 +95,16 @@ fn onboarding_mark_seen() {
 /// own, nothing leaving the machine. The title carries the counter so the
 /// reason is legible from the taskbar.
 #[tauri::command]
-fn request_attention(app: tauri::AppHandle, pending: u32) {
+fn request_attention(app: tauri::AppHandle, pending: u32, title: Option<String>) {
     use tauri::{UserAttentionType, Window};
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
     let focused = window.is_focused().unwrap_or(false);
-    let title = if pending == 0 {
-        "Meltemi".to_string()
-    } else if pending == 1 {
-        "Meltemi (1 permiso)".to_string()
-    } else {
-        format!("Meltemi ({pending} permisos)")
-    };
+    // The surface owns the message catalog (§11), so it passes the localized
+    // title; the host only falls back to the product name, never to prose in a
+    // language the user did not choose.
+    let title = title.unwrap_or_else(|| "Meltemi".to_string());
     let _ = window.set_title(&title);
 
     let attention = if pending > 0 && !focused {

@@ -919,6 +919,7 @@ adapter = "broken-acp"
 
     // Scenario: El CLI oficial instalado sin adaptador se reporta como tal
     #[test]
+    // Scenario: CLI oficial presente sin adaptador
     fn an_installed_cli_without_its_adapter_states_which_layer_is_missing() {
         let layers = vec![
             layer(FleetLayerKind::Cli, true, false),
@@ -933,6 +934,7 @@ adapter = "broken-acp"
     }
 
     #[test]
+    // Scenario: Ambas capas presentes
     fn both_layers_present_is_ready_without_a_remedy() {
         let layers = vec![
             layer(FleetLayerKind::Cli, true, false),
@@ -944,6 +946,7 @@ adapter = "broken-acp"
     }
 
     #[test]
+    // Scenario: Adaptador presente sin CLI oficial
     fn an_adapter_without_the_official_cli_is_reported_too() {
         let layers = vec![
             layer(FleetLayerKind::Cli, false, false),
@@ -956,6 +959,7 @@ adapter = "broken-acp"
 
     // Scenario: Un shim de script cuenta como evidencia, no como lanzable
     #[test]
+    // Scenario: Shim de script cuenta como evidencia sin ser objetivo de lanzamiento
     fn a_script_shim_is_installed_but_not_launchable() {
         let layers = vec![layer(FleetLayerKind::Cli, true, true)];
         let (state, remedy, _) = compose_state(&layers, false);
@@ -964,6 +968,8 @@ adapter = "broken-acp"
     }
 
     #[test]
+    // Scenario: Ninguna capa presente
+    // Scenario: Agente ausente sin error
     fn nothing_installed_is_not_detected() {
         let layers = vec![layer(FleetLayerKind::Cli, false, false)];
         let (state, remedy, _) = compose_state(&layers, false);
@@ -975,6 +981,7 @@ adapter = "broken-acp"
     }
 
     #[test]
+    // Scenario: Entrada de una sola capa conserva su estado
     fn a_single_layer_entry_needs_only_its_own_binary() {
         let layers = vec![layer(FleetLayerKind::Cli, true, false)];
         let (state, _, _) = compose_state(&layers, true);
@@ -983,6 +990,7 @@ adapter = "broken-acp"
 
     // Scenario: El registro declara las dos capas
     #[test]
+    // Scenario: Capas de detección reportadas por entrada
     fn the_snapshot_declares_two_layers_for_its_adapter_entries() {
         let registry = parse_registry(EMBEDDED_REGISTRY).expect("snapshot parses");
         let two_layer: Vec<_> = registry
@@ -1119,6 +1127,7 @@ adapter = "broken-acp"
     }
 
     #[test]
+    // Scenario: Agente presente
     fn detection_resolves_present_binaries_in_a_path_fixture() {
         // Scenarios: Agente presente / Agente ausente sin error.
         let dir = temp_dir("detect");
@@ -1205,6 +1214,7 @@ adapter = "broken-acp"
     }
 
     #[test]
+    // Scenario: Catálogo con configurado marcado
     fn fleet_list_includes_the_profiles() {
         // Scenario: fleet/list incluye los perfiles
         use crate::config::FleetProfile;

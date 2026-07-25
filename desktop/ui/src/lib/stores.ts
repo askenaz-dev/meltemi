@@ -245,12 +245,23 @@ export function onSessionEvent(handler: SessionEventHandler): () => void {
  */
 export function startIncomingRouter(
   translate: (
-    key: "permissions.timeout.notice" | "permissions.arrived.notice",
+    key:
+      | "permissions.timeout.notice"
+      | "permissions.arrived.notice"
+      | "permissions.timeout.unknownTool"
+      | "window.title"
+      | "window.title.pending",
     vars: Record<string, string>,
   ) => string,
 ): Promise<() => void> {
   const attention = (count: number) => {
-    void invoke("request_attention", { pending: count }).catch(() => {});
+    // The OS title is user-visible text, so it comes from the catalog here and
+    // not from the host (§11).
+    const title =
+      count > 0
+        ? translate("window.title.pending", { n: String(count) })
+        : translate("window.title", {});
+    void invoke("request_attention", { pending: count, title }).catch(() => {});
   };
   return onIncoming((message) => {
     const params = (message.params ?? {}) as Record<string, unknown>;
@@ -276,10 +287,23 @@ export function startIncomingRouter(
         return;
       }
       case "permission/timeout": {
+        // The contract's timeout carries the session and, when known, the tool
+        // call id — never a tool name. The operation is what the client already
+        // holds in its queue; look it up BEFORE refreshing drops the entry, and
+        // fall back to the id rather than to a question mark.
+        const sessionId = String(params.sessionId ?? "");
+        const expired = get(pending).find(
+          (candidate) => candidate.sessionId === sessionId,
+        );
+        const tool =
+          expired?.tool ??
+          (typeof params.toolCallId === "string" && params.toolCallId.length > 0
+            ? params.toolCallId
+            : translate("permissions.timeout.unknownTool", {}));
         pushNotice(
           translate("permissions.timeout.notice", {
-            session: String(params.sessionId ?? "?"),
-            tool: String(params.tool ?? "?"),
+            session: sessionId || "?",
+            tool,
           }),
           "warn",
         );

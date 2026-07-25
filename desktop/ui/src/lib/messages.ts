@@ -144,7 +144,7 @@ const es = {
   "onboarding.intro":
     "Un rumbo, muchas velas: specs claras dirigiendo a tus agentes de codificación.",
   "onboarding.views":
-    "Cuatro vistas: Sesiones (1), Proyecto (2), Permisos (3) y Flota (4).",
+    "Cinco vistas: Sesiones (1), Proyecto (2), Permisos (3), Flota (4) y Consumo (5).",
   "onboarding.palette":
     "La paleta ( : o Ctrl+K) alcanza toda capacidad del daemon, tenga o no vista dedicada.",
   "onboarding.permissions":
@@ -177,6 +177,16 @@ const es = {
   "editor.validate.run": "Validar",
   "editor.validate.clean": "validate — limpio",
   "editor.validate.findings": "{n} hallazgo(s)",
+  "editor.format": "Formatear",
+  "editor.format.none": "el servidor no propuso formato",
+  "editor.references": "Referencias",
+  "editor.references.none": "sin referencias",
+  "editor.references.found": "{n} referencia(s)",
+  "editor.rename": "Renombrar…",
+  "editor.rename.prompt": "Nuevo nombre para el símbolo",
+  "editor.rename.applied": "renombrado en {n} archivo(s)",
+  "editor.rename.none": "el servidor no propuso ningún cambio",
+  "editor.lsp.needed": "necesita un servidor LSP para este lenguaje (BYO)",
   "editor.lsp.active": "LSP: {server}",
   "editor.lsp.none": "LSP: sin servidor para este lenguaje (BYO) — solo resaltado",
 
@@ -240,6 +250,12 @@ const es = {
   "session.mode.dispatch": "Despachar tarea",
   "session.mode.direct": "Dirigir",
 
+  "review.editHunk": "Editar este hunk",
+  "review.openFile": "Abrir el archivo…",
+  "review.openLine": "Abrir con… en la línea {line}",
+  "permissions.timeout.unknownTool": "operación no identificada",
+  "window.title": "Meltemi",
+  "window.title.pending": "Meltemi ({n} permiso(s))",
   "sessions.showAll": "Ver las {n}",
   "sessions.subscription": "Suscripción",
   "sessions.subscription.none": "sin perfil",
@@ -591,7 +607,7 @@ const en: Record<MessageKey, string> = {
   "onboarding.intro":
     "One course, many sails: clear specs steering your coding agents.",
   "onboarding.views":
-    "Four views: Sessions (1), Project (2), Permissions (3) and Fleet (4).",
+    "Five views: Sessions (1), Project (2), Permissions (3), Fleet (4) and Usage (5).",
   "onboarding.palette":
     "The palette ( : or Ctrl+K) reaches every daemon capability, with or without a dedicated view.",
   "onboarding.permissions":
@@ -624,6 +640,16 @@ const en: Record<MessageKey, string> = {
   "editor.validate.run": "Validate",
   "editor.validate.clean": "validate — clean",
   "editor.validate.findings": "{n} finding(s)",
+  "editor.format": "Format",
+  "editor.format.none": "the server proposed no formatting",
+  "editor.references": "References",
+  "editor.references.none": "no references",
+  "editor.references.found": "{n} reference(s)",
+  "editor.rename": "Rename…",
+  "editor.rename.prompt": "New name for the symbol",
+  "editor.rename.applied": "renamed in {n} file(s)",
+  "editor.rename.none": "the server proposed no change",
+  "editor.lsp.needed": "needs an LSP server for this language (BYO)",
   "editor.lsp.active": "LSP: {server}",
   "editor.lsp.none": "LSP: no server for this language (BYO) — highlight only",
 
@@ -687,6 +713,12 @@ const en: Record<MessageKey, string> = {
   "session.mode.dispatch": "Dispatch task",
   "session.mode.direct": "Direct",
 
+  "review.editHunk": "Edit this hunk",
+  "review.openFile": "Open the file…",
+  "review.openLine": "Open with… at line {line}",
+  "permissions.timeout.unknownTool": "unidentified operation",
+  "window.title": "Meltemi",
+  "window.title.pending": "Meltemi ({n} permission(s))",
   "sessions.showAll": "See all {n}",
   "sessions.subscription": "Subscription",
   "sessions.subscription.none": "no profile",

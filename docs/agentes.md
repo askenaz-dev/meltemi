@@ -141,6 +141,20 @@ present (a global npm install normally drops both).
 
 A layer counts as found when the file exists and carries an execute bit.
 
+If an agent you installed shows as not detected:
+
+1. Check that its directory is on `PATH` for the process that started the
+   daemon — a shell profile that only exports `PATH` for interactive shells is
+   the most common cause. `meltemi status` reports the daemon's endpoint; the
+   daemon inherits the environment of whoever launched it.
+2. Check the execute bit: `ls -l $(command -v <binary>)`. A file without it is
+   reported as not detected, not as broken.
+3. If the tool lives outside `PATH` (a version manager, a per-project install),
+   point at it explicitly with `agent.command` in the project configuration
+   instead of moving files around.
+4. A symbolic link is followed, so a link into a version manager's shim
+   directory works as well as a real binary.
+
 ## Multiple accounts and subscriptions
 
 Launch profiles let you run several accounts of the same provider — two Claude

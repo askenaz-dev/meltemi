@@ -70,6 +70,7 @@ fn client_invocable() -> BTreeSet<String> {
 }
 
 // Scenario: Registro obligatorio de método nuevo
+// Scenario: Método con casa en las tres superficies
 #[test]
 fn the_tui_palette_registers_every_contract_method_and_nothing_else() {
     let contract = client_invocable();

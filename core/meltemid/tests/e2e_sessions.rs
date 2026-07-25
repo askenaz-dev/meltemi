@@ -186,8 +186,9 @@ async fn a_crashed_session_lists_as_interrupted() {
 
 #[tokio::test]
 async fn a_completed_session_is_historical_resumable_and_pageable() {
-    // Scenarios: Históricas listadas; Transcript paginado; Reanudar con
-    // capacidad anunciada (the session is resumable).
+    // Scenario: Históricas listadas
+    // Scenario: Transcript paginado
+    // Scenario: Reanudar con capacidad anunciada
     let root = std::env::temp_dir().join(format!("meltemi-e2e-hist-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     fixture(&root, true); // the mock announces session load

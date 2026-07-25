@@ -227,7 +227,8 @@ async fn checkpoint_then_revert_restores_exactly_and_isolates() {
 
 #[tokio::test]
 async fn reversion_declares_irreversible_out_of_tree_operations() {
-    // Scenario: Irreversibles declaradas — no anuncia reversión total.
+    // Scenario: Irreversibles declaradas
+    // no anuncia reversión total.
     if !git_available() {
         eprintln!("skipping: git not on PATH");
         return;

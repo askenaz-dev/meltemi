@@ -261,7 +261,8 @@ async fn a_commit_outside_the_declared_scope_reports_the_deviation() {
 
 #[tokio::test]
 async fn a_failing_user_hook_is_surfaced_and_never_bypassed() {
-    // Scenario: Hooks respetados — fallo tal cual, sin --no-verify.
+    // Scenario: Hooks respetados
+    // fallo tal cual, sin --no-verify.
     if !git_available() {
         eprintln!("skipping: git not on PATH");
         return;

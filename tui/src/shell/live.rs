@@ -517,7 +517,8 @@ mod tests {
 
     #[test]
     fn daemon_loss_freezes_the_transcript_with_a_cut_marker() {
-        // Scenario: Caída durante el streaming — marca de corte, sin auto-follow.
+        // Scenario: Caída durante el streaming
+        // marca de corte, sin auto-follow.
         let mut live = LiveData::new();
         live.apply(Update::Conn(ConnState::Connected {
             version: "0.1.0".into(),

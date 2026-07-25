@@ -18,12 +18,16 @@
   } from "../editor/files";
   import { createEditor, gotoLine, lspLanguageFor, type EditorHandle } from "../editor/cm";
   import {
+    applyTextEdits,
+    findReferences,
+    formatDocument,
     gotoDefinition,
     lspEnsure,
     lspNotifyChange,
     lspNotifyOpen,
     makeCompletionSource,
     onLspDiagnostics,
+    renameSymbol,
     toCmDiagnostics,
   } from "../editor/lsp";
   import { request } from "../daemon";
@@ -34,11 +38,14 @@
     root,
     target = null,
     initialFile = null,
+    initialLine = null,
     onBack,
   }: {
     root: string;
     target?: SaveTarget | null;
     initialFile?: string | null;
+    /** Line to place the cursor on, when the caller opened a specific hunk. */
+    initialLine?: number | null;
     onBack: () => void;
   } = $props();
 
@@ -67,6 +74,11 @@
   let quickInput: HTMLInputElement | undefined = $state();
   let lspLabel: string | null = $state(null);
   let validateSummary: string | null = $state(null);
+  /** References the user's server reported for the symbol under the cursor. */
+  let references: { file: string; line: number }[] | null = $state(null);
+  let renaming = $state(false);
+  let renameTo = $state("");
+  let renameInput: HTMLInputElement | undefined = $state();
   let validating = $state(false);
   let openedInitial = false;
 
@@ -102,12 +114,16 @@
   $effect(() => {
     if (initialFile && !openedInitial) {
       openedInitial = true;
-      void openFile(initialFile);
+      void openFile(initialFile, initialLine ?? undefined);
     }
   });
 
   $effect(() => {
     if (quickOpen) quickInput?.focus();
+  });
+
+  $effect(() => {
+    if (renaming) renameInput?.focus();
   });
 
   // (Re)mount CodeMirror when the ACTIVE FILE changes — never on keystrokes.
@@ -252,6 +268,111 @@
     }
   }
 
+  /**
+   * The change a path belongs to, when it is an artifact under
+   * `.meltemi/changes/<name>/` — the scope `sdd/validate` should be given.
+   */
+  function changeOfPath(path: string | null): string | null {
+    if (!path) return null;
+    const parts = path.replaceAll("\\", "/").split("/");
+    const at = parts.indexOf("changes");
+    if (at === -1 || parts[at - 1] !== ".meltemi") return null;
+    return parts[at + 1] ?? null;
+  }
+
+  /** The cursor position in LSP coordinates (zero-based). */
+  function cursor(): { line: number; character: number } | null {
+    if (!handle) return null;
+    const state = handle.view.state;
+    const head = state.selection.main.head;
+    const line = state.doc.lineAt(head);
+    return { line: line.number - 1, character: head - line.from };
+  }
+
+  /** `textDocument/formatting` through the user's own server, or nothing. */
+  async function format() {
+    const file = active;
+    if (!file || !handle) return;
+    const edits = await formatDocument(root, file.path);
+    if (!edits) {
+      pushNotice($t("editor.format.none"), "info");
+      return;
+    }
+    const formatted = applyTextEdits(file.content, edits);
+    if (formatted === file.content) {
+      pushNotice($t("editor.format.none"), "info");
+      return;
+    }
+    // The buffer changes; saving still goes through the daemon like any edit.
+    handle.view.dispatch({
+      changes: { from: 0, to: handle.view.state.doc.length, insert: formatted },
+    });
+    file.content = formatted;
+    file.dirty = true;
+    markDirty(file.path);
+  }
+
+  /** `textDocument/references` for the symbol under the cursor. */
+  async function showReferences() {
+    const file = active;
+    const position = cursor();
+    if (!file || !position) return;
+    const hits = await findReferences(root, file.path, position);
+    if (hits === null) {
+      pushNotice($t("editor.lsp.needed"), "info");
+      return;
+    }
+    references = hits;
+    if (hits.length === 0) pushNotice($t("editor.references.none"), "info");
+  }
+
+  /**
+   * `textDocument/rename`: the server proposes the edit, the daemon applies it.
+   * Every touched file is written through `worktree/apply-edit`, so the rename
+   * is as traceable as a hand edit — and edits outside the tree are dropped by
+   * the LSP layer rather than written behind the user's back.
+   */
+  async function applyRename() {
+    const file = active;
+    const position = cursor();
+    const name = renameTo.trim();
+    renaming = false;
+    if (!file || !position || name === "") return;
+    const perFile = await renameSymbol(root, file.path, position, name);
+    if (!perFile) {
+      pushNotice($t("editor.rename.none"), "info");
+      return;
+    }
+    let touched = 0;
+    for (const [path, edits] of perFile) {
+      try {
+        const before =
+          open.find((candidate) => candidate.path === path)?.content ??
+          (await readFile(root, path)).content;
+        const after = applyTextEdits(before, edits);
+        if (after === before) continue;
+        await saveFile(root, path, after, target, true);
+        touched += 1;
+        const buffer = open.find((candidate) => candidate.path === path);
+        if (buffer) {
+          buffer.content = after;
+          buffer.dirty = false;
+          markClean(path);
+          if (path === activePath && handle) {
+            handle.view.dispatch({
+              changes: { from: 0, to: handle.view.state.doc.length, insert: after },
+            });
+          }
+        }
+      } catch (raw) {
+        const e = raw as { detail?: string; message?: string };
+        pushNotice(`${$t("common.error")}: ${e?.detail ?? e?.message ?? path}`, "danger");
+        return;
+      }
+    }
+    pushNotice($t("editor.rename.applied", { n: String(touched) }), "info");
+  }
+
   async function openExternally() {
     const file = active;
     if (!file) return;
@@ -266,9 +387,18 @@
     if (validating) return;
     validating = true;
     try {
+      // Validate the CHANGE being edited when the open file belongs to one, so
+      // the findings are about the artifact in front of the user rather than
+      // about the living truth at large. `sdd/validate` reads what is on disk,
+      // so the buffer is saved first when it is dirty — otherwise the findings
+      // would describe a state the user no longer sees.
+      const change = changeOfPath(activePath);
+      if (change && open.find((file) => file.path === activePath)?.dirty) {
+        await save(true);
+      }
       const result = await request<{ clean: boolean; diagnostics: unknown[] }>(
         "sdd/validate",
-        { projectRoot: root },
+        change ? { projectRoot: root, change } : { projectRoot: root },
       );
       validateSummary = result.clean
         ? $t("editor.validate.clean")
@@ -391,6 +521,24 @@
             <span class="faint" aria-live="polite">{validateSummary}</span>
           {/if}
         {/if}
+        {#if lspLabel}
+          <button class="ghost" onclick={() => void format()} disabled={!active}>
+            {$t("editor.format")}
+          </button>
+          <button class="ghost" onclick={() => void showReferences()} disabled={!active}>
+            {$t("editor.references")}
+          </button>
+          <button
+            class="ghost"
+            onclick={() => {
+              renameTo = "";
+              renaming = true;
+            }}
+            disabled={!active}
+          >
+            {$t("editor.rename")}
+          </button>
+        {/if}
         <button class="ghost" onclick={() => void openExternally()} disabled={!active}>
           <Icon name="external" size={13} />
           {$t("editor.openWith")}
@@ -412,6 +560,56 @@
     {/if}
   </div>
 </section>
+
+{#if renaming}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    class="scrim"
+    role="presentation"
+    onkeydown={(event) => {
+      event.stopPropagation();
+      if (event.key === "Escape") renaming = false;
+      if (event.key === "Enter") void applyRename();
+    }}
+  >
+    <div class="quickPanel" role="dialog" aria-modal="true" aria-label={$t("editor.rename")}>
+      <input
+        bind:this={renameInput}
+        bind:value={renameTo}
+        placeholder={$t("editor.rename.prompt")}
+        aria-label={$t("editor.rename.prompt")}
+      />
+      <div class="quickList">
+        <button onclick={() => void applyRename()} disabled={renameTo.trim() === ""}>
+          {$t("editor.rename")}
+        </button>
+        <button class="ghost" onclick={() => (renaming = false)}>{$t("common.cancel")}</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if references}
+  <section class="references" aria-label={$t("editor.references")}>
+    <header>
+      <span>{$t("editor.references.found", { n: String(references.length) })}</span>
+      <button class="ghost" onclick={() => (references = null)} aria-label={$t("common.close")}>
+        <Icon name="close" size={12} />
+      </button>
+    </header>
+    <div class="refList">
+      {#each references as hit, index (hit.file + ":" + hit.line + ":" + index)}
+        <button class="result" onclick={() => void openFile(hit.file, hit.line)}>
+          <code>{hit.file}</code>
+          <span class="faint">:{hit.line}</span>
+        </button>
+      {/each}
+      {#if references.length === 0}
+        <p class="faint">{$t("editor.references.none")}</p>
+      {/if}
+    </div>
+  </section>
+{/if}
 
 {#if quickOpen}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -470,6 +668,25 @@
 {/if}
 
 <style>
+  .references {
+    border-top: 1px solid var(--hair);
+    max-height: 30vh;
+    overflow-y: auto;
+    background: var(--surface);
+  }
+  .references header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-1) var(--cell-pad);
+    border-bottom: 1px solid var(--hair);
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
+  }
+  .refList {
+    display: flex;
+    flex-direction: column;
+  }
   .editor {
     display: grid;
     grid-template-columns: 260px 1fr;

@@ -28,7 +28,8 @@ fn norm(s: &str) -> String {
 
 #[test]
 fn readme_and_docs_are_present_with_their_sections() {
-    // Scenario: Primer contacto completo — README explains what/status/how.
+    // Scenario: Primer contacto completo
+    // README explains what/status/how.
     let root = repo_root();
     let readme = read(&root, "README.md");
     for section in ["## What it is", "## Status", "## Install", "## First step"] {
@@ -94,7 +95,8 @@ fn the_remote_access_frontier_is_documented() {
 
 #[test]
 fn the_git_bash_gotcha_is_documented() {
-    // Scenario: La trampa de git-bash documentada — the H6 finding with remedy.
+    // Scenario: La trampa de git-bash documentada
+    // the H6 finding with remedy.
     let notes = read(&repo_root(), "docs/plataformas.md");
     assert!(
         notes.contains("MELTEMI_ENDPOINT"),
@@ -108,7 +110,8 @@ fn the_git_bash_gotcha_is_documented() {
 
 #[test]
 fn the_cli_reference_is_generated_and_fresh() {
-    // Scenario: Referencia nunca desincronizada — the committed reference must
+    // Scenario: Referencia nunca desincronizada
+    // the committed reference must
     // equal what the generator produces from the grammar.
     // Scenario: La referencia es la enumeración autoritativa
     let committed = read(&repo_root(), "docs/referencia-cli.md");
@@ -196,7 +199,8 @@ fn meltemi_bin() -> PathBuf {
 
 #[test]
 fn quickstart_local_steps_run_against_the_binary() {
-    // Scenario: Quickstart en CI — the scriptable steps run against the real
+    // Scenario: Quickstart en CI
+    // the scriptable steps run against the real
     // binary and a divergent output fails.
     let bin = meltemi_bin();
     assert!(

@@ -27,6 +27,8 @@ fn registry() -> meltemid::fleet::Registry {
 
 // Scenario: Guía y registro en biyección
 #[test]
+// Scenario: Cada entrada del registro tiene su sección con nivel y binarios
+// Scenario: Entrada nueva o renombrada falla la verificación
 fn every_registry_entry_has_a_section_and_every_section_an_entry() {
     let guide = guide();
     let registry = registry();
@@ -123,6 +125,7 @@ fn the_guide_states_the_level_and_binaries_the_registry_declares() {
 
 // Scenario: Los ejemplos de perfiles de la guía son configuración válida
 #[test]
+// Scenario: Ejemplos de configuración de perfiles válidos
 fn the_profile_examples_parse_as_configuration() {
     let guide = guide();
     let mut blocks = Vec::new();

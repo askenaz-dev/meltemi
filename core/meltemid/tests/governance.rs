@@ -88,7 +88,8 @@ fn governance_documents_are_present_and_complete() {
 
 #[test]
 fn the_lint_fails_when_a_document_is_missing() {
-    // Scenario: Lint de presencia y secciones — SHALL fallar si falta un
+    // Scenario: Lint de presencia y secciones
+    // SHALL fallar si falta un
     // documento o una sección mínima. Negative control on an empty tree.
     let empty = std::env::temp_dir().join(format!("meltemi-gov-lint-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&empty);

@@ -949,7 +949,8 @@ mod tests {
 
     #[test]
     fn assign_parses_a_race_from_comma_separated_agents() {
-        // Scenario: Carrera etiquetada — dos agentes en una tarea.
+        // Scenario: Carrera etiquetada
+        // dos agentes en una tarea.
         assert_eq!(
             plan_of(&["assign", "add-thing", "1.2", "claude,gemini"], false).action,
             Action::Run(Command::Assign {
@@ -1067,7 +1068,8 @@ mod tests {
 
     #[test]
     fn revert_requires_confirmation_word_to_execute() {
-        // Scenario: Confirmación obligatoria — sin `confirm` es una vista previa.
+        // Scenario: Confirmación obligatoria
+        // sin `confirm` es una vista previa.
         assert_eq!(
             plan_of(&["revert", "add-thing", "1.1", "claude"], false).action,
             Action::Run(Command::Revert {

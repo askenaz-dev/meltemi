@@ -236,7 +236,8 @@ mod tests {
 
     #[test]
     fn removing_a_referenced_requirement_dangles() {
-        // Scenario: Referencia rota — The Alpha One references The Beta One,
+        // Scenario: Referencia rota
+        // The Alpha One references The Beta One,
         // which this delta removes.
         let delta = crate::delta::parse_delta(
             "cap",

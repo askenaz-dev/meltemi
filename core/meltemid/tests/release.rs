@@ -20,7 +20,8 @@ fn read(root: &Path, rel: &str) -> String {
 
 #[test]
 fn versioning_policy_defines_breaking_changes_and_single_version() {
-    // Scenario: Ruptura exige minor — the policy defines what breaks and bumps.
+    // Scenario: Ruptura exige minor
+    // the policy defines what breaks and bumps.
     let root = repo_root();
     let policy = read(&root, "docs/versionado.md");
     assert!(policy.contains("SemVer"), "policy names SemVer");
@@ -41,7 +42,8 @@ fn versioning_policy_defines_breaking_changes_and_single_version() {
 
 #[test]
 fn the_release_pipeline_gates_and_budget_abort() {
-    // Scenario: Presupuesto excedido aborta — the budget gate exits non-zero.
+    // Scenario: Presupuesto excedido aborta
+    // the budget gate exits non-zero.
     let wf = read(&repo_root(), ".github/workflows/release.yml");
     assert!(wf.contains("tags:"), "release originates from a tag");
     for gate in ["cargo fmt", "clippy", "cargo test", "cargo-deny"] {
@@ -59,7 +61,8 @@ fn the_release_pipeline_gates_and_budget_abort() {
 
 #[test]
 fn signed_artifacts_and_verification_are_documented() {
-    // Scenario: Verificación por el usuario — checksum and signature verifiable.
+    // Scenario: Verificación por el usuario
+    // checksum and signature verifiable.
     let doc = read(&repo_root(), "docs/release.md");
     assert!(doc.contains("SHA256SUMS"), "checksums are published");
     assert!(
@@ -74,7 +77,8 @@ fn signed_artifacts_and_verification_are_documented() {
 
 #[test]
 fn installers_are_auditable_and_create_the_mel_alias() {
-    // Scenario: Instalación con alias — meltemi, meltemid, and `mel`.
+    // Scenario: Instalación con alias
+    // meltemi, meltemid, and `mel`.
     let root = repo_root();
     let sh = read(&root, "scripts/install.sh");
     assert!(
@@ -104,7 +108,8 @@ fn installers_are_auditable_and_create_the_mel_alias() {
 
 #[test]
 fn the_reserved_crates_carry_namespace_metadata() {
-    // Scenario: Crates apuntan al proyecto — repository + description present.
+    // Scenario: Crates apuntan al proyecto
+    // repository + description present.
     let root = repo_root();
     for crate_manifest in [
         "proto/meltemi-proto/Cargo.toml",

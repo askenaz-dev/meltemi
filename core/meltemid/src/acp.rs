@@ -443,6 +443,12 @@ async fn escalate(
     // decide (first-wins). Keeps the existing contract for current clients.
     spawn_live_push(state, &request_id, tool_call, options);
 
+    // The tool call the request referred to, when the agent named one: the
+    // notification promises it, so it must not travel empty when it is known.
+    let tool_call_id = tool_call
+        .get("toolCallId")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let resolution = tokio::select! {
         r = rx => r.ok(),
         _ = tokio::time::sleep(state.permission_timeout) => {
@@ -451,7 +457,7 @@ async fn escalate(
                 methods::PERMISSION_TIMEOUT,
                 &PermissionTimeoutParams {
                     session_id: state.session_id.clone(),
-                    tool_call_id: None,
+                    tool_call_id: tool_call_id.clone(),
                 },
             );
             None
