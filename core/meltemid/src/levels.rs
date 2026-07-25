@@ -423,7 +423,7 @@ mod tests {
         let config = registry_config(
             &dir,
             "version=\"v\"\n[[agents]]\nid=\"x\"\nname=\"X\"\nlevel=2\n\
-             adapter=\"adapter-bin\"\nadapter-args=[\"--acp\"]\n",
+             adapter=\"adapter-bin\"\nadapter-args=[\"--acp\"]\ncli-bin=\"x-cli\"\n",
         );
         let launch = resolve_launch(&config, &path_var).unwrap();
         assert_eq!(launch.level(), 2);

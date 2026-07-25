@@ -156,8 +156,12 @@ async fn conformance_suite_runs_every_level_against_simulated_agents() {
         &l2,
         "sim-l2",
         &format!(
+            // A level-2 entry declares its official CLI layer too
+            // (flota-deteccion-guia D1); the simulated adapter stands in for
+            // both layers here.
             "version=\"conf\"\n[[agents]]\nid=\"sim-l2\"\nname=\"Sim L2\"\nlevel=2\n\
-             bin='{}'\nadapter='{}'\n",
+             bin='{}'\nadapter='{}'\ncli-bin='{}'\n",
+            mock.display(),
             mock.display(),
             mock.display()
         ),

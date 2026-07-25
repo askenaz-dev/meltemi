@@ -80,7 +80,9 @@ acp-args = ["acp"]
 candidate-paths = ["~/.opencode/bin/opencode"]
 
 # Level 2: piloted through an official ACP adapter. `bin` is what detection
-# probes (the adapter); `adapter` is what the launcher runs (design D1).
+# probes and the launcher runs (the adapter); `cli-bin` names the provider's
+# own official CLI, so the fleet can say which of the two layers is missing
+# instead of a bare "not detected" (flota-deteccion-guia D1).
 [[agents]]
 id = "claude-code"
 name = "Claude Code"
@@ -90,6 +92,12 @@ adapter = "claude-agent-acp"
 adapter-args = []
 mcp = true
 candidate-paths = []
+cli-bin = "claude"
+cli-candidate-paths = ["~/.local/bin/claude"]
+cli-install = "npm i -g @anthropic-ai/claude-code"
+adapter-install = "npm i -g @zed-industries/claude-agent-acp"
+legal-status = "grey"
+legal-note = "The adapter drives the Agent SDK, and consumer subscriptions are not licensed for third-party clients; the safe path is piloting the official binary you already signed into."
 
 [[agents]]
 id = "codex-cli"
@@ -99,6 +107,12 @@ bin = "codex-acp"
 adapter = "codex-acp"
 adapter-args = []
 candidate-paths = []
+cli-bin = "codex"
+cli-candidate-paths = []
+cli-install = "npm i -g @openai/codex"
+adapter-install = "cargo install codex-acp"
+legal-status = "tolerated"
+legal-note = "The adapter wraps the official app-server mode of the provider CLI; the CLI authenticates itself."
 
 # Level 3: structured headless run. No rich permission channel, so it runs
 # inside mandatory guardrails (bounded dir + native controls; design D2).

@@ -30,6 +30,15 @@
     }
   }
 
+  async function copyCommand(command: string) {
+    try {
+      await navigator.clipboard.writeText(command);
+      pushNotice($t("fleet.commandCopied"), "info");
+    } catch {
+      pushNotice($t("banner.copyFailed"), "danger");
+    }
+  }
+
   function levelLabel(agent: FleetAgent): string {
     const level = agent.verifiedLevel ?? agent.integrationLevel;
     return `N${level}`;
@@ -139,9 +148,59 @@
         <dd class="mono">{selected.id}</dd>
       </dl>
 
-      {#if !selected.detected}
-        <p class="hint">{$t("fleet.remedy.hint")}</p>
+      <!-- Two-layer entries: which layer is missing, and the exact command.
+           The command is data — shown, copyable, never executed. -->
+      {#if selected.layers && selected.layers.length > 1}
+        <div class="layers">
+          <span class="layersTitle">{$t("fleet.layers")}</span>
+          {#each selected.layers as layer (layer.kind + layer.bin)}
+            <div class="layer">
+              <span class="pill" class:ok={layer.detected && !layer.evidenceOnly}>
+                {$t(("fleet.layer." + layer.kind) as never)}
+              </span>
+              <code class="lbin">{layer.bin}</code>
+              {#if layer.detected && layer.evidenceOnly}
+                <span class="warnText">! {$t("fleet.layer.shimOnly")}</span>
+              {:else if layer.detected}
+                <span class="ok">▸ {$t("fleet.layer.found")}</span>
+              {:else}
+                <span class="faint">■ {$t("fleet.layer.missing")}</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
       {/if}
+
+      {#if selected.installState && selected.installState !== "ready"}
+        <p class="state">
+          <span class="pill warn">{$t(("fleet.state." + selected.installState) as never)}</span>
+        </p>
+        {#if selected.remedy}
+          <p class="hint">{selected.remedy}</p>
+        {/if}
+        {#if selected.remedyCommand}
+          <div class="command">
+            <code>{selected.remedyCommand}</code>
+            <button
+              class="ghost"
+              aria-label={$t("fleet.copyCommand")}
+              onclick={() => void copyCommand(selected.remedyCommand!)}
+            >
+              <Icon name="copy" size={13} />
+            </button>
+          </div>
+        {/if}
+      {/if}
+
+      {#if selected.legalNote}
+        <p class="legal">
+          <span class="pill" class:warn={selected.legalStatus === "grey"}>
+            {$t(("fleet.legal." + (selected.legalStatus ?? "tolerated")) as never)}
+          </span>
+          {selected.legalNote}
+        </p>
+      {/if}
+
       <button disabled={refreshing} onclick={() => void refresh()}>
         <Icon name="refresh" size={14} />
         {$t("fleet.refresh")}
@@ -240,5 +299,54 @@
     margin: 0;
     font-size: var(--fs-caption);
     color: var(--text-muted);
+  }
+  .layers {
+    display: grid;
+    gap: var(--sp-1);
+  }
+  .layersTitle {
+    font-size: var(--fs-caption);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-faint);
+  }
+  .layer {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-size: var(--fs-caption);
+  }
+  .lbin {
+    font-family: var(--font-mono);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .warnText {
+    color: var(--warn);
+  }
+  .state,
+  .legal {
+    margin: 0;
+    font-size: var(--fs-caption);
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    align-items: baseline;
+  }
+  .command {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    background: var(--surface-2);
+    border-radius: var(--radius-control);
+    padding: var(--sp-1) var(--sp-2);
+  }
+  .command code {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: var(--fs-caption);
+    overflow-wrap: anywhere;
   }
 </style>

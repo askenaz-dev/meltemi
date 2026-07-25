@@ -24,7 +24,10 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::Value;
 
-use meltemi_proto::{FleetAgent, FleetAgentSource, FleetListParams, FleetListResult, error_codes};
+use meltemi_proto::{
+    FleetAgent, FleetAgentSource, FleetInstallState, FleetLayer, FleetLayerKind, FleetLegalStatus,
+    FleetListParams, FleetListResult, error_codes,
+};
 
 use crate::config::Config;
 use crate::rpc::RpcError;
@@ -72,6 +75,14 @@ pub struct RegistryAgent {
     pub l4_target: Option<String>,
     /// Whether the agent supports MCP passthrough (declared in the registry).
     pub mcp: bool,
+    /// The provider's official CLI, when the entry is piloted through an
+    /// adapter (flota-deteccion-guia D1).
+    pub cli_bin: Option<String>,
+    pub cli_candidate_paths: Vec<String>,
+    pub cli_install: Option<String>,
+    pub adapter_install: Option<String>,
+    pub legal_status: Option<String>,
+    pub legal_note: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,6 +118,20 @@ struct RawRegistryAgent {
     l4_target: Option<String>,
     #[serde(default)]
     mcp: bool,
+    /// Two-layer detection (flota-deteccion-guia D1): the provider's own
+    /// official CLI, probed beside the pilot point named by `bin`.
+    #[serde(default)]
+    cli_bin: Option<BinSpec>,
+    #[serde(default)]
+    cli_candidate_paths: Vec<String>,
+    #[serde(default)]
+    cli_install: Option<String>,
+    #[serde(default)]
+    adapter_install: Option<String>,
+    #[serde(default)]
+    legal_status: Option<String>,
+    #[serde(default)]
+    legal_note: Option<String>,
 }
 
 /// The binary name of an entry: one for every OS, or a per-OS table.
@@ -168,6 +193,15 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
         if !seen.insert(agent.id.clone()) {
             return Err(format!("duplicate registry id `{}`", agent.id));
         }
+        // An entry piloted through an adapter must declare the provider's own
+        // official CLI, or the fleet cannot say which layer is missing
+        // (flota-deteccion-guia design D1).
+        if agent.adapter.is_some() && agent.cli_bin.is_none() {
+            return Err(format!(
+                "registry entry `{}` declares an adapter without its `cli-bin` layer",
+                agent.id
+            ));
+        }
         agents.push(RegistryAgent {
             id: agent.id,
             name: agent.name,
@@ -182,6 +216,12 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
             native_controls: agent.native_controls,
             l4_target: agent.l4_target,
             mcp: agent.mcp,
+            cli_bin: agent.cli_bin.and_then(|b| b.for_current_os()),
+            cli_candidate_paths: agent.cli_candidate_paths,
+            cli_install: agent.cli_install,
+            adapter_install: agent.adapter_install,
+            legal_status: agent.legal_status,
+            legal_note: agent.legal_note,
         });
     }
     Ok(Registry {
@@ -213,8 +253,16 @@ pub fn load_registry(override_path: Option<&Path>) -> Registry {
 
 /// Executable extensions probed on Windows: the bounded PATHEXT of design D2
 /// (installers ship `.exe`, npm shims are `.cmd`, some wrappers `.bat`).
+/// These are the only ones a launch may target.
 #[cfg(windows)]
 const WINDOWS_EXTS: &[&str] = &["exe", "cmd", "bat"];
+
+/// Extensions that prove an installation without being launchable: the
+/// PowerShell shims npm/nvm also drop (flota-deteccion-guia design D4).
+/// `CreateProcess` cannot run a `.ps1`, so a hit here is reported as evidence
+/// and never handed to a launch.
+#[cfg(windows)]
+const WINDOWS_EVIDENCE_EXTS: &[&str] = &["ps1"];
 
 /// Resolves a catalog binary: `PATH` lookup by name, then the entry's
 /// candidate paths (`~/` expands to the home directory). Returns the
@@ -284,6 +332,26 @@ fn probe(path: &Path) -> Option<PathBuf> {
     (meta.is_file() && meta.permissions().mode() & 0o111 != 0).then(|| path.to_path_buf())
 }
 
+/// Probes the evidence-only extensions: a hit means "installed but not
+/// launchable" (design D4). Windows only; every other platform has no such
+/// split, so the function reports nothing.
+#[cfg(windows)]
+fn probe_evidence(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?.to_str()?.to_string();
+    for ext in WINDOWS_EVIDENCE_EXTS {
+        let with_ext = path.with_file_name(format!("{name}.{ext}"));
+        if is_file(&with_ext) {
+            return Some(with_ext);
+        }
+    }
+    None
+}
+
+#[cfg(unix)]
+fn probe_evidence(_path: &Path) -> Option<PathBuf> {
+    None
+}
+
 #[cfg(windows)]
 fn is_file(path: &Path) -> bool {
     std::fs::metadata(path)
@@ -329,6 +397,13 @@ pub struct CatalogEntry {
     pub l4_target: Option<String>,
     /// Whether the agent supports MCP passthrough.
     pub mcp: bool,
+    /// The provider's official CLI layer (flota-deteccion-guia D1).
+    pub cli_bin: Option<String>,
+    pub cli_candidate_paths: Vec<String>,
+    pub cli_install: Option<String>,
+    pub adapter_install: Option<String>,
+    pub legal_status: Option<String>,
+    pub legal_note: Option<String>,
 }
 
 impl Default for CatalogEntry {
@@ -348,6 +423,12 @@ impl Default for CatalogEntry {
             native_controls: Vec::new(),
             l4_target: None,
             mcp: false,
+            cli_bin: None,
+            cli_candidate_paths: Vec::new(),
+            cli_install: None,
+            adapter_install: None,
+            legal_status: None,
+            legal_note: None,
         }
     }
 }
@@ -384,6 +465,12 @@ pub fn build_catalog(config: &Config) -> Catalog {
             native_controls: agent.native_controls,
             l4_target: agent.l4_target,
             mcp: agent.mcp,
+            cli_bin: agent.cli_bin,
+            cli_candidate_paths: agent.cli_candidate_paths,
+            cli_install: agent.cli_install,
+            adapter_install: agent.adapter_install,
+            legal_status: agent.legal_status,
+            legal_note: agent.legal_note,
         })
         .collect();
     for custom in &config.fleet_custom {
@@ -409,9 +496,175 @@ pub fn build_catalog(config: &Config) -> Catalog {
     }
 }
 
-/// Detects one entry: the absolute path of its binary when present.
+/// Detects one entry: the absolute path of its binary when present. This is
+/// the pilot point — what a launch would execute — and therefore what
+/// `detected` reports (flota-deteccion-guia design D2).
 pub fn detect(entry: &CatalogEntry, path_var: &OsStr) -> Option<PathBuf> {
     resolve_binary(entry.bin.as_deref(), &entry.candidate_paths, path_var)
+}
+
+/// Locates a layer as evidence of an installation: the launchable find first,
+/// then the evidence-only shims. The flag says whether the hit is launchable.
+fn resolve_layer(
+    bin: Option<&str>,
+    candidates: &[String],
+    path_var: &OsStr,
+) -> Option<(PathBuf, bool)> {
+    if let Some(path) = resolve_binary(bin, candidates, path_var) {
+        return Some((path, true));
+    }
+    if let Some(name) = bin {
+        if name.contains('/') || name.contains('\\') {
+            if let Some(hit) = probe_evidence(&expand_home(name)) {
+                return Some((absolute(hit), false));
+            }
+        } else {
+            for dir in std::env::split_paths(path_var) {
+                if dir.as_os_str().is_empty() {
+                    continue;
+                }
+                if let Some(hit) = probe_evidence(&dir.join(name)) {
+                    return Some((absolute(hit), false));
+                }
+            }
+        }
+    }
+    for candidate in candidates {
+        if let Some(hit) = probe_evidence(&expand_home(candidate)) {
+            return Some((absolute(hit), false));
+        }
+    }
+    None
+}
+
+/// The layers of an entry, each detected on its own (design D1/D3): a level-2
+/// entry has the official provider CLI plus the ACP adapter it is piloted
+/// through; every other entry has the single `cli` layer its `bin` names.
+pub fn detect_layers(entry: &CatalogEntry, path_var: &OsStr) -> Vec<FleetLayer> {
+    let mut layers = Vec::new();
+
+    if let Some(cli_bin) = &entry.cli_bin {
+        let found = resolve_layer(Some(cli_bin), &entry.cli_candidate_paths, path_var);
+        layers.push(FleetLayer {
+            kind: FleetLayerKind::Cli,
+            bin: cli_bin.clone(),
+            detected: found.is_some(),
+            binary_path: found.as_ref().map(|(path, _)| path.display().to_string()),
+            evidence_only: found.as_ref().is_some_and(|(_, launchable)| !launchable),
+            install: entry.cli_install.clone(),
+        });
+    }
+
+    if let Some(bin) = &entry.bin {
+        let found = resolve_layer(Some(bin), &entry.candidate_paths, path_var);
+        // The pilot point is the adapter for a two-layer entry, the CLI itself
+        // otherwise.
+        let kind = if entry.cli_bin.is_some() {
+            FleetLayerKind::Adapter
+        } else {
+            FleetLayerKind::Cli
+        };
+        layers.push(FleetLayer {
+            kind,
+            bin: bin.clone(),
+            detected: found.is_some(),
+            binary_path: found.as_ref().map(|(path, _)| path.display().to_string()),
+            evidence_only: found.as_ref().is_some_and(|(_, launchable)| !launchable),
+            install: if kind == FleetLayerKind::Adapter {
+                entry.adapter_install.clone()
+            } else {
+                entry.cli_install.clone()
+            },
+        });
+    }
+
+    layers
+}
+
+/// Composes the honest install state of an entry from its layers, plus the
+/// remedy for the layer that is missing (design D2/D5). `launchable` is the
+/// pilot-point detection that `detected` reports.
+pub fn compose_state(
+    layers: &[FleetLayer],
+    launchable: bool,
+) -> (FleetInstallState, Option<String>, Option<String>) {
+    let two_layer = layers.len() > 1;
+    let pilot = layers
+        .iter()
+        .find(|layer| layer.kind == FleetLayerKind::Adapter)
+        .or_else(|| {
+            layers
+                .iter()
+                .find(|layer| layer.kind == FleetLayerKind::Cli)
+        });
+    let cli = if two_layer {
+        layers
+            .iter()
+            .find(|layer| layer.kind == FleetLayerKind::Cli)
+    } else {
+        None
+    };
+
+    let pilot_found = pilot.is_some_and(|layer| layer.detected);
+    let cli_found = cli.is_none_or(|layer| layer.detected);
+    let evidence_only = layers.iter().any(|layer| layer.evidence_only);
+
+    let state = if launchable && cli_found {
+        FleetInstallState::Ready
+    } else if launchable && !cli_found {
+        FleetInstallState::CliMissing
+    } else if !pilot_found && cli.is_some_and(|layer| layer.detected) {
+        FleetInstallState::AdapterMissing
+    } else if evidence_only || pilot_found {
+        // Something is installed, but no launchable target exists.
+        FleetInstallState::NotLaunchable
+    } else {
+        FleetInstallState::NotDetected
+    };
+
+    let missing = match state {
+        FleetInstallState::Ready => None,
+        FleetInstallState::AdapterMissing => layers
+            .iter()
+            .find(|layer| layer.kind == FleetLayerKind::Adapter),
+        FleetInstallState::CliMissing => cli,
+        _ => layers
+            .iter()
+            .find(|layer| !layer.detected || layer.evidence_only)
+            .or(pilot),
+    };
+    let remedy = missing.map(|layer| {
+        let what = match layer.kind {
+            FleetLayerKind::Cli => "the official provider CLI",
+            FleetLayerKind::Adapter => "the ACP adapter",
+        };
+        match (&layer.install, layer.evidence_only) {
+            (Some(command), false) => {
+                format!("{what} (`{}`) is missing: {command}", layer.bin)
+            }
+            (Some(command), true) => format!(
+                "{what} (`{}`) is only a script shim, which cannot be launched: {command}",
+                layer.bin
+            ),
+            (None, true) => format!(
+                "{what} (`{}`) is only a script shim, which cannot be launched",
+                layer.bin
+            ),
+            (None, false) => format!("{what} (`{}`) was not found on this system", layer.bin),
+        }
+    });
+    let remedy_command = missing.and_then(|layer| layer.install.clone());
+    (state, remedy, remedy_command)
+}
+
+/// Parses the registry's declared legal status.
+fn legal_status_of(entry: &CatalogEntry) -> Option<FleetLegalStatus> {
+    match entry.legal_status.as_deref() {
+        Some("sanctioned") => Some(FleetLegalStatus::Sanctioned),
+        Some("tolerated") => Some(FleetLegalStatus::Tolerated),
+        Some("grey") => Some(FleetLegalStatus::Grey),
+        _ => None,
+    }
 }
 
 /// Materializes the `fleet/list` result: fresh detection on every call (D3),
@@ -423,6 +676,8 @@ pub fn list(config: &Config, configured_id: Option<&str>, path_var: &OsStr) -> F
         .iter()
         .map(|entry| {
             let binary = detect(entry, path_var);
+            let layers = detect_layers(entry, path_var);
+            let (install_state, remedy, remedy_command) = compose_state(&layers, binary.is_some());
             FleetAgent {
                 id: entry.id.clone(),
                 display_name: entry.name.clone(),
@@ -436,6 +691,12 @@ pub fn list(config: &Config, configured_id: Option<&str>, path_var: &OsStr) -> F
                 binary_path: binary.map(|p| p.display().to_string()),
                 configured: configured_id == Some(entry.id.as_str()),
                 underlying_agent: None,
+                layers,
+                install_state: Some(install_state),
+                remedy,
+                remedy_command,
+                legal_status: legal_status_of(entry),
+                legal_note: entry.legal_note.clone(),
             }
         })
         .collect();
@@ -447,6 +708,10 @@ pub fn list(config: &Config, configured_id: Option<&str>, path_var: &OsStr) -> F
     for profile in &config.fleet_profiles {
         let underlying = catalog.entries.iter().find(|e| e.id == profile.agent);
         let binary = underlying.and_then(|e| detect(e, path_var));
+        let layers = underlying
+            .map(|e| detect_layers(e, path_var))
+            .unwrap_or_default();
+        let (install_state, remedy, remedy_command) = compose_state(&layers, binary.is_some());
         agents.push(FleetAgent {
             id: profile.name.clone(),
             display_name: profile.name.clone(),
@@ -459,6 +724,12 @@ pub fn list(config: &Config, configured_id: Option<&str>, path_var: &OsStr) -> F
             binary_path: binary.map(|p| p.display().to_string()),
             configured: false,
             underlying_agent: Some(profile.agent.clone()),
+            layers,
+            install_state: Some(install_state),
+            remedy,
+            remedy_command,
+            legal_status: underlying.and_then(legal_status_of),
+            legal_note: underlying.and_then(|e| e.legal_note.clone()),
         });
     }
 
@@ -534,10 +805,21 @@ pub fn resolve_agent_command(config: &Config, path_var: &OsStr) -> Result<Vec<St
             argv.extend(entry.acp_args.iter().cloned());
             Ok(argv)
         }
-        None => Err(not_detected(format!(
-            "the binary of agent `{id}` ({}) was not detected on this system",
-            entry.name
-        ))),
+        None => {
+            // The refusal names the missing LAYER and its command, not just
+            // "not detected": the same diagnosis the fleet view gives, at the
+            // moment it matters most (flota-deteccion-guia design D5).
+            let layers = detect_layers(entry, path_var);
+            let (_, remedy, _) = compose_state(&layers, false);
+            let detail = match remedy {
+                Some(remedy) => format!("agent `{id}` ({}): {remedy}", entry.name),
+                None => format!(
+                    "the binary of agent `{id}` ({}) was not detected on this system",
+                    entry.name
+                ),
+            };
+            Err(not_detected(detail))
+        }
     }
 }
 
@@ -558,6 +840,175 @@ fn not_detected(detail: String) -> RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Windows shims: `.cmd` is a launch target, `.ps1` is evidence only
+    /// (flota-deteccion-guia design D4).
+    #[cfg(windows)]
+    #[test]
+    fn windows_script_shims_are_evidence_not_launch_targets() {
+        let dir = std::env::temp_dir().join(format!("mel-shims-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path_var = std::ffi::OsString::from(dir.display().to_string());
+
+        // A .ps1-only install: evidence, but nothing to launch.
+        std::fs::write(dir.join("only-shim.ps1"), b"# shim\n").unwrap();
+        let entry = CatalogEntry {
+            id: "only-shim".into(),
+            bin: Some("only-shim".into()),
+            ..CatalogEntry::default()
+        };
+        assert!(
+            detect(&entry, &path_var).is_none(),
+            "a .ps1 is never returned as a launch target"
+        );
+        let layers = detect_layers(&entry, &path_var);
+        assert_eq!(layers.len(), 1);
+        assert!(layers[0].detected, "the shim proves an installation");
+        assert!(layers[0].evidence_only);
+        let (state, remedy, _) = compose_state(&layers, false);
+        assert_eq!(state, FleetInstallState::NotLaunchable);
+        assert!(remedy.expect("remedy").contains("shim"));
+
+        // The same name with a .cmd beside it: launchable, no longer evidence.
+        std::fs::write(dir.join("both.ps1"), b"# shim\n").unwrap();
+        std::fs::write(dir.join("both.cmd"), b"@echo off\n").unwrap();
+        let entry = CatalogEntry {
+            id: "both".into(),
+            bin: Some("both".into()),
+            ..CatalogEntry::default()
+        };
+        let found = detect(&entry, &path_var).expect("the .cmd is launchable");
+        assert!(found.to_string_lossy().ends_with("both.cmd"));
+        let layers = detect_layers(&entry, &path_var);
+        assert!(layers[0].detected && !layers[0].evidence_only);
+        assert_eq!(compose_state(&layers, true).0, FleetInstallState::Ready);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_adapter_entry_without_its_cli_layer_is_refused_by_the_parser() {
+        let bad = r#"
+version = "test"
+
+[[agents]]
+id = "broken"
+name = "Broken"
+level = 2
+bin = "broken-acp"
+adapter = "broken-acp"
+"#;
+        let error = parse_registry(bad).expect_err("an adapter needs its cli-bin");
+        assert!(error.contains("cli-bin"), "{error}");
+    }
+
+    /// A layer helper for the composition tests.
+    fn layer(kind: FleetLayerKind, detected: bool, evidence_only: bool) -> FleetLayer {
+        FleetLayer {
+            kind,
+            bin: match kind {
+                FleetLayerKind::Cli => "provider-cli".into(),
+                FleetLayerKind::Adapter => "provider-acp".into(),
+            },
+            detected,
+            binary_path: detected.then(|| "/somewhere/bin".to_string()),
+            evidence_only,
+            install: Some("install me".into()),
+        }
+    }
+
+    // Scenario: El CLI oficial instalado sin adaptador se reporta como tal
+    #[test]
+    fn an_installed_cli_without_its_adapter_states_which_layer_is_missing() {
+        let layers = vec![
+            layer(FleetLayerKind::Cli, true, false),
+            layer(FleetLayerKind::Adapter, false, false),
+        ];
+        let (state, remedy, command) = compose_state(&layers, false);
+        assert_eq!(state, FleetInstallState::AdapterMissing);
+        let remedy = remedy.expect("a remedy names the missing layer");
+        assert!(remedy.contains("adapter"), "{remedy}");
+        assert!(remedy.contains("provider-acp"), "{remedy}");
+        assert_eq!(command.as_deref(), Some("install me"));
+    }
+
+    #[test]
+    fn both_layers_present_is_ready_without_a_remedy() {
+        let layers = vec![
+            layer(FleetLayerKind::Cli, true, false),
+            layer(FleetLayerKind::Adapter, true, false),
+        ];
+        let (state, remedy, command) = compose_state(&layers, true);
+        assert_eq!(state, FleetInstallState::Ready);
+        assert!(remedy.is_none() && command.is_none());
+    }
+
+    #[test]
+    fn an_adapter_without_the_official_cli_is_reported_too() {
+        let layers = vec![
+            layer(FleetLayerKind::Cli, false, false),
+            layer(FleetLayerKind::Adapter, true, false),
+        ];
+        let (state, remedy, _) = compose_state(&layers, true);
+        assert_eq!(state, FleetInstallState::CliMissing);
+        assert!(remedy.expect("remedy").contains("provider-cli"));
+    }
+
+    // Scenario: Un shim de script cuenta como evidencia, no como lanzable
+    #[test]
+    fn a_script_shim_is_installed_but_not_launchable() {
+        let layers = vec![layer(FleetLayerKind::Cli, true, true)];
+        let (state, remedy, _) = compose_state(&layers, false);
+        assert_eq!(state, FleetInstallState::NotLaunchable);
+        assert!(remedy.expect("remedy").contains("shim"));
+    }
+
+    #[test]
+    fn nothing_installed_is_not_detected() {
+        let layers = vec![layer(FleetLayerKind::Cli, false, false)];
+        let (state, remedy, _) = compose_state(&layers, false);
+        assert_eq!(state, FleetInstallState::NotDetected);
+        assert!(
+            remedy.is_some(),
+            "even here the remedy says what to install"
+        );
+    }
+
+    #[test]
+    fn a_single_layer_entry_needs_only_its_own_binary() {
+        let layers = vec![layer(FleetLayerKind::Cli, true, false)];
+        let (state, _, _) = compose_state(&layers, true);
+        assert_eq!(state, FleetInstallState::Ready);
+    }
+
+    // Scenario: El registro declara las dos capas
+    #[test]
+    fn the_snapshot_declares_two_layers_for_its_adapter_entries() {
+        let registry = parse_registry(EMBEDDED_REGISTRY).expect("snapshot parses");
+        let two_layer: Vec<_> = registry
+            .agents
+            .iter()
+            .filter(|agent| agent.cli_bin.is_some())
+            .collect();
+        assert!(
+            !two_layer.is_empty(),
+            "the snapshot declares the official CLI of its level-2 entries"
+        );
+        for agent in two_layer {
+            assert_eq!(agent.level, 2, "{} declares a CLI layer", agent.id);
+            assert!(
+                agent.cli_install.is_some() && agent.adapter_install.is_some(),
+                "{} states how to install both layers",
+                agent.id
+            );
+            assert!(
+                agent.legal_status.is_some() && agent.legal_note.is_some(),
+                "{} states its legal posture",
+                agent.id
+            );
+        }
+    }
+
     use crate::config::CustomAgent;
 
     fn temp_dir(tag: &str) -> PathBuf {

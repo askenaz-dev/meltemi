@@ -53,6 +53,7 @@ fn readme_and_docs_are_present_with_their_sections() {
         "docs/metodo-sdd.md",
         "docs/accesibilidad.md",
         "docs/plataformas.md",
+        "docs/agentes.md",
         "docs/referencia-cli.md",
         "docs/acceso-remoto.md",
     ] {

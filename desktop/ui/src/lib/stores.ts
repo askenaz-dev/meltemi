@@ -49,6 +49,22 @@ export interface PendingPermission {
   suggestedRule?: PermissionRule;
 }
 
+export interface FleetLayer {
+  kind: "cli" | "adapter";
+  bin: string;
+  detected: boolean;
+  binaryPath?: string;
+  evidenceOnly?: boolean;
+  install?: string;
+}
+
+export type FleetInstallState =
+  | "ready"
+  | "adapter_missing"
+  | "cli_missing"
+  | "not_detected"
+  | "not_launchable";
+
 export interface FleetAgent {
   id: string;
   displayName: string;
@@ -61,6 +77,12 @@ export interface FleetAgent {
   binaryPath?: string;
   configured: boolean;
   underlyingAgent?: string;
+  layers?: FleetLayer[];
+  installState?: FleetInstallState;
+  remedy?: string;
+  remedyCommand?: string;
+  legalStatus?: "sanctioned" | "tolerated" | "grey";
+  legalNote?: string;
 }
 
 export interface ChangeInfo {

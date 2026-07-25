@@ -301,6 +301,12 @@ fn fleet_conforms() {
                     binary_path: Some("C:\\bin\\native-agent.exe".into()),
                     configured: true,
                     underlying_agent: None,
+                    layers: Vec::new(),
+                    install_state: None,
+                    remedy: None,
+                    remedy_command: None,
+                    legal_status: None,
+                    legal_note: None,
                 },
                 FleetAgent {
                     id: "absent-agent".into(),
@@ -314,6 +320,12 @@ fn fleet_conforms() {
                     binary_path: None,
                     configured: false,
                     underlying_agent: None,
+                    layers: Vec::new(),
+                    install_state: None,
+                    remedy: None,
+                    remedy_command: None,
+                    legal_status: None,
+                    legal_note: None,
                 },
                 FleetAgent {
                     id: "my-agent".into(),
@@ -327,6 +339,12 @@ fn fleet_conforms() {
                     binary_path: None,
                     configured: false,
                     underlying_agent: None,
+                    layers: Vec::new(),
+                    install_state: None,
+                    remedy: None,
+                    remedy_command: None,
+                    legal_status: None,
+                    legal_note: None,
                 },
                 // A launch profile row: a catalog agent under a selected auth
                 // context (flota-multiproveedor).
@@ -342,6 +360,12 @@ fn fleet_conforms() {
                     binary_path: Some("C:\\bin\\native-agent.exe".into()),
                     configured: false,
                     underlying_agent: Some("native-agent".into()),
+                    layers: Vec::new(),
+                    install_state: None,
+                    remedy: None,
+                    remedy_command: None,
+                    legal_status: None,
+                    legal_note: None,
                 },
             ],
         },
@@ -732,6 +756,77 @@ fn session_events_conform() {
                 text: "hello".into(),
             }),
         },
+    );
+}
+
+// The additive two-layer detection fields (flota-deteccion-guia D3).
+#[test]
+fn fleet_layers_conform() {
+    assert_conforms(
+        "fleet",
+        "fleetLayer",
+        &FleetLayer {
+            kind: FleetLayerKind::Adapter,
+            bin: "codex-acp".into(),
+            detected: false,
+            binary_path: None,
+            evidence_only: false,
+            install: Some("cargo install codex-acp".into()),
+        },
+    );
+    assert_conforms(
+        "fleet",
+        "fleetLayer",
+        &FleetLayer {
+            kind: FleetLayerKind::Cli,
+            bin: "codex".into(),
+            detected: true,
+            binary_path: Some("C:/shims/codex.cmd".into()),
+            evidence_only: true,
+            install: None,
+        },
+    );
+    // The composed state and the legal status are closed enumerations.
+    for state in [
+        FleetInstallState::Ready,
+        FleetInstallState::AdapterMissing,
+        FleetInstallState::CliMissing,
+        FleetInstallState::NotDetected,
+        FleetInstallState::NotLaunchable,
+    ] {
+        assert_conforms("fleet", "fleetInstallState", &state);
+    }
+    for status in [
+        FleetLegalStatus::Sanctioned,
+        FleetLegalStatus::Tolerated,
+        FleetLegalStatus::Grey,
+    ] {
+        assert_conforms("fleet", "fleetLegalStatus", &status);
+    }
+    assert_rejected("fleet", "fleetInstallState", &json!("maybe"));
+    assert_rejected("fleet", "fleetLayerKind", &json!("headless"));
+    // A full agent row carrying the additive fields still conforms.
+    assert_conforms(
+        "fleet",
+        "fleetAgent",
+        &json!({
+            "id": "codex-cli",
+            "displayName": "Codex CLI",
+            "source": "registry",
+            "integrationLevel": 2,
+            "mcpSupport": false,
+            "detected": false,
+            "configured": false,
+            "layers": [
+                { "kind": "cli", "bin": "codex", "detected": true },
+                { "kind": "adapter", "bin": "codex-acp", "detected": false }
+            ],
+            "installState": "adapter_missing",
+            "remedy": "the ACP adapter is missing",
+            "remedyCommand": "cargo install codex-acp",
+            "legalStatus": "tolerated",
+            "legalNote": "the adapter wraps the official app-server mode"
+        }),
     );
 }
 

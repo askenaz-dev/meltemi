@@ -336,6 +336,52 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
         } else {
             lines.push(Line::from(label));
         }
+
+        // Two-layer entries say which layer is missing and how to install it,
+        // with glyph + word and never color alone (flota-deteccion-guia D8).
+        if let Some(state) = row.install_state
+            && state != meltemi_proto::FleetInstallState::Ready
+            && row.layers.len() > 1
+        {
+            for layer in &row.layers {
+                let (layer_glyph, _) = detection_label(layer.detected, ctx.lang);
+                let kind = match layer.kind {
+                    meltemi_proto::FleetLayerKind::Cli => "cli",
+                    meltemi_proto::FleetLayerKind::Adapter => "adapter",
+                };
+                let mark = if layer.detected {
+                    if layer.evidence_only {
+                        if ctx.lang == Lang::Es {
+                            "solo shim"
+                        } else {
+                            "shim only"
+                        }
+                    } else if ctx.lang == Lang::Es {
+                        "presente"
+                    } else {
+                        "found"
+                    }
+                } else if ctx.lang == Lang::Es {
+                    "falta"
+                } else {
+                    "missing"
+                };
+                lines.push(Line::from(format!(
+                    "      {} {kind:<8} {:<22} {mark}",
+                    layer_glyph.text(&ctx.present),
+                    layer.bin
+                )));
+            }
+            if let Some(remedy) = &row.remedy {
+                lines.push(Line::from(format!(
+                    "      {} {remedy}",
+                    glyphs::PENDING.text(&ctx.present)
+                )));
+            }
+            if let Some(note) = &row.legal_note {
+                lines.push(Line::from(format!("      · {note}")));
+            }
+        }
     }
 
     if detected == 0 {
@@ -1079,6 +1125,10 @@ mod tests {
             configured,
             custom: false,
             underlying_agent: None,
+            install_state: None,
+            layers: Vec::new(),
+            remedy: None,
+            legal_note: None,
         }
     }
 

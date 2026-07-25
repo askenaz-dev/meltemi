@@ -1095,6 +1095,44 @@ fn render_fleet(fleet: &FleetListResult) -> String {
         if let Some(path) = &agent.binary_path {
             let _ = write!(out, " — {path}");
         }
+        // Two-layer entries say which layer is missing and how to fix it
+        // (flota-deteccion-guia D8): a bare "not detected" is not a diagnosis.
+        if let Some(state) = agent.install_state
+            && state != meltemi_proto::FleetInstallState::Ready
+        {
+            let label = match state {
+                meltemi_proto::FleetInstallState::AdapterMissing => "adapter missing",
+                meltemi_proto::FleetInstallState::CliMissing => "provider CLI missing",
+                meltemi_proto::FleetInstallState::NotLaunchable => "installed, not launchable",
+                _ => "not detected",
+            };
+            let _ = write!(out, "\n      state: {label}");
+            for layer in &agent.layers {
+                let kind = match layer.kind {
+                    meltemi_proto::FleetLayerKind::Cli => "cli",
+                    meltemi_proto::FleetLayerKind::Adapter => "adapter",
+                };
+                let found = if layer.detected {
+                    if layer.evidence_only {
+                        "shim only"
+                    } else {
+                        "found"
+                    }
+                } else {
+                    "missing"
+                };
+                let _ = write!(out, "\n      {kind:<8} {:<22} {found}", layer.bin);
+                if let Some(path) = &layer.binary_path {
+                    let _ = write!(out, " — {path}");
+                }
+            }
+            if let Some(remedy) = &agent.remedy {
+                let _ = write!(out, "\n      remedy: {remedy}");
+            }
+            if let Some(note) = &agent.legal_note {
+                let _ = write!(out, "\n      note: {note}");
+            }
+        }
         // A launch profile shows the underlying agent it runs (flota D4 parity).
         if let Some(underlying) = &agent.underlying_agent {
             let _ = write!(out, " (profile → {underlying})");

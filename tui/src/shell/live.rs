@@ -47,6 +47,15 @@ impl From<SessionInfo> for SessionRow {
 /// One fleet catalog row materialized from `fleet/list`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FleetRow {
+    /// The composed install state, when the daemon reports one
+    /// (flota-deteccion-guia D8).
+    pub install_state: Option<meltemi_proto::FleetInstallState>,
+    /// The layers with their per-layer detection.
+    pub layers: Vec<meltemi_proto::FleetLayer>,
+    /// Which layer is missing and how to install it.
+    pub remedy: Option<String>,
+    /// The provider's legal note for this integration path.
+    pub legal_note: Option<String>,
     pub id: String,
     pub name: String,
     pub level: u8,
@@ -73,6 +82,10 @@ impl From<FleetAgent> for FleetRow {
             configured: a.configured,
             custom: a.source == FleetAgentSource::Custom,
             underlying_agent: a.underlying_agent,
+            install_state: a.install_state,
+            layers: a.layers,
+            remedy: a.remedy,
+            legal_note: a.legal_note,
         }
     }
 }
@@ -431,6 +444,10 @@ mod tests {
                 configured: false,
                 custom: false,
                 underlying_agent: None,
+                install_state: None,
+                layers: Vec::new(),
+                remedy: None,
+                legal_note: None,
             }],
         }));
         let snapshot = live.fleet.as_ref().expect("snapshot stored");

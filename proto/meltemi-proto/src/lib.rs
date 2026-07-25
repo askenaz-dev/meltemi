@@ -414,6 +414,68 @@ pub enum FleetResolutionSource {
     Configured,
 }
 
+/// Which layer of an entry a detection result describes: the provider's own
+/// official CLI, or the ACP adapter Meltemi can actually pilot
+/// (flota-deteccion-guia design D1/D3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FleetLayerKind {
+    /// The provider's official CLI, as the user installs it.
+    Cli,
+    /// The ACP adapter that puts a level-2 agent on the protocol.
+    Adapter,
+}
+
+/// One detected (or missing) layer of a fleet entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FleetLayer {
+    pub kind: FleetLayerKind,
+    /// The binary name the registry declares for this layer.
+    pub bin: String,
+    /// Whether the layer was found on this system.
+    pub detected: bool,
+    /// Absolute path of the found binary; present only when detected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_path: Option<String>,
+    /// The find is evidence of an installation but not a launchable target
+    /// (a Windows `.ps1` shim): honest, never handed to a launch.
+    #[serde(default)]
+    pub evidence_only: bool,
+    /// The install command the registry declares for this layer, shown to the
+    /// user and never executed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<String>,
+}
+
+/// The composed install state of an entry across its layers (design D2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FleetInstallState {
+    /// The pilot point is present (and the official CLI too, when declared).
+    Ready,
+    /// The official CLI is installed; the ACP adapter is missing.
+    AdapterMissing,
+    /// The adapter is installed; the official CLI is not.
+    CliMissing,
+    /// Nothing was found for this entry.
+    NotDetected,
+    /// Something is installed, but no launchable target exists.
+    NotLaunchable,
+}
+
+/// How sanctioned the declared integration path is (design D6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FleetLegalStatus {
+    /// The provider documents and supports this path.
+    Sanctioned,
+    /// Not documented, not forbidden.
+    Tolerated,
+    /// Known restrictions apply: the note says which.
+    Grey,
+}
+
 /// One agent of the fleet catalog, as reported by `fleet/list`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -449,6 +511,24 @@ pub struct FleetAgent {
     /// absent on registry/custom rows (flota-multiproveedor).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub underlying_agent: Option<String>,
+    /// The entry's layers with their per-layer detection (design D3).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<FleetLayer>,
+    /// The composed install state across those layers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_state: Option<FleetInstallState>,
+    /// Which layer is missing and what to do about it, in one sentence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remedy: Option<String>,
+    /// The exact command that installs the missing layer. Data, never run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remedy_command: Option<String>,
+    /// How sanctioned this integration path is, when the registry declares it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legal_status: Option<FleetLegalStatus>,
+    /// The short note behind that status, shown verbatim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legal_note: Option<String>,
 }
 
 /// Result of `fleet/list`.

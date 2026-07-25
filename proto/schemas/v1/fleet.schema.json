@@ -6,7 +6,11 @@
   "$defs": {
     "fleetAgentSource": {
       "type": "string",
-      "enum": ["registry", "custom", "profile"],
+      "enum": [
+        "registry",
+        "custom",
+        "profile"
+      ],
       "description": "Where a catalog entry comes from: the bundled registry snapshot or the user's configuration."
     },
     "fleetAgent": {
@@ -30,7 +34,9 @@
           "minLength": 1,
           "description": "Human-readable agent name."
         },
-        "source": { "$ref": "#/$defs/fleetAgentSource" },
+        "source": {
+          "$ref": "#/$defs/fleetAgentSource"
+        },
         "integrationLevel": {
           "type": "integer",
           "minimum": 1,
@@ -69,6 +75,30 @@
           "type": "string",
           "minLength": 1,
           "description": "For a profile row, the catalog id of the underlying agent it launches; absent otherwise."
+        },
+        "layers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fleetLayer"
+          }
+        },
+        "installState": {
+          "$ref": "#/$defs/fleetInstallState"
+        },
+        "remedy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "remedyCommand": {
+          "type": "string",
+          "minLength": 1
+        },
+        "legalStatus": {
+          "$ref": "#/$defs/fleetLegalStatus"
+        },
+        "legalNote": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -84,7 +114,10 @@
     },
     "result": {
       "type": "object",
-      "required": ["registryVersion", "agents"],
+      "required": [
+        "registryVersion",
+        "agents"
+      ],
       "properties": {
         "registryVersion": {
           "type": "string",
@@ -93,10 +126,68 @@
         },
         "agents": {
           "type": "array",
-          "items": { "$ref": "#/$defs/fleetAgent" },
+          "items": {
+            "$ref": "#/$defs/fleetAgent"
+          },
           "description": "The catalog, in registry order with custom entries appended."
         }
       }
+    },
+    "fleetLayerKind": {
+      "type": "string",
+      "enum": [
+        "cli",
+        "adapter"
+      ]
+    },
+    "fleetLayer": {
+      "type": "object",
+      "required": [
+        "kind",
+        "bin",
+        "detected"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/fleetLayerKind"
+        },
+        "bin": {
+          "type": "string",
+          "minLength": 1
+        },
+        "detected": {
+          "type": "boolean"
+        },
+        "binaryPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidenceOnly": {
+          "type": "boolean"
+        },
+        "install": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "fleetInstallState": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "adapter_missing",
+        "cli_missing",
+        "not_detected",
+        "not_launchable"
+      ]
+    },
+    "fleetLegalStatus": {
+      "type": "string",
+      "enum": [
+        "sanctioned",
+        "tolerated",
+        "grey"
+      ]
     }
   }
 }
