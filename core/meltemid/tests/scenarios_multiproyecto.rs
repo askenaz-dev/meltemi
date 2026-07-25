@@ -131,9 +131,31 @@ fn the_registry_orders_by_recency_and_keeps_the_first_sighting() {
         older.display().to_string(),
         "most recently used first"
     );
+    // The first sighting is the EARLIEST one ever recorded for that project,
+    // not simply some timestamp before the last: read the raw lines and compare.
+    let raw = std::fs::read_to_string(data.join("projects").join("index.jsonl")).expect("index");
+    let older_key = meltemid::paths::project_key(&older);
+    let first_lines: Vec<String> = raw
+        .lines()
+        .filter(|line| line.contains(&older_key))
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).expect("line parses")["firstSeenAt"]
+                .as_str()
+                .expect("firstSeenAt")
+                .to_string()
+        })
+        .collect();
     assert!(
-        listed[0].first_seen_at <= listed[0].last_seen_at,
-        "the first sighting is preserved, not overwritten"
+        first_lines.len() >= 2,
+        "the project was touched more than once: {first_lines:?}"
+    );
+    assert!(
+        first_lines.iter().all(|seen| *seen == first_lines[0]),
+        "every later touch repeats the original first sighting: {first_lines:?}"
+    );
+    assert_eq!(
+        listed[0].first_seen_at, first_lines[0],
+        "and the fold reports that same first sighting"
     );
     for dir in [&data, &older, &newer] {
         let _ = std::fs::remove_dir_all(dir);
@@ -422,4 +444,65 @@ fn the_resolution_event_carries_the_subscription_name_and_no_environment() {
         "the event carries the profile NAME only: {written}"
     );
     let _ = std::fs::remove_dir_all(&data);
+}
+
+// Scenario: Ámbito de proyecto conmutado desde la paleta
+#[test]
+fn the_palette_scope_resolves_to_a_real_project_root() {
+    // The terminal surface's scope is not a display filter: the typed text is
+    // resolved against the known projects into a root, and every scoped call is
+    // then made against that root instead of the working directory.
+    let shell = read("tui/src/shell/mod.rs");
+    let effect = shell
+        .split("Some(Effect::RefreshProjects) =>")
+        .nth(1)
+        .expect("the shell handles the scope effect")
+        .split(
+            "
+        }",
+        )
+        .next()
+        .expect("arm body");
+    assert!(
+        effect.contains("live.projects") && effect.contains("Command::SetScope"),
+        "the typed text is resolved against the known projects: {effect}"
+    );
+    assert!(
+        effect.contains("project.root.to_lowercase().contains(&needle)"),
+        "by matching the project's own root"
+    );
+
+    let conn = read("tui/src/shell/conn.rs");
+    assert!(
+        conn.contains("Some(Command::SetScope(root)) => {"),
+        "the connection actor holds the scope"
+    );
+    let fleet = conn
+        .split("async fn refresh_fleet")
+        .nth(1)
+        .expect("the fleet fetcher")
+        .split(
+            "
+}",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        fleet.contains("scope.map(str::to_string).or_else"),
+        "a scoped call uses the scope and falls back to the working directory: {fleet}"
+    );
+    let context = conn
+        .split("async fn project_context")
+        .nth(1)
+        .expect("the context fetcher")
+        .split(
+            "
+}",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        context.contains("Some(root) => root.to_string()"),
+        "and so does the projection: {context}"
+    );
 }

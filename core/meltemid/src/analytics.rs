@@ -236,27 +236,34 @@ fn facts_of_log(path: &Path) -> SessionFacts {
                 *facts.turns.entry(key).or_default() += 1;
             }
             SessionEventKind::PermissionRequested { .. } => facts.permissions_requested += 1,
-            SessionEventKind::PermissionDecided { outcome, .. } => {
-                // The outcome shape is the contract's: a selected option is an
-                // approval, a cancellation a denial. A timeout resolves as a
-                // cancellation whose decider is the default deny.
-                let selected = outcome.get("optionId").is_some()
-                    || outcome.get("outcome").and_then(|o| o.as_str()) == Some("selected");
-                if selected {
-                    facts.permissions_approved += 1;
-                } else {
+            SessionEventKind::PermissionDecided {
+                denied, decided_by, ..
+            } => {
+                // The recorded fact first: the outcome SHAPE cannot tell an
+                // approval from a denial, because selecting a reject option
+                // looks exactly like selecting an allow one.
+                // Logs written before the field: only the decider that always
+                // denies can be read with certainty.
+                let denial = denied.unwrap_or(matches!(
+                    decided_by,
+                    meltemi_proto::PermissionDecidedBy::DefaultDeny
+                        | meltemi_proto::PermissionDecidedBy::Timeout
+                ));
+                if denial {
                     facts.permissions_denied += 1;
+                } else {
+                    facts.permissions_approved += 1;
+                }
+                // A timeout is a denial AND an expiry: it is counted in both,
+                // which is what the metric set declares.
+                if matches!(decided_by, meltemi_proto::PermissionDecidedBy::Timeout) {
+                    facts.permissions_expired += 1;
                 }
             }
             SessionEventKind::HumanEdit { .. } => facts.human_edits += 1,
             SessionEventKind::TaskCommitted { .. } => facts.commits += 1,
             SessionEventKind::CheckpointCreated { .. } => facts.checkpoints += 1,
-            SessionEventKind::Error { kind, .. } => {
-                facts.errors += 1;
-                if kind == "permission_timeout" {
-                    facts.permissions_expired += 1;
-                }
-            }
+            SessionEventKind::Error { .. } => facts.errors += 1,
             SessionEventKind::AgentResolved { binary, level, .. } => {
                 facts.binary = Some(binary_label(&binary));
                 facts.level = Some(level);

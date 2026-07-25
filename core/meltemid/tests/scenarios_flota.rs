@@ -97,32 +97,6 @@ fn meltemi_never_runs_the_remedy_itself() {
     );
 }
 
-// Scenario: Rehúso de lanzamiento nombra la capa que falta
-#[test]
-fn a_refusal_to_launch_names_the_missing_layer() {
-    let levels = read("core/meltemid/src/levels.rs");
-    let level_two = levels
-        .split("        2 => {")
-        .nth(1)
-        .expect("the level-2 launch path")
-        .split("        3 =>")
-        .next()
-        .expect("the branch ends");
-    assert!(
-        level_two.contains("not_detected"),
-        "an undetected layer refuses with 2001: {level_two}"
-    );
-    assert!(
-        level_two.contains("adapter") || level_two.contains("cli"),
-        "and the refusal names which layer is missing"
-    );
-    // The refusal never degrades to another provider.
-    assert!(
-        levels.contains("MUST NOT degrade to the configured agent"),
-        "the no-silent-swap rule is documented where it is enforced"
-    );
-}
-
 // Scenario: Nota legal declarada mostrada tal cual
 // Scenario: Camino seguro señalado junto a la zona gris
 #[test]
@@ -363,4 +337,195 @@ fn the_readme_links_the_guide_without_selling_third_party_products() {
         guide.contains("### claude-code") || guide.contains("### codex-cli"),
         "the guide does name them, as the interoperability data it is"
     );
+}
+
+// ---- behavioural: the layers as DETECTED, not as hand-built ------------------
+
+/// A fake executable for the current OS, in `dir`, named `name`.
+fn fake_binary(dir: &Path, name: &str) -> PathBuf {
+    std::fs::create_dir_all(dir).expect("fixture dir");
+    #[cfg(windows)]
+    {
+        let path = dir.join(format!("{name}.cmd"));
+        std::fs::write(&path, "@echo off\r\n").expect("write");
+        path
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        std::fs::write(&path, "#!/bin/sh\n").expect("write");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        path
+    }
+}
+
+/// A two-layer catalog entry with DISTINCT install commands per layer, so a
+/// swapped remedy fails the test instead of passing unnoticed.
+fn two_layer_entry() -> meltemid::fleet::CatalogEntry {
+    let mut entry = meltemid::fleet::CatalogEntry {
+        id: "provider".into(),
+        name: "Provider".into(),
+        level: 2,
+        ..Default::default()
+    };
+    entry.bin = Some("provider-acp".into());
+    entry.adapter = Some("provider-acp".into());
+    entry.cli_bin = Some("provider".into());
+    entry.cli_install = Some("npm i -g provider-cli".into());
+    entry.adapter_install = Some("cargo install provider-acp".into());
+    entry
+}
+
+fn temp(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("mel-flota-{}-{tag}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    dir
+}
+
+// Scenario: CLI oficial presente sin adaptador
+// Scenario: Adaptador presente sin CLI oficial
+// Scenario: Ambas capas presentes
+// Scenario: Ninguna capa presente
+#[test]
+fn the_two_layers_are_detected_independently_with_their_own_remedy() {
+    use meltemi_proto::{FleetInstallState, FleetLayerKind};
+    let entry = two_layer_entry();
+
+    // (a) The official CLI is installed, the adapter is not.
+    let cli_only = temp("cli-only");
+    fake_binary(&cli_only, "provider");
+    let path = std::ffi::OsString::from(cli_only.display().to_string());
+    let launchable = |path: &std::ffi::OsString| meltemid::fleet::detect(&entry, path).is_some();
+    let layers = meltemid::fleet::detect_layers(&entry, &path);
+    assert_eq!(
+        layers.len(),
+        2,
+        "both declared layers are reported: {layers:?}"
+    );
+    assert_eq!(
+        layers[0].kind,
+        FleetLayerKind::Cli,
+        "the CLI layer comes first"
+    );
+    assert_eq!(layers[1].kind, FleetLayerKind::Adapter);
+    assert!(layers[0].detected, "the installed CLI is detected");
+    assert!(!layers[1].detected, "the absent adapter is not");
+    let cli_path = layers[0].binary_path.as_deref().unwrap_or_default();
+    assert!(
+        std::path::Path::new(cli_path).is_absolute() && cli_path.contains("provider"),
+        "the layer reports the absolute path of ITS binary: {cli_path:?}"
+    );
+    // Each layer carries its OWN install command: a swap fails here.
+    assert_eq!(layers[0].install.as_deref(), Some("npm i -g provider-cli"));
+    assert_eq!(
+        layers[1].install.as_deref(),
+        Some("cargo install provider-acp")
+    );
+    let (state, remedy, command) = meltemid::fleet::compose_state(&layers, launchable(&path));
+    assert_eq!(state, FleetInstallState::AdapterMissing);
+    assert!(
+        remedy
+            .unwrap_or_default()
+            .to_lowercase()
+            .contains("adapter"),
+        "the remedy names the missing layer"
+    );
+    assert_eq!(command.as_deref(), Some("cargo install provider-acp"));
+
+    // (b) The adapter is installed, the official CLI is not.
+    let adapter_only = temp("adapter-only");
+    fake_binary(&adapter_only, "provider-acp");
+    let path = std::ffi::OsString::from(adapter_only.display().to_string());
+    let layers = meltemid::fleet::detect_layers(&entry, &path);
+    assert!(!layers[0].detected && layers[1].detected);
+    let (state, remedy, command) = meltemid::fleet::compose_state(&layers, launchable(&path));
+    assert_eq!(state, FleetInstallState::CliMissing);
+    assert!(remedy.unwrap_or_default().to_lowercase().contains("cli"));
+    assert_eq!(command.as_deref(), Some("npm i -g provider-cli"));
+
+    // (c) Both installed: ready, with nothing to remedy.
+    let both = temp("both");
+    fake_binary(&both, "provider");
+    fake_binary(&both, "provider-acp");
+    let path = std::ffi::OsString::from(both.display().to_string());
+    let layers = meltemid::fleet::detect_layers(&entry, &path);
+    assert!(layers.iter().all(|layer| layer.detected));
+    let (state, remedy, command) = meltemid::fleet::compose_state(&layers, launchable(&path));
+    assert_eq!(state, FleetInstallState::Ready);
+    assert!(remedy.is_none() && command.is_none());
+
+    // (d) Neither installed: not detected, and the remedy starts at the CLI.
+    let neither = std::ffi::OsString::new();
+    let layers = meltemid::fleet::detect_layers(&entry, &neither);
+    assert!(layers.iter().all(|layer| !layer.detected));
+    let (state, remedy, _) = meltemid::fleet::compose_state(&layers, launchable(&neither));
+    assert_eq!(state, FleetInstallState::NotDetected);
+    assert!(
+        remedy.is_some(),
+        "even with nothing installed there is a way in"
+    );
+
+    for dir in [&cli_only, &adapter_only, &both] {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+// Scenario: Rehúso de lanzamiento nombra la capa que falta
+#[test]
+fn the_refusal_carries_the_missing_layer_and_its_install_command() {
+    // The CLI is installed, the adapter is not: launching must refuse with 2001
+    // naming the adapter AND the command that installs it.
+    let cli_only = temp("refusal");
+    fake_binary(&cli_only, "provider");
+    let path = std::ffi::OsString::from(cli_only.display().to_string());
+
+    let registry = "version = \"refusal-fixture\"
+         [[agents]]
+id = \"provider\"
+name = \"Provider\"
+level = 2
+         bin = \"provider-acp\"
+adapter = \"provider-acp\"
+cli-bin = \"provider\"
+         cli-install = \"npm i -g provider-cli\"
+         adapter-install = \"cargo install provider-acp\"
+acp-args = []
+";
+    // Build the catalog the way the daemon does: a substituted registry file,
+    // which is also how a user overrides the snapshot.
+    let registry_path = cli_only.join("registry.toml");
+    std::fs::write(&registry_path, registry).expect("write the fixture registry");
+    let config = meltemid::config::Config {
+        fleet_registry: Some(registry_path.clone()),
+        ..Default::default()
+    };
+    let catalog = meltemid::fleet::build_catalog(&config);
+
+    let error = meltemid::levels::resolve_id_launch(&catalog, "provider", &path)
+        .expect_err("an incomplete agent refuses to launch");
+    assert_eq!(error.code, meltemi_proto::error_codes::AGENT_NOT_DETECTED);
+    let data = error.data.as_ref().expect("the refusal carries error data");
+    let detail = data
+        .get("detail")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let remedy = data
+        .get("remedy")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    assert!(
+        detail.to_lowercase().contains("adapter"),
+        "the refusal names the missing layer: {detail}"
+    );
+    assert!(
+        remedy.contains("cargo install provider-acp"),
+        "and the remedy carries the exact command for THAT layer: {remedy}"
+    );
+    assert!(
+        !remedy.contains("npm i -g provider-cli"),
+        "not the other layer's command: {remedy}"
+    );
+    let _ = std::fs::remove_dir_all(&cli_only);
 }

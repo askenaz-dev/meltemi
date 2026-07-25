@@ -38,6 +38,9 @@ pub enum Command {
     FleetList,
     /// Query the known-project registry (`project/list`).
     ProjectList,
+    /// Set the project every scoped call is made against; `None` returns to the
+    /// working directory (multiproyecto-suscripciones D6).
+    SetScope(Option<String>),
     /// Regenerate the projected context (`context/project`).
     ProjectContext,
     /// Fetch a historical session's log (`session/log`) for the detail view.
@@ -125,6 +128,9 @@ async fn serve_connection(
     let mut ticker = interval(REFRESH_EVERY);
     ticker.tick().await; // consume the immediate first tick
 
+    // The project every scoped call is made against; `None` means the working
+    // directory the surface was started in.
+    let mut scope: Option<String> = None;
     loop {
         tokio::select! {
             message = incoming.recv() => match message {
@@ -173,9 +179,16 @@ async fn serve_connection(
                     refresh_status(&peer, updates).await;
                     refresh_sessions(&peer, updates).await;
                 }
-                Some(Command::FleetList) => refresh_fleet(&peer, updates).await,
+                Some(Command::FleetList) => refresh_fleet(&peer, updates, scope.as_deref()).await,
                 Some(Command::ProjectList) => refresh_projects(&peer, updates).await,
-                Some(Command::ProjectContext) => project_context(&peer, updates).await,
+                Some(Command::SetScope(root)) => {
+                    scope = root;
+                    // The scope changed: re-answer what depends on it.
+                    refresh_fleet(&peer, updates, scope.as_deref()).await;
+                }
+                Some(Command::ProjectContext) => {
+                    project_context(&peer, updates, scope.as_deref()).await
+                }
                 Some(Command::FetchSessionLog { session_id, project_root }) => {
                     fetch_session_log(&peer, updates, &session_id, &project_root).await;
                 }
@@ -292,11 +305,13 @@ fn summarize_log_line(line: &str) -> String {
 
 /// Queries `fleet/list` and pushes the snapshot. The current directory names
 /// the project whose config marks the configured agent.
-async fn refresh_fleet(peer: &Peer, updates: &UnboundedSender<Update>) {
+async fn refresh_fleet(peer: &Peer, updates: &UnboundedSender<Update>, scope: Option<&str>) {
     let params = FleetListParams {
-        project_root: std::env::current_dir()
-            .ok()
-            .map(|root| root.display().to_string()),
+        project_root: scope.map(str::to_string).or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|root| root.display().to_string())
+        }),
     };
     match peer.request(methods::FLEET_LIST, &params).await {
         Ok(value) => {
@@ -314,13 +329,15 @@ async fn refresh_fleet(peer: &Peer, updates: &UnboundedSender<Update>) {
 }
 
 /// Regenerates the projected context and reports the result as a notice.
-async fn project_context(peer: &Peer, updates: &UnboundedSender<Update>) {
-    let Ok(root) = std::env::current_dir() else {
-        return;
+async fn project_context(peer: &Peer, updates: &UnboundedSender<Update>, scope: Option<&str>) {
+    let root = match scope {
+        Some(root) => root.to_string(),
+        None => match std::env::current_dir() {
+            Ok(cwd) => cwd.display().to_string(),
+            Err(_) => return,
+        },
     };
-    let params = ContextProjectParams {
-        project_root: root.display().to_string(),
-    };
+    let params = ContextProjectParams { project_root: root };
     match peer.request(methods::CONTEXT_PROJECT, &params).await {
         Ok(value) => {
             if let Ok(result) = serde_json::from_value::<ContextProjectResult>(value) {

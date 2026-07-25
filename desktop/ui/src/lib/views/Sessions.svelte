@@ -54,6 +54,15 @@
     if (filterOpen) filterInput?.focus();
   });
 
+  // The shell forwards `/` here: the list owns its filter, the shell owns the key.
+  $effect(() => {
+    const open = () => {
+      filterOpen = true;
+    };
+    window.addEventListener("meltemi:filter", open);
+    return () => window.removeEventListener("meltemi:filter", open);
+  });
+
   const counts = $derived.by(() => {
     const map = new Map<SessionState, number>();
     for (const session of $sessions) {

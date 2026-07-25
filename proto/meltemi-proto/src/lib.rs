@@ -672,6 +672,11 @@ pub struct ProjectInfo {
     pub last_seen_at: String,
     /// Sessions recorded for this project (historical included).
     pub sessions_total: u32,
+    /// Sessions of the project running right now (starting, active, or waiting
+    /// on a permission). Zero is a fact, not an omission: a project with no live
+    /// session is still listed (multiproyecto-suscripciones).
+    #[serde(default)]
+    pub active_sessions: u32,
     /// How many of them can be resumed.
     pub resumable_sessions: u32,
 }
@@ -1372,6 +1377,13 @@ pub enum SessionEventKind {
         outcome: serde_json::Value,
         /// Who resolved it.
         decided_by: PermissionDecidedBy,
+        /// Whether the decision DENIED the request. Recorded explicitly because
+        /// the outcome alone cannot say: selecting a reject option and selecting
+        /// an allow option have the same shape (analitica-consumo-local D2).
+        /// Absent in logs written before this field existed — read as unknown,
+        /// never as an approval.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        denied: Option<bool>,
         /// The rule that resolved it, when `decided_by` is `rule` — its scope
         /// and content, so every grant is traceable to what took it.
         #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -27,6 +27,22 @@
   // joined with the project registry (design D7).
   const tree = $derived(groupSessions($projects, $allSessions));
 
+  /** The state glyph of the design system's vocabulary (never colour alone). */
+  function stateGlyph(state: string): string {
+    switch (state) {
+      case "active":
+        return "▶";
+      case "starting":
+        return "◔";
+      case "waiting_permission":
+        return "‖";
+      case "interrupted":
+        return "▲";
+      default:
+        return "■";
+    }
+  }
+
   function toggle(root: string) {
     const next = new Set(collapsed);
     if (!next.delete(root)) next.add(root);
@@ -65,8 +81,49 @@
 </script>
 
 <aside aria-label={$t("nav.viewLabel")}>
+  <div class="identity">
+    <svg
+        class="mark"
+        viewBox="0 0 256 256"
+        role="img"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <!-- The mark of brand/meltemi-mark-gradient.svg, inlined so the chrome
+             needs no asset fetch and the gradient can fall back to the system
+             text color under forced colors. -->
+        <defs>
+          <linearGradient
+            id="melMark"
+            x1="38"
+            y1="222"
+            x2="219"
+            y2="54"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0" stop-color="var(--mel-aegean)" />
+            <stop offset="1" stop-color="var(--mel-wind)" />
+          </linearGradient>
+        </defs>
+        <path
+          class="stroke"
+          d="M43 178C43 125 57 100 78 100C99 100 109 127 109 176C109 105 132 67 158 67C185 67 199 97 196 132C194 154 185 169 172 177C189 176 205 166 217 152C224 144 230 133 234 122"
+          fill="none"
+          stroke="url(#melMark)"
+          stroke-width="25"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          class="hull"
+          d="M45 199C87 211 145 215 202 189C195 204 177 216 151 220C106 226 67 215 45 199Z"
+          fill="url(#melMark)"
+        />
+      </svg>
+      <span class="brand-wordmark">{$t("app.title")}</span>
+  </div>
+
   <button class="project ghost" onclick={onPickProject}>
-    <span class="mark" aria-hidden="true"></span>
     <span class="name">{projectName ?? $t("nav.noProject")}</span>
     <Icon name="chevronDown" size={14} />
   </button>
@@ -132,7 +189,10 @@
                   {#if session.profile}
                     <span class="pill sub">{session.profile}</span>
                   {/if}
-                  <span class="dot" data-state={session.state} aria-hidden="true"></span>
+                  <span class="leafState" data-state={session.state}>
+                    <span aria-hidden="true">{stateGlyph(session.state)}</span>
+                    <span class="sr">{$t(("state." + session.state) as never)}</span>
+                  </span>
                 </button>
               </li>
             {/each}
@@ -187,12 +247,25 @@
     font-weight: 500;
     text-align: left;
   }
-  .project .mark {
-    width: 22px;
-    height: 22px;
+  .identity {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 var(--sp-1);
+  }
+  .identity .mark {
+    width: 24px;
+    height: 24px;
     flex: none;
-    border-radius: var(--radius-control);
+  }
+  .brand-wordmark {
+    font-size: var(--fs-section);
+    font-weight: 600;
+    letter-spacing: 0.01em;
     background: linear-gradient(135deg, var(--mel-aegean), var(--mel-wind));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
   .project .name {
     flex: 1;
@@ -306,23 +379,32 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .dot {
+  /* The leaf's state is a glyph with an accessible word — the design system's
+     rule is that colour is never the only carrier. */
+  .leafState {
     margin-left: auto;
-    width: 6px;
-    height: 6px;
     flex: none;
-    border-radius: 50%;
-    background: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
   }
-  .dot[data-state="active"],
-  .dot[data-state="starting"] {
-    background: var(--tint-ok);
+  .leafState[data-state="active"],
+  .leafState[data-state="starting"] {
+    color: var(--ok);
   }
-  .dot[data-state="waiting_permission"] {
-    background: var(--tint-warn);
+  .leafState[data-state="waiting_permission"] {
+    color: var(--warn);
   }
-  .dot[data-state="interrupted"] {
-    background: var(--tint-danger);
+  .leafState[data-state="interrupted"] {
+    color: var(--danger);
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .hint {
     font-size: var(--fs-caption);

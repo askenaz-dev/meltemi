@@ -668,17 +668,35 @@ fn session_events_conform() {
         SessionEventKind::PermissionDecided {
             outcome: json!({"outcome": "selected", "optionId": "opt-0"}),
             decided_by: PermissionDecidedBy::Client,
+            denied: Some(false),
             rule: None,
         },
         SessionEventKind::PermissionDecided {
             outcome: json!({"outcome": "cancelled"}),
             decided_by: PermissionDecidedBy::DefaultDeny,
+            denied: Some(true),
+            rule: None,
+        },
+        // Selecting a REJECT option has the same shape as selecting an allow
+        // one, which is exactly why the denial is recorded as a fact.
+        SessionEventKind::PermissionDecided {
+            outcome: json!({"outcome": "selected", "optionId": "reject"}),
+            decided_by: PermissionDecidedBy::Client,
+            denied: Some(true),
+            rule: None,
+        },
+        // A log written before the field omits it: unknown, never an approval.
+        SessionEventKind::PermissionDecided {
+            outcome: json!({"outcome": "cancelled"}),
+            decided_by: PermissionDecidedBy::Timeout,
+            denied: None,
             rule: None,
         },
         // A rule-resolved decision carries the rule for provenance (audit).
         SessionEventKind::PermissionDecided {
             outcome: json!({"outcome": "selected", "optionId": "allow"}),
             decided_by: PermissionDecidedBy::Rule,
+            denied: Some(false),
             rule: Some(PermissionRule {
                 effect: PermissionRuleEffect::Allow,
                 tool: Some("edit".into()),
@@ -954,9 +972,19 @@ fn project_list_conforms() {
         first_seen_at: TS.into(),
         last_seen_at: TS.into(),
         sessions_total: 7,
+        active_sessions: 1,
         resumable_sessions: 2,
     };
     assert_conforms("project-list", "projectInfo", &project);
+    // No live session is a fact, not an omission: the project is still listed.
+    assert_conforms(
+        "project-list",
+        "projectInfo",
+        &ProjectInfo {
+            active_sessions: 0,
+            ..project.clone()
+        },
+    );
     // A vanished root is reported honestly, never dropped.
     assert_conforms(
         "project-list",

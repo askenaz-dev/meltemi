@@ -5,7 +5,7 @@
   import { pushNotice } from "../stores";
   import { fuzzyRank } from "../fuzzy";
   import { recentFiles, recordRecentFile } from "../ui-state";
-  import { markClean, markDirty } from "../editor/dirty";
+  import { markClean, markDirty, registerSaveAll } from "../editor/dirty";
   import {
     loadTree,
     openWith,
@@ -125,6 +125,19 @@
   $effect(() => {
     if (renaming) renameInput?.focus();
   });
+
+  // The shell's guard offers "save and continue"; only the editor can flush its
+  // buffers, and every save goes through the daemon like any other edit.
+  $effect(() =>
+    registerSaveAll(async () => {
+      for (const file of open.filter((candidate) => candidate.dirty)) {
+        const outcome = await saveFile(root, file.path, file.content, target, true);
+        file.dirty = false;
+        markClean(file.path);
+        void outcome;
+      }
+    }),
+  );
 
   // (Re)mount CodeMirror when the ACTIVE FILE changes — never on keystrokes.
   $effect(() => {

@@ -26,3 +26,25 @@ export function clearDirty(): void {
 export function hasDirty(): boolean {
   return get(store).length > 0;
 }
+
+/**
+ * The save-all channel between the shell's unsaved-work guard and the editor:
+ * the guard offers "save and continue" (the third path the requirement names),
+ * and only the editor can flush its buffers through the daemon. The editor
+ * registers its flusher while it is mounted.
+ */
+type Flusher = () => Promise<void>;
+let flusher: Flusher | null = null;
+
+export function registerSaveAll(handler: Flusher): () => void {
+  flusher = handler;
+  return () => {
+    if (flusher === handler) flusher = null;
+  };
+}
+
+/** Asks the mounted editor to save every dirty buffer; throws if a save failed. */
+export async function requestSaveAll(): Promise<void> {
+  if (!flusher) return;
+  await flusher();
+}

@@ -805,21 +805,18 @@ pub fn resolve_agent_command(config: &Config, path_var: &OsStr) -> Result<Vec<St
             argv.extend(entry.acp_args.iter().cloned());
             Ok(argv)
         }
-        None => {
-            // The refusal names the missing LAYER and its command, not just
-            // "not detected": the same diagnosis the fleet view gives, at the
-            // moment it matters most (flota-deteccion-guia design D5).
-            let layers = detect_layers(entry, path_var);
-            let (_, remedy, _) = compose_state(&layers, false);
-            let detail = match remedy {
-                Some(remedy) => format!("agent `{id}` ({}): {remedy}", entry.name),
-                None => format!(
+        // The refusal names the missing LAYER and its install command, not just
+        // "not detected". It is built by `levels::resolve_id_launch`, which every
+        // production launch path goes through; this entry point keeps the same
+        // diagnosis by delegating to it (flota-deteccion-guia design D5).
+        None => Err(crate::levels::resolve_id_launch(&catalog, id, path_var)
+            .err()
+            .unwrap_or_else(|| {
+                not_detected(format!(
                     "the binary of agent `{id}` ({}) was not detected on this system",
                     entry.name
-                ),
-            };
-            Err(not_detected(detail))
-        }
+                ))
+            })),
     }
 }
 

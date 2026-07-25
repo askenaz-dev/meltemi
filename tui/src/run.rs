@@ -796,8 +796,12 @@ fn render_projects(result: &meltemi_proto::ProjectListResult) -> String {
         let mark = if project.exists { "present" } else { "missing" };
         let _ = write!(
             out,
-            "\n  {mark:<8} {:>3} session(s), {:>2} resumable  {}",
-            project.sessions_total, project.resumable_sessions, project.root
+            "
+  {mark:<8} {:>3} session(s), {:>2} live, {:>2} resumable  {}",
+            project.sessions_total,
+            project.active_sessions,
+            project.resumable_sessions,
+            project.root
         );
     }
     out

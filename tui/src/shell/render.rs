@@ -337,11 +337,12 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
             lines.push(Line::from(label));
         }
 
-        // Two-layer entries say which layer is missing and how to install it,
-        // with glyph + word and never color alone (flota-deteccion-guia D8).
+        // Any incomplete entry says which layer is missing and how to install
+        // it, with glyph + word and never color alone (flota-deteccion-guia D8).
+        // Single-layer entries need it just as much: an evidence-only script shim
+        // is `not_launchable`, and its remedy is the whole point.
         if let Some(state) = row.install_state
             && state != meltemi_proto::FleetInstallState::Ready
-            && row.layers.len() > 1
         {
             for layer in &row.layers {
                 let (layer_glyph, _) = detection_label(layer.detected, ctx.lang);

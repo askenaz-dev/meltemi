@@ -12,10 +12,16 @@
     onNewSession,
     onOpenPermissions,
     urgent = false,
+    trail = [],
     children,
   }: {
     title: string;
     meta?: string;
+    /**
+     * The drill-in trail. One entry is a plain title; more than one renders as a
+     * breadcrumb, so the user can see where inside a view they are.
+     */
+    trail?: string[];
     onOpenPalette: () => void;
     onNewSession: () => void;
     onOpenPermissions: () => void;
@@ -30,7 +36,18 @@
 </script>
 
 <header>
-  <h1>{title}</h1>
+  {#if trail.length > 1}
+    <nav class="crumbs" aria-label={$t("nav.breadcrumb")}>
+      {#each trail as step, index (index)}
+        {#if index > 0}<span class="sep" aria-hidden="true">/</span>{/if}
+        <span class="crumb" aria-current={index === trail.length - 1 ? "page" : undefined}>
+          {step}
+        </span>
+      {/each}
+    </nav>
+  {:else}
+    <h1>{title}</h1>
+  {/if}
   {#if meta}
     <span class="meta">{meta}</span>
   {/if}
@@ -70,6 +87,26 @@
 </header>
 
 <style>
+  .crumbs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: var(--fs-section);
+  }
+  .crumbs .crumb {
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .crumbs .crumb[aria-current="page"] {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .crumbs .sep {
+    color: var(--text-faint);
+  }
   header {
     display: flex;
     align-items: center;

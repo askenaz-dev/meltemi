@@ -67,7 +67,7 @@ the surfaces show which of the two you are looking at.
 ### cursor-cli — Cursor CLI
 
 - Level 1 (native ACP).
-- Meltemi looks for: `cursor-agent`
+- Meltemi looks for: `agent`
 
 ### kiro-cli — Kiro CLI
 

@@ -75,11 +75,16 @@ pub fn list(data_dir: &Path) -> Vec<ProjectRecord> {
     let Ok(text) = std::fs::read_to_string(index_path(data_dir)) else {
         return Vec::new();
     };
+    // The append order IS the recency order, and the timestamps have one-second
+    // resolution: two touches inside the same second tie, so the line position
+    // breaks the tie. Without it, "most recently used first" would be luck.
+    let mut order: BTreeMap<String, usize> = BTreeMap::new();
     let mut folded: BTreeMap<String, ProjectRecord> = BTreeMap::new();
-    for line in text.lines() {
+    for (position, line) in text.lines().enumerate() {
         let Ok(record) = serde_json::from_str::<ProjectRecord>(line) else {
             continue;
         };
+        order.insert(record.project_key.clone(), position);
         match folded.get_mut(&record.project_key) {
             // Last write wins for the root and the recency; the first sighting
             // is the earliest one ever recorded.
@@ -96,7 +101,15 @@ pub fn list(data_dir: &Path) -> Vec<ProjectRecord> {
         }
     }
     let mut records: Vec<ProjectRecord> = folded.into_values().collect();
-    records.sort_by(|a, b| b.last_seen_at.cmp(&a.last_seen_at));
+    records.sort_by(|a, b| {
+        b.last_seen_at.cmp(&a.last_seen_at).then_with(|| {
+            let (left, right) = (
+                order.get(&a.project_key).copied().unwrap_or(0),
+                order.get(&b.project_key).copied().unwrap_or(0),
+            );
+            right.cmp(&left)
+        })
+    });
     records
 }
 
@@ -133,7 +146,7 @@ pub fn rebuild_from_sessions(data_dir: &Path) -> Vec<ProjectRecord> {
 /// Handles `project/list`: the registered projects, rebuilt from the session
 /// history when the index is absent, each with whether its root still exists
 /// and how many sessions it holds.
-pub fn handle_project_list(
+pub async fn handle_project_list(
     params: serde_json::Value,
     state: &std::sync::Arc<crate::server::DaemonState>,
 ) -> Result<serde_json::Value, crate::rpc::RpcError> {
@@ -151,6 +164,24 @@ pub fn handle_project_list(
         records = rebuild_from_sessions(&state.data_dir);
     }
 
+    // Which sessions are running RIGHT NOW, by id: the registry is history, the
+    // live state belongs to the session registry.
+    let live: std::collections::HashSet<String> = state
+        .sessions
+        .summaries()
+        .await
+        .into_iter()
+        .filter(|summary| {
+            matches!(
+                summary.state,
+                meltemi_proto::SessionState::Starting
+                    | meltemi_proto::SessionState::Active
+                    | meltemi_proto::SessionState::WaitingPermission
+            )
+        })
+        .map(|summary| summary.session_id)
+        .collect();
+
     let mut projects = Vec::with_capacity(records.len());
     for record in records {
         let exists = PathBuf::from(&record.root).is_dir();
@@ -159,6 +190,10 @@ pub fn handle_project_list(
         }
         let sessions =
             crate::session_index::records_for_project(&state.data_dir, &record.project_key);
+        let active = sessions
+            .iter()
+            .filter(|session| live.contains(&session.session_id))
+            .count() as u32;
         // Live counts are the client's job: `session/list` already reports every
         // session with its real state and its project root, so a single response
         // aggregates the tree (design D7). Here we only report what the history
@@ -170,6 +205,7 @@ pub fn handle_project_list(
             first_seen_at: record.first_seen_at,
             last_seen_at: record.last_seen_at,
             sessions_total: sessions.len() as u32,
+            active_sessions: active,
             resumable_sessions: sessions
                 .iter()
                 .filter(|session| session.resumable())

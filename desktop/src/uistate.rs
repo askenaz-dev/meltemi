@@ -49,6 +49,17 @@ pub struct UiState {
     pub palette_usage: HashMap<String, Usage>,
     /// The project the surface was last scoped to.
     pub active_project: Option<String>,
+    /// BYO language servers the user configured, by LSP language id: the argv to
+    /// run, the first element being the binary. Overrides the well-known default
+    /// for that language and adds languages Meltemi knows nothing about. Nothing
+    /// is bundled either way — the binary is always the user's.
+    #[serde(default)]
+    pub lsp_servers: HashMap<String, Vec<String>>,
+}
+
+/// The command the user configured for a language, if any.
+pub fn configured_lsp(_app: &tauri::AppHandle, language: &str) -> Option<Vec<String>> {
+    UiState::load().lsp_servers.get(language).cloned()
 }
 
 fn state_path() -> PathBuf {

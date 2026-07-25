@@ -120,6 +120,10 @@
                   "type": "object",
                   "description": "The decision returned to the agent (see permission.schema.json#/$defs/outcome)."
                 },
+                "denied": {
+                  "type": "boolean",
+                  "description": "Whether the decision denied the request. Recorded explicitly because the outcome shape cannot say: selecting a reject option looks like selecting an allow one. Absent in logs written before this field existed — read as unknown, never as an approval."
+                },
                 "decidedBy": {
                   "type": "string",
                   "enum": ["client", "default_deny", "timeout", "rule"],

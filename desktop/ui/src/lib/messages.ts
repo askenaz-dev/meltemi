@@ -203,6 +203,7 @@ const es = {
     "Asigna una tarea a uno o más agentes (`assign` en la paleta) y sus diffs contra la base común aparecerán aquí, línea a línea.",
   "review.nodiff": "sin cambios contra la base",
 
+  "project.propose": "Proponer un cambio",
   "project.openEditor": "Abrir el editor",
   "project.openReview": "Revisar diffs",
 
@@ -294,6 +295,9 @@ const es = {
   "fleet.underlyingLabel": "Sobre",
   "fleet.remedy.hint": "Meltemi dirige el binario oficial que ya tienes: instálalo o declara uno propio en la configuración del proyecto.",
 
+  "transcript.match": "{n} de {total}",
+  "transcript.next": "Coincidencia siguiente (Enter)",
+  "transcript.prev": "Coincidencia anterior (Shift+Enter)",
   "transcript.search": "buscar en el registro…",
   "transcript.timestamps": "Horas",
   "transcript.copyAll": "Copiar todo",
@@ -666,6 +670,7 @@ const en: Record<MessageKey, string> = {
     "Assign a task to one or more agents (`assign` in the palette) and their diffs against the common base will show here, line by line.",
   "review.nodiff": "no changes against the base",
 
+  "project.propose": "Propose a change",
   "project.openEditor": "Open the editor",
   "project.openReview": "Review diffs",
 
@@ -757,6 +762,9 @@ const en: Record<MessageKey, string> = {
   "fleet.underlyingLabel": "Over",
   "fleet.remedy.hint": "Meltemi drives the official binary you already have: install it, or declare a custom one in the project configuration.",
 
+  "transcript.match": "{n} of {total}",
+  "transcript.next": "Next match (Enter)",
+  "transcript.prev": "Previous match (Shift+Enter)",
   "transcript.search": "search the log…",
   "transcript.timestamps": "Times",
   "transcript.copyAll": "Copy all",

@@ -47,6 +47,11 @@
           "type": "integer",
           "minimum": 0
         },
+        "activeSessions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sessions of this project running right now. Zero is a fact: the project is listed regardless."
+        },
         "resumableSessions": {
           "type": "integer",
           "minimum": 0

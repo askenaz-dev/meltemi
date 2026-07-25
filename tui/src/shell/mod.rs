@@ -173,6 +173,17 @@ fn handle_action(
         Some(Effect::RefreshFleet) => refresh_fleet = true,
         Some(Effect::RefreshProjects) => {
             let _ = commands.send(Command::ProjectList);
+            // The typed text becomes a REAL scope: resolved against the projects
+            // already known, it is the root every scoped call then uses. An
+            // unresolvable text scopes nothing rather than scoping to a guess.
+            let resolved = state.project_scope().and_then(|typed| {
+                let needle = typed.to_lowercase();
+                live.projects
+                    .iter()
+                    .find(|project| project.root.to_lowercase().contains(&needle))
+                    .map(|project| project.root.clone())
+            });
+            let _ = commands.send(Command::SetScope(resolved));
             let _ = commands.send(Command::Refresh);
         }
         Some(Effect::ProjectContext) => {

@@ -65,6 +65,8 @@
   let expanded: Record<number, boolean> = $state({});
   let search = $state("");
   let searchOpen = $state(false);
+  /** Index into the ordered match list, for next/previous navigation. */
+  let matchAt = $state(0);
   let confirmCancel = $state(false);
   let gone = $state(false);
   let atBottom = $state(true);
@@ -75,6 +77,24 @@
   let wasUnreachable = false;
 
   const session = $derived($sessions.find((s) => s.sessionId === sessionId));
+  /** The matching line ids in transcript order: a Set cannot be navigated. */
+  const matchList = $derived.by<number[]>(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return [];
+    return lines
+      .filter(
+        (line) =>
+          line.kind.toLowerCase().includes(needle) ||
+          line.full.toLowerCase().includes(needle),
+      )
+      .map((line) => line.id);
+  });
+
+  $effect(() => {
+    void search;
+    matchAt = 0;
+  });
+
   const matches = $derived.by(() => {
     const needle = search.trim().toLowerCase();
     if (!needle) return new Set<number>();
@@ -218,6 +238,23 @@
     }
   }
 
+  /** Moves to the next (or previous) match and brings it into view. */
+  function stepMatch(delta: number) {
+    if (matchList.length === 0) return;
+    matchAt = (matchAt + delta + matchList.length) % matchList.length;
+    focusMatch();
+  }
+
+  function focusMatch() {
+    const id = matchList[matchAt];
+    if (id === undefined) return;
+    // Scrolls the transcript to the current hit only: no layout is animated and
+    // nothing else on screen moves.
+    document
+      .querySelector(`[data-line="${id}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: "auto" });
+  }
+
   function cancelSession() {
     confirmCancel = false;
     void invoke("daemon_notify", { method: "session/cancel", params: { sessionId } });
@@ -262,9 +299,32 @@
               search = "";
               searchOpen = false;
             }
+            if (event.key === "Enter") {
+              event.preventDefault();
+              stepMatch(event.shiftKey ? -1 : 1);
+            }
           }}
         />
-        <span class="faint count">{matches.size}</span>
+        <span class="faint count" aria-live="polite">
+          {matchList.length === 0
+            ? matches.size
+            : $t("transcript.match", {
+                n: String(matchAt + 1),
+                total: String(matchList.length),
+              })}
+        </span>
+        <button
+          class="ghost"
+          aria-label={$t("transcript.prev")}
+          disabled={matchList.length === 0}
+          onclick={() => stepMatch(-1)}>↑</button
+        >
+        <button
+          class="ghost"
+          aria-label={$t("transcript.next")}
+          disabled={matchList.length === 0}
+          onclick={() => stepMatch(1)}>↓</button
+        >
       {:else}
         <button class="ghost" aria-label={$t("transcript.search")} onclick={() => (searchOpen = true)}>
           <Icon name="search" size={14} />
@@ -302,8 +362,10 @@
       {@const style = EVENT_STYLE[line.kind] ?? { glyph: "·", tone: "faint" }}
       <div
         class="line tone-{style.tone}"
+        data-line={line.id}
         class:cut={line.cut}
         class:hit={matches.has(line.id)}
+        class:current={matchList[matchAt] === line.id}
       >
         {#if showTimestamps && line.ts}
           <span class="ts faint" title={absoluteTime(line.ts, $locale)}>{clockTime(line.ts)}</span>
@@ -351,6 +413,10 @@
 {/if}
 
 <style>
+  .line.current {
+    outline: 1px solid var(--focus);
+    outline-offset: -1px;
+  }
   section {
     display: grid;
     grid-template-rows: auto auto 1fr;

@@ -10,20 +10,31 @@
     children,
   }: { label: string; onClose: () => void; children: Snippet } = $props();
 
-  // Esc closes the detail panel first; the list keeps its place (spec).
-  function onKeydown(event: KeyboardEvent) {
+  let panel: HTMLElement | null = $state(null);
+
+  // Opening the drawer moves the focus into it, so a keyboard user is where the
+  // detail is; Escape (below) returns them to the list.
+  $effect(() => {
+    panel?.focus();
+  });
+
+</script>
+
+<svelte:window
+  onkeydown={(event) => {
+    // The drawer is the innermost dismissible surface: it takes Escape before
+    // the shell does, whatever holds the focus.
     if (event.key === "Escape") {
       event.stopPropagation();
       event.preventDefault();
       onClose();
     }
-  }
-</script>
+  }}
+/>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <aside
   aria-label={label}
-  onkeydown={onKeydown}
+  bind:this={panel}
   tabindex="-1"
 >
   <header>

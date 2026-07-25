@@ -40,8 +40,13 @@ export const uiState: Readable<UiState> = store;
 
 let loaded = false;
 
-/** Reads the persisted state and applies the theme before the first paint. */
+/**
+ * Reads the persisted state and applies the theme before the first paint. The
+ * entry point awaits this BEFORE mounting, so a chosen theme never flashes its
+ * opposite; calling it again returns the state already held.
+ */
 export async function loadUiState(): Promise<UiState> {
+  if (loaded) return get(store);
   const state = { ...EMPTY, ...(await invoke<Partial<UiState>>("ui_state_load")) };
   state.editorRecents ??= {};
   state.paletteUsage ??= {};

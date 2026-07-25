@@ -138,9 +138,14 @@ async fn fleet_catalog_end_to_end() {
              [[agents]]\n\
              id = \"mock\"\n\
              name = \"Mock Agent\"\n\
-             level = 1\n\
+             level = 2\n\
              bin = \"meltemi-e2e-mock-absent\"\n\
+             adapter = \"meltemi-e2e-mock-absent\"\n\
+             cli-bin = \"meltemi-e2e-cli-absent\"\n\
+             cli-install = \"npm i -g provider-cli\"\n\
+             adapter-install = \"cargo install mock-acp\"\n\
              acp-args = []\n\
+             adapter-args = []\n\
              candidate-paths = ['{}']\n\n\
              [[agents]]\n\
              id = \"ghost\"\n\
@@ -203,14 +208,64 @@ async fn fleet_catalog_end_to_end() {
     assert!(mock_agent["binaryPath"].as_str().is_some());
     assert_eq!(mock_agent["source"], "registry");
 
+    // The two-layer diagnosis travels in the RESPONSE, not only inside the
+    // daemon (Scenario: Capas de detección reportadas por entrada / Remedio con
+    // el comando exacto por capa). The adapter is installed here, its official
+    // CLI is not, so the composed state is `cli_missing` and the remedy carries
+    // the CLI layer's own command.
+    let layers = mock_agent["layers"]
+        .as_array()
+        .unwrap_or_else(|| panic!("mock reports its layers: {mock_agent:#}"));
+    assert_eq!(layers.len(), 2, "both declared layers: {layers:#?}");
+    assert_eq!(layers[0]["kind"], "cli");
+    assert_eq!(layers[1]["kind"], "adapter");
+    assert_eq!(layers[0]["detected"], false, "the official CLI is absent");
+    assert_eq!(layers[1]["detected"], true, "the adapter is installed");
+    assert!(
+        layers[1]["binaryPath"].as_str().is_some(),
+        "the detected layer reports its path"
+    );
+    assert!(
+        layers[0].get("binaryPath").is_none(),
+        "the absent layer invents no path"
+    );
+    assert_eq!(layers[0]["install"], "npm i -g provider-cli");
+    assert_eq!(layers[1]["install"], "cargo install mock-acp");
+    assert_eq!(mock_agent["installState"], "cli_missing");
+    let remedy = mock_agent["remedy"].as_str().unwrap_or_default();
+    assert!(
+        remedy.to_lowercase().contains("cli"),
+        "the remedy names the missing layer: {remedy}"
+    );
+    assert_eq!(
+        mock_agent["remedyCommand"], "npm i -g provider-cli",
+        "and carries THAT layer's command, not the other's"
+    );
+
     let ghost = agent(&result, "ghost");
     assert_eq!(ghost["detected"], false);
     assert_eq!(ghost["configured"], false);
     assert!(ghost.get("binaryPath").is_none());
+    // A single-layer entry is diagnosed too: one layer, composed state, remedy.
+    let ghost_layers = ghost["layers"]
+        .as_array()
+        .unwrap_or_else(|| panic!("ghost reports its layer: {ghost:#}"));
+    assert_eq!(ghost_layers.len(), 1);
+    assert_eq!(ghost["installState"], "not_detected");
+    assert!(
+        ghost["remedy"].as_str().is_some(),
+        "even a single-layer absence says what to do: {ghost:#}"
+    );
 
     let custom = agent(&result, "local-tool");
     assert_eq!(custom["source"], "custom");
     assert_eq!(custom["detected"], false);
+    // A user-declared agent has no vendor to declare a legal status, and none is
+    // invented for it (Scenario: Campos aditivos sin romper el contrato vigente).
+    assert!(
+        custom.get("legalStatus").is_none() && custom.get("legalNote").is_none(),
+        "a custom entry carries no legal status: {custom:#}"
+    );
 
     // 2. Detection refreshes per query (Scenario: La detección se refresca
     //    por consulta): the ghost binary appears, a new query reports it.

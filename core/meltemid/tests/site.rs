@@ -239,6 +239,10 @@ fn internal_links_resolve_and_the_required_sources_are_linked() {
     let required = [
         "meltemi.md",
         ".meltemi/constitution.md",
+        // The quickstart the scenario names: the English tree links the README,
+        // the Spanish one its mirror, and both must resolve.
+        "README.md",
+        "LEEME.md",
         "docs/agentes.md",
         "docs/release.md",
         "docs/referencia-cli.md",
@@ -386,8 +390,19 @@ fn the_canonical_base_is_the_only_one_the_installers_use() {
     for script in ["scripts/install.sh", "scripts/install.ps1"] {
         let body = read(&repo_root().join(script));
         assert!(
-            body.contains(&format!("{repository}/releases/download")),
+            body.contains(&format!("{repository}/releases")),
             "{script} must download from the canonical base `{base}`"
+        );
+        // `latest` is not a tag: the version-free download resolves through the
+        // redirector, and only a pinned version uses the tagged path. Getting
+        // this backwards 404s the advertised one-line install.
+        assert!(
+            body.contains("/latest/download"),
+            "{script} must use the latest-release redirector for the default install"
+        );
+        assert!(
+            body.contains("download/$VERSION") || body.contains("download/$version"),
+            "{script} must use the tagged path only for a pinned version"
         );
         // A stale second base would silently resolve elsewhere.
         assert!(

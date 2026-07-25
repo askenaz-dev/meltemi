@@ -22,12 +22,20 @@
   let {
     onClose,
     initialSession = null,
-  }: { onClose: () => void; initialSession?: string | null } = $props();
+    initialMode = null,
+  }: {
+    onClose: () => void;
+    initialSession?: string | null;
+    /** Opens on a specific mode when the caller asked for one. */
+    initialMode?: "propose" | null;
+  } = $props();
 
   /** The launcher composes existing methods only — no new capability. */
   type Mode = "explore" | "propose" | "dispatch" | "direct";
 
-  let mode: Mode = $state(untrack(() => initialSession) ? "direct" : "propose");
+  let mode: Mode = $state(
+    untrack(() => initialMode) ?? (untrack(() => initialSession) ? "direct" : "propose"),
+  );
   let agent = $state("");
   let text = $state("");
   let change = $state("");

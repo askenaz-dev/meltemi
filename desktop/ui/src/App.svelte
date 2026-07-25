@@ -16,7 +16,7 @@
     startIncomingRouter,
   } from "./lib/stores";
   import { loadUiState, setLastView } from "./lib/ui-state";
-  import { dirtyFiles } from "./lib/editor/dirty";
+  import { dirtyFiles, requestSaveAll } from "./lib/editor/dirty";
   import Sidebar from "./lib/components/Sidebar.svelte";
   import TopBar from "./lib/components/TopBar.svelte";
   import StatusBar from "./lib/components/StatusBar.svelte";
@@ -53,6 +53,8 @@
   let switcherOpen = $state(false);
   let launcherOpen = $state(false);
   let launcherSession: string | null = $state(null);
+  /** The mode the launcher opens on, when the caller asked for a specific one. */
+  let launcherMode: "propose" | null = $state(null);
   let onboardingOpen = $state(false);
   /** Pending navigation held by the unsaved-work guard. */
   let guard: { kind: "close" } | { kind: "leave"; go: () => void } | null = $state(null);
@@ -71,6 +73,20 @@
   const overlayOpen = $derived(
     paletteOpen || launcherOpen || onboardingOpen || switcherOpen || guard !== null,
   );
+
+  /**
+   * The drill-in trail: the first-level view, then where inside it the user is.
+   * A single-entry trail means "not drilled in" and renders as the plain title.
+   */
+  const breadcrumb = $derived.by<string[]>(() => {
+    const root = $t(("nav." + view) as never);
+    if (editorContext) return [root, $t("editor.title")];
+    if (reviewOpen) return [root, $t("review.title")];
+    if (detailSession) {
+      return [root, `${$t("sessions.detail.transcript")} · ${detailSession.slice(0, 8)}`];
+    }
+    return [root];
+  });
 
   const viewTitle = $derived.by(() => {
     if (editorContext) return $t("editor.title");
@@ -97,6 +113,17 @@
       if (!seen) onboardingOpen = true;
     })();
 
+    // Regaining the focus is the answer to the attention request: the signal is
+    // cleared and the OS title goes back to the product name (shell design D4).
+    const onFocus = () => {
+      void invoke("request_attention", {
+        pending: 0,
+        title: get(t)("window.title", {}),
+      }).catch(() => {});
+    };
+    window.addEventListener("focus", onFocus);
+    cleanups.push(Promise.resolve(() => window.removeEventListener("focus", onFocus)));
+
     // Closing the window asks the surface first when work is unsaved.
     cleanups.push(
       listen("app:close-requested", () => {
@@ -116,6 +143,22 @@
       }
     };
   });
+
+  /**
+   * Flushes every dirty editor buffer through the daemon and then continues.
+   * The editor exposes the request through a store so the shell does not need a
+   * handle on the component.
+   */
+  async function saveDirtyThen(go: () => void) {
+    try {
+      await requestSaveAll();
+    } catch {
+      // A refused save keeps the work: the guard closed, but nothing was lost,
+      // and the editor already reported why.
+      return;
+    }
+    go();
+  }
 
   /** Navigation that respects unsaved editor work. */
   function leaveEditor(go: () => void) {
@@ -197,6 +240,13 @@
       onboardingOpen = true;
       return;
     }
+    // `/` opens the filter of the focused list, the same key the terminal
+    // surface uses (core parity of the interaction, not only of the methods).
+    if (event.key === "/" && view === "sessions" && !detailSession) {
+      event.preventDefault();
+      window.dispatchEvent(new CustomEvent("meltemi:filter"));
+      return;
+    }
     if (event.key === "Escape") {
       if (editorContext) leaveEditor(() => (editorContext = null));
       else if (reviewOpen) reviewOpen = false;
@@ -255,6 +305,7 @@
         <span>{$conn.detail}</span>
         <span class="mono">{$t("conn.endpoint")}: {$conn.endpoint}</span>
         <span>{$t("conn.willDeny")}</span>
+        <span>{$t("conn.sshHint")}</span>
         <span class="bannerActions">
           <button class="ghost" onclick={() => void retryNow()}>
             <Icon name="refresh" size={12} />
@@ -270,6 +321,7 @@
 
     <TopBar
       title={viewTitle}
+      trail={breadcrumb}
       onOpenPalette={() => (paletteOpen = true)}
       onNewSession={() => {
         launcherSession = null;
@@ -338,6 +390,11 @@
         <Project
           onOpenEditor={() => openProjectEditor()}
           onOpenReview={() => (reviewOpen = true)}
+          onPropose={() => {
+            launcherSession = null;
+            launcherMode = "propose";
+            launcherOpen = true;
+          }}
         />
       {:else if view === "permissions"}
         <Permissions />
@@ -359,7 +416,14 @@
 {/if}
 
 {#if launcherOpen}
-  <NewSession initialSession={launcherSession} onClose={() => (launcherOpen = false)} />
+  <NewSession
+    initialSession={launcherSession}
+    initialMode={launcherMode}
+    onClose={() => {
+      launcherOpen = false;
+      launcherMode = null;
+    }}
+  />
 {/if}
 
 {#if onboardingOpen}
@@ -371,6 +435,17 @@
     title={$t("confirm.title")}
     message={$t("editor.guard.message", { files: $dirtyFiles.join(", ") })}
     confirmLabel={$t("editor.guard.discard")}
+    extraLabel={$t("editor.guard.save")}
+    onExtra={() => {
+      // The third path the requirement names: save, then continue. The editor
+      // owns the save, so it is asked to flush before the guard releases.
+      const pendingGuard = guard;
+      guard = null;
+      void saveDirtyThen(() => {
+        if (pendingGuard?.kind === "close") void invoke("close_confirmed");
+        else pendingGuard?.go();
+      });
+    }}
     onConfirm={() => {
       const pendingGuard = guard;
       guard = null;

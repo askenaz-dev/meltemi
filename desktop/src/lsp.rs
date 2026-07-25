@@ -19,12 +19,29 @@ use tokio::sync::{Mutex, oneshot};
 use crate::bridge::BridgeError;
 use crate::fsops::find_on_path;
 
-/// Well-known BYO servers per LSP language id.
+/// Well-known BYO servers per LSP language id. The user can point at any other
+/// server — or override one of these — through the persisted UI state
+/// (`lspServers`), which is what "instalado **o configurado**" asks for: nothing
+/// is bundled either way, the binary is always the user's.
 const SERVERS: &[(&str, &[&str])] = &[
     ("rust", &["rust-analyzer"]),
     ("typescript", &["typescript-language-server", "--stdio"]),
     ("python", &["pyright-langserver", "--stdio"]),
 ];
+
+/// The command for a language: the user's configured one first, then the
+/// well-known default. `None` when neither exists.
+fn command_for(app: &tauri::AppHandle, language: &str) -> Option<Vec<String>> {
+    if let Some(configured) = crate::uistate::configured_lsp(app, language)
+        && !configured.is_empty()
+    {
+        return Some(configured);
+    }
+    SERVERS
+        .iter()
+        .find(|(lang, _)| *lang == language)
+        .map(|(_, argv)| argv.iter().map(|part| (*part).to_string()).collect())
+}
 
 fn refused(detail: impl Into<String>) -> BridgeError {
     BridgeError {
@@ -126,7 +143,7 @@ async fn spawn_client(
     language: &str,
     root: &str,
 ) -> Result<Option<Client>, BridgeError> {
-    let Some((_, argv)) = SERVERS.iter().find(|(lang, _)| *lang == language) else {
+    let Some(argv) = command_for(&app, language) else {
         return Ok(None);
     };
     let binary_name = if cfg!(windows) {
@@ -135,7 +152,7 @@ async fn spawn_client(
             .into_iter()
             .find_map(|candidate| find_on_path(&candidate))
     } else {
-        find_on_path(argv[0])
+        find_on_path(&argv[0])
     };
     let Some(binary) = binary_name else {
         return Ok(None); // BYO: not installed — honest degradation.

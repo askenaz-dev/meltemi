@@ -326,6 +326,16 @@ table.dense tbody tr[aria-selected="true"] {
 /* Forced colors: the mark must never disappear and meaning never rests on
  * color alone. */
 @media (forced-colors: active) {
+  /* The mark keeps its shape and takes the system text color: a gradient is not
+     rendered in forced-colors mode, so without this the identity disappears. */
+  .mark .stroke {
+    stroke: CanvasText !important;
+  }
+
+  .mark .hull {
+    fill: CanvasText !important;
+  }
+
   .brand-wordmark {
     background: none !important;
     -webkit-background-clip: initial !important;

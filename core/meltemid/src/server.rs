@@ -275,7 +275,7 @@ async fn dispatch_request(
         methods::SPEC_LIST => crate::navigate::handle_spec_list(params).await,
         methods::SPEC_SHOW => crate::navigate::handle_spec_show(params).await,
         methods::SDD_VALIDATE => crate::navigate::handle_sdd_validate(params).await,
-        methods::PROJECT_LIST => crate::projects::handle_project_list(params, state),
+        methods::PROJECT_LIST => crate::projects::handle_project_list(params, state).await,
         methods::ANALYTICS_USAGE => crate::analytics::handle_analytics_usage(params, state),
         other => Err(RpcError::method_not_found(other)),
     }
@@ -1999,6 +1999,11 @@ async fn handle_context_project(
             Some("Pass the absolute path to an existing repository root.".into()),
         ));
     }
+    // Resolving a project's context by contract is real use of that project, and
+    // the requirement names it as a registration moment alongside a session
+    // start (multiproyecto-suscripciones D3). Still no disk walk: only what the
+    // caller pointed at.
+    crate::projects::touch(&state.data_dir, &project_root);
     // A configured level-4 agent contributes its instruction file as a target
     // (projection is its only integration channel).
     let config = crate::config::Config::load(&state.config_dir, Some(&project_root));

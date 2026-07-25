@@ -10,7 +10,13 @@
   let {
     onOpenEditor,
     onOpenReview,
-  }: { onOpenEditor: () => void; onOpenReview: () => void } = $props();
+    onPropose,
+  }: {
+    onOpenEditor: () => void;
+    onOpenReview: () => void;
+    /** Opens the session launcher on its propose mode: a tool, not the centre. */
+    onPropose: () => void;
+  } = $props();
 
   let changes: ChangeInfo[] = $state([]);
   let specs: SpecInfo[] = $state([]);
@@ -68,7 +74,9 @@
       const result = await request<Record<string, unknown>>("sdd/validate", {
         projectRoot: root,
       });
-      const findings = Array.isArray(result.findings)
+      // `sdd/validate` answers with `diagnostics`; reading `findings` made every
+      // change look clean (contract: proto/schemas/v1/validate.schema.json).
+      const findings = Array.isArray(result.diagnostics)
         ? (result.findings as unknown[]).length
         : 0;
       validateSummary =
@@ -91,13 +99,16 @@
     glyph="project"
     title={$t("project.empty.title")}
     hint={$t("project.empty.hint")}
-  />
+  >
+    <button class="primary" onclick={onPropose}>{$t("project.propose")}</button>
+  </EmptyState>
 {:else}
   <div class="panels">
     <section aria-labelledby="changes-title">
       <header>
         <h2 id="changes-title">{$t("project.changes")}</h2>
         <div class="validate">
+          <button onclick={onPropose}>{$t("project.propose")}</button>
           <button onclick={onOpenEditor}>{$t("project.openEditor")}</button>
           <button onclick={onOpenReview}>{$t("project.openReview")}</button>
           <button disabled={validating} onclick={() => void validate()}>

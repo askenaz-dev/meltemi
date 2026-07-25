@@ -23,14 +23,18 @@ $ErrorActionPreference = "Stop"
 $version = if ($env:MELTEMI_VERSION) { $env:MELTEMI_VERSION } else { "latest" }
 # Canonical download base — declared once in docs/release.md and verified by
 # the site lint; override only for a local mirror while testing.
-$baseUrl = if ($env:MELTEMI_BASE_URL) { $env:MELTEMI_BASE_URL } else { "https://github.com/askenaz-dev/meltemi/releases/download" }
+$baseUrl = if ($env:MELTEMI_BASE_URL) { $env:MELTEMI_BASE_URL } else { "https://github.com/askenaz-dev/meltemi/releases" }
+# The two shapes the host serves: the version-free redirector for the latest
+# release, and the tagged path for a pinned one. `latest` is NOT a tag, so
+# asking for `download/latest/<asset>` is a 404 — the mistake this guards.
+$assetBase = if ($version -eq "latest") { "$baseUrl/latest/download" } else { "$baseUrl/download/$version" }
 $asset = "meltemi-Windows.zip"
 
 $tmp = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ("meltemi-" + [System.Guid]::NewGuid()))
 try {
     Write-Host "Downloading $asset ($version)..."
-    Invoke-WebRequest -Uri "$baseUrl/$version/$asset" -OutFile (Join-Path $tmp $asset)
-    Invoke-WebRequest -Uri "$baseUrl/$version/SHA256SUMS" -OutFile (Join-Path $tmp "SHA256SUMS")
+    Invoke-WebRequest -Uri "$assetBase/$asset" -OutFile (Join-Path $tmp $asset)
+    Invoke-WebRequest -Uri "$assetBase/SHA256SUMS" -OutFile (Join-Path $tmp "SHA256SUMS")
 
     Write-Host "Verifying checksum..."
     $expected = (Select-String -Path (Join-Path $tmp "SHA256SUMS") -Pattern ([regex]::Escape($asset))).Line.Split(" ")[0].Trim()

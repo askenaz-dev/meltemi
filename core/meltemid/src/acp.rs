@@ -399,6 +399,7 @@ async fn passthrough_permission(
         let _ = log.append(SessionEventKind::PermissionDecided {
             outcome: serde_json::to_value(&resolution.outcome).unwrap_or(Value::Null),
             decided_by: resolution.decided_by,
+            denied: Some(resolution.denied),
             rule: resolution.rule.clone(),
         });
     }

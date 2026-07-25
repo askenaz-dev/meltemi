@@ -169,7 +169,7 @@ pub fn resolve_id_launch(
     match entry.level {
         1 => {
             let bin = resolve_binary(entry.bin.as_deref(), &entry.candidate_paths, path_var)
-                .ok_or_else(|| not_detected(undetected(&entry.name)))?;
+                .ok_or_else(|| layer_refusal(entry, path_var))?;
             let mut argv = vec![bin.display().to_string()];
             argv.extend(entry.acp_args.iter().cloned());
             Ok(Launch::Acp { argv, level: 1 })
@@ -179,19 +179,14 @@ pub fn resolve_id_launch(
             // detection as a native agent.
             let adapter =
                 resolve_binary(entry.adapter.as_deref(), &entry.candidate_paths, path_var)
-                    .ok_or_else(|| {
-                        not_detected(format!(
-                            "the ACP adapter for `{id}` ({}) was not detected",
-                            entry.name
-                        ))
-                    })?;
+                    .ok_or_else(|| layer_refusal(entry, path_var))?;
             let mut argv = vec![adapter.display().to_string()];
             argv.extend(entry.adapter_args.iter().cloned());
             Ok(Launch::Acp { argv, level: 2 })
         }
         3 => {
             let bin = resolve_binary(entry.headless.as_deref(), &entry.candidate_paths, path_var)
-                .ok_or_else(|| not_detected(undetected(&entry.name)))?;
+                .ok_or_else(|| layer_refusal(entry, path_var))?;
             let mut argv = vec![bin.display().to_string()];
             argv.extend(entry.headless_args.iter().cloned());
             // Native controls Meltemi configures from data in one place (D2).
@@ -207,6 +202,32 @@ pub fn resolve_id_launch(
 
 fn undetected(name: &str) -> String {
     format!("the binary of agent `{name}` was not detected on this system")
+}
+
+/// The refusal to launch an undetected agent, carrying the SAME diagnosis the
+/// fleet view gives: which layer is missing and the exact command that installs
+/// it (flota-deteccion-guia design D5). A generic "not detected" at the moment
+/// the user most needs the answer is what this replaces.
+fn layer_refusal(entry: &crate::fleet::CatalogEntry, path_var: &OsStr) -> RpcError {
+    let layers = crate::fleet::detect_layers(entry, path_var);
+    let (_, remedy, command) = crate::fleet::compose_state(&layers, false);
+    let detail = match remedy {
+        Some(remedy) => format!("agent `{}`: {remedy}", entry.id),
+        None => undetected(&entry.name),
+    };
+    let hint = match command {
+        // The command travels in the remedy: it is what the user must run.
+        Some(command) => format!("Install the missing layer: `{command}` (see `meltemi fleet`)."),
+        None => "Run `meltemi fleet`, install the agent's official CLI, or set `agent.command`."
+            .to_string(),
+    };
+    RpcError::application(
+        error_codes::AGENT_NOT_DETECTED,
+        "agent not detected",
+        "agent_not_detected",
+        detail,
+        Some(hint),
+    )
 }
 
 fn not_detected(detail: String) -> RpcError {

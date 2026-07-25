@@ -25,6 +25,24 @@ fn registry() -> meltemid::fleet::Registry {
     meltemid::fleet::parse_registry(&text).expect("the snapshot parses")
 }
 
+/// The inline-code spans of a guide section (`` `like this` ``), which is how the
+/// guide names binaries. Comparing these as tokens is what makes a superset name
+/// like `cursor-agent` fail against a registry that probes `agent`.
+fn inline_code_spans(section: &str) -> std::collections::BTreeSet<String> {
+    let mut spans = std::collections::BTreeSet::new();
+    let mut rest = section;
+    while let Some(open) = rest.find('`') {
+        rest = &rest[open + 1..];
+        let Some(close) = rest.find('`') else { break };
+        let span = rest[..close].trim();
+        if !span.is_empty() {
+            spans.insert(span.to_string());
+        }
+        rest = &rest[close + 1..];
+    }
+    spans
+}
+
 // Scenario: Guía y registro en biyección
 #[test]
 // Scenario: Cada entrada del registro tiene su sección con nivel y binarios
@@ -85,18 +103,22 @@ fn the_guide_states_the_level_and_binaries_the_registry_declares() {
             agent.id,
             agent.level
         );
+        // Compare TOKENS, not substrings: `cursor-agent` must not satisfy a
+        // registry that probes `agent`, or the guide can tell users to look for
+        // a binary Meltemi never asks about.
+        let named = inline_code_spans(body);
         if let Some(bin) = &agent.bin {
             assert!(
-                body.contains(bin),
-                "the section of `{}` does not name its binary `{bin}`",
+                named.contains(bin),
+                "the section of `{}` names {named:?}, not its binary `{bin}`",
                 agent.id
             );
         }
         // Two-layer entries must name both layers and both install commands.
         if let Some(cli_bin) = &agent.cli_bin {
             assert!(
-                body.contains(cli_bin),
-                "the section of `{}` does not name its official CLI `{cli_bin}`",
+                named.contains(cli_bin),
+                "the section of `{}` names {named:?}, not its official CLI `{cli_bin}`",
                 agent.id
             );
             for command in [&agent.cli_install, &agent.adapter_install]

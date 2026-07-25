@@ -22,7 +22,16 @@ VERSION="${MELTEMI_VERSION:-latest}"
 INSTALL_DIR="${1:-$HOME/.local/bin}"
 # Canonical download base — declared once in docs/release.md and verified by
 # the site lint; override only for a local mirror while testing.
-BASE_URL="${MELTEMI_BASE_URL:-https://github.com/askenaz-dev/meltemi/releases/download}"
+BASE_URL="${MELTEMI_BASE_URL:-https://github.com/askenaz-dev/meltemi/releases}"
+
+# The two shapes the host serves: the version-free redirector for the latest
+# release, and the tagged path for a pinned one. `latest` is NOT a tag, so
+# asking for `download/latest/<asset>` is a 404 — the mistake this guards.
+if [ "$VERSION" = "latest" ]; then
+  asset_base="$BASE_URL/latest/download"
+else
+  asset_base="$BASE_URL/download/$VERSION"
+fi
 
 os="$(uname -s)"
 case "$os" in
@@ -35,8 +44,8 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 echo "Downloading $asset ($VERSION)..."
-curl -fsSL "$BASE_URL/$VERSION/$asset" -o "$tmp/$asset"
-curl -fsSL "$BASE_URL/$VERSION/SHA256SUMS" -o "$tmp/SHA256SUMS"
+curl -fsSL "$asset_base/$asset" -o "$tmp/$asset"
+curl -fsSL "$asset_base/SHA256SUMS" -o "$tmp/SHA256SUMS"
 
 echo "Verifying checksum..."
 ( cd "$tmp" && grep " $asset\$" SHA256SUMS | { command -v sha256sum >/dev/null && sha256sum --check - || shasum -a 256 --check -; } )
