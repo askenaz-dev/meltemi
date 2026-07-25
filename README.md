@@ -151,13 +151,18 @@ cd meltemi
 cargo build --release -p meltemid -p meltemi
 ```
 
-For the desktop app, build the frontend first — it is embedded at compile time:
+The desktop app is built by the Tauri CLI, **not** by a plain `cargo build`:
+the frontend is embedded at compile time, and only `tauri build` puts it there
+(a bare cargo build produces a binary whose window cannot load its UI).
 
 ```bash
 npm ci --prefix desktop/ui
-npm run build --prefix desktop/ui
-cargo build --release -p meltemi-desktop
+cd desktop && ui/node_modules/.bin/tauri build            # installers + binary
+cd desktop && ui/node_modules/.bin/tauri build --no-bundle # binary only
 ```
+
+`tauri build` runs the frontend build itself (`beforeBuildCommand`), so there is
+no separate `npm run build` step.
 
 On Linux the desktop app needs the system web engine's development packages:
 

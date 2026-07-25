@@ -109,14 +109,19 @@ cd meltemi
 cargo build --release -p meltemid -p meltemi
 ```
 
-Para la app de escritorio, compila primero el frontend (se embebe en tiempo de
-compilación):
+La app de escritorio la construye la CLI de Tauri, **no** un `cargo build`
+pelado: el frontend se embebe en tiempo de compilación y solo `tauri build` lo
+mete ahí (un cargo build a secas produce un binario cuya ventana no puede cargar
+su interfaz).
 
 ```bash
 npm ci --prefix desktop/ui
-npm run build --prefix desktop/ui
-cargo build --release -p meltemi-desktop
+cd desktop && ui/node_modules/.bin/tauri build             # instaladores + binario
+cd desktop && ui/node_modules/.bin/tauri build --no-bundle # solo el binario
 ```
+
+`tauri build` corre la compilación del frontend por su cuenta
+(`beforeBuildCommand`), así que no hace falta un `npm run build` aparte.
 
 En Linux la app de escritorio necesita los paquetes de desarrollo del motor web
 del sistema:
