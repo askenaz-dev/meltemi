@@ -139,18 +139,22 @@ pub fn tree_search(root: String, query: String) -> Result<SearchResult, BridgeEr
 }
 
 /// "Open with…": hands the file (and line) to the editor the user already
-/// uses (edit-surface deep-link). Resolution: the `MELTEMI_OPEN_WITH`
-/// template (`{file}`/`{line}` placeholders), then VS Code's `code -g` when
-/// on PATH, then the OS opener (without line addressing).
+/// uses (edit-surface deep-link). Resolution order: the template configured in
+/// Settings (`{file}`/`{line}` placeholders), the `MELTEMI_OPEN_WITH`
+/// environment override, VS Code's `code -g` when on PATH, then the OS opener
+/// (without line addressing).
 #[tauri::command]
 pub fn open_with(root: String, file: String, line: Option<u32>) -> Result<String, BridgeError> {
     let path = contained(&root, &file)?;
     let path_str = path.display().to_string();
     let line = line.unwrap_or(1);
 
-    if let Ok(template) = std::env::var("MELTEMI_OPEN_WITH")
-        && !template.trim().is_empty()
-    {
+    let configured = crate::uistate::UiState::load().open_with_template;
+    let template = std::env::var("MELTEMI_OPEN_WITH")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| configured.filter(|value| !value.trim().is_empty()));
+    if let Some(template) = template {
         let rendered = template
             .replace("{file}", &path_str)
             .replace("{line}", &line.to_string());

@@ -27,10 +27,17 @@ function* svelteFiles(dir) {
 }
 
 function templateOf(source) {
-  return source
-    .replace(/<script[\s\S]*?<\/script>/g, "")
-    .replace(/<style[\s\S]*?<\/style>/g, "")
-    .replace(/<!--[\s\S]*?-->/g, "");
+  return (
+    source
+      .replace(/<script[\s\S]*?<\/script>/g, "")
+      .replace(/<style[\s\S]*?<\/style>/g, "")
+      .replace(/<!--[\s\S]*?-->/g, "")
+      // Technical notation is data, not prose: key names inside <kbd> and
+      // identifiers inside <code> are never translated — a shortcut reads
+      // "Ctrl K" in every language and a method name is a contract string.
+      .replace(/<kbd[\s\S]*?<\/kbd>/g, "")
+      .replace(/<code[\s\S]*?<\/code>/g, "")
+  );
 }
 
 function stripExpressions(text) {

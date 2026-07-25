@@ -58,6 +58,17 @@ jobs:
       - name: Desktop i18n lint
         run: npm run lint:i18n --prefix desktop/ui
 
+      # The palette's typed forms are generated from the contract schemas: a
+      # contract change that is not regenerated must fail here, never ship a
+      # form that lies about the method it invokes.
+      - name: Desktop method forms freshness
+        run: npm run check:forms --prefix desktop/ui
+
+      # Pure surface logic (fuzzy matching, entity identity) under Node's own
+      # test runner: no test framework dependency.
+      - name: Desktop frontend tests
+        run: npm test --prefix desktop/ui
+
       # tauri::generate_context! embeds ui/dist at compile time, so the
       # frontend build precedes every cargo gate that compiles desktop/.
       - name: Desktop frontend build

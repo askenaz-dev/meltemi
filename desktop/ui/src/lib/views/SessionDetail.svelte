@@ -2,115 +2,182 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { conn, request } from "../daemon";
-  import { t } from "../i18n";
+  import { locale, t } from "../i18n";
+  import { absoluteTime, clockTime, durationLabel } from "../time";
+  import { binaryName } from "../agents";
   import {
     onSessionEvent,
+    pushNotice,
     refreshSessions,
     sessions,
-    type SessionInfo,
   } from "../stores";
-  import StatusBadge from "../components/StatusBadge.svelte";
+  import Avatar from "../components/Avatar.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
+  import Icon from "../components/Icon.svelte";
+  import StatusBadge from "../components/StatusBadge.svelte";
 
-  let { sessionId, onBack }: { sessionId: string; onBack: () => void } =
-    $props();
+  let {
+    sessionId,
+    onBack,
+    onDirect,
+  }: {
+    sessionId: string;
+    onBack: () => void;
+    onDirect: (sessionId: string) => void;
+  } = $props();
 
-  const session = $derived(
-    $sessions.find((candidate) => candidate.sessionId === sessionId),
-  );
+  interface Line {
+    id: number;
+    ts: string;
+    kind: string;
+    text: string;
+    /** The full payload, revealed on expand. */
+    full: string;
+    cut?: boolean;
+  }
 
-  let lines: string[] = $state([]);
+  /** Glyph + tone per known event type; unknown types stay neutral. */
+  const EVENT_STYLE: Record<string, { glyph: string; tone: string }> = {
+    session_started: { glyph: "◌", tone: "info" },
+    prompt_sent: { glyph: "▸", tone: "accent" },
+    agent_update: { glyph: "·", tone: "text" },
+    refs_expanded: { glyph: "·", tone: "faint" },
+    permission_requested: { glyph: "●", tone: "warn" },
+    permission_decided: { glyph: "●", tone: "warn" },
+    mcp_injected: { glyph: "·", tone: "faint" },
+    mcp_not_delivered: { glyph: "▲", tone: "warn" },
+    turn_completed: { glyph: "■", tone: "ok" },
+    checkpoint_created: { glyph: "·", tone: "info" },
+    checkpoint_restored: { glyph: "·", tone: "info" },
+    agent_resolved: { glyph: "·", tone: "faint" },
+    task_started: { glyph: "▸", tone: "accent" },
+    task_committed: { glyph: "■", tone: "ok" },
+    instruction_queued: { glyph: "▸", tone: "info" },
+    human_edit: { glyph: "✎", tone: "info" },
+    session_cancelled: { glyph: "▲", tone: "danger" },
+    session_ended: { glyph: "■", tone: "faint" },
+    error: { glyph: "▲", tone: "danger" },
+  };
+
+  let lines: Line[] = $state([]);
+  let showTimestamps = $state(true);
+  let expanded: Record<number, boolean> = $state({});
+  let search = $state("");
+  let searchOpen = $state(false);
   let confirmCancel = $state(false);
   let gone = $state(false);
   let atBottom = $state(true);
   let newLines = $state(0);
   let scroller: HTMLDivElement | undefined = $state();
+  let seq = 0;
   let wasStreaming = false;
   let wasUnreachable = false;
 
-  function payloadText(payload: unknown): string {
-    if (!payload || typeof payload !== "object") return "";
+  const session = $derived($sessions.find((s) => s.sessionId === sessionId));
+  const matches = $derived.by(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return new Set<number>();
+    return new Set(
+      lines
+        .filter(
+          (line) =>
+            line.kind.toLowerCase().includes(needle) ||
+            line.full.toLowerCase().includes(needle),
+        )
+        .map((line) => line.id),
+    );
+  });
+
+  function payloadText(payload: unknown): { short: string; full: string } {
+    if (payload === undefined || payload === null) return { short: "", full: "" };
+    if (typeof payload !== "object") {
+      const value = String(payload);
+      return { short: value, full: value };
+    }
     const record = payload as Record<string, unknown>;
-    for (const key of ["text", "message", "instruction", "title", "detail"]) {
+    for (const key of ["text", "message", "instruction", "detail", "title", "file", "reason"]) {
       const value = record[key];
       if (typeof value === "string" && value.trim()) {
         const flat = value.replaceAll(/\s+/g, " ").trim();
-        return flat.length > 160 ? `${flat.slice(0, 160)}…` : flat;
+        return {
+          short: flat.length > 140 ? `${flat.slice(0, 140)}…` : flat,
+          full: value,
+        };
       }
     }
-    return "";
+    const json = JSON.stringify(payload);
+    return { short: json.length > 140 ? `${json.slice(0, 140)}…` : json, full: JSON.stringify(payload, null, 2) };
   }
 
-  function summarize(raw: string): string {
-    try {
-      const event = JSON.parse(raw) as {
-        ts?: string;
-        type?: string;
-        payload?: unknown;
-      };
-      const text = payloadText(event.payload);
-      return `${event.ts ?? ""}  ${event.type ?? "event"}${text ? "  " + text : ""}`;
-    } catch {
-      return raw;
-    }
-  }
-
-  function append(line: string) {
-    lines = [...lines, line];
+  function append(line: Omit<Line, "id">) {
+    seq += 1;
+    lines = [...lines, { ...line, id: seq }];
     if (atBottom) {
-      queueMicrotask(() => {
-        scroller?.scrollTo({ top: scroller.scrollHeight });
-      });
+      queueMicrotask(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
     } else {
       newLines += 1;
     }
   }
 
-  // Initial transcript from the persistent log.
+  // The persisted log seeds the transcript.
   $effect(() => {
-    const info: SessionInfo | undefined = session;
+    const info = session;
     if (!info) return;
     void request<{ lines: string[] }>("session/log", {
       projectRoot: info.projectRoot,
       sessionId,
     })
       .then((result) => {
-        lines = result.lines.map(summarize);
+        seq = 0;
+        lines = result.lines.map((raw, index) => {
+          try {
+            const event = JSON.parse(raw) as { ts?: string; type?: string; payload?: unknown };
+            const { short, full } = payloadText(event.payload);
+            return {
+              id: index + 1,
+              ts: event.ts ?? "",
+              kind: event.type ?? "event",
+              text: short,
+              full: full || raw,
+            };
+          } catch {
+            return { id: index + 1, ts: "", kind: "raw", text: raw, full: raw };
+          }
+        });
+        seq = lines.length;
         queueMicrotask(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
       })
       .catch(() => {
-        // A session mid-start may not have a log yet; live events fill in.
+        // A session mid-start may have no log yet; live events fill it in.
       });
   });
 
-  // Live events for this session.
-  $effect(() => {
-    return onSessionEvent((message) => {
+  $effect(() =>
+    onSessionEvent((message) => {
       if (message.sessionId !== sessionId) return;
       wasStreaming = true;
-      const text = payloadText(
-        (message.event as { payload?: unknown }).payload,
-      );
-      append(
-        `${new Date().toISOString().slice(0, 19)}  ${message.event.type}${text ? "  " + text : ""}`,
-      );
-    });
-  });
+      const { short, full } = payloadText((message.event as { payload?: unknown }).payload);
+      append({
+        ts: new Date().toISOString(),
+        kind: message.event.type,
+        text: short,
+        full,
+      });
+    }),
+  );
 
-  // Honest cut on daemon loss; honest "gone" after reconnection.
+  // Honest cut on daemon loss, honest "gone" after reconnection.
   $effect(() => {
     const state = $conn.state;
     if (state === "unreachable" && !wasUnreachable) {
       wasUnreachable = true;
       if (wasStreaming) {
-        append($t("sessions.detail.cut"));
+        append({ ts: new Date().toISOString(), kind: "cut", text: $t("sessions.detail.cut"), full: "", cut: true });
       }
     } else if (state === "connected" && wasUnreachable) {
       wasUnreachable = false;
       void refreshSessions().then(() => {
-        if (!session) {
-          gone = true;
-        }
+        if (!session) gone = true;
       });
     }
   });
@@ -129,31 +196,98 @@
     newLines = 0;
   }
 
+  async function copyAll() {
+    const text = lines
+      .map((line) => `${line.ts} ${line.kind} ${line.full || line.text}`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      pushNotice($t("transcript.copiedAll"), "info");
+    } catch {
+      pushNotice($t("banner.copyFailed"), "danger");
+    }
+  }
+
+  async function copyLine(line: Line) {
+    try {
+      await navigator.clipboard.writeText(`${line.ts} ${line.kind} ${line.full || line.text}`);
+      pushNotice($t("transcript.copiedLine"), "info");
+    } catch {
+      pushNotice($t("banner.copyFailed"), "danger");
+    }
+  }
+
   function cancelSession() {
     confirmCancel = false;
-    void invoke("daemon_notify", {
-      method: "session/cancel",
-      params: { sessionId },
-    });
+    void invoke("daemon_notify", { method: "session/cancel", params: { sessionId } });
     setTimeout(() => void refreshSessions().catch(() => {}), 500);
   }
 </script>
 
 <section aria-label={$t("sessions.detail.transcript")}>
   <header>
-    <div>
-      <code>{sessionId}</code>
+    <div class="who">
       {#if session}
+        <Avatar
+          id={binaryName(session.agentCommand)}
+          name={binaryName(session.agentCommand)}
+          size={26}
+        />
+        <div class="ids">
+          <code>{sessionId.slice(0, 8)}</code>
+          <span class="faint">{binaryName(session.agentCommand)}</span>
+        </div>
         <StatusBadge state={session.state} />
+        <span class="faint">{durationLabel(session.startedAt, session.endedAt)}</span>
+        <span
+          class="faint"
+          title={absoluteTime(session.startedAt, $locale)}>{clockTime(session.startedAt)}</span
+        >
+      {:else}
+        <code>{sessionId.slice(0, 8)}</code>
       {/if}
     </div>
-    <div class="actions">
-      {#if session && (session.state === "active" || session.state === "starting" || session.state === "waiting_permission")}
-        <button class="destructive" onclick={() => (confirmCancel = true)}>
-          {$t("sessions.cancel")}
+
+    <div class="tools">
+      {#if searchOpen}
+        <input
+          bind:value={search}
+          placeholder={$t("transcript.search")}
+          aria-label={$t("transcript.search")}
+          onkeydown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Escape") {
+              search = "";
+              searchOpen = false;
+            }
+          }}
+        />
+        <span class="faint count">{matches.size}</span>
+      {:else}
+        <button class="ghost" aria-label={$t("transcript.search")} onclick={() => (searchOpen = true)}>
+          <Icon name="search" size={14} />
         </button>
       {/if}
-      <button onclick={onBack}>{$t("common.back")}</button>
+      <button
+        class="ghost"
+        aria-pressed={showTimestamps}
+        onclick={() => (showTimestamps = !showTimestamps)}
+      >
+        {$t("transcript.timestamps")}
+      </button>
+      <button class="ghost" onclick={() => void copyAll()}>
+        <Icon name="copy" size={14} />
+        {$t("transcript.copyAll")}
+      </button>
+      {#if session && (session.state === "active" || session.state === "starting" || session.state === "waiting_permission")}
+        <button class="ghost" onclick={() => onDirect(sessionId)}>{$t("sessions.direct")}</button>
+        <button class="ghost destructive" onclick={() => (confirmCancel = true)}>
+          {$t("sessions.cancelShort")}
+        </button>
+      {:else if session?.resumable}
+        <button class="ghost" onclick={() => onDirect(sessionId)}>{$t("sessions.resume")}</button>
+      {/if}
+      <button class="ghost" onclick={onBack}>{$t("common.back")}</button>
     </div>
   </header>
 
@@ -161,22 +295,46 @@
     <p class="danger" role="alert">{$t("sessions.detail.goneAfterReconnect")}</p>
   {/if}
 
-  <div
-    class="transcript"
-    bind:this={scroller}
-    onscroll={onScroll}
-    role="log"
-    aria-live="polite"
-  >
-    {#each lines as line, index (index)}
-      <div class="line">{line}</div>
+  <div class="transcript" bind:this={scroller} onscroll={onScroll} role="log" aria-live="polite">
+    {#each lines as line (line.id)}
+      {@const style = EVENT_STYLE[line.kind] ?? { glyph: "·", tone: "faint" }}
+      <div
+        class="line tone-{style.tone}"
+        class:cut={line.cut}
+        class:hit={matches.has(line.id)}
+      >
+        {#if showTimestamps && line.ts}
+          <span class="ts faint" title={absoluteTime(line.ts, $locale)}>{clockTime(line.ts)}</span>
+        {/if}
+        <span class="glyph" aria-hidden="true">{style.glyph}</span>
+        <span class="kind">{line.kind}</span>
+        <span class="text">
+          {expanded[line.id] && line.full ? line.full : line.text}
+        </span>
+        {#if line.full && line.full !== line.text}
+          <button
+            class="link expand"
+            onclick={() => (expanded[line.id] = !expanded[line.id])}
+          >
+            {expanded[line.id] ? $t("transcript.collapse") : $t("transcript.expand")}
+          </button>
+        {/if}
+        <button
+          class="link copyOne"
+          aria-label={$t("transcript.copyLine")}
+          onclick={() => void copyLine(line)}
+        >
+          <Icon name="copy" size={11} />
+        </button>
+      </div>
     {/each}
+    {#if lines.length === 0}
+      <p class="faint empty">{$t("transcript.empty")}</p>
+    {/if}
   </div>
 
   {#if !atBottom && newLines > 0}
-    <button class="follow" onclick={jumpDown}>
-      ↓ {newLines}
-    </button>
+    <button class="follow" onclick={jumpDown}>↓ {newLines}</button>
   {/if}
 </section>
 
@@ -194,8 +352,10 @@
   section {
     display: grid;
     grid-template-rows: auto auto 1fr;
-    gap: var(--sp-3);
+    gap: var(--sp-2);
     height: 100%;
+    min-height: 0;
+    padding: var(--sp-2) var(--sp-4) var(--sp-4);
     position: relative;
   }
   header {
@@ -203,57 +363,117 @@
     justify-content: space-between;
     align-items: center;
     gap: var(--sp-3);
+    flex-wrap: wrap;
   }
-  header div {
+  .who {
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
+    gap: var(--sp-2);
   }
-  code {
+  .ids {
+    display: grid;
+  }
+  .ids .faint {
+    font-size: var(--fs-caption);
+  }
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    flex-wrap: wrap;
+  }
+  .tools button {
+    font-size: var(--fs-caption);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .tools input {
+    font-size: var(--fs-caption);
+    width: 16ch;
+  }
+  .count {
+    font-size: var(--fs-caption);
+  }
+  .transcript {
+    overflow: auto;
+    background: var(--surface);
+    border: 1px solid var(--hair);
+    border-radius: var(--radius-panel);
+    padding: var(--sp-2) 0;
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: var(--fs-dense);
+    min-height: 0;
   }
-  .actions button {
-    font: inherit;
-    padding: var(--sp-1) var(--sp-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border);
+  .line {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: baseline;
+    padding: 1px var(--sp-3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .line:hover {
     background: var(--surface-2);
-    color: var(--text);
-    cursor: pointer;
   }
-  .destructive {
-    border-color: var(--danger) !important;
-    color: var(--danger) !important;
+  .line.hit {
+    background: var(--tint-info);
+  }
+  .line.cut {
+    color: var(--danger);
+    font-style: italic;
+  }
+  .ts {
+    flex: none;
+  }
+  .glyph {
+    flex: none;
+  }
+  .kind {
+    flex: none;
+    color: var(--text-muted);
+  }
+  .text {
+    flex: 1;
+  }
+  .expand,
+  .copyOne {
+    flex: none;
+    font-size: var(--fs-caption);
+    opacity: 0.7;
+  }
+  .tone-accent .glyph {
+    color: var(--accent);
+  }
+  .tone-ok .glyph {
+    color: var(--ok);
+  }
+  .tone-warn .glyph {
+    color: var(--warn);
+  }
+  .tone-danger .glyph {
+    color: var(--danger);
+  }
+  .tone-info .glyph {
+    color: var(--info);
+  }
+  .tone-faint .glyph,
+  .faint {
+    color: var(--text-faint);
   }
   .danger {
     margin: 0;
     color: var(--danger);
   }
-  .transcript {
-    overflow: auto;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-panel);
-    padding: var(--sp-3);
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    min-height: 0;
-  }
-  .line {
-    white-space: pre-wrap;
-    word-break: break-word;
+  .empty {
+    margin: var(--sp-3);
   }
   .follow {
     position: absolute;
-    right: var(--sp-4);
-    bottom: var(--sp-4);
-    font: inherit;
-    padding: var(--sp-1) var(--sp-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--accent);
-    background: var(--surface);
+    right: var(--sp-6);
+    bottom: var(--sp-6);
+    border-color: var(--accent);
     color: var(--accent);
-    cursor: pointer;
+    background: var(--surface);
   }
 </style>

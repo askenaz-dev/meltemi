@@ -8,12 +8,17 @@
     confirmLabel,
     onConfirm,
     onCancel,
+    extraLabel,
+    onExtra,
   }: {
     title: string;
     message: string;
     confirmLabel: string;
     onConfirm: () => void;
     onCancel: () => void;
+    /** A third, non-destructive path (e.g. "save") for the dirty guard. */
+    extraLabel?: string;
+    onExtra?: () => void;
   } = $props();
 
   let cancelButton: HTMLButtonElement | undefined = $state();
@@ -64,6 +69,9 @@
       <button bind:this={cancelButton} onclick={onCancel}>
         {$t("common.cancel")}
       </button>
+      {#if extraLabel && onExtra}
+        <button class="primary" onclick={onExtra}>{extraLabel}</button>
+      {/if}
       <button class="destructive" onclick={onConfirm}>{confirmLabel}</button>
     </div>
   </div>

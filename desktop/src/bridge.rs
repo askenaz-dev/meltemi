@@ -35,6 +35,7 @@ pub enum ConnState {
         version: String,
         uptime_seconds: u64,
         sessions: usize,
+        endpoint: String,
     },
     /// The daemon cannot be reached or started. Carries the endpoint so the
     /// surface can show the socket path with the diagnosis (gui-shell
@@ -259,6 +260,7 @@ async fn push_status(peer: &Peer, events: &mpsc::UnboundedSender<BridgeEvent>, e
                     version: status.daemon_version,
                     uptime_seconds: status.uptime_seconds,
                     sessions: status.sessions.len(),
+                    endpoint: endpoint.to_string(),
                 }));
             }
         }

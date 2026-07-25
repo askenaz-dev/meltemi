@@ -14,6 +14,7 @@ export type ConnState =
       version: string;
       uptimeSeconds: number;
       sessions: number;
+      endpoint: string;
     }
   | { state: "unreachable"; detail: string; endpoint: string };
 

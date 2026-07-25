@@ -6,6 +6,7 @@
 import { get, writable } from "svelte/store";
 import { invoke } from "@tauri-apps/api/core";
 import { onIncoming, request } from "./daemon";
+import { setActiveProject } from "./ui-state";
 
 // ---- contract shapes (camelCase mirror of meltemi-proto) -------------------
 
@@ -83,7 +84,8 @@ export interface SpecInfo {
 
 // ---- stores ----------------------------------------------------------------
 
-export const projectRoot = writable<string | null>(null);
+/** The project every project-scoped call is made against. */
+export const activeProject = writable<string | null>(null);
 export const sessions = writable<SessionInfo[]>([]);
 export const pending = writable<PendingPermission[]>([]);
 export const fleet = writable<FleetAgent[]>([]);
@@ -93,46 +95,60 @@ export interface Notice {
   id: number;
   text: string;
   tone: "warn" | "danger" | "info";
+  /** Unix ms, for the relative timestamp. */
+  at: number;
 }
 export const notices = writable<Notice[]>([]);
 let noticeSeq = 0;
 
 export function pushNotice(text: string, tone: Notice["tone"] = "warn"): void {
   noticeSeq += 1;
-  notices.update((all) => [...all, { id: noticeSeq, text, tone }]);
+  notices.update((all) => [...all, { id: noticeSeq, text, tone, at: Date.now() }]);
 }
 
 export function dismissNotice(id: number): void {
   notices.update((all) => all.filter((n) => n.id !== id));
 }
 
-// ---- refreshers --------------------------------------------------------------
+export function dismissAllNotices(): void {
+  notices.set([]);
+}
 
-export async function loadProjectRoot(): Promise<string | null> {
-  const root = await invoke<string | null>("project_root");
-  projectRoot.set(root);
+// ---- project scope -----------------------------------------------------------
+
+/**
+ * Resolves the initial project: the persisted active project when it is still
+ * set, otherwise the working directory the app was launched in.
+ */
+export async function initProjectScope(persisted: string | null): Promise<string | null> {
+  const cwd = await invoke<string | null>("project_root");
+  const root = persisted ?? cwd;
+  activeProject.set(root);
   return root;
 }
 
+export function switchProject(root: string): void {
+  activeProject.set(root);
+  setActiveProject(root);
+}
+
+// ---- refreshers --------------------------------------------------------------
+
 export async function refreshSessions(): Promise<void> {
-  const root = get(projectRoot);
   const result = await request<{ sessions: SessionInfo[] }>("session/list", {
-    projectRoot: root ?? undefined,
+    projectRoot: get(activeProject) ?? undefined,
   });
   sessions.set(result.sessions);
 }
 
 export async function refreshPending(): Promise<void> {
-  const result = await request<{ pending: PendingPermission[] }>(
-    "permission/pending",
-  );
+  const result = await request<{ pending: PendingPermission[] }>("permission/pending");
   pending.set(result.pending);
 }
 
 export async function refreshFleet(): Promise<void> {
-  const root = get(projectRoot);
   const result = await request<{ agents: FleetAgent[] }>("fleet/list", {
-    projectRoot: root ?? undefined,
+    projectRoot: get(activeProject) ?? undefined,
   });
   fleet.set(result.agents);
 }
@@ -154,17 +170,40 @@ export function onSessionEvent(handler: SessionEventHandler): () => void {
 }
 
 /**
- * Routes `daemon:incoming` into the stores. Call once at app start; the
- * translation function is passed in so notices honor the catalog.
+ * Routes `daemon:incoming` into the stores and asks the OS for attention when
+ * a permission lands with the window unfocused (design D4). Call once at app
+ * start; the translator is passed in so notices honor the catalog.
  */
 export function startIncomingRouter(
-  translate: (key: "permissions.timeout.notice", vars: Record<string, string>) => string,
+  translate: (
+    key: "permissions.timeout.notice" | "permissions.arrived.notice",
+    vars: Record<string, string>,
+  ) => string,
 ): Promise<() => void> {
+  const attention = (count: number) => {
+    void invoke("request_attention", { pending: count }).catch(() => {});
+  };
   return onIncoming((message) => {
     const params = (message.params ?? {}) as Record<string, unknown>;
     switch (message.method) {
       case "permission/changed": {
-        pending.set((params.pending as PendingPermission[]) ?? []);
+        const queue = (params.pending as PendingPermission[]) ?? [];
+        pending.set(queue);
+        attention(queue.length);
+        return;
+      }
+      case "permission/request": {
+        // The push is held unanswered on purpose (the tray decides); it is the
+        // earliest moment we can reclaim the user's attention.
+        pushNotice(
+          translate("permissions.arrived.notice", {
+            session: String(params.sessionId ?? "?"),
+          }),
+          "warn",
+        );
+        void refreshPending()
+          .then(() => attention(get(pending).length))
+          .catch(() => {});
         return;
       }
       case "permission/timeout": {
@@ -175,14 +214,14 @@ export function startIncomingRouter(
           }),
           "warn",
         );
-        void refreshPending().catch(() => {});
+        void refreshPending()
+          .then(() => attention(get(pending).length))
+          .catch(() => {});
         return;
       }
       case "session/event": {
         const event = message.params as SessionEventMessage;
-        for (const handler of sessionEventHandlers) {
-          handler(event);
-        }
+        for (const handler of sessionEventHandlers) handler(event);
         return;
       }
       default:

@@ -47,7 +47,7 @@
 
 {#if $pending.length === 0}
   <EmptyState
-    glyph="●"
+    glyph="permissions"
     title={$t("permissions.empty.title")}
     hint={$t("permissions.empty.hint")}
   />
@@ -103,14 +103,16 @@
   ul {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: var(--panel-pad);
     display: grid;
     gap: var(--sp-3);
     align-content: start;
+    overflow: auto;
+    height: 100%;
   }
   li {
     background: var(--surface);
-    border: 1px solid var(--border);
+    border: 1px solid var(--hair);
     border-radius: var(--radius-panel);
     padding: var(--sp-4);
     display: grid;
@@ -154,13 +156,13 @@
     gap: var(--sp-2);
     flex-wrap: wrap;
   }
-  button {
-    font: inherit;
-    padding: var(--sp-1) var(--sp-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--text);
-    cursor: pointer;
+  /* Hard rule: the tray never animates its layout — nothing moves under
+     the cursor while a permission is being decided. */
+  li,
+  .options {
+    transition: none !important;
+  }
+  .rule input {
+    width: auto;
   }
 </style>

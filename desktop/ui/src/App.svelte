@@ -1,18 +1,31 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import { onMount } from "svelte";
+  import { get } from "svelte/store";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { conn, startConnListener } from "./lib/daemon";
-  import { t } from "./lib/i18n";
+  import { setLocale, t } from "./lib/i18n";
   import type { ViewId } from "./lib/registry";
   import {
-    dismissNotice,
-    loadProjectRoot,
-    notices,
-    pending,
+    activeProject,
+    initProjectScope,
+    pushNotice,
     refreshPending,
     startIncomingRouter,
+    switchProject,
   } from "./lib/stores";
+  import { loadUiState, setLastView } from "./lib/ui-state";
+  import { dirtyFiles } from "./lib/editor/dirty";
+  import Sidebar from "./lib/components/Sidebar.svelte";
+  import TopBar from "./lib/components/TopBar.svelte";
+  import StatusBar from "./lib/components/StatusBar.svelte";
+  import Notices from "./lib/components/Notices.svelte";
+  import Palette from "./lib/components/Palette.svelte";
+  import NewSession from "./lib/components/NewSession.svelte";
+  import Onboarding from "./lib/components/Onboarding.svelte";
+  import ConfirmDialog from "./lib/components/ConfirmDialog.svelte";
+  import Icon from "./lib/components/Icon.svelte";
   import Sessions from "./lib/views/Sessions.svelte";
   import SessionDetail from "./lib/views/SessionDetail.svelte";
   import Project from "./lib/views/Project.svelte";
@@ -20,63 +33,102 @@
   import Fleet from "./lib/views/Fleet.svelte";
   import Editor from "./lib/views/Editor.svelte";
   import Review from "./lib/views/Review.svelte";
-  import { projectRoot } from "./lib/stores";
-  import Palette from "./lib/components/Palette.svelte";
-  import Onboarding from "./lib/components/Onboarding.svelte";
-  import { get } from "svelte/store";
+  import Settings from "./lib/views/Settings.svelte";
 
-  const VIEWS: ViewId[] = ["sessions", "project", "permissions", "fleet"];
+  const KEYED_VIEWS: ViewId[] = ["sessions", "project", "permissions", "fleet"];
 
   let view: ViewId = $state("sessions");
   let detailSession: string | null = $state(null);
-  let paletteOpen = $state(false);
-  let onboardingOpen = $state(false);
-
-  /** The utilitarian editor, over the project root or a managed worktree. */
+  let reviewOpen = $state(false);
   let editorContext: {
     root: string;
     target: { change: string; task: string; agent: string } | null;
     initialFile: string | null;
   } | null = $state(null);
-  let reviewOpen = $state(false);
 
-  const overlayOpen = $derived(paletteOpen || onboardingOpen);
+  let paletteOpen = $state(false);
+  let launcherOpen = $state(false);
+  let launcherSession: string | null = $state(null);
+  let onboardingOpen = $state(false);
+  /** Pending navigation held by the unsaved-work guard. */
+  let guard: { kind: "close" } | { kind: "leave"; go: () => void } | null = $state(null);
 
-  function openProjectEditor() {
-    const root = $projectRoot;
-    if (root) {
-      editorContext = { root, target: null, initialFile: null };
-    }
-  }
+  const overlayOpen = $derived(paletteOpen || launcherOpen || onboardingOpen || guard !== null);
+
+  const viewTitle = $derived.by(() => {
+    if (editorContext) return $t("editor.title");
+    if (reviewOpen) return $t("review.title");
+    if (detailSession) return $t("sessions.detail.transcript");
+    return $t(("nav." + view) as never);
+  });
 
   onMount(() => {
     const cleanups: Promise<() => void>[] = [];
     cleanups.push(startConnListener());
-    cleanups.push(startIncomingRouter((key, vars) => get(t)(key, vars)));
-    void loadProjectRoot();
-    void invoke<boolean>("onboarding_seen").then((seen) => {
-      if (!seen) onboardingOpen = true;
-    });
-    // Seed the tray from the daemon's queue once connected (survives
-    // reconnection: the count lives in the daemon, not per-connection).
-    const seed = conn.subscribe((state) => {
-      if (state.state === "connected") {
-        void refreshPending().catch(() => {});
+    cleanups.push(
+      startIncomingRouter((key, vars) => get(t)(key, vars)),
+    );
+
+    void (async () => {
+      const state = await loadUiState();
+      if (state.locale) setLocale(state.locale);
+      await initProjectScope(state.activeProject);
+      if (state.lastView && [...KEYED_VIEWS, "editor", "settings"].includes(state.lastView)) {
+        view = state.lastView as ViewId;
       }
+      const seen = await invoke<boolean>("onboarding_seen");
+      if (!seen) onboardingOpen = true;
+    })();
+
+    // Closing the window asks the surface first when work is unsaved.
+    cleanups.push(
+      listen("app:close-requested", () => {
+        if (get(dirtyFiles).length > 0) guard = { kind: "close" };
+        else void invoke("close_confirmed");
+      }),
+    );
+
+    const seed = conn.subscribe((state) => {
+      if (state.state === "connected") void refreshPending().catch(() => {});
     });
+
     return () => {
       seed();
-      for (const pending of cleanups) {
-        void pending.then((unlisten) => unlisten());
+      for (const pendingCleanup of cleanups) {
+        void pendingCleanup.then((unlisten) => unlisten());
       }
     };
   });
 
+  /** Navigation that respects unsaved editor work. */
+  function leaveEditor(go: () => void) {
+    if (editorContext && get(dirtyFiles).length > 0) {
+      guard = { kind: "leave", go };
+      return;
+    }
+    go();
+  }
+
   function navigate(target: ViewId) {
-    view = target;
-    detailSession = null;
-    editorContext = null;
-    reviewOpen = false;
+    leaveEditor(() => {
+      view = target;
+      detailSession = null;
+      reviewOpen = false;
+      editorContext = target === "editor" ? editorContext : null;
+      if (target === "editor") openProjectEditor();
+      setLastView(target);
+    });
+  }
+
+  function openProjectEditor(file: string | null = null) {
+    const root = get(activeProject);
+    if (!root) {
+      pushNotice($t("editor.noProject"), "warn");
+      return;
+    }
+    view = "editor";
+    editorContext = { root, target: null, initialFile: file };
+    setLastView("editor");
   }
 
   function isTextEntry(target: EventTarget | null): boolean {
@@ -86,16 +138,17 @@
       tag === "INPUT" ||
       tag === "TEXTAREA" ||
       tag === "SELECT" ||
-      target.isContentEditable
+      target.isContentEditable ||
+      // CodeMirror's editable surface is a contenteditable div.
+      target.closest(".cm-editor") !== null
     );
   }
 
   function onKeydown(event: KeyboardEvent) {
-    // Overlays trap their own keys (announced way out: Esc).
     if (overlayOpen || isTextEntry(event.target)) return;
 
     if (event.key >= "1" && event.key <= "4") {
-      navigate(VIEWS[Number(event.key) - 1]);
+      navigate(KEYED_VIEWS[Number(event.key) - 1]);
       return;
     }
     if (event.key === ":" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k")) {
@@ -103,8 +156,13 @@
       paletteOpen = true;
       return;
     }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
+      event.preventDefault();
+      launcherSession = null;
+      launcherOpen = true;
+      return;
+    }
     if (event.key === "a") {
-      // Jump to the tray AND focus a pending request (tui-shell parity).
       navigate("permissions");
       setTimeout(() => {
         document.querySelector<HTMLElement>("[data-autofocus]")?.focus();
@@ -116,259 +174,189 @@
       return;
     }
     if (event.key === "Escape") {
-      if (editorContext) {
-        editorContext = null;
-      } else if (reviewOpen) {
-        reviewOpen = false;
-      } else if (detailSession) {
-        detailSession = null;
-      }
+      if (editorContext) leaveEditor(() => (editorContext = null));
+      else if (reviewOpen) reviewOpen = false;
+      else if (detailSession) detailSession = null;
+    }
+  }
+
+  async function copyDiagnostics() {
+    const state = $conn;
+    const text =
+      state.state === "unreachable"
+        ? `state=unreachable\nendpoint=${state.endpoint}\ndetail=${state.detail}`
+        : `state=${state.state}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      pushNotice($t("banner.copied"), "info");
+    } catch {
+      pushNotice($t("banner.copyFailed"), "danger");
+    }
+  }
+
+  async function retryNow() {
+    try {
+      await invoke("daemon_request", { method: "status", params: {} });
+    } catch {
+      // The bridge reports the outcome through the connection state.
     }
   }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="chrome">
-  <header>
-    <span class="brand">{$t("app.title")}</span>
+<div class="shell">
+  <Sidebar
+    {view}
+    onNavigate={navigate}
+    onPickProject={() => {
+      const root = get(activeProject);
+      if (root) switchProject(root);
+      navigate("project");
+    }}
+  />
 
-    <nav aria-label={$t("nav.viewLabel")}>
-      {#each VIEWS as id, index (id)}
-        <button
-          aria-current={view === id && !detailSession ? "page" : undefined}
-          class:current={view === id}
-          onclick={() => navigate(id)}
-        >
-          <span class="key" aria-hidden="true">{index + 1}</span>
-          {$t(("nav." + id) as never)}
+  <div class="main">
+    <TopBar
+      title={viewTitle}
+      onOpenPalette={() => (paletteOpen = true)}
+      onNewSession={() => {
+        launcherSession = null;
+        launcherOpen = true;
+      }}
+      onOpenPermissions={() => navigate("permissions")}
+    >
+      {#if detailSession || reviewOpen || editorContext}
+        <button class="ghost" onclick={() => onKeydown(new KeyboardEvent("keydown", { key: "Escape" }))}>
+          {$t("common.back")}
         </button>
-      {/each}
-    </nav>
-
-    <div class="signals">
-      <!-- Permission indicator: symbol + counter + word, always visible. -->
-      <button
-        class="tray"
-        class:waiting={$pending.length > 0}
-        onclick={() => navigate("permissions")}
-      >
-        {#if $pending.length > 0}
-          ● {$t("permissions.waiting", { n: $pending.length })}
-        {:else}
-          ○ {$t("nav.permissions").toLowerCase()}
-        {/if}
-      </button>
-
-      <span class="conn" role="status">
-        {#if $conn.state === "connecting"}
-          <span class="info">◌ {$t("conn.connecting")}</span>
-        {:else if $conn.state === "connected"}
-          <span class="ok">▸ {$t("conn.connected")}</span>
-          <span class="muted">
-            v{$conn.version} · {$t("conn.sessions", { n: $conn.sessions })}
-          </span>
-        {:else}
-          <span class="danger">▲ {$t("conn.unreachable")}</span>
-        {/if}
-      </span>
-    </div>
-  </header>
-
-  {#if detailSession}
-    <div class="breadcrumb" aria-label={$t("nav.breadcrumb")}>
-      <button class="link" onclick={() => (detailSession = null)}>
-        {$t("nav.sessions")}
-      </button>
-      <span aria-hidden="true">›</span>
-      <code>{detailSession.slice(0, 8)}</code>
-    </div>
-  {:else if editorContext}
-    <div class="breadcrumb" aria-label={$t("nav.breadcrumb")}>
-      <button class="link" onclick={() => (editorContext = null)}>
-        {$t("nav.project")}
-      </button>
-      <span aria-hidden="true">›</span>
-      <span>{$t("editor.title")}</span>
-      {#if editorContext.target}
-        <code>
-          {editorContext.target.change}/{editorContext.target.task}-{editorContext
-            .target.agent}
-        </code>
       {/if}
-    </div>
-  {:else if reviewOpen}
-    <div class="breadcrumb" aria-label={$t("nav.breadcrumb")}>
-      <button class="link" onclick={() => (reviewOpen = false)}>
-        {$t("nav.project")}
-      </button>
-      <span aria-hidden="true">›</span>
-      <span>{$t("review.title")}</span>
-    </div>
-  {/if}
+    </TopBar>
 
-  <!-- Signal priority: daemon down outranks everything (assertive). -->
-  {#if $conn.state === "unreachable"}
-    <div class="banner" role="alert">
-      <strong>▲ {$t("banner.daemonDown")}</strong>
-      <span>{$conn.detail}</span>
-      <span class="mono">{$t("conn.endpoint")}: {$conn.endpoint}</span>
-      <span>{$t("conn.willDeny")}</span>
-      <span class="muted">{$t("banner.retrying")} · {$t("conn.sshHint")}</span>
-    </div>
-  {/if}
-
-  {#if $notices.length > 0}
-    <div class="notices" role="region" aria-label={$t("notices.title")} aria-live="polite">
-      {#each $notices as notice (notice.id)}
-        <div class="notice tone-{notice.tone}">
-          <span>{notice.text}</span>
-          <button class="link" onclick={() => dismissNotice(notice.id)}>
-            {$t("notices.dismiss")}
+    <!-- Signal 1: the daemon being unreachable outranks everything. -->
+    {#if $conn.state === "unreachable"}
+      <div class="banner" role="alert">
+        <strong><span aria-hidden="true">▲</span> {$t("banner.daemonDown")}</strong>
+        <span>{$conn.detail}</span>
+        <span class="mono">{$t("conn.endpoint")}: {$conn.endpoint}</span>
+        <span>{$t("conn.willDeny")}</span>
+        <span class="bannerActions">
+          <button class="ghost" onclick={() => void retryNow()}>
+            <Icon name="refresh" size={12} />
+            {$t("banner.retryNow")}
           </button>
-        </div>
-      {/each}
-    </div>
-  {/if}
-
-  <main>
-    {#if editorContext}
-      {#key editorContext.root}
-        <Editor
-          root={editorContext.root}
-          target={editorContext.target}
-          initialFile={editorContext.initialFile}
-          onBack={() => (editorContext = null)}
-        />
-      {/key}
-    {:else if reviewOpen && $projectRoot}
-      <Review
-        root={$projectRoot}
-        onEditWorktree={(worktreePath, target, file) =>
-          (editorContext = {
-            root: worktreePath,
-            target,
-            initialFile: file ?? null,
-          })}
-        onBack={() => (reviewOpen = false)}
-      />
-    {:else if detailSession}
-      <SessionDetail
-        sessionId={detailSession}
-        onBack={() => (detailSession = null)}
-      />
-    {:else if view === "sessions"}
-      <Sessions
-        onOpen={(sessionId) => (detailSession = sessionId)}
-        onNavigate={navigate}
-      />
-    {:else if view === "project"}
-      <Project
-        onOpenEditor={openProjectEditor}
-        onOpenReview={() => (reviewOpen = true)}
-      />
-    {:else if view === "permissions"}
-      <Permissions />
-    {:else}
-      <Fleet />
+          <button class="ghost" onclick={() => void copyDiagnostics()}>
+            <Icon name="copy" size={12} />
+            {$t("banner.copyDiagnostics")}
+          </button>
+        </span>
+      </div>
     {/if}
-  </main>
 
-  <footer>
-    <span class="muted">{$t("help.keys")}</span>
-  </footer>
+    <Notices />
+
+    <main>
+      {#if editorContext}
+        {#key editorContext.root + (editorContext.initialFile ?? "")}
+          <Editor
+            root={editorContext.root}
+            target={editorContext.target}
+            initialFile={editorContext.initialFile}
+            onBack={() => leaveEditor(() => (editorContext = null))}
+          />
+        {/key}
+      {:else if reviewOpen && $activeProject}
+        <Review
+          root={$activeProject}
+          onEditWorktree={(worktreePath, target, file) => {
+            view = "editor";
+            editorContext = { root: worktreePath, target, initialFile: file ?? null };
+          }}
+          onBack={() => (reviewOpen = false)}
+        />
+      {:else if detailSession}
+        <SessionDetail
+          sessionId={detailSession}
+          onBack={() => (detailSession = null)}
+          onDirect={(id) => {
+            launcherSession = id;
+            launcherOpen = true;
+          }}
+        />
+      {:else if view === "sessions"}
+        <Sessions
+          onOpen={(sessionId) => (detailSession = sessionId)}
+          onNavigate={navigate}
+          onNewSession={() => {
+            launcherSession = null;
+            launcherOpen = true;
+          }}
+          onDirect={(id) => {
+            launcherSession = id;
+            launcherOpen = true;
+          }}
+        />
+      {:else if view === "project"}
+        <Project
+          onOpenEditor={() => openProjectEditor()}
+          onOpenReview={() => (reviewOpen = true)}
+        />
+      {:else if view === "permissions"}
+        <Permissions />
+      {:else if view === "fleet"}
+        <Fleet />
+      {:else}
+        <Settings onEditFile={(file) => openProjectEditor(file)} />
+      {/if}
+    </main>
+
+    <StatusBar />
+  </div>
 </div>
 
 {#if paletteOpen}
   <Palette onClose={() => (paletteOpen = false)} onNavigate={navigate} />
 {/if}
 
+{#if launcherOpen}
+  <NewSession initialSession={launcherSession} onClose={() => (launcherOpen = false)} />
+{/if}
+
 {#if onboardingOpen}
   <Onboarding onClose={() => (onboardingOpen = false)} />
 {/if}
 
+{#if guard}
+  <ConfirmDialog
+    title={$t("confirm.title")}
+    message={$t("editor.guard.message", { files: $dirtyFiles.join(", ") })}
+    confirmLabel={$t("editor.guard.discard")}
+    onConfirm={() => {
+      const pendingGuard = guard;
+      guard = null;
+      if (pendingGuard?.kind === "close") void invoke("close_confirmed");
+      else pendingGuard?.go();
+    }}
+    onCancel={() => (guard = null)}
+  />
+{/if}
+
 <style>
-  .chrome {
+  .shell {
+    display: flex;
     height: 100vh;
-    display: grid;
-    grid-template-rows: auto auto auto auto 1fr auto;
     background: var(--bg);
   }
-  header {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-4);
-    padding: var(--sp-2) var(--sp-4);
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
+  .main {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-rows: auto auto auto 1fr auto;
+    min-height: 0;
   }
-  .brand {
-    font-weight: 600;
-    background: linear-gradient(45deg, var(--mel-aegean), var(--mel-wind));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  nav {
-    display: flex;
-    gap: var(--sp-1);
-  }
-  nav button {
-    font: inherit;
-    padding: var(--sp-1) var(--sp-3);
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-  nav button.current {
-    color: var(--text);
-    border-color: var(--border);
-    background: var(--surface-2);
-  }
-  .key {
-    display: inline-block;
-    font-size: 0.6875rem;
-    color: var(--text-muted);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 0 4px;
-    margin-right: 2px;
-  }
-  .signals {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: var(--sp-4);
-  }
-  .tray {
-    font: inherit;
-    padding: var(--sp-1) var(--sp-3);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-  .tray.waiting {
-    color: var(--warn);
-    border-color: var(--warn);
-    font-weight: 600;
-  }
-  .conn {
-    display: inline-flex;
-    gap: var(--sp-2);
-    align-items: baseline;
-    font-size: 0.8125rem;
-  }
-  .breadcrumb {
-    display: flex;
-    gap: var(--sp-2);
-    align-items: center;
-    padding: var(--sp-2) var(--sp-4);
-    border-bottom: 1px solid var(--border);
-    font-size: 0.8125rem;
+  main {
+    overflow: hidden;
+    min-height: 0;
   }
   .banner {
     display: flex;
@@ -378,62 +366,22 @@
     padding: var(--sp-2) var(--sp-4);
     background: var(--danger);
     color: #fff;
+    font-size: var(--fs-dense);
   }
-  .banner .muted {
-    color: rgb(255 255 255 / 0.8);
-  }
-  .notices {
-    display: grid;
-    gap: 1px;
-  }
-  .notice {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--sp-3);
-    padding: var(--sp-1) var(--sp-4);
-    font-size: 0.8125rem;
-    background: var(--surface-2);
-  }
-  .tone-warn {
-    color: var(--warn);
-  }
-  .tone-danger {
-    color: var(--danger);
-  }
-  .tone-info {
-    color: var(--info);
-  }
-  main {
-    padding: var(--sp-4);
-    overflow: auto;
-    min-height: 0;
-  }
-  footer {
-    padding: var(--sp-1) var(--sp-4);
-    border-top: 1px solid var(--border);
-    font-size: 0.75rem;
-  }
-  .muted {
-    color: var(--text-muted);
-  }
-  .mono {
+  .banner .mono {
     font-family: var(--font-mono);
   }
-  .ok {
-    color: var(--ok);
+  .bannerActions {
+    margin-left: auto;
+    display: flex;
+    gap: var(--sp-2);
   }
-  .info {
-    color: var(--info);
-  }
-  .danger {
-    color: var(--danger);
-  }
-  .link {
-    font: inherit;
-    border: 0;
-    background: transparent;
-    color: var(--accent);
-    cursor: pointer;
-    padding: 0;
+  .bannerActions button {
+    color: #fff;
+    border-color: rgb(255 255 255 / 0.5);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    font-size: var(--fs-caption);
   }
 </style>

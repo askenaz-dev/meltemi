@@ -92,10 +92,12 @@ fn the_i18n_lint_refuses_hardcoded_strings_and_runs_in_ci() {
             .lines()
             .filter_map(|line| {
                 let trimmed = line.trim();
+                if !trimmed.contains("\": ") {
+                    return None;
+                }
                 trimmed
                     .strip_prefix('"')
                     .and_then(|rest| rest.split('"').next())
-                    .filter(|key| trimmed.contains("\": "))
                     .map(str::to_string)
             })
             .collect()

@@ -1,0 +1,178 @@
+// SPDX-License-Identifier: Apache-2.0
+// Generates typed palette forms from the contract's own JSON Schemas
+// (gui-clase-mundial design D1). Node only, no network, no dependency.
+//
+//   node scripts/gen-method-forms.mjs            # write the module
+//   node scripts/gen-method-forms.mjs --check    # fail if it is stale (CI)
+//
+// The generated module is the single source of the palette's form fields, so a
+// contract change that is not regenerated fails the build instead of shipping
+// a form that lies about the method it invokes.
+
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const HERE = new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+const UI = join(HERE, "..");
+const REPO = join(UI, "..", "..");
+const SCHEMA_DIR = join(REPO, "proto", "schemas", "v1");
+const OUT = join(UI, "src", "lib", "generated", "method-forms.ts");
+const REGISTRY = join(UI, "src", "lib", "registry.ts");
+
+/** Every method the GUI registry declares, in declaration order. */
+function registryMethods() {
+  const source = readFileSync(REGISTRY, "utf-8");
+  return [...source.matchAll(/R\("([^"]+)"/g)].map((match) => match[1]);
+}
+
+/**
+ * Loads every schema with the methods its own `title` declares — the contract
+ * states its coverage there ("worktree/*", "change/list · change/show"), so a
+ * method is only ever matched against the file that owns it.
+ */
+function loadSchemas() {
+  const schemas = [];
+  for (const file of readdirSync(SCHEMA_DIR)) {
+    if (!file.endsWith(".schema.json")) continue;
+    const doc = JSON.parse(readFileSync(join(SCHEMA_DIR, file), "utf-8"));
+    const title = doc.title ?? "";
+    const claims = title
+      .split(/·|&/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    schemas.push({ file, doc, claims });
+  }
+  return schemas;
+}
+
+/** Whether a schema's title claims this method. */
+function claimsMethod(schema, method) {
+  return schema.claims.some((claim) => {
+    if (claim === method) return true;
+    // "worktree/*" and "sdd/* authoring cycle" claim their whole family.
+    const star = claim.indexOf("*");
+    return star > 0 && method.startsWith(claim.slice(0, star));
+  });
+}
+
+const camel = (text) =>
+  text
+    .split(/[-/]/)
+    .map((part, index) =>
+      index === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1),
+    )
+    .join("");
+
+/** Candidate `$defs` names inside the owning schema, most specific first. */
+function candidates(method, schema) {
+  const [family, verb = ""] = method.split("/");
+  const names = [];
+  if (verb) {
+    names.push(`${camel(verb)}Params`, `${camel(`${family}-${verb}`)}Params`);
+  }
+  names.push(`${camel(method)}Params`, `${camel(family)}Params`);
+  // A schema that owns exactly one method may name its params plainly.
+  if (schema.claims.length === 1 && !schema.claims[0].includes("*")) {
+    names.push("params");
+  }
+  return names;
+}
+
+/** Resolves `$ref`s inside the same document so enums survive generation. */
+function resolve(schema, doc, depth = 0) {
+  if (!schema || depth > 6) return schema ?? {};
+  if (schema.$ref?.startsWith("#/$defs/")) {
+    const target = doc.$defs?.[schema.$ref.slice("#/$defs/".length)];
+    return resolve(target, doc, depth + 1);
+  }
+  return schema;
+}
+
+function fieldsOf(entry) {
+  const { schema, doc } = entry;
+  const required = new Set(schema.required ?? []);
+  const fields = [];
+  for (const [name, raw] of Object.entries(schema.properties ?? {})) {
+    const property = resolve(raw, doc);
+    let kind = "string";
+    if (property.type === "boolean") kind = "boolean";
+    else if (property.type === "integer" || property.type === "number") kind = "number";
+    else if (property.type === "array") kind = "array";
+    else if (property.type === "object") kind = "object";
+    const field = { name, kind, required: required.has(name) };
+    if (Array.isArray(property.enum)) field.options = property.enum;
+    if (property.const !== undefined) field.constant = property.const;
+    fields.push(field);
+  }
+  return fields;
+}
+
+function render() {
+  const schemas = loadSchemas();
+  const forms = {};
+  const unresolved = [];
+  for (const method of registryMethods()) {
+    const owners = schemas.filter((schema) => claimsMethod(schema, method));
+    let found = null;
+    for (const owner of owners) {
+      for (const candidate of candidates(method, owner)) {
+        const schema = owner.doc.$defs?.[candidate];
+        if (schema) {
+          found = { file: owner.file, name: candidate, schema, doc: owner.doc };
+          break;
+        }
+      }
+      if (found) break;
+    }
+    if (!found) {
+      unresolved.push(method);
+      continue;
+    }
+    forms[method] = { schema: found.file, def: found.name, fields: fieldsOf(found) };
+  }
+
+  const body = JSON.stringify(forms, null, 2);
+  return `// SPDX-License-Identifier: Apache-2.0
+// GENERATED by desktop/ui/scripts/gen-method-forms.mjs from
+// proto/schemas/v1/*.schema.json. Do not edit by hand; regenerate.
+// Methods without a typed \`Params\` schema fall back to the raw JSON mode:
+${unresolved.length === 0 ? "// (none)" : unresolved.map((m) => `//   ${m}`).join("\n")}
+
+export interface MethodField {
+  name: string;
+  kind: "string" | "number" | "boolean" | "array" | "object";
+  required: boolean;
+  options?: (string | number)[];
+  constant?: unknown;
+}
+
+export interface MethodForm {
+  schema: string;
+  def: string;
+  fields: MethodField[];
+}
+
+export const METHOD_FORMS: Record<string, MethodForm> = ${body};
+`;
+}
+
+const rendered = render();
+if (process.argv.includes("--check")) {
+  let current = "";
+  try {
+    current = readFileSync(OUT, "utf-8");
+  } catch {
+    current = "";
+  }
+  const normalize = (text) => text.replaceAll("\r\n", "\n");
+  if (normalize(current) !== normalize(rendered)) {
+    console.error(
+      "method forms are stale: run `npm run gen:forms --prefix desktop/ui` after changing the contract",
+    );
+    process.exit(1);
+  }
+  console.log("method forms: fresh");
+} else {
+  writeFileSync(OUT, rendered);
+  console.log(`method forms written: ${OUT}`);
+}

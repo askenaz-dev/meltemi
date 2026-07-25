@@ -8,7 +8,22 @@
 
 import type { MessageKey } from "./messages";
 
-export type ViewId = "sessions" | "project" | "permissions" | "fleet";
+export type ViewId =
+  | "sessions"
+  | "project"
+  | "permissions"
+  | "fleet"
+  | "editor"
+  | "settings";
+
+/** Palette groups, by contract domain (design D2). */
+export type MethodGroup =
+  | "system"
+  | "session"
+  | "sdd"
+  | "worktree"
+  | "checkpoint"
+  | "spec";
 
 export interface RegistryEntry {
   /** The contract method this entry exercises (parity key). */
@@ -25,6 +40,18 @@ export interface RegistryEntry {
   dangerous?: boolean;
   /** A dedicated view renders this method's domain (palette offers to open it). */
   view?: ViewId;
+}
+
+/** The group a method belongs to, derived from its contract family. */
+export function groupOf(method: string): MethodGroup {
+  if (method.startsWith("session/") || method === "propose") return "session";
+  if (method.startsWith("sdd/")) return "sdd";
+  if (method.startsWith("worktree/")) return "worktree";
+  if (method.startsWith("checkpoint/") || method === "commit/task") {
+    return "checkpoint";
+  }
+  if (method.startsWith("change/") || method.startsWith("spec/")) return "spec";
+  return "system";
 }
 
 const R = (

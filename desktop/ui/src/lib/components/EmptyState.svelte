@@ -1,19 +1,21 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import type { IconName } from "../icons";
+  import Icon from "./Icon.svelte";
 
   let {
     glyph,
     title,
     hint,
     children,
-  }: { glyph: string; title: string; hint: string; children?: Snippet } =
-    $props();
+  }: { glyph: IconName; title: string; hint: string; children?: Snippet } = $props();
 </script>
 
-<!-- A labeled empty state teaching the next step: never a dead end. -->
+<!-- A labeled empty state that teaches the next step and offers it as a
+     control: never a dead end, never text-only. -->
 <div class="empty">
-  <p class="glyph" aria-hidden="true">{glyph}</p>
+  <span class="glyph"><Icon name={glyph} size={28} /></span>
   <h2>{title}</h2>
   <p class="hint">{hint}</p>
   {#if children}
@@ -25,28 +27,30 @@
   .empty {
     display: grid;
     place-content: center;
+    justify-items: center;
     text-align: center;
     gap: var(--sp-3);
     height: 100%;
     padding: var(--sp-8);
   }
   .glyph {
-    margin: 0;
-    font-size: 2rem;
-    color: var(--text-muted);
+    color: var(--text-faint);
   }
   h2 {
     margin: 0;
-    font-size: 1rem;
+    font-size: var(--fs-section);
+    font-weight: 500;
   }
   .hint {
     margin: 0;
     color: var(--text-muted);
-    max-width: 48ch;
+    max-width: 52ch;
+    font-size: var(--fs-dense);
   }
   .actions {
     display: flex;
-    justify-content: center;
     gap: var(--sp-2);
+    flex-wrap: wrap;
+    justify-content: center;
   }
 </style>

@@ -10,6 +10,7 @@
 pub mod bridge;
 pub mod fsops;
 pub mod lsp;
+pub mod uistate;
 
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager};
@@ -58,7 +59,9 @@ fn daemon_notify(
         .map_err(|_| BridgeError::unreachable("bridge stopped"))
 }
 
-/// The project scope of this process, like the TUI: its working directory.
+/// The working directory this process was launched in: the initial project
+/// scope. The active project itself is surface state (uistate), so the cwd is
+/// a starting point, never a cage.
 #[tauri::command]
 fn project_root() -> Option<String> {
     std::env::current_dir()
@@ -84,6 +87,95 @@ fn onboarding_mark_seen() {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(flag, b"seen\n");
+}
+
+/// Asks the OS for attention when a permission arrives with the window
+/// unfocused (design D4): taskbar flash on Windows, dock bounce on macOS,
+/// urgency hint on Linux — the core window API, no plugin, no sound of our
+/// own, nothing leaving the machine. The title carries the counter so the
+/// reason is legible from the taskbar.
+#[tauri::command]
+fn request_attention(app: tauri::AppHandle, pending: u32) {
+    use tauri::{UserAttentionType, Window};
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let focused = window.is_focused().unwrap_or(false);
+    let title = if pending == 0 {
+        "Meltemi".to_string()
+    } else if pending == 1 {
+        "Meltemi (1 permiso)".to_string()
+    } else {
+        format!("Meltemi ({pending} permisos)")
+    };
+    let _ = window.set_title(&title);
+
+    let attention = if pending > 0 && !focused {
+        Some(UserAttentionType::Informational)
+    } else {
+        None
+    };
+    // `None` clears a pending request on the platforms that keep one.
+    let _: Result<(), _> = Window::request_user_attention(&window.as_ref().window(), attention);
+}
+
+/// Persists the window geometry, and restores it when the remembered position
+/// still falls inside an attached monitor (multi-monitor rule, design D3).
+fn restore_window(app: &tauri::AppHandle, state: &uistate::UiState) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Some(geometry) = state.window else {
+        return;
+    };
+    let monitors: Vec<(i32, i32, u32, u32)> = window
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            (position.x, position.y, size.width, size.height)
+        })
+        .collect();
+    if !uistate::geometry_is_visible(&monitors, &geometry) {
+        return; // Stranded geometry: fall back to the configured defaults.
+    }
+    let _ = window.set_size(tauri::PhysicalSize::new(geometry.width, geometry.height));
+    let _ = window.set_position(tauri::PhysicalPosition::new(geometry.x, geometry.y));
+    if geometry.maximized {
+        let _ = window.maximize();
+    }
+}
+
+/// Stores the current geometry into the persisted state.
+#[tauri::command]
+fn window_state_store(app: tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) else {
+        return;
+    };
+    let mut state = uistate::UiState::load();
+    state.window = Some(uistate::WindowState {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        maximized: window.is_maximized().unwrap_or(false),
+    });
+    state.save();
+}
+
+/// Closes the window once the surface has resolved its unsaved editors
+/// (the dirty guard answers here after the user decides).
+#[tauri::command]
+fn close_confirmed(app: tauri::AppHandle) {
+    window_state_store(app.clone());
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.destroy();
+    }
 }
 
 pub fn run() {
@@ -112,6 +204,22 @@ pub fn run() {
                 }
             });
 
+            let stored = uistate::UiState::load();
+            restore_window(app.handle(), &stored);
+
+            // Closing with unsaved editors asks the surface first: no human
+            // work is ever discarded silently (spec "Ninguna pérdida
+            // silenciosa de edición").
+            if let Some(window) = app.get_webview_window("main") {
+                let closer = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = closer.emit("app:close-requested", ());
+                    }
+                });
+            }
+
             app.manage(BridgeHandle(command_tx));
             app.manage(lsp::LspHub::default());
             Ok(())
@@ -122,6 +230,11 @@ pub fn run() {
             project_root,
             onboarding_seen,
             onboarding_mark_seen,
+            request_attention,
+            window_state_store,
+            close_confirmed,
+            uistate::ui_state_load,
+            uistate::ui_state_save,
             fsops::tree_read,
             fsops::tree_search,
             fsops::open_with,

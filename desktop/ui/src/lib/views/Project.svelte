@@ -3,7 +3,7 @@
   import { get } from "svelte/store";
   import { request } from "../daemon";
   import { t } from "../i18n";
-  import { projectRoot, type ChangeInfo, type SpecInfo } from "../stores";
+  import { activeProject, type ChangeInfo, type SpecInfo } from "../stores";
   import EmptyState from "../components/EmptyState.svelte";
 
   let {
@@ -19,7 +19,7 @@
   let validateSummary: string | null = $state(null);
 
   async function load() {
-    const root = get(projectRoot);
+    const root = get(activeProject);
     if (!root) {
       isProject = false;
       loading = false;
@@ -49,7 +49,7 @@
   });
 
   async function validate() {
-    const root = get(projectRoot);
+    const root = get(activeProject);
     if (!root || validating) return;
     validating = true;
     validateSummary = null;
@@ -77,7 +77,7 @@
   <p class="muted">{$t("common.loading")}</p>
 {:else if !isProject}
   <EmptyState
-    glyph="⌂"
+    glyph="project"
     title={$t("project.empty.title")}
     hint={$t("project.empty.hint")}
   />
@@ -97,7 +97,7 @@
           {/if}
         </div>
       </header>
-      <table>
+      <table class="dense">
         <thead>
           <tr>
             <th scope="col">{$t("project.col.change")}</th>
@@ -127,7 +127,7 @@
 
     <section aria-labelledby="specs-title">
       <h2 id="specs-title">{$t("project.specs")}</h2>
-      <table>
+      <table class="dense">
         <thead>
           <tr>
             <th scope="col">{$t("project.col.capability")}</th>
@@ -154,6 +154,9 @@
     display: grid;
     gap: var(--sp-6);
     align-content: start;
+    padding: var(--panel-pad);
+    overflow: auto;
+    height: 100%;
   }
   header {
     display: flex;
@@ -164,45 +167,20 @@
   }
   h2 {
     margin: 0 0 var(--sp-2);
-    font-size: 1rem;
+    font-size: var(--fs-section);
+    font-weight: 500;
   }
   .validate {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
   }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-variant-numeric: tabular-nums;
-  }
-  th {
-    text-align: left;
-    color: var(--text-muted);
-    font-weight: 500;
-    font-size: 0.8125rem;
-    padding: var(--sp-2);
-    border-bottom: 1px solid var(--border);
-  }
-  td {
-    padding: var(--sp-2);
-    border-bottom: 1px solid var(--border);
-    height: 32px;
-  }
   code {
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: var(--fs-dense);
   }
   .muted {
     color: var(--text-muted);
   }
-  button {
-    font: inherit;
-    padding: var(--sp-1) var(--sp-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--text);
-    cursor: pointer;
-  }
+
 </style>
