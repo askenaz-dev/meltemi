@@ -268,6 +268,11 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             // Subcommand-local, but recognized here so the global flag parser
             // does not reject it wherever it appears (only `tunnel` reads it).
             "--exec" => exec = true,
+            // Subcommand-local flags that flow through as positionals for their
+            // own parser to read. Declared here because the global parser is
+            // strict about unknown flags — and a rejected flag would have made
+            // the advertised `usage --all` unusable.
+            "--all" | "--project" | "--since" | "--until" => positionals.push(arg.as_str()),
             flag if flag.starts_with('-') && flag != "-" => {
                 return Plan {
                     action: Action::Usage(format!("unknown flag `{flag}`; run `meltemi help`")),
@@ -671,6 +676,51 @@ mod tests {
 
     fn plan_of(items: &[&str], tty: bool) -> Plan {
         plan(&args(items), tty)
+    }
+
+    #[test]
+    fn the_usage_verb_accepts_its_own_flags_through_the_global_parser() {
+        // The global parser is strict about unknown flags, so a subcommand-local
+        // flag must be declared there or the advertised command is unusable.
+        let plan = plan_of(&["usage", "month", "--all"], false);
+        assert_eq!(
+            plan.action,
+            Action::Run(Command::Usage {
+                project_root: None,
+                granularity: Some("month".into()),
+                since: None,
+                until: None,
+            }),
+            "`usage month --all` must reach the usage parser"
+        );
+
+        let scoped = plan_of(
+            &[
+                "usage",
+                "--project",
+                "/repo",
+                "--since",
+                "2026-07-01T00:00:00Z",
+            ],
+            false,
+        );
+        assert_eq!(
+            scoped.action,
+            Action::Run(Command::Usage {
+                project_root: Some("/repo".into()),
+                granularity: None,
+                since: Some("2026-07-01T00:00:00Z".into()),
+                until: None,
+            })
+        );
+
+        // `--json` still works alongside them, and an unknown flag still fails.
+        let machine = plan_of(&["--json", "usage", "total", "--all"], false);
+        assert!(machine.json);
+        assert!(matches!(
+            plan_of(&["usage", "--nope"], false).action,
+            Action::Usage(_)
+        ));
     }
 
     #[test]

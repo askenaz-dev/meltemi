@@ -115,27 +115,30 @@ Secuencia canónica de las 19 changes restantes (todas con proposal pre-redactad
 
 ## Fase 2 (v1.0) — abierta el 2026-07-20
 
-`gui-tauri-paridad` (**activa en `.meltemi/changes/`, implementación completa
-pendiente de review/verify/archive**: `desktop/` Tauri 2 + Svelte 5, crate
-compartido `core/meltemi-client`, matriz de paridad como gate de CI, política
-de concurrencia humano↔agente resuelta con `worktree/apply-edit` +
-`human_edit` + nota al siguiente turno, LSP BYO, instaladores con gate
-< 15 MB; creó `docs/ux/design-system.md` y `docs/paridad-nucleo.md`) ·
-`motor-propio-byok` · `sandbox-propio` · `hooks-eventos` ·
-`plugins-skills-sdk` · `i18n-superficies` · `metricas-sdd-locales` ·
-`lsp-superficie-revision`.
+**Archivadas el 2026-07-25** (183 escenarios verificados, 64 requisitos
+revisados uno por uno, deltas plegados a la verdad viva):
 
-**Propuestas 2026-07-20 desde feedback del mantenedor** (proposal
-materializada en `.meltemi/changes/`, design/specs/tasks just-in-time; orden
-sugerido tras `gui-clase-mundial`): `flota-deteccion-guia` (detección en dos
-capas CLI+adaptador con remedios y guía de agentes para GitHub) ·
-`multiproyecto-suscripciones` (árbol proyecto→sesiones con perfiles/
-suscripciones visibles; el daemon ya lo soporta) · `analitica-consumo-local`
-(contabilidad local §2/§9: actividad siempre, tokens donde la interfaz
-oficial los emite) · `sitio-web-producto` (meltemi.dev estático con el
-design system; el producto completo: escritorio + terminal, 3 SO). El design
-system del mantenedor vive en `design-system/` y es la fuente visual
+| Change | Qué dejó en la verdad viva |
+|---|---|
+| `gui-tauri-paridad` | `desktop/` Tauri 2 + Svelte 5, crate compartido `core/meltemi-client`, matriz de paridad como gate de CI, política de concurrencia humano↔agente (`worktree/apply-edit` + `human_edit` + nota al siguiente turno), LSP BYO, instaladores con gate < 15 MB; creó `docs/ux/design-system.md` y `docs/paridad-nucleo.md` |
+| `gui-clase-mundial` | Shell de tres zonas con la densidad del design system, identidad de entidades, drawer, superficie de Ajustes, paleta con difusa/grupos/formularios tipados, la sesión como acción primaria, guarda de trabajo sin guardar |
+| `flota-deteccion-guia` | Detección en dos capas (CLI oficial + adaptador) con estado compuesto, remedio por capa con su comando exacto, estatus legal sin maquillaje y `docs/agentes.md` verificada contra el registro |
+| `multiproyecto-suscripciones` | Registro de proyectos (`project/list`), agente y suscripción en los metadatos de sesión, árbol Proyecto→Sesiones en la GUI, agrupación y ámbito conmutable en la TUI |
+| `analitica-consumo-local` | `analytics/usage`: actividad plegada de los registros locales, tokens solo donde la salida oficial los reporta, frontera medido/no-reportado con motivo estable y declaración de honestidad junto a las cifras |
+| `sitio-web-producto` | `site/` estático (sin JS, sin orígenes externos), descargas a la última release firmada con nombres estables, tokens derivados del cliente y lint del sitio como gate |
+
+Pendientes de Fase 2: `motor-propio-byok` · `sandbox-propio` ·
+`hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` ·
+`metricas-sdd-locales` · `lsp-superficie-revision`.
+
+El design system del mantenedor vive en `design-system/` y es la fuente visual
 normativa (gui-clase-mundial D11).
+
+**Deuda declarada al archivar** (no se archivó nada fingiendo que estaba
+hecho): la captura de escritorio del sitio exige una máquina de release y su
+procedimiento está en `docs/ux/capturas.md`; la firma de MSI/DMG sigue pendiente
+de infraestructura de certificados; el arranque y la RAM en macOS y Linux se
+publican en el QA de la primera release que incluya la GUI.
 
 > **Gobernanza de alcance** (change `enmienda-edicion-movil`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) está acotado a monitorear/aprobar/dirigir y al acceso solo por túnel SSH por la spec `mobile-companion`.
 
