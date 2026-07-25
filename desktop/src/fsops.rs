@@ -168,11 +168,13 @@ pub fn open_with(root: String, file: String, line: Option<u32>) -> Result<String
         return Ok("code -g".into());
     }
 
-    // OS opener: no line addressing — honest fallback.
+    // OS opener: no line addressing — honest fallback. `start` consumes the
+    // first quoted argument as a window title, so one is always supplied or a
+    // path with spaces would be eaten as the title.
     #[cfg(windows)]
     spawn_detached(
         "cmd",
-        &["/C".into(), "start".into(), String::new(), path_str],
+        &["/C".into(), "start".into(), "meltemi".into(), path_str],
     )?;
     #[cfg(target_os = "macos")]
     spawn_detached("open", &[path_str])?;
@@ -183,7 +185,7 @@ pub fn open_with(root: String, file: String, line: Option<u32>) -> Result<String
 
 fn spawn_detached(program: &str, args: &[String]) -> Result<(), BridgeError> {
     std::process::Command::new(program)
-        .args(args.iter().filter(|a| !a.is_empty()))
+        .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

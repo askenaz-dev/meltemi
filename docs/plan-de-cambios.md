@@ -113,9 +113,17 @@ Secuencia canónica de las 19 changes restantes (todas con proposal pre-redactad
 - `docs/paridad-nucleo.md` — matriz viva capacidad → RPC → TUI → GUI; toda change que añada un RPC la actualiza (desde #5).
 - `docs/operaciones/checklist-lanzamiento.md` — registros y activos (ver pendientes del arquitecto).
 
-## Fase 2 (v1.0) — se planifica al cerrar Fase 1
+## Fase 2 (v1.0) — abierta el 2026-07-20
 
-`gui-tauri-paridad` (con `docs/ux/design-system.md` como insumo; **incorpora edición utilitaria in situ con inteligencia LSP y resuelve la política de concurrencia humano↔agente sobre un mismo worktree** — gobernada por la spec `edit-surface`) · `motor-propio-byok` · `sandbox-propio` · `hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` · `metricas-sdd-locales` · `lsp-superficie-revision`.
+`gui-tauri-paridad` (**activa en `.meltemi/changes/`, implementación completa
+pendiente de review/verify/archive**: `desktop/` Tauri 2 + Svelte 5, crate
+compartido `core/meltemi-client`, matriz de paridad como gate de CI, política
+de concurrencia humano↔agente resuelta con `worktree/apply-edit` +
+`human_edit` + nota al siguiente turno, LSP BYO, instaladores con gate
+< 15 MB; creó `docs/ux/design-system.md` y `docs/paridad-nucleo.md`) ·
+`motor-propio-byok` · `sandbox-propio` · `hooks-eventos` ·
+`plugins-skills-sdk` · `i18n-superficies` · `metricas-sdd-locales` ·
+`lsp-superficie-revision`.
 
 > **Gobernanza de alcance** (change `enmienda-edicion-movil`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) está acotado a monitorear/aprobar/dirigir y al acceso solo por túnel SSH por la spec `mobile-companion`.
 

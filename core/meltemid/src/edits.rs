@@ -28,9 +28,12 @@ struct TreeActivity {
 }
 
 /// The daemon-wide hub: activity and pending notes, keyed by canonical tree.
+/// A tree may carry several concurrent sessions (e.g. two proposals over the
+/// same project root), so activity is a list and each scope removes only its
+/// own registration.
 #[derive(Default)]
 pub struct EditHub {
-    trees: Mutex<HashMap<String, TreeActivity>>,
+    trees: Mutex<HashMap<String, Vec<TreeActivity>>>,
     notes: Mutex<HashMap<String, Vec<String>>>,
 }
 
@@ -47,22 +50,30 @@ pub fn tree_key(path: &Path) -> String {
 }
 
 impl EditHub {
-    /// The activity observed on a tree right now.
+    /// The activity observed on a tree right now: any in-flight turn wins,
+    /// then any registered session, else free.
     pub fn state_of(&self, key: &str) -> TreeEditState {
         let trees = self.trees.lock().expect("edit hub lock");
         match trees.get(key) {
             None => TreeEditState::Free,
-            Some(activity) if activity.in_flight > 0 => TreeEditState::TurnInFlight,
+            Some(activities) if activities.is_empty() => TreeEditState::Free,
+            Some(activities) if activities.iter().any(|a| a.in_flight > 0) => {
+                TreeEditState::TurnInFlight
+            }
             Some(_) => TreeEditState::SessionActive,
         }
     }
 
-    /// The session registered on a tree, with its log handle.
+    /// A session registered on the tree, with its log handle — the one inside
+    /// a turn when any, else the most recent registration.
     pub fn active_session(&self, key: &str) -> Option<(String, Arc<AsyncMutex<SessionLog>>)> {
         let trees = self.trees.lock().expect("edit hub lock");
-        trees
-            .get(key)
-            .map(|activity| (activity.session_id.clone(), Arc::clone(&activity.log)))
+        let activities = trees.get(key)?;
+        let activity = activities
+            .iter()
+            .find(|a| a.in_flight > 0)
+            .or_else(|| activities.last())?;
+        Some((activity.session_id.clone(), Arc::clone(&activity.log)))
     }
 
     /// Records a human-edited file so the agent's next turn is told about it.
@@ -87,26 +98,31 @@ impl EditHub {
         log: Arc<AsyncMutex<SessionLog>>,
     ) -> EditScope {
         let key = tree_key(tree);
-        self.trees.lock().expect("edit hub lock").insert(
-            key.clone(),
-            TreeActivity {
+        self.trees
+            .lock()
+            .expect("edit hub lock")
+            .entry(key.clone())
+            .or_default()
+            .push(TreeActivity {
                 session_id: session_id.to_string(),
                 in_flight: 0,
                 log,
-            },
-        );
+            });
         EditScope {
             hub: Arc::clone(self),
             key,
+            session_id: session_id.to_string(),
         }
     }
 }
 
-/// RAII registration of a session over a tree; unregisters on drop, so a
-/// panicked or errored session never leaves a stuck activity flag.
+/// RAII registration of a session over a tree; unregisters only its own
+/// session on drop, so a panicked or errored session never leaves a stuck
+/// activity flag and concurrent sessions never erase each other.
 pub struct EditScope {
     hub: Arc<EditHub>,
     key: String,
+    session_id: String,
 }
 
 impl EditScope {
@@ -116,17 +132,20 @@ impl EditScope {
         EditScopeHandle {
             hub: Arc::clone(&self.hub),
             key: self.key.clone(),
+            session_id: self.session_id.clone(),
         }
     }
 }
 
 impl Drop for EditScope {
     fn drop(&mut self) {
-        self.hub
-            .trees
-            .lock()
-            .expect("edit hub lock")
-            .remove(&self.key);
+        let mut trees = self.hub.trees.lock().expect("edit hub lock");
+        if let Some(activities) = trees.get_mut(&self.key) {
+            activities.retain(|a| a.session_id != self.session_id);
+            if activities.is_empty() {
+                trees.remove(&self.key);
+            }
+        }
     }
 }
 
@@ -135,31 +154,35 @@ impl Drop for EditScope {
 pub struct EditScopeHandle {
     hub: Arc<EditHub>,
     key: String,
+    session_id: String,
 }
 
 impl EditScopeHandle {
-    pub fn begin_turn(&self) {
+    fn with_own_activity(&self, apply: impl FnOnce(&mut TreeActivity)) {
         if let Some(activity) = self
             .hub
             .trees
             .lock()
             .expect("edit hub lock")
             .get_mut(&self.key)
+            .and_then(|activities| {
+                activities
+                    .iter_mut()
+                    .find(|a| a.session_id == self.session_id)
+            })
         {
-            activity.in_flight += 1;
+            apply(activity);
         }
     }
 
+    pub fn begin_turn(&self) {
+        self.with_own_activity(|activity| activity.in_flight += 1);
+    }
+
     pub fn end_turn(&self) {
-        if let Some(activity) = self
-            .hub
-            .trees
-            .lock()
-            .expect("edit hub lock")
-            .get_mut(&self.key)
-        {
+        self.with_own_activity(|activity| {
             activity.in_flight = activity.in_flight.saturating_sub(1);
-        }
+        });
     }
 
     /// The note prepended to the agent's next turn when the human edited
@@ -279,6 +302,29 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_sessions_on_one_tree_do_not_erase_each_other() {
+        let dir = std::env::temp_dir().join(format!("mel-edits-conc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let hub = Arc::new(EditHub::default());
+        let key = tree_key(&dir);
+        let log_a = SessionLog::create(&dir, "k", "sess-a").expect("log a");
+        let log_b = SessionLog::create(&dir, "k", "sess-b").expect("log b");
+        let scope_a = hub.enter(&dir, "sess-a", Arc::new(AsyncMutex::new(log_a)));
+        let scope_b = hub.enter(&dir, "sess-b", Arc::new(AsyncMutex::new(log_b)));
+
+        scope_b.handle().begin_turn();
+        assert_eq!(hub.state_of(&key), TreeEditState::TurnInFlight);
+        // The in-turn session is the one an edit gets attributed to.
+        assert_eq!(hub.active_session(&key).unwrap().0, "sess-b");
+
+        // Dropping the idle session must not erase the in-turn one.
+        drop(scope_a);
+        assert_eq!(hub.state_of(&key), TreeEditState::TurnInFlight);
+        drop(scope_b);
+        assert_eq!(hub.state_of(&key), TreeEditState::Free);
+    }
+
+    #[test]
     fn notes_are_deduplicated_and_drained_exactly_once() {
         let hub = Arc::new(EditHub::default());
         let key = "k".to_string();
@@ -288,6 +334,7 @@ mod tests {
         let handle = EditScopeHandle {
             hub: Arc::clone(&hub),
             key: key.clone(),
+            session_id: "sess-test".into(),
         };
         let prefix = handle.note_prefix().expect("note built");
         assert!(prefix.contains("a.rs, b.rs"));

@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import { untrack } from "svelte";
   import { t } from "../i18n";
   import { pushNotice } from "../stores";
   import {
@@ -86,7 +87,8 @@
       });
   });
 
-  // (Re)mount CodeMirror whenever the active file changes.
+  // (Re)mount CodeMirror when the ACTIVE FILE changes — never on keystrokes:
+  // the content read is untracked, or every edit would recreate the editor.
   $effect(() => {
     const file = active;
     const host = editorHost;
@@ -95,7 +97,7 @@
     const language = lspLanguageFor(path);
     handle = createEditor({
       parent: host,
-      doc: file.content,
+      doc: untrack(() => file.content),
       path,
       onChange: (doc) => {
         const entry = open.find((f) => f.path === path);

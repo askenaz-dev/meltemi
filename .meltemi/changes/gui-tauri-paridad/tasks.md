@@ -43,6 +43,6 @@
 
 ## 7. Calidad
 
-- [ ] 7.1 Unit/contract: puente IPC, registro de paleta, política de concurrencia en sus tres estados, sobre fixtures temporales con `mock-agent` _(constitución: fixtures, mock, sin red)_
-- [ ] 7.2 Smoke e2e con tauri-driver donde exista driver; verificación manual documentada por escenario donde no _(design: riesgos)_
-- [ ] 7.3 `cargo clippy -- -D warnings`, `cargo fmt --check` y tests verdes en las tres plataformas _(constitución §7)_
+- [x] 7.1 Unit/contract: puente IPC, registro de paleta, política de concurrencia en sus tres estados, sobre fixtures temporales con `mock-agent` _(constitución: fixtures, mock, sin red)_
+- [x] 7.2 Smoke e2e con tauri-driver donde exista driver; verificación manual documentada por escenario donde no _(design: riesgos)_
+- [x] 7.3 `cargo clippy -- -D warnings`, `cargo fmt --check` y tests verdes en las tres plataformas _(constitución §7)_
