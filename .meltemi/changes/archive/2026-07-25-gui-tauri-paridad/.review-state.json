@@ -1,0 +1,19 @@
+{
+  "states": {
+    "edit-surface\u001fAdvertencia por sesión de agente activa": "approved",
+    "gui-shell\u001fAccesibilidad de la superficie de escritorio": "approved",
+    "gui-shell\u001fBandeja de permisos y prioridad de señales": "approved",
+    "gui-shell\u001fCliente fino sobre el socket local": "approved",
+    "gui-shell\u001fDesconexión ruidosa y streaming honesto": "approved",
+    "gui-shell\u001fEdición utilitaria in situ con LSP BYO": "approved",
+    "gui-shell\u001fEditor de specs enriquecido": "approved",
+    "gui-shell\u001fInternacionalización ES/EN de la superficie de escritorio": "approved",
+    "gui-shell\u001fMatriz de paridad verificada en CI": "approved",
+    "gui-shell\u001fOnboarding de primer uso de la GUI": "approved",
+    "gui-shell\u001fPaleta de comandos y registro obligatorio de métodos": "approved",
+    "gui-shell\u001fParidad de vistas y modelo de navegación": "approved",
+    "gui-shell\u001fPresupuestos de huella de la GUI": "approved",
+    "gui-shell\u001fRevisión de diffs línea a línea": "approved",
+    "release-distribution\u001fInstaladores de la GUI de escritorio": "approved"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "states": {
+    "gui-shell\u001fArquitectura visual de aplicación de escritorio": "approved",
+    "gui-shell\u001fAtención del sistema ante permisos sin foco": "approved",
+    "gui-shell\u001fAvisos con memoria acotada y banner accionable": "approved",
+    "gui-shell\u001fDensidad y profundidad del design system": "approved",
+    "gui-shell\u001fIdentidad visible en toda condición": "approved",
+    "gui-shell\u001fIdentidad visual de entidades": "approved",
+    "gui-shell\u001fLa sesión como acción primaria; proponer como herramienta": "approved",
+    "gui-shell\u001fNinguna pérdida silenciosa de edición": "approved",
+    "gui-shell\u001fPaleta con difusa, grupos, recientes y formularios tipados": "approved",
+    "gui-shell\u001fPanel de detalle sin perder la lista": "approved",
+    "gui-shell\u001fSesiones filtrables con tiempo humano y acciones por fila": "approved",
+    "gui-shell\u001fSuperficie de Ajustes": "approved",
+    "gui-shell\u001fTema y estado de ventana persistentes": "approved",
+    "gui-shell\u001fTranscript de primera clase": "approved"
+  }
+}

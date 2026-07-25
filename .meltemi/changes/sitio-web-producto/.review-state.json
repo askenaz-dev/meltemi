@@ -1,0 +1,15 @@
+{
+  "states": {
+    "product-site\u001fCapturas reales desde un proyecto fixture": "approved",
+    "product-site\u001fDescargas resueltas a la última release firmada": "approved",
+    "product-site\u001fFuente única compartida con la documentación": "approved",
+    "product-site\u001fHistoria del producto completa y honesta": "approved",
+    "product-site\u001fIdentidad del design system aplicada al sitio": "approved",
+    "product-site\u001fParidad de idiomas ES/EN del sitio": "approved",
+    "product-site\u001fSitio estático sin rastreo ni orígenes de terceros": "approved",
+    "product-site\u001fVerificación del sitio como gate de CI": "approved",
+    "release-distribution\u001fInstalador auditable": "approved",
+    "release-distribution\u001fNombres de artefacto estables por plataforma": "approved",
+    "release-distribution\u001fPublicación del sitio con la release": "approved"
+  }
+}

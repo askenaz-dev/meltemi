@@ -1,0 +1,10 @@
+{
+  "states": {
+    "fleet-catalog\u001fConsulta fleet/list": "approved",
+    "fleet-catalog\u001fDetección en dos capas de las entradas con adaptador": "approved",
+    "fleet-catalog\u001fDetección local pasiva de binarios": "approved",
+    "fleet-catalog\u001fEstatus legal de la ruta de integración sin maquillaje": "approved",
+    "fleet-catalog\u001fRemedio por capa accionable en todas las superficies": "approved",
+    "initial-docs\u001fGuía de agentes verificada contra el registro": "approved"
+  }
+}

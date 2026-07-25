@@ -9,7 +9,12 @@
 //!
 //! ```text
 //! cargo run -q --example rpc -- sdd/verify-mark '{"projectRoot":"...", ...}'
+//! cargo run -q --example rpc -- batch @calls.json
 //! ```
+//!
+//! `batch` takes a JSON array of `{ "method": "...", "params": { ... } }` and
+//! applies them over ONE connection, which is what makes a 60-call review or
+//! verification pass practical from a script.
 
 use meltemi_client::bootstrap;
 use meltemi_client::paths;
@@ -48,6 +53,35 @@ async fn main() {
     )
     .await
     .expect("initialize");
+
+    if method == "batch" {
+        let calls: Vec<serde_json::Value> = params
+            .as_array()
+            .cloned()
+            .expect("batch takes a JSON array of {method, params}");
+        let total = calls.len();
+        let mut failed = 0usize;
+        for call in calls {
+            let name = call["method"].as_str().unwrap_or_default().to_string();
+            let call_params = call["params"].clone();
+            match peer.request(&name, &call_params).await {
+                Ok(_) => {}
+                Err(error) => {
+                    failed += 1;
+                    eprintln!("{name}: {error}");
+                    if let Some(data) = &error.data {
+                        eprintln!("{}", serde_json::to_string_pretty(data).unwrap());
+                    }
+                }
+            }
+        }
+        println!("batch: {} ok, {failed} failed", total - failed);
+        peer.close();
+        if failed > 0 {
+            std::process::exit(1);
+        }
+        return;
+    }
 
     match peer.request(&method, &params).await {
         Ok(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),

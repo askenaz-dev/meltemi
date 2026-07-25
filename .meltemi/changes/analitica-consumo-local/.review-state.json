@@ -1,0 +1,12 @@
+{
+  "states": {
+    "local-analytics\u001fContabilidad local agregada sobre los registros de sesión": "approved",
+    "local-analytics\u001fDeclaración de honestidad junto a los números": "approved",
+    "local-analytics\u001fFrontera explícita entre medido y no reportado": "approved",
+    "local-analytics\u001fMétodo de agregación de consumo por contrato": "approved",
+    "local-analytics\u001fPanel de contabilidad con la densidad del design system": "approved",
+    "local-analytics\u001fParidad de superficies de la contabilidad": "approved",
+    "local-analytics\u001fTokens únicamente medidos, jamás estimados": "approved",
+    "session-history\u001fEvento local de uso en ejecuciones headless": "approved"
+  }
+}

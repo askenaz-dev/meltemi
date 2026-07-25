@@ -1,0 +1,14 @@
+{
+  "states": {
+    "fleet-catalog\u001fGuía de perfiles multi-suscripción": "approved",
+    "gui-shell\u001fSelector de proyecto en el lanzador de sesión": "approved",
+    "gui-shell\u001fÁmbito de proyecto conmutable y persistente": "approved",
+    "gui-shell\u001fÁrbol Proyecto → Sesiones en el sidebar": "approved",
+    "project-registry\u001fConsulta project/list con paridad de superficies": "approved",
+    "project-registry\u001fRegistro alimentado por el uso real": "approved",
+    "project-registry\u001fRegistro de proyectos conocidos persistido y reconstruible": "approved",
+    "session-history\u001fAgente y suscripción resueltos en los metadatos de sesión": "approved",
+    "session-history\u001fListado histórico por contrato": "approved",
+    "tui-shell\u001fSesiones agrupadas por proyecto con ámbito conmutable": "approved"
+  }
+}
