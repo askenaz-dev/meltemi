@@ -198,9 +198,11 @@ jobs:
       - name: GUI installer size budget
         shell: bash
         run: |
-          shopt -s globstar nullglob
+          # `find`, not `**`: the macOS runners ship bash 3.2, which has no
+          # `globstar` at all — `shopt -s globstar` there is a hard error under
+          # `set -e`, which is exactly how this surfaced.
           found=0
-          for installer in target/release/bundle/**/*.{msi,dmg,AppImage,deb}; do
+          while IFS= read -r installer; do
             found=1
             size=$(wc -c < "$installer")
             echo "$installer is $size bytes (budget ${MELTEMI_GUI_INSTALLER_BUDGET_BYTES})"
@@ -208,7 +210,9 @@ jobs:
               echo "::error::GUI installer exceeds its budget; aborting release"
               exit 1
             fi
-          done
+          done <<EOF
+$(find target/release/bundle -type f \( -name '*.msi' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) | sort)
+EOF
           if [ "$found" -eq 0 ]; then
             echo "::error::no GUI installer was produced"
             exit 1
@@ -220,7 +224,7 @@ jobs:
         # checksum be the one of the stable name (sitio-web-producto D2).
         run: |
           mkdir -p dist-gui
-          shopt -s globstar nullglob
+          shopt -s nullglob   # no globstar: bash 3.2 on the macOS runners lacks it
           normalize() {
             src="$1"; dest="$2"
             [ -e "$src" ] || return 0
