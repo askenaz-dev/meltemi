@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #05080f; }
+  a { color: #60a5fa; text-decoration: none; }
+  a:hover { color: #22d3ee; }
+  ::selection { background: #1d4ed8; color: #fff; }
+</style>
+</helmet>
+
+<div style="background:#05080f;color:#e2e8f0;font-family:Inter,'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5;min-height:100vh;padding:0 0 96px;-webkit-font-smoothing:antialiased">
+
+  <header style="max-width:1180px;margin:0 auto;padding:72px 32px 40px;display:flex;gap:28px;align-items:flex-start">
+    <img src="brand/meltemi-mark-gradient.svg" alt="Meltemi" width="72" height="72" style="flex:none;display:block" />
+    <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
+      <div style="font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:#5b6b8c;font-weight:500">Design system · v0.1 · Apache-2.0</div>
+      <h1 style="margin:0;font-size:40px;line-height:1.1;font-weight:600;letter-spacing:-0.8px">Meltemi</h1>
+      <p style="margin:0;font-size:17px;color:#94a3b8;max-width:62ch;text-wrap:pretty">El plano de control spec-driven para desarrollo agéntico. Este sistema cubre la superficie desktop (Tauri&nbsp;+&nbsp;Svelte) y el compañero móvil de control remoto, con los mismos tokens y el mismo vocabulario de estado que la TUI.</p>
+      <p style="margin:0;font-size:13px;color:#5b6b8c;font-family:'JetBrains Mono',ui-monospace,monospace">docs/ux/design-system.md · desktop/ui/src/app.css · brand/README.md</p>
+    </div>
+  </header>
+
+  <nav style="max-width:1180px;margin:0 auto;padding:0 32px 8px;display:flex;flex-wrap:wrap;gap:8px">
+    <a href="#marca" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">1 · Marca</a>
+    <a href="#color" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">2 · Color</a>
+    <a href="#flota" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">3 · Identidad de flota</a>
+    <a href="#tipografia" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">4 · Tipografía</a>
+    <a href="#espacio" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">5 · Espacio y forma</a>
+    <a href="#estado" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">6 · Vocabulario de estado</a>
+    <a href="#senales" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">7 · Prioridad de señales</a>
+    <a href="#foco" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">8 · Foco y teclado</a>
+    <a href="#movimiento" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">9 · Movimiento</a>
+    <a href="#reglas" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">10 · Reglas duras</a>
+    <a href="#i18n" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">11 · i18n</a>
+  </nav>
+
+  <div style="max-width:1180px;margin:0 auto;padding:20px 32px 0;display:flex;flex-wrap:wrap;gap:12px">
+    <a href="Meltemi UI Kit Desktop.dc.html" style="display:flex;flex-direction:column;gap:4px;flex:1 1 300px;background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:16px 18px" style-hover="border-color:#60a5fa">
+      <span style="font-size:15px;font-weight:500;color:#e2e8f0">UI kit — desktop →</span>
+      <span style="font-size:13px;color:#94a3b8">Shell de tres zonas, tablas densas, bandeja de permisos, paleta, banners, todos los estados.</span>
+    </a>
+    <a href="Meltemi Mobile.dc.html" style="display:flex;flex-direction:column;gap:4px;flex:1 1 300px;background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:16px 18px" style-hover="border-color:#60a5fa">
+      <span style="font-size:15px;font-weight:500;color:#e2e8f0">Compañero móvil →</span>
+      <span style="font-size:13px;color:#94a3b8">Monitorear, aprobar, dirigir. Incluye el estado «sin túnel», que es la pantalla más importante.</span>
+    </a>
+  </div>
+
+  <!-- 1 · MARCA -->
+  <section id="marca" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">01</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Marca</h2>
+      <span style="font-size:13px;color:#5b6b8c">Brand</span>
+      <span style="margin-left:auto;font-size:12px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">brand/</span>
+    </div>
+    <p style="margin:0 0 24px;max-width:74ch;color:#94a3b8;text-wrap:pretty">El símbolo tiene cuatro lecturas simultáneas: una <strong style="color:#e2e8f0;font-weight:500">m</strong> minúscula, dos <strong style="color:#e2e8f0;font-weight:500">velas asimétricas</strong>, un <strong style="color:#e2e8f0;font-weight:500">casco</strong> separado por una franja de aire, y un extremo derecho que es a la vez <strong style="color:#e2e8f0;font-weight:500">proa y ráfaga</strong>. La franja de aire entre velas y casco no se cierra nunca.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px">
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="height:150px;display:grid;place-items:center;background:#0b1220"><img src="brand/meltemi-mark-gradient.svg" alt="Símbolo con degradado" width="88" height="88" /></div>
+        <div style="padding:12px 14px;border-top:1px solid #1a2540;display:flex;flex-direction:column;gap:3px">
+          <span style="font-size:13px;font-weight:500">Símbolo · degradado</span>
+          <span style="font-size:12px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">meltemi-mark-gradient.svg</span>
+          <span style="font-size:12px;color:#94a3b8">Desde 24 px</span>
+        </div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="height:150px;display:grid;place-items:center;background:#0b1220"><img src="brand/meltemi-mark-mono-light.svg" alt="Símbolo mono claro" width="88" height="88" /></div>
+        <div style="padding:12px 14px;border-top:1px solid #1a2540;display:flex;flex-direction:column;gap:3px">
+          <span style="font-size:13px;font-weight:500">Símbolo · mono sobre oscuro</span>
+          <span style="font-size:12px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">meltemi-mark-mono-light.svg</span>
+          <span style="font-size:12px;color:#94a3b8">16–24 px, bandeja, taskbar</span>
+        </div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="height:150px;display:grid;place-items:center;background:#f8fafc"><img src="brand/meltemi-mark-mono-dark.svg" alt="Símbolo mono oscuro" width="88" height="88" /></div>
+        <div style="padding:12px 14px;border-top:1px solid #1a2540;display:flex;flex-direction:column;gap:3px">
+          <span style="font-size:13px;font-weight:500">Símbolo · mono sobre claro</span>
+          <span style="font-size:12px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">meltemi-mark-mono-dark.svg</span>
+          <span style="font-size:12px;color:#94a3b8">Tema claro, impresión</span>
+        </div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="height:150px;display:grid;place-items:center;background:#0b1220"><img src="brand/meltemi-app-icon.svg" alt="Icono de app" width="88" height="88" /></div>
+        <div style="padding:12px 14px;border-top:1px solid #1a2540;display:flex;flex-direction:column;gap:3px">
+          <span style="font-size:13px;font-weight:500">Icono de app</span>
+          <span style="font-size:12px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">meltemi-app-icon.svg</span>
+          <span style="font-size:12px;color:#94a3b8">Launcher, dock, 512 px PNG</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:16px">
+      <div style="background:#0b1220;border:1px solid #2c3a57;border-radius:10px;padding:28px;display:grid;place-items:center"><img src="brand/meltemi-lockup-light.svg" alt="Lockup sobre oscuro" style="width:100%;max-width:260px;height:auto;display:block" /></div>
+      <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:10px;padding:28px;display:grid;place-items:center"><img src="brand/meltemi-lockup-dark.svg" alt="Lockup sobre claro" style="width:100%;max-width:260px;height:auto;display:block" /></div>
+    </div>
+    <p style="margin:12px 0 0;font-size:13px;color:#5b6b8c">Lockup nunca por debajo de 120 px de ancho. El wordmark está vectorizado desde Inter SemiBold: no depende de una fuente instalada.</p>
+  </section>
+
+  <!-- 2 · COLOR -->
+  <section id="color" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">02</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Color</h2>
+      <span style="font-size:13px;color:#5b6b8c">Colour tokens</span>
+      <span style="margin-left:auto;font-size:12px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">app.css</span>
+    </div>
+
+    <h3 style="margin:0 0 6px;font-size:16px;font-weight:600">Paleta de marca <span style="color:#5b6b8c;font-weight:400;font-size:14px">— reservada para marcas, jamás para chrome</span></h3>
+    <p style="margin:0 0 16px;max-width:74ch;color:#94a3b8">El degradado egeo → viento (abajo-izquierda → arriba-derecha) solo pinta el símbolo, el icono y el lockup de onboarding. Excepción única y deliberada: la acción primaria del shell y el cuadro de proyecto del sidebar, donde funciona como sello de marca, no como decoración.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:36px">
+      <div style="flex:1 1 240px;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="height:84px;background:#2563eb"></div>
+        <div style="padding:12px 14px;background:#0e1526;display:flex;justify-content:space-between;align-items:baseline">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:13px">--mel-aegean</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8">#2563EB</span>
+        </div>
+      </div>
+      <div style="flex:1 1 240px;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="height:84px;background:#22d3ee"></div>
+        <div style="padding:12px 14px;background:#0e1526;display:flex;justify-content:space-between;align-items:baseline">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:13px">--mel-wind</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8">#22D3EE</span>
+        </div>
+      </div>
+      <div style="flex:2 1 300px;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="height:84px;background:linear-gradient(45deg,#2563eb,#22d3ee)"></div>
+        <div style="padding:12px 14px;background:#0e1526;display:flex;justify-content:space-between;align-items:baseline">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:13px">gradiente de marca</span>
+          <span style="font-size:12px;color:#94a3b8">45° · egeo → viento</span>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin:0 0 6px;font-size:16px;font-weight:600">Tokens semánticos <span style="color:#5b6b8c;font-weight:400;font-size:14px">— ambos temas desde el día uno</span></h3>
+    <p style="margin:0 0 16px;max-width:74ch;color:#94a3b8">Siguen el sistema operativo, con anulación en config. Todo par texto/fondo cumple WCAG AA (≥ 4.5:1 texto normal, ≥ 3:1 texto grande y glifos de UI).</p>
+    <div style="border:1px solid #2c3a57;border-radius:10px;overflow:hidden;background:#0e1526">
+      <div style="display:grid;grid-template-columns:200px 1fr 1fr minmax(160px,1.2fr);gap:0;background:#111a2e;border-bottom:1px solid #2c3a57;font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c;font-weight:500">
+        <div style="padding:10px 14px">Token</div>
+        <div style="padding:10px 14px">Claro · light</div>
+        <div style="padding:10px 14px">Oscuro · dark</div>
+        <div style="padding:10px 14px">Rol</div>
+      </div>
+      <sc-for list="{{ tokens }}" as="tk" hint-placeholder-count="12">
+        <div style="display:grid;grid-template-columns:200px 1fr 1fr minmax(160px,1.2fr);border-top:1px solid #1a2540;align-items:center">
+          <div style="padding:9px 14px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#e2e8f0">{{ tk.name }}</div>
+          <div style="padding:9px 14px;display:flex;align-items:center;gap:9px">
+            <span style="width:22px;height:22px;border-radius:5px;border:1px solid #2c3a57;flex:none;background:{{ tk.light }}"></span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8">{{ tk.light }}</span>
+          </div>
+          <div style="padding:9px 14px;display:flex;align-items:center;gap:9px">
+            <span style="width:22px;height:22px;border-radius:5px;border:1px solid #2c3a57;flex:none;background:{{ tk.dark }}"></span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8">{{ tk.dark }}</span>
+          </div>
+          <div style="padding:9px 14px;font-size:12.5px;color:#94a3b8">{{ tk.role }}<span style="color:#5b6b8c"> · {{ tk.roleEn }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+
+    <h3 style="margin:36px 0 6px;font-size:16px;font-weight:600">Tokens que faltaban <span style="color:#5b6b8c;font-weight:400;font-size:14px">— propuesta, ya usados de facto</span></h3>
+    <p style="margin:0 0 16px;max-width:74ch;color:#94a3b8">El mockup de shell y la superficie real usan valores que <code style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#e2e8f0">app.css</code> no declara. Formalizarlos evita que cada vista los reinvente. Los fondos tenues resuelven pills y badges sin romper la regla de contraste.</p>
+    <div style="border:1px solid #2c3a57;border-radius:10px;overflow:hidden;background:#0e1526">
+      <div style="display:grid;grid-template-columns:200px 1fr 1fr minmax(200px,1.4fr);background:#111a2e;border-bottom:1px solid #2c3a57;font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c;font-weight:500">
+        <div style="padding:10px 14px">Token nuevo</div>
+        <div style="padding:10px 14px">Claro</div>
+        <div style="padding:10px 14px">Oscuro</div>
+        <div style="padding:10px 14px">Por qué</div>
+      </div>
+      <sc-for list="{{ newTokens }}" as="tk" hint-placeholder-count="7">
+        <div style="display:grid;grid-template-columns:200px 1fr 1fr minmax(200px,1.4fr);border-top:1px solid #1a2540;align-items:center">
+          <div style="padding:9px 14px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#e2e8f0">{{ tk.name }}</div>
+          <div style="padding:9px 14px;display:flex;align-items:center;gap:9px">
+            <span style="width:22px;height:22px;border-radius:5px;border:1px solid #2c3a57;flex:none;background:{{ tk.light }}"></span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8">{{ tk.light }}</span>
+          </div>
+          <div style="padding:9px 14px;display:flex;align-items:center;gap:9px">
+            <span style="width:22px;height:22px;border-radius:5px;border:1px solid #2c3a57;flex:none;background:{{ tk.dark }}"></span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8">{{ tk.dark }}</span>
+          </div>
+          <div style="padding:9px 14px;font-size:12.5px;color:#94a3b8;text-wrap:pretty">{{ tk.why }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ showCode }}" hint-placeholder-val="{{ true }}">
+      <pre style="margin:16px 0 0;background:#0b1220;border:1px solid #2c3a57;border-radius:10px;padding:16px 18px;overflow:auto;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.7;color:#94a3b8">{{ cssSnippet }}</pre>
+    </sc-if>
+  </section>
+
+  <!-- 3 · FLOTA -->
+  <section id="flota" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">03</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Identidad de flota</h2>
+      <span style="font-size:13px;color:#5b6b8c">Fleet identity</span>
+      <span style="margin-left:auto;font-size:12px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">fleet-registry.toml</span>
+    </div>
+    <p style="margin:0 0 22px;max-width:74ch;color:#94a3b8;text-wrap:pretty">Diez entradas en el registro embebido. Meltemi no puede usar los logos de terceros, así que cada agente recibe un <strong style="color:#e2e8f0;font-weight:500">avatar de iniciales</strong> con un par de color propio: fondo desaturado al ~18 % de luminosidad, texto tintado al ~80 %. Los tonos están repartidos por el círculo cromático para que dos agentes nunca se confundan en una tabla densa, y el par cumple AA sobre su propio fondo. El nivel de integración se lee como texto (<code style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#e2e8f0">N1…N4</code>), nunca como color.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:12px">
+      <sc-for list="{{ agents }}" as="a" hint-placeholder-count="10">
+        <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:14px;display:flex;gap:12px;align-items:flex-start">
+          <span style="width:34px;height:34px;flex:none;border-radius:8px;display:grid;place-items:center;font-size:13px;font-weight:600;letter-spacing:0.3px;background:{{ a.bg }};color:{{ a.fg }}">{{ a.initials }}</span>
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+            <span style="font-size:13.5px;font-weight:500;color:#e2e8f0">{{ a.name }}</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#5b6b8c">{{ a.bin }}</span>
+            <span style="font-size:11.5px;color:#94a3b8;margin-top:3px">{{ a.levelLabel }}</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#5b6b8c">{{ a.bg }} / {{ a.fg }}</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:16px">
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:14px 16px">
+        <div style="font-size:12.5px;font-weight:500;margin-bottom:4px">N1 · ACP nativo</div>
+        <div style="font-size:12.5px;color:#94a3b8">El binario habla ACP por stdio. Canal de permisos completo.</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:14px 16px">
+        <div style="font-size:12.5px;font-weight:500;margin-bottom:4px">N2 · Adaptador</div>
+        <div style="font-size:12.5px;color:#94a3b8">Se pilota a través de un adaptador ACP oficial declarado.</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:14px 16px">
+        <div style="font-size:12.5px;font-weight:500;margin-bottom:4px">N3 · Headless estructurado</div>
+        <div style="font-size:12.5px;color:#94a3b8">Sin canal rico de permisos: corre dentro de barandillas obligatorias.</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:14px 16px">
+        <div style="font-size:12.5px;font-weight:500;margin-bottom:4px">N4 · Artefactos</div>
+        <div style="font-size:12.5px;color:#94a3b8">Sin superficie ACP. La proyección de contexto es el único canal.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · TIPOGRAFÍA -->
+  <section id="tipografia" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">04</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Tipografía</h2>
+      <span style="font-size:13px;color:#5b6b8c">Type</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:28px">
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:20px">
+        <div style="font-size:11px;letter-spacing:0.8px;text-transform:uppercase;color:#5b6b8c;margin-bottom:10px">Interfaz</div>
+        <div style="font-size:34px;font-weight:600;letter-spacing:-0.5px;line-height:1.15">Aa Bb Cc 0123</div>
+        <div style="margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8;line-height:1.7">Inter, "Segoe UI", "SF Pro Text", Roboto, system-ui, sans-serif</div>
+        <div style="margin-top:10px;font-size:12.5px;color:#94a3b8">Inter es preferida, nunca obligatoria: nada del binario depende de una fuente instalada.</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:20px">
+        <div style="font-size:11px;letter-spacing:0.8px;text-transform:uppercase;color:#5b6b8c;margin-bottom:10px">Código, transcripciones, diffs</div>
+        <div style="font-size:34px;font-weight:500;font-family:'JetBrains Mono',monospace;line-height:1.15">Aa Bb Cc 0123</div>
+        <div style="margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8;line-height:1.7">"Cascadia Mono", "SF Mono", "JetBrains Mono", Consolas, monospace</div>
+        <div style="margin-top:10px;font-size:12.5px;color:#94a3b8">Rutas, endpoints, ids de sesión, nombres de binario y todo diff van en mono, siempre.</div>
+      </div>
+    </div>
+    <div style="border:1px solid #2c3a57;border-radius:10px;overflow:hidden;background:#0e1526">
+      <div style="display:grid;grid-template-columns:110px 90px 1fr 1.3fr;background:#111a2e;border-bottom:1px solid #2c3a57;font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c;font-weight:500">
+        <div style="padding:10px 14px">rem</div>
+        <div style="padding:10px 14px">px</div>
+        <div style="padding:10px 14px">Muestra</div>
+        <div style="padding:10px 14px">Uso</div>
+      </div>
+      <sc-for list="{{ typeScale }}" as="ts" hint-placeholder-count="5">
+        <div style="display:grid;grid-template-columns:110px 90px 1fr 1.3fr;border-top:1px solid #1a2540;align-items:center">
+          <div style="padding:11px 14px;font-family:'JetBrains Mono',monospace;font-size:12.5px">{{ ts.rem }}</div>
+          <div style="padding:11px 14px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#94a3b8">{{ ts.px }}</div>
+          <div style="padding:11px 14px;color:#e2e8f0">{{ ts.sample }}</div>
+          <div style="padding:11px 14px;font-size:12.5px;color:#94a3b8">{{ ts.use }}</div>
+        </div>
+      </sc-for>
+    </div>
+    <p style="margin:14px 0 0;font-size:13px;color:#94a3b8;max-width:74ch">Interlineado 1.45 en cuerpo, 1.3 en denso. El texto de cuerpo nunca baja de peso 400. Las tablas densas usan numerales tabulares (<code style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#e2e8f0">font-variant-numeric: tabular-nums</code>) para que los contadores y temporizadores no salten.</p>
+  </section>
+
+  <!-- 5 · ESPACIO -->
+  <section id="espacio" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">05</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Espacio, densidad y forma</h2>
+      <span style="font-size:13px;color:#5b6b8c">Space, density, shape</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:28px;align-items:flex-end">
+      <sc-for list="{{ spacing }}" as="sp" hint-placeholder-count="6">
+        <div style="display:flex;flex-direction:column;gap:8px;align-items:center">
+          <div style="background:#1d4ed8;border-radius:3px;height:26px;width:{{ sp.px }}"></div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#94a3b8">{{ sp.name }}</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#5b6b8c">{{ sp.px }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:10px">Densidad</div>
+        <ul style="margin:0;padding-left:18px;color:#94a3b8;font-size:13px;line-height:1.8">
+          <li>Filas de tabla a 32 px, celdas con 8 px de padding.</li>
+          <li>Paneles con 16 px de padding.</li>
+          <li>Es un plano de control, no una landing: la densidad es la característica.</li>
+        </ul>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:14px">Radios</div>
+        <div style="display:flex;gap:14px;align-items:flex-end;margin-bottom:12px">
+          <div style="display:flex;flex-direction:column;gap:7px;align-items:center"><div style="width:52px;height:52px;background:#1a2540;border:1px solid #2c3a57;border-radius:4px"></div><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#94a3b8">4 px</span></div>
+          <div style="display:flex;flex-direction:column;gap:7px;align-items:center"><div style="width:52px;height:52px;background:#1a2540;border:1px solid #2c3a57;border-radius:8px"></div><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#94a3b8">8 px</span></div>
+          <div style="display:flex;flex-direction:column;gap:7px;align-items:center;opacity:.45"><div style="width:52px;height:52px;background:#1a2540;border:1px dashed #f87171;border-radius:999px"></div><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#f87171">nunca</span></div>
+        </div>
+        <div style="font-size:12.5px;color:#94a3b8">4 px controles, 8 px paneles y tarjetas. Sin botones pill.</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:14px">Elevación</div>
+        <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px">
+          <div style="flex:1;height:52px;background:#111a2e;border:1px solid #2c3a57;border-radius:8px;display:grid;place-items:center;font-size:12px;color:#94a3b8">hairline</div>
+          <div style="flex:1;height:52px;background:#111a2e;border:1px solid #2c3a57;border-radius:8px;box-shadow:0 4px 16px rgb(0 0 0 / .18);display:grid;place-items:center;font-size:12px;color:#94a3b8">overlay</div>
+        </div>
+        <div style="font-size:12.5px;color:#94a3b8">Hairlines de 1 px. Un único nivel de sombra, solo para overlays. Nada más flota.</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:10px">Móvil <span style="color:#5b6b8c;font-weight:400">— propuesta</span></div>
+        <ul style="margin:0;padding-left:18px;color:#94a3b8;font-size:13px;line-height:1.8">
+          <li>Objetivo táctil mínimo 44×44 px, sin excepción.</li>
+          <li>Cuerpo a 15 px (no 14): se lee de pie, a un brazo.</li>
+          <li>Filas a 56 px; el desktop es denso, el móvil es alcanzable.</li>
+          <li>Padding lateral 16 px, respetando el área segura.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · ESTADO -->
+  <section id="estado" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">06</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Vocabulario de estado</h2>
+      <span style="font-size:13px;color:#5b6b8c">Status vocabulary</span>
+      <span style="margin-left:auto;font-size:12px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">StatusBadge.svelte</span>
+    </div>
+    <p style="margin:0 0 22px;max-width:74ch;color:#94a3b8;text-wrap:pretty">La regla transversal del sistema, heredada de la terminal: <strong style="color:#e2e8f0;font-weight:500">todo estado se codifica como símbolo + palabra; el color nunca es el único portador de significado.</strong> Cada glifo tiene un gemelo ASCII para la TUI, y el desktop reutiliza las mismas formas en su iconografía. Un usuario en monocromo, en forced-colors o con deuteranopia lee exactamente lo mismo.</p>
+    <div style="border:1px solid #2c3a57;border-radius:10px;overflow:hidden;background:#0e1526">
+      <div style="display:grid;grid-template-columns:1.1fr 70px 90px 1fr 1fr;background:#111a2e;border-bottom:1px solid #2c3a57;font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c;font-weight:500">
+        <div style="padding:10px 14px">Estado</div>
+        <div style="padding:10px 14px">Glifo</div>
+        <div style="padding:10px 14px">ASCII</div>
+        <div style="padding:10px 14px">Badge · ES</div>
+        <div style="padding:10px 14px">Badge · EN</div>
+      </div>
+      <sc-for list="{{ statuses }}" as="st" hint-placeholder-count="5">
+        <div style="display:grid;grid-template-columns:1.1fr 70px 90px 1fr 1fr;border-top:1px solid #1a2540;align-items:center">
+          <div style="padding:11px 14px;display:flex;flex-direction:column;gap:2px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#e2e8f0">{{ st.key }}</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#5b6b8c">{{ st.token }}</span>
+          </div>
+          <div style="padding:11px 14px;font-size:17px;color:{{ st.color }}">{{ st.glyph }}</div>
+          <div style="padding:11px 14px;font-family:'JetBrains Mono',monospace;font-size:13px;color:#94a3b8">{{ st.ascii }}</div>
+          <div style="padding:11px 14px"><span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:13px;color:{{ st.color }}"><span>{{ st.glyph }}</span>{{ st.es }}</span></div>
+          <div style="padding:11px 14px"><span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:13px;color:{{ st.color }}"><span>{{ st.glyph }}</span>{{ st.en }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="padding:9px 14px;border-bottom:1px solid #1a2540;font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c">Tema oscuro</div>
+        <div style="padding:18px;background:#0b1220;display:flex;flex-wrap:wrap;gap:14px">
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#67e8f9">◌ iniciando</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#4ade80">▸ activa</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#fbbf24;font-weight:600">● esperando permiso</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#94a3b8">■ finalizada</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#f87171">▲ interrumpida</span>
+        </div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="padding:9px 14px;border-bottom:1px solid #1a2540;font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c">Tema claro</div>
+        <div style="padding:18px;background:#f8fafc;display:flex;flex-wrap:wrap;gap:14px">
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#0e7490">◌ iniciando</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#15803d">▸ activa</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#b45309;font-weight:600">● esperando permiso</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#475569">■ finalizada</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#b91c1c">▲ interrumpida</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · SEÑALES -->
+  <section id="senales" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">07</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Prioridad de señales</h2>
+      <span style="font-size:13px;color:#5b6b8c">Signal priority</span>
+    </div>
+    <p style="margin:0 0 22px;max-width:74ch;color:#94a3b8">El peso visual sigue el orden de señal del daemon y no se invierte nunca. <strong style="color:#e2e8f0;font-weight:500">Una señal de prioridad baja jamás tapa una más alta.</strong></p>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <sc-for list="{{ signals }}" as="sg" hint-placeholder-count="4">
+        <div style="display:flex;gap:16px;background:#0e1526;border:1px solid #2c3a57;border-left:3px solid {{ sg.color }};border-radius:10px;padding:16px 18px;align-items:flex-start">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:500;color:{{ sg.color }};flex:none;line-height:1.2">{{ sg.n }}</span>
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <span style="font-size:14.5px;font-weight:500;color:#e2e8f0">{{ sg.title }} <span style="color:#5b6b8c;font-weight:400;font-size:13px">· {{ sg.titleEn }}</span></span>
+            <span style="font-size:13px;color:#94a3b8;text-wrap:pretty">{{ sg.desc }}</span>
+            <span style="font-size:12.5px;color:#5b6b8c">Tratamiento: {{ sg.treatment }}</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <!-- 8 · FOCO -->
+  <section id="foco" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">08</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Foco y teclado</h2>
+      <span style="font-size:13px;color:#5b6b8c">Focus &amp; keyboard</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:20px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:16px">Anillo de foco</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">
+          <button style="font:inherit;font-size:13px;padding:6px 14px;border:1px solid #2c3a57;border-radius:4px;background:#1a2540;color:#e2e8f0;cursor:pointer">Reposo</button>
+          <button style="font:inherit;font-size:13px;padding:6px 14px;border:1px solid #2c3a57;border-radius:4px;background:#1a2540;color:#e2e8f0;cursor:pointer;outline:2px solid #22d3ee;outline-offset:2px">Con foco</button>
+        </div>
+        <div style="font-size:12.5px;color:#94a3b8;line-height:1.7">2 px sólidos de <code style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">--focus</code> con 2 px de offset, en <em>todo</em> elemento enfocable, siempre visible al navegar por teclado (<code style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">:focus-visible</code>).</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:20px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:16px">Selección marcada por forma</div>
+        <div style="border:1px solid #2c3a57;border-radius:6px;overflow:hidden;margin-bottom:16px;font-size:13px">
+          <div style="padding:8px 12px;color:#94a3b8;background:#0b1220">Claude Code</div>
+          <div style="padding:8px 12px;color:#e2e8f0;background:#111a2e;box-shadow:inset 2px 0 0 #22d3ee;display:flex;gap:7px"><span style="color:#22d3ee">▸</span>OpenCode</div>
+          <div style="padding:8px 12px;color:#94a3b8;background:#0b1220">Gemini CLI</div>
+        </div>
+        <div style="font-size:12.5px;color:#94a3b8;line-height:1.7">La fila seleccionada lleva marcador <code style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">▸</code> además del fondo, para que la selección sobreviva al monocromo y al alto contraste.</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:20px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:16px">Atajos canónicos</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:13px">
+          <div style="display:flex;gap:10px;align-items:center"><span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;border:1px solid #2c3a57;border-radius:4px;padding:2px 7px;color:#e2e8f0;flex:none">1–4</span><span style="color:#94a3b8">Vistas: sesiones, proyecto, permisos, flota</span></div>
+          <div style="display:flex;gap:10px;align-items:center"><span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;border:1px solid #2c3a57;border-radius:4px;padding:2px 7px;color:#e2e8f0;flex:none">: / Ctrl K</span><span style="color:#94a3b8">Paleta de comandos</span></div>
+          <div style="display:flex;gap:10px;align-items:center"><span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;border:1px solid #2c3a57;border-radius:4px;padding:2px 7px;color:#e2e8f0;flex:none">a</span><span style="color:#94a3b8">Saltar a permisos y enfocar el primero pendiente</span></div>
+          <div style="display:flex;gap:10px;align-items:center"><span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;border:1px solid #2c3a57;border-radius:4px;padding:2px 7px;color:#e2e8f0;flex:none">Esc</span><span style="color:#94a3b8">Atrás / cerrar overlay</span></div>
+          <div style="display:flex;gap:10px;align-items:center"><span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;border:1px solid #2c3a57;border-radius:4px;padding:2px 7px;color:#e2e8f0;flex:none">?</span><span style="color:#94a3b8">Ayuda y atajos</span></div>
+        </div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:20px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:16px">No negociable</div>
+        <ul style="margin:0;padding-left:18px;color:#94a3b8;font-size:13px;line-height:1.8">
+          <li>Operación completa por teclado es un requisito de spec.</li>
+          <li>Prohibidas las afordancias solo-puntero (menú hover sin ruta de teclado).</li>
+          <li>Se honra <code style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">prefers-contrast</code> y forced-colors: en forced-colors manda el color del sistema y la regla símbolo + palabra.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 · MOVIMIENTO -->
+  <section id="movimiento" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">09</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Movimiento</h2>
+      <span style="font-size:13px;color:#5b6b8c">Motion</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:8px">120–160 ms, ease-out</div>
+        <div style="font-size:12.5px;color:#94a3b8;line-height:1.7">Solo opacidad y transform. Nada de animar layout, alto o ancho.</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:8px">reduced-motion</div>
+        <div style="font-size:12.5px;color:#94a3b8;line-height:1.7">Suprime toda animación no esencial. Los spinners se vuelven glifo estático con la etiqueta textual «trabajando…».</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:8px">Excepción absoluta</div>
+        <div style="font-size:12.5px;color:#94a3b8;line-height:1.7">La bandeja de permisos y los banners de señal <strong style="color:#f87171;font-weight:500">no animan su layout jamás</strong>: nada debe moverse bajo el cursor cuando decides un permiso.</div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:8px">Presupuesto CSS cross-webview</div>
+        <div style="font-size:12.5px;color:#94a3b8;line-height:1.7">WebView2, WKWebView y WebKitGTK. Flexbox, grid, custom properties, <code style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">:focus-visible</code>, <code style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">prefers-*</code>. Fuera: <code style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">backdrop-filter</code> como efecto que carga peso, subgrid, animaciones por scroll.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 · REGLAS -->
+  <section id="reglas" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:12px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">10</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Reglas duras</h2>
+      <span style="font-size:13px;color:#5b6b8c">Hard rules — do &amp; don't</span>
+    </div>
+    <p style="margin:0 0 28px;max-width:74ch;color:#94a3b8">Siete reglas que no se negocian caso por caso. Cada una con su versión correcta y su versión incorrecta, para que una revisión de diseño se resuelva señalando la tarjeta.</p>
+    <div style="display:flex;flex-direction:column;gap:20px">
+      <sc-for list="{{ rules }}" as="r" hint-placeholder-count="7">
+        <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+          <div style="padding:16px 20px;border-bottom:1px solid #1a2540">
+            <div style="font-size:15.5px;font-weight:500;color:#e2e8f0;margin-bottom:4px">{{ r.title }}</div>
+            <div style="font-size:13px;color:#94a3b8;max-width:80ch;text-wrap:pretty">{{ r.why }}</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr">
+            <div style="border-right:1px solid #1a2540;display:flex;flex-direction:column">
+              <div style="padding:8px 20px;display:flex;gap:7px;align-items:center;font-size:11px;letter-spacing:0.7px;text-transform:uppercase;color:#4ade80;font-weight:500;background:rgb(74 222 128 / .06)"><span>▸</span>Así sí</div>
+              <div style="padding:18px 20px;flex:1">{{ r.doNode }}</div>
+              <div style="padding:0 20px 16px;font-size:12.5px;color:#94a3b8">{{ r.doText }}</div>
+            </div>
+            <div style="display:flex;flex-direction:column">
+              <div style="padding:8px 20px;display:flex;gap:7px;align-items:center;font-size:11px;letter-spacing:0.7px;text-transform:uppercase;color:#f87171;font-weight:500;background:rgb(248 113 113 / .06)"><span>▲</span>Así no</div>
+              <div style="padding:18px 20px;flex:1">{{ r.dontNode }}</div>
+              <div style="padding:0 20px 16px;font-size:12.5px;color:#94a3b8">{{ r.dontText }}</div>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <!-- 11 · I18N -->
+  <section id="i18n" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">11</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Internacionalización</h2>
+      <span style="font-size:13px;color:#5b6b8c">i18n</span>
+      <span style="margin-left:auto;font-size:12px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">messages.ts</span>
+    </div>
+    <p style="margin:0 0 22px;max-width:74ch;color:#94a3b8;text-wrap:pretty">ES y EN desde el día uno. Toda cadena visible pasa por el catálogo único (el lint rechaza texto embebido en plantillas). Los layouts toleran +30 % de expansión, ningún texto va quemado en imágenes, y fechas y números salen por <code style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">Intl</code> con el locale de la app.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="padding:9px 16px;border-bottom:1px solid #1a2540;font-size:11px;letter-spacing:0.7px;text-transform:uppercase;color:#5b6b8c">Español</div>
+        <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;gap:6px">
+            <span style="font-size:13px;padding:5px 12px;border-radius:4px;background:#1a2540;border:1px solid #2c3a57;color:#e2e8f0">Sesiones</span>
+            <span style="font-size:13px;padding:5px 12px;border-radius:4px;color:#94a3b8">Proyecto</span>
+            <span style="font-size:13px;padding:5px 12px;border-radius:4px;color:#94a3b8">Permisos</span>
+            <span style="font-size:13px;padding:5px 12px;border-radius:4px;color:#94a3b8">Flota</span>
+          </div>
+          <div style="font-size:13px;color:#fbbf24;font-weight:600">● 1 esperando</div>
+          <div style="font-size:13px;color:#94a3b8;padding:12px;background:#0b1220;border-radius:6px;border:1px solid #1a2540;text-wrap:pretty">sin cliente conectado, los permisos pendientes se denegarán al vencer</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#5b6b8c">conn.willDeny · 74 caracteres</div>
+        </div>
+      </div>
+      <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+        <div style="padding:9px 16px;border-bottom:1px solid #1a2540;font-size:11px;letter-spacing:0.7px;text-transform:uppercase;color:#5b6b8c">English</div>
+        <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;gap:6px">
+            <span style="font-size:13px;padding:5px 12px;border-radius:4px;background:#1a2540;border:1px solid #2c3a57;color:#e2e8f0">Sessions</span>
+            <span style="font-size:13px;padding:5px 12px;border-radius:4px;color:#94a3b8">Project</span>
+            <span style="font-size:13px;padding:5px 12px;border-radius:4px;color:#94a3b8">Permissions</span>
+            <span style="font-size:13px;padding:5px 12px;border-radius:4px;color:#94a3b8">Fleet</span>
+          </div>
+          <div style="font-size:13px;color:#fbbf24;font-weight:600">● 1 waiting</div>
+          <div style="font-size:13px;color:#94a3b8;padding:12px;background:#0b1220;border-radius:6px;border:1px solid #1a2540;text-wrap:pretty">with no client connected, pending permissions are denied on expiry</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#5b6b8c">conn.willDeny · 66 caracteres</div>
+        </div>
+      </div>
+    </div>
+    <p style="margin:14px 0 0;font-size:13px;color:#94a3b8;max-width:74ch">Consecuencia de diseño: ninguna etiqueta vive en un contenedor de ancho fijo calculado sobre el inglés. Los contadores de la barra lateral y de la bandeja usan <code style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">min-width</code>, no <code style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">width</code>.</p>
+  </section>
+
+  <footer style="max-width:1180px;margin:72px auto 0;padding:24px 32px 0;border-top:1px solid #1a2540;display:flex;flex-wrap:wrap;gap:16px;align-items:center">
+    <img src="brand/meltemi-mark-mono-light.svg" alt="" width="20" height="20" style="opacity:.5" />
+    <span style="font-size:12.5px;color:#5b6b8c">Un rumbo, muchas velas. · One course, many sails.</span>
+    <span style="margin-left:auto;display:flex;gap:16px;font-size:12.5px">
+      <a href="Meltemi UI Kit Desktop.dc.html">UI kit desktop</a>
+      <a href="Meltemi Mobile.dc.html">Compañero móvil</a>
+    </span>
+  </footer>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showCode&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Documento&quot;}}">
+const E = React.createElement;
+
+const T = {
+  aegean: "#2563eb", wind: "#22d3ee",
+  dBg: "#0b1220", dSurface: "#111a2e", dSurface2: "#1a2540", dPanel: "#0e1526",
+  dBorder: "#2c3a57", dHair: "#1a2540", dText: "#e2e8f0", dMuted: "#94a3b8",
+  dFaint: "#5b6b8c", dAccent: "#60a5fa", dOk: "#4ade80", dWarn: "#fbbf24",
+  dDanger: "#f87171", dInfo: "#67e8f9",
+};
+
+class Component extends DCLogic {
+  renderVals() {
+    const showCode = this.props.showCode ?? true;
+
+    const tokens = [
+      { name: "--bg", light: "#F8FAFC", dark: "#0B1220", role: "fondo de ventana", roleEn: "window background" },
+      { name: "--surface", light: "#FFFFFF", dark: "#111A2E", role: "tarjetas, paneles, bandejas", roleEn: "cards, panels, trays" },
+      { name: "--surface-2", light: "#EEF2F7", dark: "#1A2540", role: "paneles anidados, cebreado de tabla", roleEn: "nested panels, table stripes" },
+      { name: "--text", light: "#0F172A", dark: "#E2E8F0", role: "texto primario", roleEn: "primary text" },
+      { name: "--text-muted", light: "#475569", dark: "#94A3B8", role: "texto secundario, pistas", roleEn: "secondary text, hints" },
+      { name: "--border", light: "#CBD5E1", dark: "#2C3A57", role: "hairlines, divisores", roleEn: "hairlines, dividers" },
+      { name: "--accent", light: "#2563EB", dark: "#60A5FA", role: "interactivo, enlaces, selección", roleEn: "interactive, links, selection" },
+      { name: "--focus", light: "#1D4ED8", dark: "#22D3EE", role: "anillo de foco", roleEn: "focus ring" },
+      { name: "--ok", light: "#15803D", dark: "#4ADE80", role: "éxito, sesión activa", roleEn: "success, active session" },
+      { name: "--warn", light: "#B45309", dark: "#FBBF24", role: "permiso pendiente, degradado", roleEn: "pending permission, degraded" },
+      { name: "--danger", light: "#B91C1C", dark: "#F87171", role: "daemon caído, errores, destructivo", roleEn: "daemon down, errors, destructive" },
+      { name: "--info", light: "#0E7490", dark: "#67E8F9", role: "avisos, actividad en streaming", roleEn: "notices, streaming activity" },
+    ];
+
+    const newTokens = [
+      { name: "--panel", light: "#F1F5F9", dark: "#0E1526", why: "El chrome estructural (sidebar, barra de estado, drawer) necesita separarse de --surface sin usar borde: hoy el mockup lo llama --panel a mano." },
+      { name: "--hair", light: "#E2E8F0", dark: "#1A2540", why: "Divisor interno, más tenue que --border. Separa filas de tabla sin dibujar una reja." },
+      { name: "--text-faint", light: "#64748B", dark: "#5B6B8C", why: "Tercer nivel de texto: cabeceras de columna, rutas de binario, metadatos. Cumple AA en tamaño grande y glifos." },
+      { name: "--tint-ok", light: "#DCFCE7", dark: "#0F2E22", why: "Fondo tenue de pill para estado correcto. El par tinte + token de color evita pintar texto de color sobre fondo neutro." },
+      { name: "--tint-warn", light: "#FEF3C7", dark: "#3A2A12", why: "Fondo tenue del contador de permisos pendientes: la única señal siempre visible del chrome." },
+      { name: "--tint-danger", light: "#FEE2E2", dark: "#3B1618", why: "Avisos inline de sesión con error, sin llegar al banner de ancho completo." },
+      { name: "--tint-info", light: "#CFFAFE", dark: "#0C3A45", why: "Actividad de streaming y avisos informativos en la barra de avisos." },
+      { name: "--touch-min", light: "44px", dark: "44px", why: "Objetivo táctil mínimo del compañero móvil. Existe como token para que ningún control lo incumpla por descuido." },
+    ];
+
+    const cssSnippet = [
+      ":root {",
+      "  /* Añadidos propuestos — tema claro */",
+      "  --panel: #f1f5f9;",
+      "  --hair: #e2e8f0;",
+      "  --text-faint: #64748b;",
+      "  --tint-ok: #dcfce7;",
+      "  --tint-warn: #fef3c7;",
+      "  --tint-danger: #fee2e2;",
+      "  --tint-info: #cffafe;",
+      "  --touch-min: 44px;",
+      "}",
+      "",
+      "@media (prefers-color-scheme: dark) {",
+      "  :root {",
+      "    --panel: #0e1526;",
+      "    --hair: #1a2540;",
+      "    --text-faint: #5b6b8c;",
+      "    --tint-ok: #0f2e22;",
+      "    --tint-warn: #3a2a12;",
+      "    --tint-danger: #3b1618;",
+      "    --tint-info: #0c3a45;",
+      "  }",
+      "}",
+    ].join("\n");
+
+    const agents = [
+      { id: "gemini-cli", name: "Gemini CLI", initials: "GC", bin: "gemini", level: 1, bg: "#72243e", fg: "#f4c0d1" },
+      { id: "copilot-cli", name: "GitHub Copilot CLI", initials: "GH", bin: "copilot", level: 1, bg: "#333f52", fg: "#c7d2e0" },
+      { id: "cursor-cli", name: "Cursor CLI", initials: "CU", bin: "agent", level: 1, bg: "#5a1f6b", fg: "#eec2f7" },
+      { id: "kiro-cli", name: "Kiro CLI", initials: "KI", bin: "kiro-cli", level: 1, bg: "#0b4a5c", fg: "#a6dfec" },
+      { id: "kilo-code", name: "Kilo Code", initials: "KC", bin: "kilo", level: 1, bg: "#3d4d10", fg: "#d3e59a" },
+      { id: "opencode", name: "OpenCode", initials: "OC", bin: "opencode", level: 1, bg: "#085041", fg: "#9fe1cb" },
+      { id: "claude-code", name: "Claude Code", initials: "CC", bin: "claude-agent-acp", level: 2, bg: "#3c3489", fg: "#cecbf6" },
+      { id: "codex-cli", name: "Codex CLI", initials: "CX", bin: "codex-acp", level: 2, bg: "#0c447c", fg: "#b5d4f4" },
+      { id: "aider", name: "Aider", initials: "AI", bin: "aider", level: 3, bg: "#633806", fg: "#fac775" },
+      { id: "antigravity", name: "Antigravity", initials: "AG", bin: "agy", level: 4, bg: "#6b2318", fg: "#f6b6a6" },
+    ];
+    const levelNames = { 1: "N1 · ACP nativo", 2: "N2 · adaptador", 3: "N3 · headless", 4: "N4 · artefactos" };
+    const agentRows = agents.map((a) => ({ ...a, levelLabel: levelNames[a.level] }));
+
+    const statuses = [
+      { key: "starting", glyph: "◌", ascii: "~", token: "--info", color: T.dInfo, es: "iniciando", en: "starting" },
+      { key: "active", glyph: "▸", ascii: ">", token: "--ok", color: T.dOk, es: "activa", en: "active" },
+      { key: "waiting_permission", glyph: "●", ascii: "!", token: "--warn", color: T.dWarn, es: "esperando permiso", en: "waiting permission" },
+      { key: "ended", glyph: "■", ascii: "x", token: "--text-muted", color: T.dMuted, es: "finalizada", en: "ended" },
+      { key: "interrupted", glyph: "▲", ascii: "!", token: "--danger", color: T.dDanger, es: "interrumpida", en: "interrupted" },
+    ];
+
+    const typeScale = [
+      { rem: "0.75", px: "12 px", sample: "endpoint · v0.1.0 · 2 sesiones", use: "Caption, barra de estado, pie" },
+      { rem: "0.8125", px: "13 px", sample: "Cabecera de columna, meta de fila", use: "Tabla densa, breadcrumb, avisos" },
+      { rem: "0.875", px: "14 px", sample: "Texto de cuerpo, por defecto", use: "Cuerpo, controles, celdas" },
+      { rem: "1.0", px: "16 px", sample: "Título de sección", use: "Encabezado de panel o grupo" },
+      { rem: "1.25", px: "20 px", sample: "Título de vista", use: "Flota, Sesiones, Proyecto, Permisos" },
+    ];
+
+    const spacing = [
+      { name: "--sp-1", px: "4px" }, { name: "--sp-2", px: "8px" }, { name: "--sp-3", px: "12px" },
+      { name: "--sp-4", px: "16px" }, { name: "--sp-6", px: "24px" }, { name: "--sp-8", px: "32px" },
+    ];
+
+    const signals = [
+      { n: "1", color: T.dDanger, title: "Daemon inalcanzable", titleEn: "Daemon unreachable", desc: "Sin daemon no hay nada. Banner persistente de ancho completo por encima de todo el contenido, con endpoint, remedio y la advertencia de que los permisos pendientes se denegarán al vencer.", treatment: "banner --danger, role=\"alert\", nunca descartable" },
+      { n: "2", color: T.dWarn, title: "Permiso pendiente", titleEn: "Permission pending", desc: "Un agente está bloqueado esperándote. Indicador en el chrome: símbolo + contador + palabra, visible siempre, en toda vista.", treatment: "bandeja --warn, siempre en el chrome, tecla a" },
+      { n: "3", color: T.dDanger, title: "Error o fin inesperado de sesión", titleEn: "Session error", desc: "Aviso persistente inline sobre la sesión afectada. No es modal: no interrumpe otra decisión en curso.", treatment: "aviso inline, descartable a mano" },
+      { n: "4", color: T.dOk, title: "Streaming", titleEn: "Streaming", desc: "El agente trabaja. Glifo de actividad pasivo, y nada más.", treatment: "glifo pasivo, jamás un popup" },
+    ];
+
+    // --- Reglas duras: ejemplos correcto / incorrecto ---
+    const box = (children, extra) => E("div", { style: { display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center", minHeight: "58px", ...extra } }, children);
+    const badge = (glyph, label, color, weight) => E("span", { key: label + color, style: { display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "13px", color, fontWeight: weight || 400, whiteSpace: "nowrap" } }, E("span", null, glyph), label);
+    const dot = (color) => E("span", { style: { width: "9px", height: "9px", borderRadius: "50%", background: color, display: "inline-block" } });
+    const btn = (label, style) => E("button", { style: { font: "inherit", fontSize: "13px", padding: "0 14px", minHeight: "32px", display: "inline-flex", alignItems: "center", whiteSpace: "nowrap", borderRadius: "4px", cursor: "pointer", border: "1px solid " + T.dBorder, background: T.dSurface2, color: T.dText, ...style } }, label);
+
+    const rules = [
+      {
+        title: "1 · El color nunca es el único portador de significado",
+        why: "Regla transversal heredada de la terminal. Todo estado se lee como símbolo + palabra. Vale para deuteranopia, monocromo, forced-colors y capturas en blanco y negro.",
+        doNode: box([badge("▸", "activa", T.dOk), badge("●", "esperando permiso", T.dWarn, 600), badge("■", "finalizada", T.dMuted), badge("▲", "interrumpida", T.dDanger)]),
+        doText: "Glifo + palabra + token de color, los tres a la vez.",
+        dontNode: box([dot(T.dOk), dot(T.dWarn), dot(T.dMuted), dot(T.dDanger)]),
+        dontText: "Puntos de color desnudos: ilegibles sin visión de color y sin nombre que decir en voz alta.",
+      },
+      {
+        title: "2 · El degradado es de la marca, no del chrome",
+        why: "El degradado egeo → viento pinta el símbolo, el icono y el lockup. La UI usa los tokens sólidos. Excepción acotada: la acción primaria y el sello de proyecto, donde el degradado firma, no decora.",
+        doNode: box([
+          E("span", { style: { width: "40px", height: "40px", borderRadius: "9px", background: "linear-gradient(135deg," + T.aegean + "," + T.wind + ")", flex: "none" } }),
+          E("div", { style: { flex: 1, minWidth: "140px", background: T.dSurface, border: "1px solid " + T.dBorder, borderRadius: "8px", padding: "10px 12px", fontSize: "13px", color: T.dMuted } }, "panel · superficie sólida"),
+        ]),
+        doText: "Degradado en la marca; superficies planas con hairline en todo lo demás.",
+        dontNode: box([E("div", { style: { flex: 1, minWidth: "180px", background: "linear-gradient(135deg,#2563eb,#22d3ee)", borderRadius: "8px", padding: "14px 12px", fontSize: "13px", color: "#fff", fontWeight: 500 } }, "panel · fondo con degradado")]),
+        dontText: "Degradados de fondo, glows y contenedores circulares alrededor de la marca: prohibidos por las reglas de marca.",
+      },
+      {
+        title: "3 · Nada de botones pill",
+        why: "Radios de 4 px para controles y 8 px para paneles. Un plano de control no es una landing: la forma es sobria y consistente.",
+        doNode: box([btn("Usar en este proyecto", { background: "#1d4ed8", border: "0", color: "#fff", fontWeight: 500 }), btn("Correr conformidad")]),
+        doText: "4 px en controles. Un solo botón sólido por zona; el resto en contorno.",
+        dontNode: box([btn("Usar en este proyecto", { background: "#1d4ed8", border: "0", color: "#fff", fontWeight: 500, borderRadius: "999px" }), btn("Correr conformidad", { borderRadius: "999px" })]),
+        dontText: "Pills: rompen la rejilla óptica con los inputs y las celdas de tabla.",
+      },
+      {
+        title: "4 · Una señal baja nunca tapa una alta",
+        why: "El orden es daemon caído › permiso pendiente › error de sesión › streaming. El banner de daemon caído vive arriba de todo y no se descarta.",
+        doNode: E("div", { style: { display: "flex", flexDirection: "column", gap: "0", border: "1px solid " + T.dBorder, borderRadius: "8px", overflow: "hidden", width: "100%" } }, [
+          E("div", { key: "b", style: { background: "#b91c1c", color: "#fff", padding: "8px 12px", fontSize: "12.5px", fontWeight: 600 } }, "▲ daemon inalcanzable"),
+          E("div", { key: "n", style: { background: T.dSurface2, color: T.dWarn, padding: "6px 12px", fontSize: "12.5px" } }, "● 1 esperando"),
+          E("div", { key: "c", style: { background: T.dBg, color: T.dMuted, padding: "8px 12px", fontSize: "12.5px" } }, "contenido"),
+        ]),
+        doText: "Apilado por prioridad: el banner arriba, la bandeja debajo, el contenido al final.",
+        dontNode: E("div", { style: { position: "relative", width: "100%", border: "1px solid " + T.dBorder, borderRadius: "8px", overflow: "hidden", minHeight: "72px", background: T.dBg } }, [
+          E("div", { key: "b", style: { background: "#b91c1c", color: "#fff", padding: "8px 12px", fontSize: "12.5px", fontWeight: 600 } }, "▲ daemon inalcanzable"),
+          E("div", { key: "t", style: { position: "absolute", top: "4px", right: "8px", background: T.dSurface, border: "1px solid " + T.dBorder, borderRadius: "6px", boxShadow: "0 4px 16px rgb(0 0 0 / .4)", padding: "8px 12px", fontSize: "12.5px", color: T.dOk } }, "▸ streaming…"),
+        ]),
+        dontText: "Un toast de streaming flotando sobre el banner del daemon: invierte el orden de señal.",
+      },
+      {
+        title: "5 · Un permiso jamás se decide con el layout en movimiento",
+        why: "El temporizador corre y la decisión es irreversible. Ni la bandeja ni los banners animan su layout, y las opciones no cambian de sitio al aparecer una petición nueva.",
+        doNode: E("div", { style: { width: "100%", background: T.dSurface, border: "1px solid " + T.dBorder, borderRadius: "8px", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "8px" } }, [
+          E("div", { key: "h", style: { display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "baseline" } }, [
+            E("strong", { key: "s", style: { fontSize: "13px", fontWeight: 500 } }, "Escribir src/lib/daemon.ts"),
+            E("span", { key: "t", style: { fontSize: "12.5px", color: T.dMuted, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } }, "vence en 42 s"),
+          ]),
+          E("div", { key: "o", style: { display: "flex", gap: "8px" } }, [btn("Permitir una vez"), btn("Permitir siempre"), btn("Denegar")]),
+        ]),
+        doText: "Alto reservado, temporizador con numerales tabulares, opciones en orden fijo.",
+        dontNode: E("div", { style: { width: "100%", background: T.dSurface, border: "1px solid " + T.dBorder, borderRadius: "8px", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "8px", opacity: 0.75 } }, [
+          E("div", { key: "h", style: { fontSize: "13px", fontWeight: 500 } }, "Escribir src/lib/daemon.ts"),
+          E("div", { key: "t", style: { fontSize: "12.5px", color: T.dMuted } }, "vence en 9 s"),
+          E("div", { key: "o", style: { display: "flex", gap: "8px", transform: "translateY(6px)" } }, [btn("Denegar"), btn("Permitir una vez")]),
+        ]),
+        dontText: "Opciones que se reordenan o se desplazan al entrar otra petición: un clic accidental es una decisión irreversible.",
+      },
+      {
+        title: "6 · La ausencia se explica, no se deja en blanco",
+        why: "Todo empty state dice qué es esa vista, por qué está vacía y cuál es el siguiente comando concreto. Vale también para el estado «sin túnel» del móvil, que es una postura de privacidad, no un fallo.",
+        doNode: E("div", { style: { width: "100%", background: T.dBg, border: "1px solid " + T.dHair, borderRadius: "8px", padding: "18px", display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-start" } }, [
+          E("span", { key: "g", style: { fontSize: "22px", color: T.dFaint } }, "⛵"),
+          E("strong", { key: "t", style: { fontSize: "13.5px", fontWeight: 500 } }, "Sin agentes detectados"),
+          E("span", { key: "h", style: { fontSize: "12.5px", color: T.dMuted, textWrap: "pretty" } }, "Meltemi dirige los binarios oficiales que ya tienes (BYO-agent). Instala tu agente CLI o declara uno propio en la config del proyecto ([[fleet.custom]])."),
+        ]),
+        doText: "Glifo, qué falta y el remedio exacto, incluida la clave de config.",
+        dontNode: E("div", { style: { width: "100%", background: T.dBg, border: "1px solid " + T.dHair, borderRadius: "8px", padding: "18px", display: "grid", placeItems: "center", minHeight: "96px" } }, E("span", { style: { fontSize: "13px", color: T.dFaint } }, "Sin resultados")),
+        dontText: "«Sin resultados» a secas: no distingue «no hay nada» de «algo falló» ni dice qué hacer.",
+      },
+      {
+        title: "7 · Lo remoto se dice con honestidad",
+        why: "El daemon no abre puertos jamás. El acceso remoto solo existe sobre un túnel SSH vivo del propio usuario. Sin túnel no hay control ni notificación — y la UI lo declara como postura, no como error.",
+        doNode: E("div", { style: { width: "100%", background: T.dSurface, border: "1px solid " + T.dBorder, borderRadius: "8px", padding: "14px", display: "flex", flexDirection: "column", gap: "6px" } }, [
+          E("strong", { key: "t", style: { fontSize: "13.5px", fontWeight: 500, color: T.dText } }, "◌ Sin túnel"),
+          E("span", { key: "d", style: { fontSize: "12.5px", color: T.dMuted, textWrap: "pretty" } }, "Meltemi no usa relés en la nube ni abre puertos. Abre el túnel SSH a tu máquina y el control remoto queda idéntico al local."),
+          E("span", { key: "c", style: { fontFamily: "'JetBrains Mono',monospace", fontSize: "11.5px", color: T.dFaint } }, "meltemi tunnel user@host"),
+        ]),
+        doText: "Nombra la postura, y da el comando exacto que la resuelve.",
+        dontNode: E("div", { style: { width: "100%", background: T.dSurface, border: "1px solid #f87171", borderRadius: "8px", padding: "14px", display: "flex", flexDirection: "column", gap: "6px" } }, [
+          E("strong", { key: "t", style: { fontSize: "13.5px", fontWeight: 500, color: T.dDanger } }, "▲ Error de conexión"),
+          E("span", { key: "d", style: { fontSize: "12.5px", color: T.dMuted } }, "No se pudo conectar. Activa las notificaciones push para no perderte nada."),
+        ]),
+        dontText: "Tratarlo como fallo, o prometer push sin túnel: eso exigiría un relé en la nube, prohibido por la constitución.",
+      },
+    ];
+
+    return { tokens, newTokens, cssSnippet, showCode, agents: agentRows, statuses, typeScale, spacing, signals, rules };
+  }
+}
+
+</script>
+</body>
+</html>

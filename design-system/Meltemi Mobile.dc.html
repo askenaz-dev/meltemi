@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #05080f; }
+  a { color: #60a5fa; text-decoration: none; }
+  a:hover { color: #22d3ee; }
+</style>
+</helmet>
+
+<div style="background:#05080f;color:#e2e8f0;font-family:Inter,'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5;min-height:100vh;padding:0 0 96px;-webkit-font-smoothing:antialiased">
+
+  <header style="max-width:1400px;margin:0 auto;padding:64px 32px 36px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;gap:14px;align-items:center;font-size:13px">
+      <a href="Meltemi Design System.dc.html">← Design system</a>
+      <span style="color:#2c3a57">/</span>
+      <span style="color:#5b6b8c">Compañero móvil</span>
+    </div>
+    <h1 style="margin:0;font-size:34px;font-weight:600;letter-spacing:-0.6px">Compañero móvil</h1>
+    <p style="margin:0;font-size:16px;color:#94a3b8;max-width:72ch;text-wrap:pretty">Control remoto y monitoreo, con los mismos tokens y el mismo vocabulario de estado que el desktop y la TUI. Tres verbos: <strong style="color:#e2e8f0;font-weight:500">monitorear</strong>, <strong style="color:#e2e8f0;font-weight:500">aprobar</strong> y <strong style="color:#e2e8f0;font-weight:500">dirigir</strong> — todos por paridad de núcleo, ninguno exclusivo de esta superficie. Lenguaje neutral: la misma pantalla en iOS y Android, sin componentes propios de plataforma.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px">
+      <span style="font-size:12px;border:1px solid #2c3a57;border-radius:7px;padding:5px 11px;color:#94a3b8">390 × 844 pt</span>
+      <span style="font-size:12px;border:1px solid #2c3a57;border-radius:7px;padding:5px 11px;color:#94a3b8">Cuerpo 15 px · filas 56 px</span>
+      <span style="font-size:12px;border:1px solid #2c3a57;border-radius:7px;padding:5px 11px;color:#94a3b8">Objetivo táctil ≥ 44 px</span>
+      <span style="font-size:12px;border:1px solid #2c3a57;border-radius:7px;padding:5px 11px;color:#94a3b8">Sin push sin túnel</span>
+    </div>
+  </header>
+
+  <!-- LA FRONTERA -->
+  <section style="max-width:1400px;margin:0 auto;padding:0 32px 8px">
+    <div style="background:#0e1526;border:1px solid #2c3a57;border-left:3px solid #22d3ee;border-radius:10px;padding:18px 20px;max-width:80ch">
+      <div style="font-size:15px;font-weight:500;margin-bottom:6px">La frontera define el diseño</div>
+      <p style="margin:0;font-size:13.5px;color:#94a3b8;text-wrap:pretty">El daemon no abre un puerto de red, jamás. Todo el acceso remoto pasa por un túnel SSH vivo del propio usuario hacia el socket local. <strong style="color:#e2e8f0;font-weight:500">Sin túnel no hay control ni notificación</strong> — y eso es una postura de privacidad, no una carencia. Por eso la pantalla más importante de esta app no es la lista de sesiones: es la de «sin túnel», y su trabajo es explicar la postura y dar el comando exacto sin sonar a error.</p>
+    </div>
+  </section>
+
+  <!-- FILA 1 · CONEXIÓN -->
+  <section style="max-width:1400px;margin:0 auto;padding:48px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:20px">
+      <h2 style="margin:0;font-size:20px;font-weight:600">1 · Conexión</h2>
+      <span style="font-size:13px;color:#5b6b8c">el estado del túnel manda sobre todo lo demás</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:28px">
+
+      <!-- Sin túnel -->
+      <figure style="margin:0;display:flex;flex-direction:column;gap:12px;width:390px">
+        <div style="width:390px;height:800px;background:#0b1220;border:1px solid #2c3a57;border-radius:34px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgb(0 0 0 / .5)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 24px 8px;font-size:12.5px;color:#94a3b8;font-variant-numeric:tabular-nums">
+            <span style="font-weight:500">9:41</span>
+            <span style="display:flex;gap:7px;align-items:center"><span>▮▮▮</span><span>◌</span><span>82%</span></span>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;padding:0 20px;min-height:0;justify-content:center;gap:20px">
+            <div style="display:flex;flex-direction:column;gap:14px;align-items:flex-start">
+              <img src="brand/meltemi-mark-mono-light.svg" alt="" width="44" height="44" style="opacity:.55" />
+              <div style="display:flex;align-items:center;gap:9px;font-size:20px;font-weight:600;color:#e2e8f0">◌ Sin túnel</div>
+              <p style="margin:0;font-size:15px;color:#94a3b8;line-height:1.6;text-wrap:pretty">Meltemi no usa relés en la nube ni abre puertos en tu máquina. El control remoto existe solo mientras haya un túnel SSH tuyo hacia el daemon.</p>
+              <p style="margin:0;font-size:15px;color:#94a3b8;line-height:1.6;text-wrap:pretty">Con el túnel abierto, esta app hace exactamente lo mismo que sentarte frente a tu equipo. Sin él, no hay nada que mostrar — y eso es deliberado.</p>
+            </div>
+            <div style="background:#111a2e;border:1px solid #2c3a57;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+              <span style="font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:#5b6b8c">Ejecuta en tu máquina</span>
+              <code style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#e2e8f0;word-break:break-all">meltemi tunnel ana@mac-studio</code>
+              <span style="font-size:12.5px;color:#5b6b8c;text-wrap:pretty">El helper compone el comando exacto con el ssh que ya tienes. No abre sockets propios ni toca material de claves.</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <button style="font:inherit;font-size:15px;font-weight:500;min-height:48px;padding:0 18px;border-radius:8px;border:0;background:#1d4ed8;color:#fff;cursor:pointer">Reintentar la conexión</button>
+              <button style="font:inherit;font-size:15px;min-height:48px;padding:0 18px;border-radius:8px;border:1px solid #2c3a57;background:transparent;color:#e2e8f0;cursor:pointer">Cómo abrir el túnel</button>
+            </div>
+            <div style="display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:#5b6b8c;text-wrap:pretty">
+              <span aria-hidden="true">●</span>
+              <span>No existe notificación push sin túnel, ni la habrá: exigiría un relé en la nube.</span>
+            </div>
+          </div>
+          <div style="padding:10px 0 12px;display:flex;justify-content:center"><span style="width:120px;height:4px;border-radius:2px;background:#2c3a57"></span></div>
+        </div>
+        <figcaption style="font-size:13px;color:#94a3b8"><strong style="color:#e2e8f0;font-weight:500">Sin túnel.</strong> Glifo <code style="font-family:'JetBrains Mono',monospace;font-size:12px">◌</code> de conexión, no <code style="font-family:'JetBrains Mono',monospace;font-size:12px">▲</code> de error: no falló nada. Sin rojo, sin alarma, sin promesa de push.</figcaption>
+      </figure>
+
+      <!-- Conectando -->
+      <figure style="margin:0;display:flex;flex-direction:column;gap:12px;width:390px">
+        <div style="width:390px;height:800px;background:#0b1220;border:1px solid #2c3a57;border-radius:34px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgb(0 0 0 / .5)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 24px 8px;font-size:12.5px;color:#94a3b8;font-variant-numeric:tabular-nums">
+            <span style="font-weight:500">9:41</span>
+            <span style="display:flex;gap:7px;align-items:center"><span>▮▮▮</span><span>◌</span><span>82%</span></span>
+          </div>
+          <div style="padding:6px 20px 12px;display:flex;flex-direction:column;gap:3px">
+            <span style="font-size:22px;font-weight:600;letter-spacing:-0.3px">Meltemi</span>
+            <span style="display:flex;align-items:center;gap:7px;font-size:13px;color:#67e8f9">◌ conectando por el túnel…</span>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:12px;padding:8px 20px;min-height:0">
+            <div style="background:#111a2e;border:1px solid #2c3a57;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:9px">
+              <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;color:#94a3b8"><span>Endpoint</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#e2e8f0;text-align:right;word-break:break-all">/tmp/meltemi-ana.sock</span></div>
+              <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;color:#94a3b8"><span>Túnel</span><span style="color:#4ade80">▸ vivo · ana@mac-studio</span></div>
+              <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;color:#94a3b8"><span>Intento</span><span style="color:#e2e8f0;font-variant-numeric:tabular-nums">2 de ∞ · backoff 4 s</span></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ skeletons }}" as="s" hint-placeholder-count="4">
+                <div style="background:#111a2e;border:1px solid #1a2540;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:9px">
+                  <span style="height:11px;border-radius:3px;background:#1a2540;width:{{ s.w1 }}"></span>
+                  <span style="height:9px;border-radius:3px;background:#16203a;width:{{ s.w2 }}"></span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="margin-top:auto;display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:#5b6b8c;text-wrap:pretty">
+              <span aria-hidden="true">◌</span>
+              <span>Con movimiento reducido, el esqueleto no pulsa: se muestra estático con la etiqueta «trabajando…».</span>
+            </div>
+          </div>
+          <div style="padding:10px 0 12px;display:flex;justify-content:center"><span style="width:120px;height:4px;border-radius:2px;background:#2c3a57"></span></div>
+        </div>
+        <figcaption style="font-size:13px;color:#94a3b8"><strong style="color:#e2e8f0;font-weight:500">Conectando.</strong> El túnel ya está vivo; lo que falta es el handshake. Se dice qué se intenta, cuántas veces y con qué backoff.</figcaption>
+      </figure>
+
+      <!-- Resumen conectado -->
+      <figure style="margin:0;display:flex;flex-direction:column;gap:12px;width:390px">
+        <div style="width:390px;height:800px;background:#0b1220;border:1px solid #2c3a57;border-radius:34px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgb(0 0 0 / .5)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 24px 8px;font-size:12.5px;color:#94a3b8;font-variant-numeric:tabular-nums">
+            <span style="font-weight:500">9:41</span>
+            <span style="display:flex;gap:7px;align-items:center"><span>▮▮▮</span><span>◌</span><span>82%</span></span>
+          </div>
+          <div style="padding:6px 20px 12px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px">
+            <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+              <span style="font-size:22px;font-weight:600;letter-spacing:-0.3px">agentic-ide</span>
+              <span style="display:flex;align-items:center;gap:7px;font-size:13px;color:#4ade80">▸ conectado · v0.1.0</span>
+            </div>
+            <span style="width:34px;height:34px;flex:none;border-radius:9px;background:linear-gradient(135deg,#2563eb,#22d3ee)"></span>
+          </div>
+
+          <div style="padding:0 20px 12px">
+            <a href="#" style="display:flex;align-items:center;gap:12px;background:#3a2a12;border:1px solid #fbbf24;border-radius:10px;padding:14px 16px;min-height:56px">
+              <span style="font-size:17px;color:#fbbf24">●</span>
+              <span style="display:flex;flex-direction:column;gap:1px;min-width:0">
+                <span style="font-size:15px;font-weight:600;color:#fbbf24">2 permisos esperando</span>
+                <span style="font-size:12.5px;color:#e2b25a">el más urgente vence en 6 s</span>
+              </span>
+              <span style="margin-left:auto;color:#fbbf24;font-size:17px">›</span>
+            </a>
+          </div>
+
+          <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:8px;padding:0 20px">
+            <div style="font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:#5b6b8c">Sesiones activas</div>
+            <sc-for list="{{ mobileSessions }}" as="s" hint-placeholder-count="4">
+              <a href="#" style="display:flex;align-items:center;gap:12px;background:#111a2e;border:1px solid #2c3a57;border-radius:10px;padding:12px 14px;min-height:56px">
+                <span style="width:34px;height:34px;flex:none;border-radius:8px;display:grid;place-items:center;font-size:12px;font-weight:600;background:{{ s.bg }};color:{{ s.fg }}">{{ s.initials }}</span>
+                <span style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
+                  <span style="font-size:15px;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.agent }}</span>
+                  <span style="font-size:12.5px;color:#5b6b8c;font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.change }}</span>
+                </span>
+                <span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end;flex:none">
+                  <span style="font-size:13px;color:{{ s.color }};font-weight:{{ s.weight }};white-space:nowrap">{{ s.glyph }} {{ s.state }}</span>
+                  <span style="font-size:12px;color:#5b6b8c;font-variant-numeric:tabular-nums">{{ s.started }}</span>
+                </span>
+              </a>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;border-top:1px solid #1a2540;background:#0e1526;padding:6px 8px 10px">
+            <a href="#" style="flex:1;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#e2e8f0;font-size:11.5px;border-radius:8px"><span style="font-size:16px">▸</span>Sesiones</a>
+            <a href="#" style="flex:1;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#fbbf24;font-size:11.5px;border-radius:8px;position:relative"><span style="font-size:16px">●</span>Permisos<span style="position:absolute;top:2px;right:20px;min-width:17px;height:17px;border-radius:9px;background:#fbbf24;color:#0b1220;font-size:10.5px;font-weight:700;display:grid;place-items:center">2</span></a>
+            <a href="#" style="flex:1;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#5b6b8c;font-size:11.5px;border-radius:8px"><span style="font-size:16px">⛵</span>Flota</a>
+            <a href="#" style="flex:1;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#5b6b8c;font-size:11.5px;border-radius:8px"><span style="font-size:16px">⚙</span>Ajustes</a>
+          </div>
+        </div>
+        <figcaption style="font-size:13px;color:#94a3b8"><strong style="color:#e2e8f0;font-weight:500">Resumen.</strong> La bandeja de permisos es lo primero después del estado de conexión: prioridad de señal 2, siempre visible, con contador en la barra de pestañas.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- FILA 2 · APROBAR -->
+  <section style="max-width:1400px;margin:0 auto;padding:56px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px">
+      <h2 style="margin:0;font-size:20px;font-weight:600">2 · Aprobar</h2>
+      <span style="font-size:13px;color:#5b6b8c">el caso de uso estrella del móvil</span>
+    </div>
+    <p style="margin:0 0 20px;max-width:80ch;color:#94a3b8;font-size:13.5px;text-wrap:pretty">La cola sobrevive a las reconexiones: una petición pendiente sigue ahí cuando el cliente vuelve, porque el contador vive en el daemon, no en la conexión. En móvil el riesgo es el pulgar: la acción destructiva nunca queda bajo el pulgar por defecto, y el layout no se mueve mientras el temporizador corre.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:28px">
+
+      <!-- Cola -->
+      <figure style="margin:0;display:flex;flex-direction:column;gap:12px;width:390px">
+        <div style="width:390px;height:800px;background:#0b1220;border:1px solid #2c3a57;border-radius:34px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgb(0 0 0 / .5)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 24px 8px;font-size:12.5px;color:#94a3b8;font-variant-numeric:tabular-nums">
+            <span style="font-weight:500">9:41</span>
+            <span style="display:flex;gap:7px;align-items:center"><span>▮▮▮</span><span>◌</span><span>82%</span></span>
+          </div>
+          <div style="padding:6px 20px 12px;display:flex;flex-direction:column;gap:3px">
+            <span style="font-size:22px;font-weight:600;letter-spacing:-0.3px">Permisos</span>
+            <span style="font-size:13px;color:#fbbf24;font-weight:500">● 2 esperando — sin decisión, vencen y se deniegan</span>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:4px 20px">
+
+            <div style="background:#111a2e;border:1px solid #fbbf24;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+                <span style="display:flex;align-items:center;gap:8px;min-width:0">
+                  <span style="width:26px;height:26px;flex:none;border-radius:7px;display:grid;place-items:center;font-size:10.5px;font-weight:600;background:#3c3489;color:#cecbf6">CC</span>
+                  <span style="font-size:12.5px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Claude Code · t2</span>
+                </span>
+                <span style="font-size:13px;color:#fbbf24;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap">vence en 6 s</span>
+              </div>
+              <span style="font-size:16px;font-weight:500;color:#e2e8f0;line-height:1.35">Ejecutar <code style="font-family:'JetBrains Mono',monospace;font-size:14.5px">git push --force</code></span>
+              <span style="font-size:12.5px;color:#94a3b8;font-family:'JetBrains Mono',monospace">shell/exec · sesión 7d0e91bb</span>
+              <div style="display:flex;gap:9px;align-items:flex-start;background:#3a2a12;border-radius:8px;padding:10px 12px;color:#fbbf24;font-size:12.5px">
+                <span aria-hidden="true">●</span>
+                <span style="text-wrap:pretty">Irreversible sobre el remoto. Sin regla sugerida: no se ofrece «permitir siempre».</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:9px">
+                <button style="font:inherit;font-size:15px;font-weight:500;min-height:48px;border-radius:8px;border:0;background:#1d4ed8;color:#fff;cursor:pointer">Denegar</button>
+                <button style="font:inherit;font-size:15px;min-height:48px;border-radius:8px;border:1px solid #2c3a57;background:transparent;color:#e2e8f0;cursor:pointer">Permitir una vez</button>
+              </div>
+            </div>
+
+            <div style="background:#111a2e;border:1px solid #2c3a57;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+                <span style="display:flex;align-items:center;gap:8px;min-width:0">
+                  <span style="width:26px;height:26px;flex:none;border-radius:7px;display:grid;place-items:center;font-size:10.5px;font-weight:600;background:#085041;color:#9fe1cb">OC</span>
+                  <span style="font-size:12.5px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">OpenCode · t1</span>
+                </span>
+                <span style="font-size:13px;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap">vence en 42 s</span>
+              </div>
+              <span style="font-size:16px;font-weight:500;color:#e2e8f0;line-height:1.35">Escribir <code style="font-family:'JetBrains Mono',monospace;font-size:14.5px">src/lib/daemon.ts</code></span>
+              <span style="font-size:12.5px;color:#94a3b8;font-family:'JetBrains Mono',monospace">fs/write · sesión a91f3c02</span>
+              <label style="display:flex;align-items:center;gap:10px;color:#94a3b8;font-size:13px;min-height:44px">
+                <input type="checkbox" style="accent-color:#60a5fa;width:20px;height:20px;flex:none" />
+                <span>Guardar la regla <code style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#e2e8f0">allow: fs/write src/**</code></span>
+              </label>
+              <div style="display:flex;flex-direction:column;gap:9px">
+                <button style="font:inherit;font-size:15px;font-weight:500;min-height:48px;border-radius:8px;border:0;background:#1d4ed8;color:#fff;cursor:pointer">Permitir una vez</button>
+                <div style="display:flex;gap:9px">
+                  <button style="flex:1;font:inherit;font-size:15px;min-height:48px;border-radius:8px;border:1px solid #2c3a57;background:transparent;color:#e2e8f0;cursor:pointer">Siempre</button>
+                  <button style="flex:1;font:inherit;font-size:15px;min-height:48px;border-radius:8px;border:1px solid #2c3a57;background:transparent;color:#f87171;cursor:pointer">Denegar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="padding:10px 0 12px;display:flex;justify-content:center"><span style="width:120px;height:4px;border-radius:2px;background:#2c3a57"></span></div>
+        </div>
+        <figcaption style="font-size:13px;color:#94a3b8"><strong style="color:#e2e8f0;font-weight:500">Cola de permisos.</strong> La petición a punto de vencer va arriba y su botón sólido es <em>Denegar</em>: si el pulgar se adelanta, el resultado es el seguro por defecto.</figcaption>
+      </figure>
+
+      <!-- Cola vacía + histórico -->
+      <figure style="margin:0;display:flex;flex-direction:column;gap:12px;width:390px">
+        <div style="width:390px;height:800px;background:#0b1220;border:1px solid #2c3a57;border-radius:34px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgb(0 0 0 / .5)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 24px 8px;font-size:12.5px;color:#94a3b8;font-variant-numeric:tabular-nums">
+            <span style="font-weight:500">9:41</span>
+            <span style="display:flex;gap:7px;align-items:center"><span>▮▮▮</span><span>◌</span><span>82%</span></span>
+          </div>
+          <div style="padding:6px 20px 12px;display:flex;flex-direction:column;gap:3px">
+            <span style="font-size:22px;font-weight:600;letter-spacing:-0.3px">Permisos</span>
+            <span style="font-size:13px;color:#94a3b8">○ ninguno esperando</span>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:16px;padding:4px 20px">
+            <div style="background:#111a2e;border:1px solid #1a2540;border-radius:10px;padding:22px 18px;display:flex;flex-direction:column;gap:8px;align-items:flex-start">
+              <span style="font-size:26px;color:#5b6b8c">●</span>
+              <strong style="font-size:16px;font-weight:500">Sin permisos pendientes</strong>
+              <span style="font-size:14px;color:#94a3b8;line-height:1.55;text-wrap:pretty">Cuando un agente pida autorización, la petición esperará aquí. Sin decisión, vence y se deniega — nunca en silencio.</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:#5b6b8c">Decididos hoy</div>
+              <sc-for list="{{ decided }}" as="d" hint-placeholder-count="5">
+                <div style="display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid #1a2540;min-height:56px">
+                  <span style="font-size:15px;color:{{ d.color }};flex:none;width:16px">{{ d.glyph }}</span>
+                  <span style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
+                    <span style="font-size:14px;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.op }}</span>
+                    <span style="font-size:12.5px;color:#5b6b8c">{{ d.outcome }}</span>
+                  </span>
+                  <span style="font-size:12.5px;color:#5b6b8c;font-variant-numeric:tabular-nums;flex:none">{{ d.at }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="margin-top:auto;display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:#5b6b8c;text-wrap:pretty">
+              <span aria-hidden="true">▸</span>
+              <span>Toda decisión queda en el registro de la sesión, tomada aquí o en el escritorio. La auditoría es la misma.</span>
+            </div>
+          </div>
+          <div style="padding:10px 0 12px;display:flex;justify-content:center"><span style="width:120px;height:4px;border-radius:2px;background:#2c3a57"></span></div>
+        </div>
+        <figcaption style="font-size:13px;color:#94a3b8"><strong style="color:#e2e8f0;font-weight:500">Cola vacía.</strong> El histórico del día evita que la pantalla vacía parezca una app rota, y hace visible la denegación por plazo.</figcaption>
+      </figure>
+
+      <!-- Detalle de sesión -->
+      <figure style="margin:0;display:flex;flex-direction:column;gap:12px;width:390px">
+        <div style="width:390px;height:800px;background:#0b1220;border:1px solid #2c3a57;border-radius:34px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgb(0 0 0 / .5)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 24px 8px;font-size:12.5px;color:#94a3b8;font-variant-numeric:tabular-nums">
+            <span style="font-weight:500">9:41</span>
+            <span style="display:flex;gap:7px;align-items:center"><span>▮▮▮</span><span>◌</span><span>82%</span></span>
+          </div>
+          <div style="padding:4px 20px 12px;display:flex;flex-direction:column;gap:8px">
+            <a href="#" style="font-size:14px;color:#60a5fa;min-height:32px;display:flex;align-items:center;gap:6px">‹ Sesiones</a>
+            <div style="display:flex;align-items:center;gap:11px">
+              <span style="width:36px;height:36px;flex:none;border-radius:9px;display:grid;place-items:center;font-size:13px;font-weight:600;background:#085041;color:#9fe1cb">OC</span>
+              <span style="display:flex;flex-direction:column;gap:1px;min-width:0">
+                <span style="font-size:18px;font-weight:600;letter-spacing:-0.2px">OpenCode</span>
+                <span style="font-size:12.5px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">a91f3c02 · add-dark-mode/t1</span>
+              </span>
+              <span style="margin-left:auto;font-size:13px;color:#4ade80;white-space:nowrap;flex:none">▸ activa</span>
+            </div>
+          </div>
+          <div style="flex:1;min-height:0;padding:0 20px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:#5b6b8c">Transcripción</span>
+              <span style="font-size:12.5px;color:#4ade80">▸ en vivo</span>
+            </div>
+            <div style="flex:1;min-height:0;overflow:hidden;background:#111a2e;border:1px solid #1a2540;border-radius:10px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.75;display:flex;flex-direction:column;gap:3px">
+              <sc-for list="{{ transcript }}" as="l" hint-placeholder-count="9">
+                <span style="color:#5b6b8c;word-break:break-word"><span style="color:#3f4d6b">{{ l.at }}</span> <span style="color:{{ l.color }}">{{ l.kind }}</span> {{ l.text }}</span>
+              </sc-for>
+            </div>
+            <div style="display:flex;gap:9px;align-items:center">
+              <input type="text" placeholder="Instrucción para el siguiente turno" style="flex:1;min-width:0;font:inherit;font-size:15px;min-height:48px;padding:0 14px;border-radius:8px;border:1px solid #2c3a57;background:#111a2e;color:#e2e8f0" />
+              <button style="flex:none;font:inherit;font-size:15px;font-weight:500;min-height:48px;min-width:48px;padding:0 16px;border-radius:8px;border:0;background:#1d4ed8;color:#fff;cursor:pointer">Dirigir</button>
+            </div>
+            <div style="display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:#5b6b8c;text-wrap:pretty;padding-bottom:8px">
+              <span aria-hidden="true">●</span>
+              <span>La instrucción se encola como siguiente turno y queda registrada — encolada, luego despachada. Dirigir en remoto es auditable.</span>
+            </div>
+          </div>
+          <div style="padding:10px 0 12px;display:flex;justify-content:center"><span style="width:120px;height:4px;border-radius:2px;background:#2c3a57"></span></div>
+        </div>
+        <figcaption style="font-size:13px;color:#94a3b8"><strong style="color:#e2e8f0;font-weight:500">Detalle y dirigir.</strong> Monitorear y dirigir en la misma pantalla. El campo de instrucción no flota sobre el registro: lo acompaña.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- FILA 3 · FLOTA + AJUSTES -->
+  <section style="max-width:1400px;margin:0 auto;padding:56px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:20px">
+      <h2 style="margin:0;font-size:20px;font-weight:600">3 · Flota y ajustes</h2>
+      <span style="font-size:13px;color:#5b6b8c">la flota en tema claro: los mismos tokens, ambos temas siguen al sistema</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:28px">
+
+      <!-- Flota claro -->
+      <figure style="margin:0;display:flex;flex-direction:column;gap:12px;width:390px">
+        <div style="width:390px;height:800px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:34px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgb(0 0 0 / .5);color:#0f172a">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 24px 8px;font-size:12.5px;color:#475569;font-variant-numeric:tabular-nums">
+            <span style="font-weight:500">9:41</span>
+            <span style="display:flex;gap:7px;align-items:center"><span>▮▮▮</span><span>◌</span><span>82%</span></span>
+          </div>
+          <div style="padding:6px 20px 12px;display:flex;flex-direction:column;gap:3px">
+            <span style="font-size:22px;font-weight:600;letter-spacing:-0.3px">Flota</span>
+            <span style="font-size:13px;color:#475569">10 agentes · 1 detectado</span>
+          </div>
+          <div style="flex:1;min-height:0;overflow:hidden;padding:0 20px;display:flex;flex-direction:column">
+            <sc-for list="{{ fleetMobile }}" as="a" hint-placeholder-count="10">
+              <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #e2e8f0;min-height:56px">
+                <span style="width:34px;height:34px;flex:none;border-radius:8px;display:grid;place-items:center;font-size:12px;font-weight:600;background:{{ a.bg }};color:{{ a.fg }}">{{ a.initials }}</span>
+                <span style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1">
+                  <span style="font-size:15px;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.name }}</span>
+                  <span style="font-size:12px;color:#64748b;font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.bin }}</span>
+                </span>
+                <span style="display:flex;flex-direction:column;gap:3px;align-items:flex-end;flex:none">
+                  <span style="font-size:10.5px;border-radius:9px;padding:1px 8px;white-space:nowrap;background:{{ a.pillBg }};color:{{ a.pillFg }}">{{ a.levelLabel }}</span>
+                  <span style="font-size:12px;color:{{ a.detectedFg }};white-space:nowrap">{{ a.detectedGlyph }} {{ a.detectedLabel }}</span>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:flex;border-top:1px solid #e2e8f0;background:#f1f5f9;padding:6px 8px 10px">
+            <a href="#" style="flex:1;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#64748b;font-size:11.5px;border-radius:8px"><span style="font-size:16px">▸</span>Sesiones</a>
+            <a href="#" style="flex:1;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#64748b;font-size:11.5px;border-radius:8px"><span style="font-size:16px">○</span>Permisos</a>
+            <a href="#" style="flex:1;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#0f172a;font-size:11.5px;border-radius:8px;font-weight:500"><span style="font-size:16px">⛵</span>Flota</a>
+            <a href="#" style="flex:1;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#64748b;font-size:11.5px;border-radius:8px"><span style="font-size:16px">⚙</span>Ajustes</a>
+          </div>
+        </div>
+        <figcaption style="font-size:13px;color:#94a3b8"><strong style="color:#e2e8f0;font-weight:500">Flota, tema claro.</strong> El nivel se lee como texto y la detección como glifo + palabra: la fila entera funciona en monocromo.</figcaption>
+      </figure>
+
+      <!-- Ajustes / túnel -->
+      <figure style="margin:0;display:flex;flex-direction:column;gap:12px;width:390px">
+        <div style="width:390px;height:800px;background:#0b1220;border:1px solid #2c3a57;border-radius:34px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgb(0 0 0 / .5)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 24px 8px;font-size:12.5px;color:#94a3b8;font-variant-numeric:tabular-nums">
+            <span style="font-weight:500">9:41</span>
+            <span style="display:flex;gap:7px;align-items:center"><span>▮▮▮</span><span>◌</span><span>82%</span></span>
+          </div>
+          <div style="padding:6px 20px 12px"><span style="font-size:22px;font-weight:600;letter-spacing:-0.3px">Ajustes</span></div>
+          <div style="flex:1;min-height:0;padding:0 20px;display:flex;flex-direction:column;gap:16px">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <span style="font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:#5b6b8c">Túnel</span>
+              <div style="background:#111a2e;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+                <div style="display:flex;justify-content:space-between;gap:10px;padding:13px 15px;border-bottom:1px solid #1a2540;min-height:52px;align-items:center"><span style="font-size:14px;color:#94a3b8">Estado</span><span style="font-size:14px;color:#4ade80">▸ vivo</span></div>
+                <div style="display:flex;justify-content:space-between;gap:10px;padding:13px 15px;border-bottom:1px solid #1a2540;min-height:52px;align-items:center"><span style="font-size:14px;color:#94a3b8">Host</span><span style="font-size:13px;color:#e2e8f0;font-family:'JetBrains Mono',monospace">ana@mac-studio</span></div>
+                <div style="display:flex;justify-content:space-between;gap:10px;padding:13px 15px;min-height:52px;align-items:center"><span style="font-size:14px;color:#94a3b8">Endpoint</span><span style="font-size:12.5px;color:#e2e8f0;font-family:'JetBrains Mono',monospace;text-align:right;word-break:break-all;max-width:55%">/tmp/meltemi-ana.sock</span></div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <span style="font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:#5b6b8c">Apariencia</span>
+              <div style="background:#111a2e;border:1px solid #2c3a57;border-radius:10px;overflow:hidden">
+                <div style="display:flex;justify-content:space-between;gap:10px;padding:13px 15px;border-bottom:1px solid #1a2540;min-height:52px;align-items:center"><span style="font-size:14px;color:#94a3b8">Tema</span><span style="font-size:14px;color:#e2e8f0">Sistema ›</span></div>
+                <div style="display:flex;justify-content:space-between;gap:10px;padding:13px 15px;min-height:52px;align-items:center"><span style="font-size:14px;color:#94a3b8">Idioma</span><span style="font-size:14px;color:#e2e8f0">Español ›</span></div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <span style="font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:#5b6b8c">Privacidad</span>
+              <div style="background:#111a2e;border:1px solid #2c3a57;border-radius:10px;padding:14px 15px;display:flex;flex-direction:column;gap:8px">
+                <span style="font-size:14px;color:#e2e8f0;font-weight:500">Sin notificaciones push</span>
+                <span style="font-size:13px;color:#94a3b8;line-height:1.55;text-wrap:pretty">Habilitar avisos sin túnel exigiría un relé en la nube o un puerto abierto en el daemon. Ninguno de los dos existirá. La app avisa mientras el túnel esté vivo y la app esté conectada.</span>
+                <a href="#" style="font-size:13.5px;color:#60a5fa;min-height:44px;display:flex;align-items:center">Leer la postura completa</a>
+              </div>
+            </div>
+            <div style="margin-top:auto;padding-bottom:12px;display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">
+              <span>meltemid v0.1.0 · Apache-2.0</span>
+              <span>núcleo en paridad: 40 métodos</span>
+            </div>
+          </div>
+          <div style="padding:10px 0 12px;display:flex;justify-content:center"><span style="width:120px;height:4px;border-radius:2px;background:#2c3a57"></span></div>
+        </div>
+        <figcaption style="font-size:13px;color:#94a3b8"><strong style="color:#e2e8f0;font-weight:500">Ajustes.</strong> «Sin notificaciones push» se declara como decisión de producto explicada, no como interruptor apagado ni como función pendiente.</figcaption>
+      </figure>
+
+      <!-- Reglas móviles -->
+      <div style="width:390px;display:flex;flex-direction:column;gap:12px">
+        <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:10px">Reglas propias del móvil</div>
+          <ul style="margin:0;padding-left:18px;color:#94a3b8;font-size:13px;line-height:1.75">
+            <li>Todo control táctil mide al menos 44×44 px, incluidos los enlaces de texto.</li>
+            <li>Cuerpo a 15 px y filas a 56 px: el desktop es denso, el móvil es alcanzable.</li>
+            <li>Un permiso urgente da su botón sólido a la opción segura, no a la permisiva.</li>
+            <li>Ningún gesto de deslizar decide un permiso: el swipe no es auditable ni reversible.</li>
+            <li>Sin componentes de plataforma: la misma pantalla en iOS y Android, un solo catálogo de mensajes.</li>
+            <li>El estado de conexión vive en la cabecera de toda pantalla, no solo en Ajustes.</li>
+          </ul>
+        </div>
+        <div style="background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:10px">Lo que el móvil no hace</div>
+          <ul style="margin:0;padding-left:18px;color:#94a3b8;font-size:13px;line-height:1.75">
+            <li>No edita código: el editor es utilitario y vive en el escritorio.</li>
+            <li>No propone ni planifica changes: la autoría SDD pide pantalla grande y revisión pausada.</li>
+            <li>No apaga el daemon ni revierte checkpoints desde una notificación.</li>
+            <li>No guarda credenciales ni material de claves: el túnel es del <code style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#e2e8f0">ssh</code> del sistema.</li>
+          </ul>
+        </div>
+        <div style="background:#0e1526;border:1px solid #2c3a57;border-left:3px solid #fbbf24;border-radius:10px;padding:18px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:10px">Decisión abierta</div>
+          <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.7;text-wrap:pretty">Con la app en segundo plano y el túnel vivo, ¿puede el sistema operativo mostrar un aviso local de permiso pendiente? Es una notificación local, sin relé — pero depende de que la conexión sobreviva en background, lo que en iOS no está garantizado. Está sin resolver y conviene decidirlo antes de escribir la spec de fase 3.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer style="max-width:1400px;margin:72px auto 0;padding:24px 32px 0;border-top:1px solid #1a2540;display:flex;flex-wrap:wrap;gap:16px;align-items:center">
+    <img src="brand/meltemi-mark-mono-light.svg" alt="" width="20" height="20" style="opacity:.5" />
+    <span style="font-size:12.5px;color:#5b6b8c">Un rumbo, muchas velas.</span>
+    <span style="margin-left:auto;display:flex;gap:16px;font-size:12.5px">
+      <a href="Meltemi Design System.dc.html">Design system</a>
+      <a href="Meltemi UI Kit Desktop.dc.html">UI kit desktop</a>
+    </span>
+  </footer>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const skeletons = [
+      { w1: "62%", w2: "38%" }, { w1: "48%", w2: "55%" },
+      { w1: "70%", w2: "30%" }, { w1: "40%", w2: "46%" },
+    ];
+
+    const mobileSessions = [
+      { agent: "OpenCode", initials: "OC", bg: "#085041", fg: "#9fe1cb", change: "add-dark-mode / t1", glyph: "▸", state: "activa", color: "#4ade80", weight: 400, started: "12:04" },
+      { agent: "Claude Code", initials: "CC", bg: "#3c3489", fg: "#cecbf6", change: "add-dark-mode / t2", glyph: "●", state: "permiso", color: "#fbbf24", weight: 600, started: "12:01" },
+      { agent: "Gemini CLI", initials: "GC", bg: "#72243e", fg: "#f4c0d1", change: "gui-clase-mundial / t4", glyph: "●", state: "permiso", color: "#fbbf24", weight: 600, started: "11:48" },
+      { agent: "Codex CLI", initials: "CX", bg: "#0c447c", fg: "#b5d4f4", change: "flota-multiproveedor / t3", glyph: "■", state: "reanudable", color: "#94a3b8", weight: 400, started: "10:22" },
+      { agent: "Aider", initials: "AI", bg: "#633806", fg: "#fac775", change: "acceso-remoto / t1", glyph: "▲", state: "interrumpida", color: "#f87171", weight: 400, started: "09:57" },
+    ];
+
+    const decided = [
+      { glyph: "▸", color: "#4ade80", op: "fs/write src/app.css", outcome: "permitido una vez · desde el móvil", at: "09:12" },
+      { glyph: "▸", color: "#4ade80", op: "fs/read docs/ux/design-system.md", outcome: "regla guardada: allow fs/read docs/**", at: "09:08" },
+      { glyph: "■", color: "#94a3b8", op: "shell/exec cargo test", outcome: "denegado", at: "08:55" },
+      { glyph: "▲", color: "#f87171", op: "fs/read ~/.ssh/config", outcome: "vencido — denegado por plazo", at: "08:41" },
+      { glyph: "▸", color: "#4ade80", op: "mcp/tool repo-search", outcome: "permitido siempre · desde el escritorio", at: "08:30" },
+    ];
+
+    const transcript = [
+      { at: "12:04:11", kind: "session/start", color: "#67e8f9", text: "opencode · worktree add-dark-mode/t1" },
+      { at: "12:04:12", kind: "checkpoint", color: "#94a3b8", text: "pre-tarea creado · 4f19ac2" },
+      { at: "12:04:13", kind: "agent", color: "#94a3b8", text: "leyendo tasks.md" },
+      { at: "12:04:19", kind: "permission", color: "#fbbf24", text: "fs/write src/lib/daemon.ts" },
+      { at: "12:04:26", kind: "decide", color: "#4ade80", text: "allow_once · desde el móvil" },
+      { at: "12:04:27", kind: "agent", color: "#94a3b8", text: "escribiendo src/lib/daemon.ts" },
+      { at: "12:05:02", kind: "direct", color: "#67e8f9", text: "encolada: «añade el caso de reconexión»" },
+      { at: "12:05:03", kind: "direct", color: "#67e8f9", text: "despachada al siguiente turno" },
+      { at: "12:05:44", kind: "agent", color: "#94a3b8", text: "cargo test — 41 passed" },
+    ];
+
+    const raw = [
+      { name: "OpenCode", initials: "OC", bin: "opencode", level: 1, bg: "#085041", fg: "#9fe1cb", detected: true, verified: true },
+      { name: "Claude Code", initials: "CC", bin: "claude-agent-acp", level: 2, bg: "#3c3489", fg: "#cecbf6", detected: false },
+      { name: "Gemini CLI", initials: "GC", bin: "gemini", level: 1, bg: "#72243e", fg: "#f4c0d1", detected: false },
+      { name: "Codex CLI", initials: "CX", bin: "codex-acp", level: 2, bg: "#0c447c", fg: "#b5d4f4", detected: false },
+      { name: "GitHub Copilot CLI", initials: "GH", bin: "copilot", level: 1, bg: "#333f52", fg: "#c7d2e0", detected: false },
+      { name: "Cursor CLI", initials: "CU", bin: "agent", level: 1, bg: "#5a1f6b", fg: "#eec2f7", detected: false },
+      { name: "Kiro CLI", initials: "KI", bin: "kiro-cli", level: 1, bg: "#0b4a5c", fg: "#a6dfec", detected: false },
+      { name: "Kilo Code", initials: "KC", bin: "kilo", level: 1, bg: "#3d4d10", fg: "#d3e59a", detected: false },
+      { name: "Aider", initials: "AI", bin: "aider", level: 3, bg: "#633806", fg: "#fac775", detected: false },
+      { name: "Antigravity", initials: "AG", bin: "agy", level: 4, bg: "#6b2318", fg: "#f6b6a6", detected: false },
+    ];
+    const fleetMobile = raw.map((a) => ({
+      ...a,
+      levelLabel: a.verified ? "N" + a.level + " ✓" : "N" + a.level,
+      pillBg: a.verified ? "#dcfce7" : "#eef2f7",
+      pillFg: a.verified ? "#15803d" : "#475569",
+      detectedGlyph: a.detected ? "▸" : "■",
+      detectedFg: a.detected ? "#15803d" : "#64748b",
+      detectedLabel: a.detected ? "detectado" : "no",
+    }));
+
+    return { skeletons, mobileSessions, decided, transcript, fleetMobile };
+  }
+}
+
+</script>
+</body>
+</html>
