@@ -17,7 +17,7 @@
 | Research de integración de agentes persistido | ✅ `docs/research/integracion-agentes.md` |
 | Plan maestro de cambios | ✅ Este documento |
 | **Ratificación humana (Guillermo)** de meltemi.md, constitución y rumbo | ✅ 2026-07-11 |
-| **Registros operativos** (org GitHub, org npm, dominio, crates) | 🟡 org GitHub y npm hechas (`askenaz-dev`); dominio `meltemi.dev` en compra; crates por reservar |
+| **Registros operativos** (org GitHub, org npm, dominio, crates) | 🟡 org GitHub y npm hechas (`askenaz-dev`); dominio `meltemi.dev` comprado, DNS por apuntar a Pages; crates por reservar |
 
 ## Fase 0 (en curso)
 
@@ -127,16 +127,51 @@ revisados uno por uno, deltas plegados a la verdad viva):
 | `analitica-consumo-local` | `analytics/usage`: actividad plegada de los registros locales, tokens solo donde la salida oficial los reporta, frontera medido/no-reportado con motivo estable y declaración de honestidad junto a las cifras |
 | `sitio-web-producto` | `site/` estático (sin JS, sin orígenes externos), descargas a la última release firmada con nombres estables, tokens derivados del cliente y lint del sitio como gate |
 
-Pendientes de Fase 2: `motor-propio-byok` · `sandbox-propio` ·
-`hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` ·
-`metricas-sdd-locales` · `lsp-superficie-revision`.
+Pendientes de Fase 2: `motor-propio-byok` (propuesta redactada, activa) ·
+`sandbox-propio` · `hooks-eventos` · `plugins-skills-sdk` ·
+`i18n-superficies` · `metricas-sdd-locales` · `lsp-superficie-revision`.
+
+### `motor-propio-byok` — propuesta activa desde el 2026-07-25
+
+Nace de tres peticiones del mantenedor: una vía para **modelos autohospedados**
+(ollama y cualquier endpoint OpenAI-compatible), el **harness como concepto de
+primera clase con un default**, y una decisión sobre su proyecto **Forge
+Harnesses**. La forma la decidió meltemi.md D6: el motor propio entra a la flota
+como un agente ACP de nivel 1 (`core/meltemi-engine`), pilotado por stdio igual
+que cualquier agente externo — misma detección, mismo proxy de permisos, mismos
+worktrees y checkpoints, **jamás un canal privilegiado**. Todo el tráfico de red
+vive en el subproceso: `meltemid` no enlaza pila HTTP/TLS alguna, propiedad
+auditable que sostiene §3.
+
+Un harness es un manifiesto TOML v1 (dialecto, `base-url`, modelo, prompt,
+política de herramientas, límites) que el daemon **valida y lista, nunca
+interpreta**; el default va embebido apuntando a `http://localhost:11434/v1`,
+el único que no privilegia a proveedor comercial alguno. Sin modelo alcanzable
+rehusa con remedio; nunca degrada en silencio. Las claves BYOK entran solo por
+referencia `${VAR}`, con el lint de higiene existente.
+
+**Decisión sobre Forge Harnesses: se mantiene como proyecto separado**,
+conectado por contrato — este repositorio publica el esquema versionado del
+manifiesto (JSON Schema + fixtures de conformidad) y Forge produce manifiestos
+que se prueban contra ellos. Absorberlo sometería un laboratorio de iteración de
+prompts a la constitución entera (spec-first por cada ajuste, clippy en 3 SO,
+Apache-2.0 + CLA desde el día uno), no compraría ni un test de integración en CI
+(que por regla no ejecuta agentes reales ni red) y arrastraría a Meltemi hacia el
+marketplace que su rumbo explícitamente no es. Si alguna vez se absorbe, entra
+Apache-2.0 bajo CLA, sin excepciones.
+
+Mientras la change no se implemente, correr un modelo local bajo Meltemi ya es
+posible **hoy y sin código nuevo**: OpenCode (nivel 1) y Aider (nivel 3) de la
+flota actual hablan con endpoints ollama/OpenAI-compatible por su propia
+configuración. La guía de docs que lo explique entra con la change, verificada
+contra las versiones vigentes y no citada de memoria.
 
 El design system del mantenedor vive en `design-system/` y es la fuente visual
 normativa (gui-clase-mundial D11).
 
 **Deuda declarada al archivar** (no se archivó nada fingiendo que estaba
-hecho): la captura de escritorio del sitio exige una máquina de release y su
-procedimiento está en `docs/ux/capturas.md`; la firma de MSI/DMG sigue pendiente
+hecho): ✅ la captura de escritorio del sitio está publicada y su procedimiento
+es un script (`scripts/capture-desktop.ps1`, `docs/ux/capturas.md`); la firma de MSI/DMG sigue pendiente
 de infraestructura de certificados; el arranque y la RAM en macOS y Linux se
 publican en el QA de la primera release que incluya la GUI.
 
@@ -156,5 +191,5 @@ publican en el QA de la primera release que incluya la GUI.
 
 1. ✅ **Ratificar** meltemi.md, `constitution.md` y `rumbo/` — hecho 2026-07-11.
 1b. ⬜ **Ratificar las enmiendas encadenadas de meltemi.md**: v1.1→v1.2 (`formato-artefactos-meltemi`) y v1.2→v1.3 (`enmienda-edicion-movil`). Las tres versiones están aplicadas al documento; falta la firma del mantenedor fundador (`method-bootstrap`: la herramienta no se auto-ratifica).
-2. **Registrar**: ✅ org GitHub `askenaz-dev` · ✅ org npm `askenaz-dev` · 🟡 dominio `meltemi.dev` (en compra) · ⬜ crates `meltemi`, `meltemid`, `meltemi-proto` en crates.io (verificados LIBRES el 2026-07-11 — reservar con un `cargo publish` placeholder o en el primer release para evitar squatting).
+2. **Registrar**: ✅ org GitHub `askenaz-dev` · ✅ org npm `askenaz-dev` · 🟡 dominio `meltemi.dev` (comprado el 2026-07-25; falta apuntar el DNS a Pages) · ⬜ crates `meltemi`, `meltemid`, `meltemi-proto` en crates.io (verificados LIBRES el 2026-07-11 — reservar con un `cargo publish` placeholder o en el primer release para evitar squatting).
 3. **Decidir** el mecanismo de firma del CLA cuando llegue #21.
