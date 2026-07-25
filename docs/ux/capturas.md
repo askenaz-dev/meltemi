@@ -25,35 +25,36 @@ simulated agent, two launch profiles) and renders it through the same code path
 the shell uses. Regenerate it whenever the sessions view changes; the diff is
 reviewable because the output is text.
 
-## Desktop surface — manual, on a release machine
+## Desktop surface — scripted, run by a maintainer
 
-The desktop capture needs a running window, so it is a maintainer action:
+The desktop capture needs a running window, so it is a maintainer action rather
+than a CI step. It is still scripted, so the provenance in the caption is a fact
+anybody can re-derive:
 
-1. Create a temporary fixture repository outside this one, and point it at the
-   simulated agent:
+```powershell
+cargo build --release -p mock-agent -p meltemi -p meltemid
+cd desktop && ui/node_modules/.bin/tauri build --no-bundle && cd ..
+pwsh -NoProfile -File scripts/capture-desktop.ps1
+```
 
-   ```bash
-   mkdir -p /tmp/meltemi-fixture/.meltemi
-   cd /tmp/meltemi-fixture && git init -q
-   printf '[agent]\ncommand = ["%s"]\n' "$(pwd)/../mock-agent" > .meltemi/config.toml
-   printf '[[rule]]\neffect = "allow"\n' > .meltemi/permissions.toml
-   ```
+The script builds a throwaway fixture repository with two launch profiles over
+the simulated agent, dispatches four tasks and one proposal so the views have
+content, seeds the window geometry for the machine's display scale, captures the
+window with `PrintWindow`/`PW_RENDERFULLCONTENT` (a WebView2 surface comes out
+blank without it), downscales to 1600 px wide and writes
+`site/media/desktop-sessions.png`. Its endpoint, data directory and config
+directory are its own: it never touches the maintainer's daemon, projects or
+agents. No real agent, no network.
 
-   Build `mock-agent` from this repository (`cargo build --release -p mock-agent`)
-   and use that path. No real agent, no network.
+Only the platform differs — it is PowerShell because the surface it captures is
+a Windows window, and Windows is a first-class platform here. On macOS and Linux
+the equivalent is a manual capture of the same fixture; the caption must then
+name that platform.
 
-2. Launch the desktop client with the fixture as its working directory, run one
-   session so the views have content, and set the theme you want to publish.
-
-3. Capture the window at 2× scale, PNG, no window shadow, and crop to the
-   application frame. Nothing else may be on screen.
-
-4. Check the image before committing it: no user name in a path, no real project
-   name, no third-party product name, no e-mail, no token.
-
-5. Save it as `site/media/desktop-sessions.png` and add the figure to both
-   language trees with alt text and a caption declaring surface, fixture origin,
-   product version and platform. The lint requires both.
+Before committing the image, check it: no user name in a path, no real project
+name, no third-party product name, no e-mail, no token. Then add the figure to
+both language trees with alt text and a caption declaring surface, fixture
+origin, product version and platform. The lint requires both.
 
 ## Refreshing
 
