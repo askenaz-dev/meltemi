@@ -31,11 +31,12 @@
   import Project from "./lib/views/Project.svelte";
   import Permissions from "./lib/views/Permissions.svelte";
   import Fleet from "./lib/views/Fleet.svelte";
+  import Usage from "./lib/views/Usage.svelte";
   import Editor from "./lib/views/Editor.svelte";
   import Review from "./lib/views/Review.svelte";
   import Settings from "./lib/views/Settings.svelte";
 
-  const KEYED_VIEWS: ViewId[] = ["sessions", "project", "permissions", "fleet"];
+  const KEYED_VIEWS: ViewId[] = ["sessions", "project", "permissions", "fleet", "analytics"];
 
   let view: ViewId = $state("sessions");
   let detailSession: string | null = $state(null);
@@ -150,7 +151,7 @@
   function onKeydown(event: KeyboardEvent) {
     if (overlayOpen || isTextEntry(event.target)) return;
 
-    if (event.key >= "1" && event.key <= "4") {
+    if (event.key >= "1" && event.key <= "5") {
       navigate(KEYED_VIEWS[Number(event.key) - 1]);
       return;
     }
@@ -315,6 +316,8 @@
         <Permissions />
       {:else if view === "fleet"}
         <Fleet />
+      {:else if view === "analytics"}
+        <Usage />
       {:else}
         <Settings onEditFile={(file) => openProjectEditor(file)} />
       {/if}

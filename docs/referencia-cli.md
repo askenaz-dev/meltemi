@@ -52,6 +52,10 @@ SUBCOMMANDS:
     archive <change> [confirm]
                         fold a verified change's deltas into the living truth
     projects            list the projects Meltemi has been pointed at
+    usage [day|week|month|total] [--project <root>|--all] [--since <ts>] [--until <ts>]
+                        local usage accounting folded from the session records;
+                        tokens only where the agent's official output reports
+                        them, never estimated (`--all` spans every project)
     changes             list changes (active and archived) with their state
     show <change>       show a change: its artifacts and per-capability deltas
     specs [capability]  list living-truth capabilities, or show one

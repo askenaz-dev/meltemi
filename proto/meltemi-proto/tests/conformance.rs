@@ -713,6 +713,26 @@ fn session_events_conform() {
             agent_id: Some("claude-code".into()),
             level: 1,
         },
+        // Usage counters an official structured output reported: only the
+        // declared ones, and never any account identity.
+        SessionEventKind::UsageReported {
+            source: "usage".into(),
+            model: Some("mock-1".into()),
+            input_tokens: Some(120),
+            output_tokens: Some(34),
+            cached_input_tokens: None,
+            reasoning_tokens: None,
+            total_tokens: None,
+        },
+        SessionEventKind::UsageReported {
+            source: "msg.info.total_token_usage".into(),
+            model: None,
+            input_tokens: Some(7),
+            output_tokens: None,
+            cached_input_tokens: Some(2),
+            reasoning_tokens: Some(1),
+            total_tokens: Some(10),
+        },
         // The same agent under no profile: the id is still recorded.
         SessionEventKind::AgentResolved {
             binary: "native-agent".into(),
@@ -768,6 +788,151 @@ fn session_events_conform() {
                 text: "hello".into(),
             }),
         },
+    );
+}
+
+// Local usage accounting (analitica-consumo-local D5).
+#[test]
+fn analytics_usage_conforms() {
+    assert_conforms("analytics", "params", &AnalyticsUsageParams::default());
+    for grain in [
+        UsageGranularity::Day,
+        UsageGranularity::Week,
+        UsageGranularity::Month,
+        UsageGranularity::Total,
+    ] {
+        assert_conforms(
+            "analytics",
+            "params",
+            &AnalyticsUsageParams {
+                project_root: Some("C:\\repos\\fixture".into()),
+                since: Some(TS.into()),
+                until: Some("2026-08-11T12:00:00Z".into()),
+                granularity: Some(grain),
+                agent: Some("claude".into()),
+                profile: Some("work".into()),
+                limit: Some(500),
+            },
+        );
+    }
+
+    let activity = UsageActivity {
+        sessions: 3,
+        sessions_closed: 2,
+        sessions_open: 1,
+        active_seconds: 420,
+        prompts: 9,
+        turns_by_stop_reason: [("completed".to_string(), 2u32)].into_iter().collect(),
+        permissions_requested: 4,
+        permissions_approved: 3,
+        permissions_denied: 1,
+        permissions_expired: 0,
+        human_edits: 2,
+        commits: 1,
+        checkpoints: 1,
+        errors: 0,
+    };
+    let coverage = UsageCoverage {
+        measured_sessions: 1,
+        unreported_sessions: 2,
+        reasons: vec![UsageUnreportedReason {
+            kind: UsageUnreportedKind::ProtocolCarriesNoUsage,
+            sessions: 2,
+        }],
+    };
+    assert_conforms("analytics", "activity", &activity);
+    assert_conforms("analytics", "coverage", &coverage);
+
+    // Measured counters: a declared subset only — absence stays absent.
+    let tokens = UsageTokens {
+        input: Some(1200),
+        output: Some(340),
+        ..UsageTokens::default()
+    };
+    assert_conforms("analytics", "tokens", &tokens);
+    // An all-absent token object is NOT a valid measurement: the cell omits it.
+    assert_rejected("analytics", "tokens", &json!({}));
+    // A counter is never negative, and never a string.
+    assert_rejected("analytics", "tokens", &json!({ "input": -1 }));
+
+    let cell = UsageCell {
+        project_key: "a1b2c3d4e5f60718".into(),
+        project_root: "C:\\repos\\fixture".into(),
+        agent: "claude".into(),
+        agent_id: Some("claude-code".into()),
+        profile: Some("work".into()),
+        level: Some(3),
+        period: "2026-07".into(),
+        activity: activity.clone(),
+        tokens: Some(tokens.clone()),
+        coverage: coverage.clone(),
+    };
+    assert_conforms("analytics", "cell", &cell);
+    // A cell with nothing measured omits tokens entirely (never zeros).
+    assert_conforms(
+        "analytics",
+        "cell",
+        &UsageCell {
+            tokens: None,
+            agent_id: None,
+            profile: None,
+            level: None,
+            ..cell.clone()
+        },
+    );
+
+    assert_conforms(
+        "analytics",
+        "unattributed",
+        &UsageUnattributed {
+            project_key: "a1b2c3d4e5f60718".into(),
+            project_root: "C:\\repos\\fixture".into(),
+            period: "2026-07".into(),
+            human_edits: 2,
+        },
+    );
+
+    let result = AnalyticsUsageResult {
+        cells: vec![cell],
+        unattributed: vec![],
+        totals: UsageTotals {
+            cells: 1,
+            activity,
+            tokens: Some(tokens),
+            coverage,
+        },
+        truncated: false,
+        disclosure: vec![
+            UsageDisclosure::ActivityFromLocalRecords,
+            UsageDisclosure::TokensOnlyWhenOfficialOutputReports,
+            UsageDisclosure::NoQuotaBalanceOrBilling,
+            UsageDisclosure::NothingIsEstimated,
+            UsageDisclosure::NothingLeavesThisMachine,
+        ],
+    };
+    assert_conforms("analytics", "result", &result);
+    // An empty answer is valid and honest: zero cells, no fabricated rows.
+    assert_conforms(
+        "analytics",
+        "result",
+        &AnalyticsUsageResult {
+            cells: vec![],
+            unattributed: vec![],
+            totals: UsageTotals::default(),
+            truncated: false,
+            disclosure: vec![UsageDisclosure::NothingLeavesThisMachine],
+        },
+    );
+    // The disclosure never travels empty: the numbers always carry it.
+    assert_rejected(
+        "analytics",
+        "result",
+        &json!({
+            "cells": [],
+            "totals": { "cells": 0, "activity": {}, "coverage": {} },
+            "truncated": false,
+            "disclosure": []
+        }),
     );
 }
 
@@ -1623,6 +1788,7 @@ fn error_codes_match_catalog() {
         error_codes::VERIFY_INCOMPLETE,
         error_codes::SPEC_MERGE_CONFLICT,
         error_codes::ARTIFACT_NOT_FOUND,
+        error_codes::USAGE_QUERY_INVALID,
     ];
     let mut sorted = constants.to_vec();
     sorted.sort_unstable();

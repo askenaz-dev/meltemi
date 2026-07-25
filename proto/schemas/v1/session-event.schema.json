@@ -277,6 +277,26 @@
         },
         {
           "properties": {
+            "type": { "const": "usage_reported" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source"],
+              "description": "Counters an official level-3 structured output reported. A counter the output did not declare is ABSENT, never zero; no field carries credentials or any account identifier.",
+              "properties": {
+                "source": { "type": "string", "minLength": 1 },
+                "model": { "type": "string", "minLength": 1 },
+                "inputTokens": { "type": "integer", "minimum": 0 },
+                "outputTokens": { "type": "integer", "minimum": 0 },
+                "cachedInputTokens": { "type": "integer", "minimum": 0 },
+                "reasoningTokens": { "type": "integer", "minimum": 0 },
+                "totalTokens": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "type": { "const": "session_cancelled" },
             "payload": { "type": "object" }
           }

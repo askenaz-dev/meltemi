@@ -56,6 +56,10 @@ SUBCOMMANDS:
     archive <change> [confirm]
                         fold a verified change's deltas into the living truth
     projects            list the projects Meltemi has been pointed at
+    usage [day|week|month|total] [--project <root>|--all] [--since <ts>] [--until <ts>]
+                        local usage accounting folded from the session records;
+                        tokens only where the agent's official output reports
+                        them, never estimated (`--all` spans every project)
     changes             list changes (active and archived) with their state
     show <change>       show a change: its artifacts and per-capability deltas
     specs [capability]  list living-truth capabilities, or show one
@@ -128,6 +132,14 @@ pub enum Command {
     Worktrees { project_root: Option<String> },
     /// List the registered projects (`project/list`).
     Projects,
+    /// Local usage accounting over the session records (`analytics/usage`).
+    /// `scope` is `all` or a project root; `granularity` is day|week|month|total.
+    Usage {
+        project_root: Option<String>,
+        granularity: Option<String>,
+        since: Option<String>,
+        until: Option<String>,
+    },
     /// Assign a task to one or more agents in isolated worktrees from a common
     /// base (`worktree/assign`); more than one agent races them.
     Assign {
@@ -520,6 +532,7 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool) -> Action {
         },
         "projects" if rest.is_empty() => Action::Run(Command::Projects),
         "projects" => Action::Usage("`projects` takes no arguments".into()),
+        "usage" => parse_usage(rest),
         "changes" if rest.is_empty() => Action::Run(Command::Changes),
         "changes" => Action::Usage("`changes` takes no arguments".into()),
         "show" => match rest {
@@ -583,6 +596,69 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool) -> Action {
         other if RESERVED.contains(&other) => Action::Run(Command::Reserved(other.to_string())),
         other => Action::Usage(format!("unknown subcommand `{other}`; run `meltemi help`")),
     }
+}
+
+/// `usage [<granularity>] [--project <root>|--all] [--since <ts>] [--until <ts>]`.
+/// Unknown flags are refused rather than ignored: a mistyped filter that
+/// silently widened the query would misreport consumption.
+fn parse_usage(rest: &[&str]) -> Action {
+    const GRAINS: [&str; 4] = ["day", "week", "month", "total"];
+    let mut granularity = None;
+    let mut project_root = None;
+    let mut all = false;
+    let mut since = None;
+    let mut until = None;
+    let mut index = 0;
+    while index < rest.len() {
+        let token = rest[index];
+        let value_of = || rest.get(index + 1).map(|value| (*value).to_string());
+        match token {
+            "--all" => all = true,
+            "--project" => match value_of() {
+                Some(value) => {
+                    project_root = Some(value);
+                    index += 1;
+                }
+                None => return Action::Usage("`--project` requires a path".into()),
+            },
+            "--since" => match value_of() {
+                Some(value) => {
+                    since = Some(value);
+                    index += 1;
+                }
+                None => return Action::Usage("`--since` requires a timestamp".into()),
+            },
+            "--until" => match value_of() {
+                Some(value) => {
+                    until = Some(value);
+                    index += 1;
+                }
+                None => return Action::Usage("`--until` requires a timestamp".into()),
+            },
+            grain if GRAINS.contains(&grain) => granularity = Some(grain.to_string()),
+            other => {
+                return Action::Usage(format!(
+                    "`usage` does not take `{other}`: meltemi usage [day|week|month|total] \
+                     [--project <root>|--all] [--since <ts>] [--until <ts>]"
+                ));
+            }
+        }
+        index += 1;
+    }
+    if all && project_root.is_some() {
+        return Action::Usage("`--all` and `--project` are mutually exclusive".into());
+    }
+    Action::Run(Command::Usage {
+        // Default scope is the current project; `--all` widens to every project.
+        project_root: if all {
+            None
+        } else {
+            Some(project_root.unwrap_or_default())
+        },
+        granularity,
+        since,
+        until,
+    })
 }
 
 #[cfg(test)]

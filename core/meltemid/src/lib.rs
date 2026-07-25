@@ -8,6 +8,7 @@
 //! `main.rs` is a thin wrapper over [`run`].
 
 pub mod acp;
+pub mod analytics;
 pub mod archive;
 pub mod checkpoints;
 pub mod clock;

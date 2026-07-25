@@ -186,9 +186,13 @@ registros y la vista; los logs quedan tal cual, con o sin eventos de uso.
 
 ## Open Questions
 
-- ¿Añadir el id del catálogo al evento de resolución de agente para que la
-  dimensión muestre el nombre del registro sin cruzar con `fleet/list`? Delta
-  menor de `fleet-catalog`, fuera de esta change.
+- ~~¿Añadir el id del catálogo al evento de resolución de agente?~~
+  **Resuelto durante la implementación**: `multiproyecto-suscripciones` (D5)
+  añadió `agentId` al evento de resolución. La dimensión sigue siendo el
+  binario efectivo, como decide D2 — lo que corrió, no lo que prometía la
+  configuración —, y la celda arrastra el id como atributo cuando existe, de
+  modo que la superficie muestra el nombre del catálogo sin cruzar con
+  `fleet/list` y sin cambiar la clave de agregación.
 - Nombres exactos de las claves de uso de cada modo oficial: se fijan con la
   salida real en la mano en la tarea de captura; hasta entonces el mapeo
   reconoce las claves documentadas y deja constancia del origen.

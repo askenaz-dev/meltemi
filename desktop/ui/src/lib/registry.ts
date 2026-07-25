@@ -13,6 +13,7 @@ export type ViewId =
   | "project"
   | "permissions"
   | "fleet"
+  | "analytics"
   | "editor"
   | "settings";
 
@@ -205,6 +206,11 @@ export const REGISTRY: RegistryEntry[] = [
   R("sdd/implement", "palette.m.sdd.implement", {
     template: { projectRoot: "", change: "", agent: "" },
     injectRoot: "projectRoot",
+  }),
+  R("analytics/usage", "palette.m.analytics.usage", {
+    template: { projectRoot: "", granularity: "month" },
+    injectRoot: "projectRoot",
+    view: "analytics",
   }),
   R("project/list", "palette.m.project.list", {
     view: "sessions",

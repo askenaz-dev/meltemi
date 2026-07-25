@@ -38,6 +38,7 @@
     { id: "project", icon: "project", key: "2" },
     { id: "permissions", icon: "permissions", key: "3" },
     { id: "fleet", icon: "fleet", key: "4" },
+    { id: "analytics", icon: "analytics", key: "5" },
     { id: "editor", icon: "editor" },
   ];
 

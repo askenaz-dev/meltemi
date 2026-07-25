@@ -171,6 +171,13 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "known projects; `projects <text>` narrows the scope",
     },
     Entry {
+        name: "usage",
+        reserved: true,
+        methods: &[m::ANALYTICS_USAGE],
+        desc_es: "contabilidad local de consumo (solo lo medido)",
+        desc_en: "local usage accounting (measured only)",
+    },
+    Entry {
         name: "changes",
         reserved: true,
         methods: &[m::CHANGE_LIST],

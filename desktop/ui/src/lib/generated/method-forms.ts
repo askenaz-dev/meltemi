@@ -687,6 +687,64 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
       }
     ]
   },
+  "analytics/usage": {
+    "schema": "analytics.schema.json",
+    "def": "params",
+    "fields": [
+      {
+        "name": "projectRoot",
+        "kind": "string",
+        "required": false
+      },
+      {
+        "name": "since",
+        "kind": "string",
+        "required": false
+      },
+      {
+        "name": "until",
+        "kind": "string",
+        "required": false
+      },
+      {
+        "name": "granularity",
+        "kind": "string",
+        "required": false,
+        "options": [
+          "day",
+          "week",
+          "month",
+          "total"
+        ]
+      },
+      {
+        "name": "agent",
+        "kind": "string",
+        "required": false
+      },
+      {
+        "name": "profile",
+        "kind": "string",
+        "required": false
+      },
+      {
+        "name": "limit",
+        "kind": "number",
+        "required": false
+      }
+    ]
+  },
+  "project/list": {
+    "schema": "project-list.schema.json",
+    "def": "params",
+    "fields": [
+      {
+        "name": "existingOnly",
+        "kind": "boolean",
+        "required": false
+      }
+    ]
+  },
   "change/list": {
     "schema": "change.schema.json",
     "def": "listParams",

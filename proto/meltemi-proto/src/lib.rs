@@ -7,6 +7,8 @@
 //! conformance with them (validated by `tests/conformance.rs`). On any
 //! discrepancy, the schema wins.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Current daemon<->client contract version (see `proto/README.md`).
@@ -129,6 +131,11 @@ pub mod methods {
     /// (multiproyecto-suscripciones). Read-only; nothing is discovered by
     /// walking the disk.
     pub const PROJECT_LIST: &str = "project/list";
+
+    /// Request: local usage accounting, aggregated by the daemon over the
+    /// session records it already keeps (analitica-consumo-local). Reads local
+    /// records only; opens no network connection, ever.
+    pub const ANALYTICS_USAGE: &str = "analytics/usage";
 }
 
 /// Application error codes, outside the JSON-RPC reserved range and grouped
@@ -180,6 +187,10 @@ pub mod error_codes {
     /// A `change/show`, `spec/show` or `sdd/validate` named a change or
     /// capability that does not exist under `.meltemi/`. Nothing is read further.
     pub const ARTIFACT_NOT_FOUND: i64 = 4006;
+    /// An `analytics/usage` query is unusable as written (inverted range,
+    /// unparseable bound, empty limit). It is refused with a remedy rather than
+    /// silently replaced by a default period.
+    pub const USAGE_QUERY_INVALID: i64 = 5000;
 }
 
 /// Structured `error.data` payload: `{ kind, detail, remedy }` (D11).
@@ -425,6 +436,217 @@ pub enum FleetResolutionSource {
     Catalog,
     /// The project-configured agent (the free-label fallback).
     Configured,
+}
+
+/// The period grain of a usage aggregation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageGranularity {
+    Day,
+    Week,
+    Month,
+    /// One cell per dimension combination for the whole range (the default).
+    #[default]
+    Total,
+}
+
+/// Parameters of `analytics/usage` (analitica-consumo-local D5).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyticsUsageParams {
+    /// The project to account for; absent aggregates every project with
+    /// records in the user's data directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+    /// Inclusive lower bound (RFC 3339).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    /// Exclusive upper bound (RFC 3339).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+    /// Period grain; absent means `total`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub granularity: Option<UsageGranularity>,
+    /// Keep only cells whose effective binary matches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// Keep only cells of this launch profile (subscription).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// Maximum cells to return; the response declares when it truncated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// The closed, declared set of activity metrics of a cell (design D2). Adding
+/// a fact here is a future delta, never a silent extension.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageActivity {
+    pub sessions: u32,
+    /// Sessions with a recorded end.
+    pub sessions_closed: u32,
+    /// Sessions with no recorded end (interrupted or still running).
+    pub sessions_open: u32,
+    /// Seconds of closed sessions only: an open session is never extrapolated.
+    pub active_seconds: u64,
+    pub prompts: u32,
+    /// Completed turns by stop reason (the reason is the key).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub turns_by_stop_reason: BTreeMap<String, u32>,
+    pub permissions_requested: u32,
+    pub permissions_approved: u32,
+    pub permissions_denied: u32,
+    pub permissions_expired: u32,
+    pub human_edits: u32,
+    pub commits: u32,
+    pub checkpoints: u32,
+    pub errors: u32,
+}
+
+/// Measured token counters. Every field is optional on purpose: a counter the
+/// official output did not declare stays absent and MUST NOT become zero.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageTokens {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+}
+
+impl UsageTokens {
+    /// Whether no counter at all was measured (so the field is reported absent).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.input.is_none()
+            && self.output.is_none()
+            && self.cached_input.is_none()
+            && self.reasoning.is_none()
+            && self.total.is_none()
+    }
+}
+
+/// Why a session contributed no measured tokens. Stable set (design D4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageUnreportedKind {
+    /// The session ran over ACP, whose protocol does not carry usage.
+    ProtocolCarriesNoUsage,
+    /// The integration level runs no process (level 4, artifacts only).
+    LevelRunsNoProcess,
+    /// A level-3 run whose structured output declared no counters.
+    StreamDeclaredNoCounters,
+}
+
+/// One reason with how many sessions it accounts for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageUnreportedReason {
+    pub kind: UsageUnreportedKind,
+    pub sessions: u32,
+}
+
+/// How much of the activity a token figure was computed over (design D4).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageCoverage {
+    /// Sessions that contributed measured counters.
+    pub measured_sessions: u32,
+    /// Sessions with no usage data at all.
+    pub unreported_sessions: u32,
+    /// Why each unreported session has no data.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasons: Vec<UsageUnreportedReason>,
+}
+
+/// One aggregation cell: project × agent × profile × period (design D2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageCell {
+    pub project_key: String,
+    pub project_root: String,
+    /// The effective binary that ran — what happened, not what config promised.
+    pub agent: String,
+    /// The catalog id, when the resolution named one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// The launch profile (subscription) by name, when the resolution used one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// The integration level, an attribute of the cell rather than a dimension.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<u8>,
+    /// The period label: `2026-07-24`, `2026-W30`, `2026-07` or `total`.
+    pub period: String,
+    pub activity: UsageActivity,
+    /// Measured counters; absent when nothing was measured (never zeroed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<UsageTokens>,
+    pub coverage: UsageCoverage,
+}
+
+/// Facts that could not be attributed to an agent or a profile. They live in
+/// their own bucket and are never spread over the attributed cells (design D2).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageUnattributed {
+    pub project_key: String,
+    pub project_root: String,
+    pub period: String,
+    /// Human edits applied with no session active on the tree.
+    pub human_edits: u32,
+}
+
+/// A stable disclosure key. The daemon emits keys; each surface renders the
+/// text from its own ES/EN catalog (design D6) — the daemon is no translator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UsageDisclosure {
+    /// Activity is folded from the local session logs and index.
+    ActivityFromLocalRecords,
+    /// Tokens come only from counters the official output reported.
+    TokensOnlyWhenOfficialOutputReports,
+    /// Quota, balance and billing of the provider account are not visible.
+    NoQuotaBalanceOrBilling,
+    /// Nothing is estimated: an absent counter stays absent.
+    NothingIsEstimated,
+    /// No data leaves this machine.
+    NothingLeavesThisMachine,
+}
+
+/// Result of `analytics/usage`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyticsUsageResult {
+    pub cells: Vec<UsageCell>,
+    /// Unattributed facts, per project and period.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unattributed: Vec<UsageUnattributed>,
+    /// Sum of the returned cells, with the coverage of its token figures.
+    pub totals: UsageTotals,
+    /// True when `limit` cut the cell list — declared, never silent.
+    pub truncated: bool,
+    /// The honesty disclosure, as stable keys.
+    pub disclosure: Vec<UsageDisclosure>,
+}
+
+/// Totals over the returned cells.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageTotals {
+    pub cells: u32,
+    pub activity: UsageActivity,
+    /// Measured tokens only; absent when nothing was measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<UsageTokens>,
+    pub coverage: UsageCoverage,
 }
 
 /// Parameters of `project/list`.
@@ -1260,6 +1482,34 @@ pub enum SessionEventKind {
         /// The session active on the tree, when any.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+    },
+    /// Usage counters an official level-3 structured output reported
+    /// (analitica-consumo-local D3). Carries counters, their source and the
+    /// model when the output names it — never credentials, headers, cookies or
+    /// any account identifier (fair play §2). A counter the output does not
+    /// declare stays ABSENT; it is never recorded as zero.
+    UsageReported {
+        /// Which official structured output the counters were read from.
+        source: String,
+        /// The model the output named, when it named one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// Tokens the output declared as input/prompt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input_tokens: Option<u64>,
+        /// Tokens the output declared as output/completion.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_tokens: Option<u64>,
+        /// Input tokens the output declared as served from cache.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cached_input_tokens: Option<u64>,
+        /// Reasoning tokens, when the output breaks them out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reasoning_tokens: Option<u64>,
+        /// The total the output declared. Never computed here: a sum of
+        /// heterogeneous partial counters would be an invented number.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total_tokens: Option<u64>,
     },
     /// The client cancelled the session.
     SessionCancelled {},

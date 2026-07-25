@@ -278,6 +278,109 @@ pub fn map_headless_line(line: &str) -> SessionEventKind {
     }
 }
 
+/// Documented usage-counter aliases of the official level-3 modes, mapped to
+/// the counter they mean. Only these are read; anything else stays absent
+/// (analitica-consumo-local D3) — a renamed key shows up as a missing counter,
+/// which the conformance suite catches, instead of being silently invented.
+const USAGE_KEYS: &[(&str, UsageCounter)] = &[
+    ("input_tokens", UsageCounter::Input),
+    ("prompt_tokens", UsageCounter::Input),
+    ("output_tokens", UsageCounter::Output),
+    ("completion_tokens", UsageCounter::Output),
+    ("cache_read_input_tokens", UsageCounter::CachedInput),
+    ("cached_input_tokens", UsageCounter::CachedInput),
+    ("reasoning_output_tokens", UsageCounter::Reasoning),
+    ("reasoning_tokens", UsageCounter::Reasoning),
+    ("total_tokens", UsageCounter::Total),
+];
+
+/// Which counter a recognized key feeds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UsageCounter {
+    Input,
+    Output,
+    CachedInput,
+    Reasoning,
+    Total,
+}
+
+/// The objects a structured line may carry its counters in, most specific
+/// first. The name of the one that matched becomes the event's `source`, so
+/// every figure says where it was read from.
+const USAGE_CONTAINERS: &[&str] = &["usage", "token_usage", "total_token_usage", "tokens"];
+
+/// Reads the usage counters a level-3 structured line declares, if any
+/// (analitica-consumo-local D3). Returns `None` when the line declares none —
+/// no counter is ever synthesized, and a partial declaration yields a partial
+/// event rather than zeros. Never reads anything but counters: credentials,
+/// headers and account identifiers are not looked at, let alone recorded (§2).
+#[must_use]
+pub fn usage_from_headless_line(line: &str) -> Option<SessionEventKind> {
+    let value = serde_json::from_str::<Value>(line).ok()?;
+    let (source, counters) = find_usage(&value, "")?;
+    let read = |wanted: UsageCounter| -> Option<u64> {
+        USAGE_KEYS
+            .iter()
+            .filter(|(_, counter)| *counter == wanted)
+            .find_map(|(key, _)| counters.get(*key).and_then(Value::as_u64))
+    };
+    let event = SessionEventKind::UsageReported {
+        source,
+        model: value
+            .get("model")
+            .or_else(|| counters.get("model"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        input_tokens: read(UsageCounter::Input),
+        output_tokens: read(UsageCounter::Output),
+        cached_input_tokens: read(UsageCounter::CachedInput),
+        reasoning_tokens: read(UsageCounter::Reasoning),
+        total_tokens: read(UsageCounter::Total),
+    };
+    // A container with no recognized counter is not a usage report.
+    match &event {
+        SessionEventKind::UsageReported {
+            input_tokens: None,
+            output_tokens: None,
+            cached_input_tokens: None,
+            reasoning_tokens: None,
+            total_tokens: None,
+            ..
+        } => None,
+        _ => Some(event),
+    }
+}
+
+/// Finds the first usage container in the line, depth-first, returning the
+/// dotted path that named it (the event's source) and its object.
+fn find_usage<'a>(
+    value: &'a Value,
+    path: &str,
+) -> Option<(String, &'a serde_json::Map<String, Value>)> {
+    let object = value.as_object()?;
+    for name in USAGE_CONTAINERS {
+        if let Some(found) = object.get(*name).and_then(Value::as_object) {
+            let source = if path.is_empty() {
+                (*name).to_string()
+            } else {
+                format!("{path}.{name}")
+            };
+            return Some((source, found));
+        }
+    }
+    for (key, child) in object {
+        let child_path = if path.is_empty() {
+            key.clone()
+        } else {
+            format!("{path}.{key}")
+        };
+        if let Some(found) = find_usage(child, &child_path) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 /// Whether an agent id resolves to a level-4 (artifacts-only) entry, and its
 /// projected target file when so — used to include L4 targets in projection.
 pub fn l4_target_for(config: &Config) -> Option<String> {
@@ -531,6 +634,93 @@ mod tests {
         // A non-JSON line is preserved raw, never dropped.
         let raw = map_headless_line("not json at all");
         assert!(matches!(raw, SessionEventKind::AgentUpdate { .. }));
+    }
+
+    #[test]
+    fn usage_counters_are_captured_from_the_official_shape() {
+        // Scenario: Contadores de uso persistidos desde la salida oficial
+        // Scenario: Contador ausente no se registra en cero
+        let line = r#"{"type":"result","model":"claude-x","usage":{"input_tokens":120,"output_tokens":34}}"#;
+        let event = usage_from_headless_line(line).expect("counters captured");
+        match event {
+            SessionEventKind::UsageReported {
+                source,
+                model,
+                input_tokens,
+                output_tokens,
+                cached_input_tokens,
+                reasoning_tokens,
+                total_tokens,
+            } => {
+                assert_eq!(source, "usage", "the event says where it was read from");
+                assert_eq!(model.as_deref(), Some("claude-x"));
+                assert_eq!(input_tokens, Some(120));
+                assert_eq!(output_tokens, Some(34));
+                // Undeclared breakdowns stay absent — never zero.
+                assert_eq!(cached_input_tokens, None);
+                assert_eq!(reasoning_tokens, None);
+                assert_eq!(total_tokens, None);
+            }
+            other => panic!("expected a usage event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_nested_container_is_found_and_named() {
+        // The other official shape nests the counters under its own message.
+        let line = r#"{"msg":{"type":"token_count","info":{"total_token_usage":{"input_tokens":7,"cached_input_tokens":2}}}}"#;
+        let event = usage_from_headless_line(line).expect("counters captured");
+        match event {
+            SessionEventKind::UsageReported {
+                source,
+                input_tokens,
+                cached_input_tokens,
+                ..
+            } => {
+                assert_eq!(source, "msg.info.total_token_usage");
+                assert_eq!(input_tokens, Some(7));
+                assert_eq!(cached_input_tokens, Some(2));
+            }
+            other => panic!("expected a usage event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lines_without_counters_report_no_usage() {
+        // A text line, a non-JSON line and a usage container with only unknown
+        // keys are all "no usage" — nothing is synthesized.
+        assert!(usage_from_headless_line(r#"{"type":"text","content":"hi"}"#).is_none());
+        assert!(usage_from_headless_line("not json at all").is_none());
+        assert!(
+            usage_from_headless_line(r#"{"usage":{"weird_metric":3}}"#).is_none(),
+            "an unrecognized key is not a counter"
+        );
+    }
+
+    #[test]
+    fn the_usage_event_carries_only_counters_source_and_model() {
+        // Scenario: El evento de uso no transporta identidad de la cuenta
+        let line = concat!(
+            r#"{"type":"result","model":"m","api_key":"sk-secret","account_id":"acct_1","#,
+            r#""headers":{"authorization":"Bearer t"},"cookie":"s=1","#,
+            r#""usage":{"input_tokens":1,"organization_id":"org_9"}}"#
+        );
+        let event = usage_from_headless_line(line).expect("counters captured");
+        let json = serde_json::to_string(&event).expect("serialize");
+        for forbidden in [
+            "sk-secret",
+            "acct_1",
+            "authorization",
+            "Bearer",
+            "cookie",
+            "org_9",
+        ] {
+            assert!(
+                !json.contains(forbidden),
+                "the usage event leaked {forbidden}: {json}"
+            );
+        }
+        assert!(json.contains("\"inputTokens\":1"));
     }
 
     #[test]

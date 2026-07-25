@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/schemas/v1/analytics.schema.json",
+  "title": "analytics/usage",
+  "description": "Local usage accounting, aggregated by the daemon over the session records it already keeps (analitica-consumo-local). Tokens are only ever the counters an official agent output reported; an absent counter stays absent and is never rendered as zero. Nothing here is estimated, and no figure comes from the provider account (quota, balance or billing are not visible).",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The project to account for; absent aggregates every project with records in the data directory."
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive lower bound."
+        },
+        "until": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Exclusive upper bound."
+        },
+        "granularity": {
+          "type": "string",
+          "enum": ["day", "week", "month", "total"],
+          "description": "Period grain; absent means total."
+        },
+        "agent": { "type": "string", "minLength": 1 },
+        "profile": { "type": "string", "minLength": 1 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 10000 }
+      }
+    },
+    "activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessions",
+        "sessionsClosed",
+        "sessionsOpen",
+        "activeSeconds",
+        "prompts",
+        "permissionsRequested",
+        "permissionsApproved",
+        "permissionsDenied",
+        "permissionsExpired",
+        "humanEdits",
+        "commits",
+        "checkpoints",
+        "errors"
+      ],
+      "properties": {
+        "sessions": { "type": "integer", "minimum": 0 },
+        "sessionsClosed": { "type": "integer", "minimum": 0 },
+        "sessionsOpen": { "type": "integer", "minimum": 0 },
+        "activeSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Closed sessions only: an open session is never extrapolated."
+        },
+        "prompts": { "type": "integer", "minimum": 0 },
+        "turnsByStopReason": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "permissionsRequested": { "type": "integer", "minimum": 0 },
+        "permissionsApproved": { "type": "integer", "minimum": 0 },
+        "permissionsDenied": { "type": "integer", "minimum": 0 },
+        "permissionsExpired": { "type": "integer", "minimum": 0 },
+        "humanEdits": { "type": "integer", "minimum": 0 },
+        "commits": { "type": "integer", "minimum": 0 },
+        "checkpoints": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "description": "Measured counters. Every field is optional: a counter the official output did not declare is absent, never zero.",
+      "properties": {
+        "input": { "type": "integer", "minimum": 0 },
+        "output": { "type": "integer", "minimum": 0 },
+        "cachedInput": { "type": "integer", "minimum": 0 },
+        "reasoning": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "unreportedReason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "sessions"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "protocol_carries_no_usage",
+            "level_runs_no_process",
+            "stream_declared_no_counters"
+          ]
+        },
+        "sessions": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["measuredSessions", "unreportedSessions"],
+      "properties": {
+        "measuredSessions": { "type": "integer", "minimum": 0 },
+        "unreportedSessions": { "type": "integer", "minimum": 0 },
+        "reasons": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/unreportedReason" }
+        }
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectKey",
+        "projectRoot",
+        "agent",
+        "period",
+        "activity",
+        "coverage"
+      ],
+      "properties": {
+        "projectKey": { "type": "string", "minLength": 1 },
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The effective binary that ran."
+        },
+        "agentId": { "type": "string", "minLength": 1 },
+        "profile": { "type": "string", "minLength": 1 },
+        "level": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "period": { "type": "string", "minLength": 1 },
+        "activity": { "$ref": "#/$defs/activity" },
+        "tokens": { "$ref": "#/$defs/tokens" },
+        "coverage": { "$ref": "#/$defs/coverage" }
+      }
+    },
+    "unattributed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectKey", "projectRoot", "period", "humanEdits"],
+      "description": "Facts with no agent or profile to attribute them to; never spread over the attributed cells.",
+      "properties": {
+        "projectKey": { "type": "string", "minLength": 1 },
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "period": { "type": "string", "minLength": 1 },
+        "humanEdits": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cells", "activity", "coverage"],
+      "properties": {
+        "cells": { "type": "integer", "minimum": 0 },
+        "activity": { "$ref": "#/$defs/activity" },
+        "tokens": { "$ref": "#/$defs/tokens" },
+        "coverage": { "$ref": "#/$defs/coverage" }
+      }
+    },
+    "disclosureKey": {
+      "type": "string",
+      "description": "Stable key; each surface renders its own ES/EN text (the daemon is no translator).",
+      "enum": [
+        "activity-from-local-records",
+        "tokens-only-when-official-output-reports",
+        "no-quota-balance-or-billing",
+        "nothing-is-estimated",
+        "nothing-leaves-this-machine"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cells", "totals", "truncated", "disclosure"],
+      "properties": {
+        "cells": { "type": "array", "items": { "$ref": "#/$defs/cell" } },
+        "unattributed": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/unattributed" }
+        },
+        "totals": { "$ref": "#/$defs/totals" },
+        "truncated": { "type": "boolean" },
+        "disclosure": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/disclosureKey" }
+        }
+      }
+    }
+  }
+}

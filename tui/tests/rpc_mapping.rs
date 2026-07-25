@@ -189,3 +189,77 @@ async fn stop_maps_to_shutdown_and_stops_the_daemon() {
     let stopped = tokio::time::timeout(Duration::from_secs(2), handle).await;
     assert!(stopped.is_ok(), "daemon must stop after `stop`");
 }
+
+#[tokio::test]
+async fn usage_maps_to_analytics_usage_and_emits_one_json_object() {
+    // Scenario: CLI de contabilidad con salida de un objeto
+    let (endpoint, handle) = spawn_daemon("usage").await;
+
+    // A project with no records: the honest empty answer, disclosure included.
+    let fixture = std::env::temp_dir().join(format!("meltemi-cli-usage-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&fixture);
+    std::fs::create_dir_all(&fixture).unwrap();
+
+    let outcome = execute(
+        Command::Usage {
+            project_root: Some(fixture.display().to_string()),
+            granularity: Some("month".into()),
+            since: None,
+            until: None,
+        },
+        &endpoint,
+    )
+    .await
+    .expect("usage succeeds");
+
+    assert!(outcome.json["cells"].is_array(), "got: {}", outcome.json);
+    assert_eq!(outcome.json["cells"].as_array().unwrap().len(), 0);
+    assert!(
+        outcome.json["totals"]["tokens"].is_null(),
+        "no measurement means no token figure at all, not a zero"
+    );
+    let disclosure = outcome.json["disclosure"]
+        .as_array()
+        .expect("disclosure array");
+    assert!(
+        disclosure
+            .iter()
+            .any(|k| k == "nothing-leaves-this-machine"),
+        "the disclosure travels with the numbers: {disclosure:?}"
+    );
+    // The human rendering states the absence and shows the disclosure.
+    assert!(outcome.human.contains("no records"), "{}", outcome.human);
+    assert!(outcome.human.contains("nothing is estimated"));
+
+    // Under --json the outcome renders as exactly one JSON object on stdout.
+    let mut out = Vec::new();
+    meltemi::output::render_outcome(&outcome, true, &mut out).unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    assert_eq!(printed.trim().lines().count(), 1, "one line, one object");
+    let parsed: serde_json::Value = serde_json::from_str(printed.trim()).expect("valid JSON");
+    assert!(parsed["disclosure"].is_array());
+
+    let _ = std::fs::remove_dir_all(&fixture);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn an_invalid_usage_query_exits_with_the_contract_code() {
+    // Scenario: Parámetro inválido rehúsa (through the scriptable surface).
+    let (endpoint, handle) = spawn_daemon("usage-invalid").await;
+
+    let error = execute(
+        Command::Usage {
+            project_root: None,
+            granularity: None,
+            since: Some("2026-07-10T00:00:00Z".into()),
+            until: Some("2026-07-01T00:00:00Z".into()),
+        },
+        &endpoint,
+    )
+    .await
+    .expect_err("an inverted range is refused");
+    assert_eq!(error.exit, meltemi::exit::ExitCode::Contract);
+
+    handle.abort();
+}

@@ -21,7 +21,7 @@ use meltemi_proto::{
     ConformanceCriterion, ConformanceResult, InitializeParams, PROTOCOL_VERSION, PeerInfo, methods,
 };
 use meltemid::conformance;
-use meltemid::levels::map_headless_line;
+use meltemid::levels::{map_headless_line, usage_from_headless_line};
 use meltemid::rpc::Peer;
 use meltemid::server::{DaemonState, serve_until_shutdown};
 use meltemid::transport::{Listener, connect};
@@ -188,6 +188,26 @@ async fn conformance_suite_runs_every_level_against_simulated_agents() {
         level: 3,
         name: "structured_output_mapped".into(),
         passed: output.status.success() && has_text && lines.len() >= 3,
+    });
+    // The usage counters the official shape declares are captured, and only
+    // the declared ones (analitica-consumo-local D3).
+    let usage: Vec<_> = lines
+        .iter()
+        .filter_map(|l| usage_from_headless_line(l))
+        .collect();
+    let measured_only_what_was_declared = matches!(
+        usage.first(),
+        Some(meltemi_proto::SessionEventKind::UsageReported {
+            input_tokens: Some(_),
+            output_tokens: Some(_),
+            cached_input_tokens: None,
+            ..
+        })
+    );
+    criteria.push(ConformanceCriterion {
+        level: 3,
+        name: "usage_counters_captured".into(),
+        passed: usage.len() == 1 && measured_only_what_was_declared,
     });
 
     // --- Level 4: projection is the only channel; it includes the target. ---

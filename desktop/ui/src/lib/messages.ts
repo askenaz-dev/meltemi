@@ -197,7 +197,7 @@ const es = {
   "project.openReview": "Revisar diffs",
 
   "help.title": "Ayuda y atajos",
-  "help.keys": "Teclas: 1–4 vistas · : o Ctrl+K paleta · a permisos · Esc atrás/cerrar · ? esta ayuda",
+  "help.keys": "Teclas: 1–5 vistas · : o Ctrl+K paleta · a permisos · Esc atrás/cerrar · ? esta ayuda",
 
   "nav.editor": "Editor",
   "nav.settings": "Ajustes",
@@ -390,6 +390,61 @@ const es = {
   "palette.m.sdd.archive": "plegar los deltas verificados en la verdad viva",
   "palette.m.sdd.implement": "desplegar al agente sobre tasks.md, tarea a tarea",
   "palette.m.project.list": "listar los proyectos usados con Meltemi",
+  "palette.m.analytics.usage": "contabilidad local de consumo (solo lo medido)",
+
+  "nav.analytics": "Consumo",
+  "usage.title": "Consumo",
+  "usage.period": "Período",
+  "usage.period.day": "Día",
+  "usage.period.week": "Semana",
+  "usage.period.month": "Mes",
+  "usage.period.total": "Total",
+  "usage.scope.project": "Este proyecto",
+  "usage.scope.all": "Todos los proyectos",
+  "usage.filter.agent": "Agente",
+  "usage.filter.profile": "Suscripción",
+  "usage.filter.any": "cualquiera",
+  "usage.col.period": "Período",
+  "usage.col.project": "Proyecto",
+  "usage.col.agent": "Agente",
+  "usage.col.profile": "Suscripción",
+  "usage.col.sessions": "Sesiones",
+  "usage.col.activeTime": "Tiempo activo",
+  "usage.col.prompts": "Prompts",
+  "usage.col.permissions": "Permisos",
+  "usage.col.edits": "Ediciones",
+  "usage.col.commits": "Commits",
+  "usage.col.tokensIn": "Tokens entrada",
+  "usage.col.tokensOut": "Tokens salida",
+  "usage.col.coverage": "Cobertura",
+  "usage.totals": "Totales",
+  "usage.notReported": "no reportado",
+  "usage.notReported.protocol_carries_no_usage":
+    "el protocolo ACP no transporta uso",
+  "usage.notReported.level_runs_no_process":
+    "el nivel no ejecuta un proceso que pueda reportar",
+  "usage.notReported.stream_declared_no_counters":
+    "la salida oficial no declaró contadores",
+  "usage.coverage.measured": "{n} medida(s)",
+  "usage.coverage.unreported": "{n} sin dato",
+  "usage.unattributed": "No atribuido",
+  "usage.unattributed.hint":
+    "hechos sin agente ni suscripción a los que atribuirlos; no se reparten entre las celdas",
+  "usage.truncated": "resultado recortado por el límite de celdas",
+  "usage.empty.title": "Sin registros para esta consulta",
+  "usage.empty.hint":
+    "la contabilidad se calcula sobre los registros de sesión que ya existen: lanza una sesión y vuelve",
+  "usage.disclosure.title": "Qué dicen estas cifras",
+  "usage.disclosure.activity-from-local-records":
+    "la actividad se pliega de tus registros de sesión locales",
+  "usage.disclosure.tokens-only-when-official-output-reports":
+    "los tokens se cuentan solo donde la salida oficial del agente los reporta",
+  "usage.disclosure.no-quota-balance-or-billing":
+    "la cuota, el saldo y la facturación de tu cuenta no son visibles aquí",
+  "usage.disclosure.nothing-is-estimated":
+    "nada se estima: un contador que nadie reportó queda ausente",
+  "usage.disclosure.nothing-leaves-this-machine":
+    "ningún dato sale de esta máquina",
   "palette.m.change.list": "listar changes (activas y archivadas) con su estado",
   "palette.m.change.show": "mostrar una change: artefactos y deltas",
   "palette.m.spec.list": "listar capacidades de la verdad viva",
@@ -589,7 +644,7 @@ const en: Record<MessageKey, string> = {
   "project.openReview": "Review diffs",
 
   "help.title": "Help & shortcuts",
-  "help.keys": "Keys: 1–4 views · : or Ctrl+K palette · a permissions · Esc back/close · ? this help",
+  "help.keys": "Keys: 1–5 views · : or Ctrl+K palette · a permissions · Esc back/close · ? this help",
 
   "nav.editor": "Editor",
   "nav.settings": "Settings",
@@ -781,6 +836,61 @@ const en: Record<MessageKey, string> = {
   "palette.m.sdd.archive": "fold verified deltas into the living truth",
   "palette.m.sdd.implement": "deploy the agent over tasks.md, task by task",
   "palette.m.project.list": "list the projects used with Meltemi",
+  "palette.m.analytics.usage": "local usage accounting (measured only)",
+
+  "nav.analytics": "Usage",
+  "usage.title": "Usage",
+  "usage.period": "Period",
+  "usage.period.day": "Day",
+  "usage.period.week": "Week",
+  "usage.period.month": "Month",
+  "usage.period.total": "Total",
+  "usage.scope.project": "This project",
+  "usage.scope.all": "All projects",
+  "usage.filter.agent": "Agent",
+  "usage.filter.profile": "Subscription",
+  "usage.filter.any": "any",
+  "usage.col.period": "Period",
+  "usage.col.project": "Project",
+  "usage.col.agent": "Agent",
+  "usage.col.profile": "Subscription",
+  "usage.col.sessions": "Sessions",
+  "usage.col.activeTime": "Active time",
+  "usage.col.prompts": "Prompts",
+  "usage.col.permissions": "Permissions",
+  "usage.col.edits": "Edits",
+  "usage.col.commits": "Commits",
+  "usage.col.tokensIn": "Input tokens",
+  "usage.col.tokensOut": "Output tokens",
+  "usage.col.coverage": "Coverage",
+  "usage.totals": "Totals",
+  "usage.notReported": "not reported",
+  "usage.notReported.protocol_carries_no_usage":
+    "the ACP protocol does not carry usage",
+  "usage.notReported.level_runs_no_process":
+    "the level runs no process that could report",
+  "usage.notReported.stream_declared_no_counters":
+    "the official output declared no counters",
+  "usage.coverage.measured": "{n} measured",
+  "usage.coverage.unreported": "{n} without data",
+  "usage.unattributed": "Unattributed",
+  "usage.unattributed.hint":
+    "facts with no agent or subscription to attribute them to; never spread over the cells",
+  "usage.truncated": "the result was cut by the cell limit",
+  "usage.empty.title": "No records for this query",
+  "usage.empty.hint":
+    "accounting is computed over the session records that already exist: run a session and come back",
+  "usage.disclosure.title": "What these figures say",
+  "usage.disclosure.activity-from-local-records":
+    "activity is folded from your local session records",
+  "usage.disclosure.tokens-only-when-official-output-reports":
+    "tokens are counted only where the agent's official output reports them",
+  "usage.disclosure.no-quota-balance-or-billing":
+    "quota, balance and billing of your account are not visible here",
+  "usage.disclosure.nothing-is-estimated":
+    "nothing is estimated: a counter nobody reported stays absent",
+  "usage.disclosure.nothing-leaves-this-machine":
+    "no data leaves this machine",
   "palette.m.change.list": "list changes (active and archived) with state",
   "palette.m.change.show": "show a change: artifacts and deltas",
   "palette.m.spec.list": "list the living-truth capabilities",

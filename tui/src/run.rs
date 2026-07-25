@@ -99,6 +99,12 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             plan_only,
         } => implement(change, agent, plan_only, endpoint).await,
         Command::Projects => projects(endpoint).await,
+        Command::Usage {
+            project_root,
+            granularity,
+            since,
+            until,
+        } => usage(project_root, granularity, since, until, endpoint).await,
         Command::Changes => changes(endpoint).await,
         Command::Show { change } => show(change, endpoint).await,
         Command::Specs { capability } => specs(capability, endpoint).await,
@@ -792,6 +798,154 @@ fn render_projects(result: &meltemi_proto::ProjectListResult) -> String {
             out,
             "\n  {mark:<8} {:>3} session(s), {:>2} resumable  {}",
             project.sessions_total, project.resumable_sessions, project.root
+        );
+    }
+    out
+}
+
+/// `usage`: local accounting folded from the session records. Tokens are only
+/// what an official agent output reported; the disclosure travels with them.
+async fn usage(
+    project_root: Option<String>,
+    granularity: Option<String>,
+    since: Option<String>,
+    until: Option<String>,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    use meltemi_proto::UsageGranularity;
+    let granularity = match granularity.as_deref() {
+        None => None,
+        Some("day") => Some(UsageGranularity::Day),
+        Some("week") => Some(UsageGranularity::Week),
+        Some("month") => Some(UsageGranularity::Month),
+        Some("total") => Some(UsageGranularity::Total),
+        Some(other) => {
+            return Err(CliError::usage(format!(
+                "unknown granularity `{other}`: use day, week, month or total"
+            )));
+        }
+    };
+    // An empty root means "this project"; `--all` sent None.
+    let project_root = match project_root {
+        Some(root) if root.is_empty() => Some(cwd_or(None)?),
+        other => other,
+    };
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::ANALYTICS_USAGE,
+            &meltemi_proto::AnalyticsUsageParams {
+                project_root,
+                since,
+                until,
+                granularity,
+                agent: None,
+                profile: None,
+                limit: None,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: meltemi_proto::AnalyticsUsageResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_usage(&result),
+        json: value,
+    })
+}
+
+/// The disclosure line for a stable key (the CLI's own catalog, §11: the
+/// daemon returns keys, each surface writes the words).
+fn disclosure_line(key: meltemi_proto::UsageDisclosure) -> &'static str {
+    use meltemi_proto::UsageDisclosure as D;
+    match key {
+        D::ActivityFromLocalRecords => "activity is folded from your local session records",
+        D::TokensOnlyWhenOfficialOutputReports => {
+            "tokens are counted only where the agent's official output reports them"
+        }
+        D::NoQuotaBalanceOrBilling => {
+            "quota, balance and billing of your provider account are not visible here"
+        }
+        D::NothingIsEstimated => "nothing is estimated: a counter nobody reported stays absent",
+        D::NothingLeavesThisMachine => "no data leaves this machine",
+    }
+}
+
+/// A measured counter, or the honest absence marker — never a zero standing in
+/// for "unknown".
+fn measured(value: Option<u64>) -> String {
+    match value {
+        Some(count) => count.to_string(),
+        None => "- not reported".to_string(),
+    }
+}
+
+fn render_usage(result: &meltemi_proto::AnalyticsUsageResult) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    if result.cells.is_empty() {
+        out.push_str("no records for this query — nothing is inferred");
+    } else {
+        let _ = write!(out, "{} cell(s)", result.cells.len());
+        if result.truncated {
+            out.push_str(" (truncated by --limit)");
+        }
+        for cell in &result.cells {
+            let profile = cell.profile.as_deref().unwrap_or("-");
+            let _ = write!(
+                out,
+                "
+  {:<10} {:<14} {:<12} {:>3} session(s) {:>6}s  in {}  out {}",
+                cell.period,
+                cell.agent,
+                profile,
+                cell.activity.sessions,
+                cell.activity.active_seconds,
+                measured(cell.tokens.as_ref().and_then(|t| t.input)),
+                measured(cell.tokens.as_ref().and_then(|t| t.output)),
+            );
+            if cell.coverage.unreported_sessions > 0 {
+                let reasons: Vec<String> = cell
+                    .coverage
+                    .reasons
+                    .iter()
+                    .map(|reason| {
+                        let kind = serde_json::to_value(reason.kind)
+                            .ok()
+                            .and_then(|v| v.as_str().map(String::from))
+                            .unwrap_or_else(|| "unknown".into());
+                        format!("{} x {kind}", reason.sessions)
+                    })
+                    .collect();
+                let _ = write!(
+                    out,
+                    "
+             coverage: {} measured, {} without data ({})",
+                    cell.coverage.measured_sessions,
+                    cell.coverage.unreported_sessions,
+                    reasons.join(", ")
+                );
+            }
+        }
+    }
+    for unattributed in &result.unattributed {
+        let _ = write!(
+            out,
+            "
+  unattributed {}: {} human edit(s) with no session",
+            unattributed.period, unattributed.human_edits
+        );
+    }
+    // The disclosure travels with the numbers, never behind a flag (design D6).
+    for key in &result.disclosure {
+        let _ = write!(
+            out,
+            "
+  * {}",
+            disclosure_line(*key)
         );
     }
     out
