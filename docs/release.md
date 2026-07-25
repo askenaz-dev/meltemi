@@ -59,21 +59,94 @@ Before installing, verify the archive:
 # 1. Check the checksum
 sha256sum --check SHA256SUMS        # (shasum -a 256 on macOS; Get-FileHash on Windows)
 
-# 2. Verify the signature of SHA256SUMS with the published signing key
-#    (the key and the exact command are published on the release page)
+# 2. Verify the signature of the checksums file with the project's public key
+minisign -Vm SHA256SUMS -P <the public key printed on every release page>
 ```
+
+Step 2 answers a question step 1 cannot: a checksum proves the file did not
+change in transit, a signature proves *who* published it. Both are needed, and
+in that order.
 
 The installer scripts perform this verification for you and refuse to proceed on
 a mismatch — there is no blind `curl | sh`: the script is short, readable, and
 its own hash is published.
 
-## Key custody (maintainer)
+## Signing a release (maintainer)
 
-The signing key is the responsibility of the **founding maintainer**. The custody
-procedure — generation, storage (offline/hardware-backed), rotation schedule, and
-revocation — is maintained by the maintainer and documented on the release
-infrastructure. This document records that the procedure exists and is the
-maintainer's; the key material itself is never in this repository.
+The tool is [minisign](https://jedisct1.github.io/minisign/): one small signature
+per release, a public key short enough to print in a README, and no keyring to
+manage. It is what the artifact checksums are signed with; the alternative worth
+knowing about is a GPG detached signature (`gpg --detach-sign --armor`), which
+buys nothing here except a familiar command and a much larger surface.
+
+**Once, when the key is created.** Do this on a machine you trust, and answer the
+password prompt with a passphrase you keep in your password manager:
+
+```bash
+minisign -G -p meltemi.pub -s meltemi.key
+```
+
+`meltemi.pub` is public: its one-line key goes in the release notes, on the
+downloads page and nowhere else it could be confused for the private half.
+`meltemi.key` is the secret: it never touches this repository, never touches CI,
+and its backup lives offline. Losing it is recoverable (publish a new key and say
+so); leaking it is not (revoke, rotate, and announce).
+
+**Per release.** The pipeline produces a draft release with every artifact and a
+recomputed `SHA256SUMS`. Sign that one file — the checksums cover everything
+else, so one signature is enough:
+
+```bash
+gh release download vX.Y.Z --pattern SHA256SUMS --dir .
+minisign -Sm SHA256SUMS                  # writes SHA256SUMS.minisig
+minisign -Vm SHA256SUMS -p meltemi.pub   # verify before publishing, always
+gh release upload vX.Y.Z SHA256SUMS.minisig
+```
+
+Then paste the public key into the release notes next to the verification
+command, and publish the draft. A release whose signature you have not verified
+yourself is not ready — the check above costs a second and catches the case
+where the wrong key signed.
+
+**Installer signing is a separate matter.** The MSI and the DMG carry no
+platform signature yet: Windows Authenticode and Apple notarization need
+purchased certificates, and until those exist the installers warn on first run.
+That is declared debt, not an oversight — the checksums and the minisign
+signature still cover exactly what was published.
+
+### Key custody
+
+The signing key is the **founding maintainer's** responsibility: generation,
+offline or hardware-backed storage, rotation schedule and revocation. This
+document records that the procedure exists and whose it is; the key material
+itself is never in this repository, and no CI job ever holds it.
+
+## Crate namespace (maintainer)
+
+The three names on crates.io — `meltemi`, `meltemid`, `meltemi-proto` — are
+verified free and unreserved. Every crate in this workspace carries
+`publish = false` on purpose: crates.io is append-only, so an accidental
+`cargo publish` is a permanent fact. Nothing reaches it without the maintainer
+deliberately lifting that flag.
+
+Reserving a name means publishing something real under it, which is why this is
+not automated. When the moment comes:
+
+```bash
+cargo login                       # paste the crates.io API token, never store it in the repo
+# drop `publish = false` from the manifest being reserved, then:
+cargo publish -p meltemi-proto --dry-run   # read what it would upload
+cargo publish -p meltemi-proto
+```
+
+`meltemi-proto` is the honest first name to claim: it is the contract crate, it
+is useful to a third party on its own, and it does not promise a working product
+the way `meltemi` does. Publish the binaries' names when the binaries are worth
+installing from source — a squatting-prevention placeholder that never becomes a
+real crate is its own kind of squatting.
+
+Restore `publish = false` afterwards for any crate not meant to be published on
+every release, so the guard keeps working.
 
 ## Installers
 
