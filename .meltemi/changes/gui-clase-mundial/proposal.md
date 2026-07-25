@@ -26,6 +26,14 @@ herramientas de escritorio) encontró la distancia exacta:
    acciones por fila; transcript plano (tipo+texto truncado, sin expandir,
    copiar ni buscar); tema solo-SO sin selector; ventana que olvida tamaño y
    posición; avisos que crecen sin tope.
+7. **El veredicto del mantenedor sobre la superficie real** (capturas en
+   mano): "la app está feíta, le falta modernidad; pienso en Lens o
+   GitKraken". El diagnóstico es de arquitectura visual, no de estilo: tabs
+   arriba en vez de sidebar persistente con contexto, una sola superficie
+   plana sin profundidad, tablas de filas enormes con texto repetido en vez
+   de pills/avatares, contenido flotando en vacío, sin barra de estado, sin
+   panel de detalle y sin superficie de Ajustes. La mecánica es correcta; el
+   lenguaje visual es de prototipo.
 
 Esta change lleva la superficie de "cumple la spec" a "la herramienta que
 eliges por gusto", sin tocar el daemon ni el contrato: todo es experiencia de
@@ -33,6 +41,23 @@ superficie dentro de la cerca `edit-surface` y la constitución.
 
 ## What Changes
 
+- **Rediseño del shell a arquitectura de app de escritorio** (referencia
+  visual: `docs/ux/mockups/shell-clase-mundial.html`): sidebar persistente
+  con conmutador de proyecto, navegación con iconos/etiquetas/contadores y
+  Ajustes abajo; barra superior con contexto, buscador visible (`Ctrl+K`) y
+  la acción primaria; barra de estado inferior (conexión, versión, endpoint,
+  sesiones, permisos). El keymap vigente (1–4, `:`, `a`, `?`, Esc) se
+  conserva intacto.
+- **Densidad, profundidad e identidad de datos**: escala de elevación del
+  design system aplicada (página/superficie/flotante), tablas densas con
+  jerarquía tipográfica, hover y selección visibles; valores repetidos como
+  pills/badges/dots (nivel, detección, origen) y avatar de inicial con color
+  estable por agente.
+- **Panel de detalle (drawer)**: seleccionar una fila (agente, sesión) abre
+  el detalle con sus acciones sin perder la lista.
+- **Superficie de Ajustes**: tema, idioma, plantilla "Abrir con…", visor de
+  la configuración efectiva del proyecto con salto al editor, y la
+  declaración explícita sin-cuentas/sin-red/sin-telemetría.
 - **Editor sin pérdida silenciosa**: guardia de pestañas sucias (guardar /
   descartar / cancelar) en cierre de pestaña, navegación y cierre de ventana;
   quick-open (Ctrl+P) sobre el árbol; archivos recientes por proyecto.

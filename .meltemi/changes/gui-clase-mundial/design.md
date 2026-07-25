@@ -10,11 +10,14 @@ de paridad no cambia y el riesgo es acotado.
 
 ## Goals / Non-Goals
 
-**Goals:** ninguna pérdida silenciosa de trabajo humano; identidad visible y
-accesible en toda condición; el flujo `propose` a un clic/tecla; paleta con
-difusa, grupos, recientes y formularios tipados desde los schemas; sesiones y
-transcript al nivel de las mejores herramientas; tema/ventana persistentes;
-atención del SO ante permisos sin foco; presupuestos §12 intactos.
+**Goals:** que la primera impresión sea la de una herramienta de escritorio
+moderna (la vara del mantenedor: Lens, GitKraken) — arquitectura visual de
+sidebar + barra de estado, densidad y profundidad reales, identidad de
+entidades y superficie de Ajustes; ninguna pérdida silenciosa de trabajo
+humano; el flujo `propose` a un clic/tecla; paleta con difusa, grupos,
+recientes y formularios tipados desde los schemas; sesiones y transcript al
+nivel de las mejores herramientas; tema/ventana persistentes; atención del
+SO ante permisos sin foco; presupuestos §12 intactos.
 **Non-Goals:** plugin de notificaciones del SO; capacidades nuevas del daemon;
 librerías de iconos o de fuzzy; cambiar la cerca `edit-surface`; teclas
 configurables (FUERA de la cerca).
@@ -83,6 +86,35 @@ payload, timestamps conmutables, copiar línea/todo (clipboard de la webview,
 local) y búsqueda en lo cargado. Sin virtualización: los logs se paginan ya
 por `session/log`; si un transcript enorme lo exige, se decide con evidencia.
 
+### D8 — Arquitectura de tres zonas, keymap intacto
+El shell pasa de tabs superiores a la arquitectura canónica de app de
+escritorio: sidebar (proyecto arriba, vistas con contadores, Ajustes abajo),
+barra superior (contexto + buscador `Ctrl+K` visible + acción primaria) y
+barra de estado (conexión, versión, endpoint, resumen). Referencia visual
+committeada: `docs/ux/mockups/shell-clase-mundial.html` — no es spec, es
+dirección; la spec manda. El design system gana la escala de elevación
+explícita (página `--bg`, superficie `--surface`, flotante `--surface-2` +
+sombra) y densidad de tabla (filas 32–36 px, celda 8 px) que las vistas
+consumen. El keymap y la paleta no cambian: el sidebar los hace visibles.
+
+### D9 — Identidad de entidades: color estable por hash
+Avatar de iniciales por agente con tono derivado determinísticamente del id
+(hash → índice en una paleta fija de 8 tonos del design system, AA sobre su
+texto): mismo agente, mismo color, siempre, sin estado ni configuración.
+Badges de estado y pills de nivel comparten tokens entre vistas — una sola
+fuente en el design system extendido (`docs/ux/design-system.md` crece con
+secciones de elevación, densidad, avatares y pills).
+
+### D10 — Ajustes: la casa de lo persistente
+Vista propia (ítem inferior del sidebar): apariencia (tema D3), idioma,
+plantilla "Abrir con…" —que pasa de variable de entorno a ajuste persistido
+en `desktop-ui.json`, leída por el comando Rust del deep-link con la env var
+como override—, sección de proyecto (configuración efectiva en solo-lectura
+con salto al editor trazable) y la declaración sin-cuentas/sin-red/
+sin-telemetría (constitución §9 hecha visible). Resuelve la pregunta abierta
+del design original: el selector de tema vive aquí, no en el onboarding (el
+onboarding conserva idioma, que sí es decisión de primer arranque).
+
 ## Risks / Trade-offs
 
 - **Deriva schema↔formulario** → el gate de frescura D1 la hace imposible en
@@ -106,8 +138,7 @@ directorio de datos del usuario.
 
 ## Open Questions
 
-- ¿El selector de tema merece casa propia en un menú de ajustes mínimo en vez
-  del onboarding/ayuda? Se decide al maquetar (la spec exige el selector, no
-  su casa exacta).
 - Umbral de frecencia de la paleta (¿cuántos recientes arriba?): se fija en
   implementación con uso real; la spec solo exige que los recientes suban.
+- ¿El sidebar colapsa a riel de iconos bajo un ancho umbral? El mockup no lo
+  exige; se decide al maquetar contra el suelo de 900 px.

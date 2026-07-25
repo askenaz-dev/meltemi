@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Referencia visual de gui-clase-mundial (design D8): arquitectura de tres
+     zonas — sidebar con proyecto y contadores, barra superior con buscador y
+     acción primaria, barra de estado. Dirección, no spec: la spec manda. -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Meltemi — mockup shell clase mundial</title>
+<style>
+  :root {
+    --bg: #0b1220; --panel: #0e1526; --surface: #111a2e; --surface-2: #1a2540;
+    --border: #2c3a57; --hair: #1a2540; --text: #e2e8f0; --muted: #94a3b8;
+    --faint: #5b6b8c; --accent: #60a5fa; --ok: #4ade80; --warn: #fbbf24;
+    --aegean: #2563eb; --wind: #22d3ee;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #05080f; color: var(--text); font: 13px/1.45 Inter, "Segoe UI", system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; padding: 24px; }
+  .window { width: min(1180px, 96vw); background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 24px 80px rgb(0 0 0 / .5); }
+  .titlebar { display: flex; justify-content: space-between; padding: 7px 12px; background: var(--panel); border-bottom: 1px solid var(--hair); color: var(--muted); font-size: 12px; }
+  .frame { display: flex; min-height: 560px; }
+  .sidebar { width: 216px; flex: none; background: var(--panel); border-right: 1px solid var(--hair); display: flex; flex-direction: column; padding: 12px 10px 10px; }
+  .project { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-weight: 500; }
+  .project .mark { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, var(--aegean), var(--wind)); }
+  .nav { margin-top: 14px; display: flex; flex-direction: column; gap: 2px; }
+  .nav a { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 7px; color: var(--muted); text-decoration: none; }
+  .nav a.current { background: var(--surface-2); color: var(--text); font-weight: 500; }
+  .nav .count { margin-left: auto; font-size: 11px; background: var(--surface-2); border-radius: 9px; padding: 0 7px; color: var(--muted); }
+  .nav .count.warn { background: #3a2a12; color: var(--warn); }
+  .sidebar .bottom { margin-top: auto; border-top: 1px solid var(--hair); padding-top: 8px; }
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .topbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--hair); }
+  .topbar h1 { font-size: 14px; font-weight: 500; }
+  .topbar .meta { font-size: 12px; color: var(--muted); }
+  .search { margin-left: auto; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; color: var(--muted); font-size: 12px; }
+  .kbd { border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; font-size: 11px; }
+  .primary { display: flex; align-items: center; gap: 6px; background: linear-gradient(135deg, var(--aegean), #0891b2); border: 0; border-radius: 7px; padding: 7px 13px; color: #fff; font: inherit; font-weight: 500; cursor: pointer; }
+  .content { flex: 1; display: flex; min-height: 0; }
+  table { flex: 1; border-collapse: collapse; align-self: flex-start; width: 100%; }
+  th { text-align: left; font-size: 10.5px; letter-spacing: .5px; text-transform: uppercase; color: var(--faint); font-weight: 500; padding: 10px 14px 6px; }
+  td { padding: 6px 14px; border-top: 1px solid var(--hair); }
+  tr.row:hover { background: rgb(255 255 255 / .025); }
+  tr.selected { background: var(--surface); box-shadow: inset 2px 0 0 var(--wind); }
+  .agent { display: flex; align-items: center; gap: 9px; }
+  .avatar { width: 24px; height: 24px; flex: none; border-radius: 6px; display: grid; place-items: center; font-size: 10.5px; font-weight: 500; }
+  .agent .bin { font: 10.5px ui-monospace, monospace; color: var(--faint); }
+  .pill { font-size: 10.5px; border-radius: 9px; padding: 1px 8px; background: var(--surface-2); color: var(--muted); }
+  .pill.ok { background: #0f2e22; color: var(--ok); }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); margin-right: 6px; }
+  .dot.on { background: var(--ok); }
+  .drawer { width: 250px; flex: none; border-left: 1px solid var(--hair); background: var(--panel); padding: 14px; display: flex; flex-direction: column; gap: 11px; }
+  .drawer .row2 { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .drawer .row2 b { color: var(--text); font-weight: 500; }
+  .drawer button { font: inherit; border-radius: 7px; padding: 7px 0; cursor: pointer; }
+  .btn-solid { background: #1d4ed8; border: 0; color: #fff; font-weight: 500; }
+  .btn-line { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .statusbar { display: flex; gap: 14px; padding: 6px 14px; border-top: 1px solid var(--hair); background: var(--panel); font-size: 11.5px; color: var(--muted); }
+  .statusbar .end { margin-left: auto; }
+  .mono { font-family: ui-monospace, monospace; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar"><span>Meltemi — agentic-ide</span><span>— ▢ ✕</span></div>
+  <div class="frame">
+    <aside class="sidebar">
+      <div class="project"><span class="mark"></span>agentic-ide <span style="margin-left:auto;color:var(--muted)">▾</span></div>
+      <nav class="nav">
+        <a href="#">▸ Sesiones <span class="count">2</span></a>
+        <a href="#">⌂ Proyecto</a>
+        <a href="#">● Permisos <span class="count warn">1</span></a>
+        <a href="#" class="current">⛵ Flota <span class="count">10</span></a>
+        <a href="#">✎ Editor</a>
+      </nav>
+      <div class="bottom nav"><a href="#">⚙ Ajustes</a></div>
+    </aside>
+    <div class="main">
+      <div class="topbar">
+        <h1>Flota</h1><span class="meta">10 agentes · 1 detectado</span>
+        <div class="search">🔍 Buscar o comandar <span class="kbd">Ctrl K</span></div>
+        <button class="primary">+ Proponer</button>
+      </div>
+      <div class="content">
+        <table>
+          <thead><tr><th>Agente</th><th>Origen</th><th>Nivel</th><th>Detectado</th></tr></thead>
+          <tbody>
+            <tr class="row"><td><span class="agent"><span class="avatar" style="background:#3c3489;color:#cecbf6">CC</span><span>Claude Code<br><span class="bin">claude</span></span></span></td><td><span class="pill">registro</span></td><td><span class="pill">N2</span></td><td><span class="dot"></span>no</td></tr>
+            <tr class="row selected"><td><span class="agent"><span class="avatar" style="background:#085041;color:#9fe1cb">OC</span><span><b style="font-weight:500">OpenCode</b><br><span class="bin">opencode</span></span></span></td><td><span class="pill">registro</span></td><td><span class="pill ok">N1 ✓</span></td><td><span class="dot on"></span><span style="color:var(--ok)">sí</span></td></tr>
+            <tr class="row"><td><span class="agent"><span class="avatar" style="background:#72243e;color:#f4c0d1">GC</span><span>Gemini CLI<br><span class="bin">gemini</span></span></span></td><td><span class="pill">registro</span></td><td><span class="pill">N1</span></td><td><span class="dot"></span>no</td></tr>
+            <tr class="row"><td><span class="agent"><span class="avatar" style="background:#0c447c;color:#b5d4f4">CX</span><span>Codex CLI<br><span class="bin">codex</span></span></span></td><td><span class="pill">registro</span></td><td><span class="pill">N2</span></td><td><span class="dot"></span>no</td></tr>
+            <tr class="row"><td><span class="agent"><span class="avatar" style="background:#633806;color:#fac775">AI</span><span>Aider<br><span class="bin">aider</span></span></span></td><td><span class="pill">registro</span></td><td><span class="pill">N3</span></td><td><span class="dot"></span>no</td></tr>
+          </tbody>
+        </table>
+        <aside class="drawer">
+          <div class="agent"><span class="avatar" style="width:32px;height:32px;background:#085041;color:#9fe1cb">OC</span><span><b style="font-weight:500">OpenCode</b><br><span style="font-size:11px;color:var(--ok)">● detectado</span></span></div>
+          <div class="row2"><span>Nivel</span><b style="color:var(--ok)">1 verificado</b></div>
+          <div class="row2"><span>MCP</span><b>sí</b></div>
+          <div class="row2"><span>Binario</span><b class="mono">~/.local/bin/opencode</b></div>
+          <button class="btn-solid">Usar en este proyecto</button>
+          <button class="btn-line">Correr conformidad</button>
+        </aside>
+      </div>
+      <div class="statusbar">
+        <span style="color:var(--ok)">▸ conectado</span><span>v0.1.0</span>
+        <span class="mono">\\.\pipe\meltemid-…</span>
+        <span class="end">2 sesiones · <span style="color:var(--warn)">1 permiso</span></span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

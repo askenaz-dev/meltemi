@@ -1,5 +1,90 @@
 ## ADDED Requirements
 
+### Requirement: Arquitectura visual de aplicación de escritorio
+El shell SHALL organizarse en tres zonas persistentes: un **sidebar** de
+navegación con el proyecto activo arriba (conmutable), las vistas con icono,
+etiqueta y contador vivo (sesiones activas, permisos pendientes), y Ajustes
+abajo; una **barra superior** con el contexto de la vista, el buscador de la
+paleta visible con su atajo, y la acción primaria; y una **barra de estado**
+inferior con conexión, versión del daemon, endpoint y resumen de
+sesiones/permisos. El keymap vigente (1–4, `:`/Ctrl+K, `a`, `?`, Esc) MUST
+conservarse; el sidebar es su representación visible, no su reemplazo.
+
+#### Scenario: Tres zonas presentes
+- **WHEN** se abre la superficie de escritorio
+- **THEN** el sidebar, la barra superior y la barra de estado SHALL estar presentes en toda vista
+
+#### Scenario: Contadores vivos en el sidebar
+- **WHILE** hay sesiones activas o permisos pendientes
+- **THEN** los ítems Sesiones y Permisos del sidebar SHALL mostrar sus contadores actualizados
+
+#### Scenario: La barra de estado dice la verdad de conexión
+- **WHEN** el daemon está conectado
+- **THEN** la barra de estado SHALL mostrar estado, versión y endpoint
+- **AND** al perderse la conexión SHALL reflejarlo con la misma prioridad de señales vigente
+
+### Requirement: Densidad y profundidad del design system
+Las vistas de datos SHALL usar la escala de elevación del design system
+(página, superficie, flotante) con sus sombras, y tablas densas: filas
+compactas con jerarquía tipográfica (principal + secundario), hover y
+selección distinguibles sin depender solo del color. Los valores categóricos
+repetidos (nivel, origen, detección) SHALL presentarse como pills, badges o
+dots con palabra — MUST NOT repetirse como texto plano columna abajo.
+
+#### Scenario: Fila con jerarquía y selección visible
+- **WHEN** el usuario recorre una tabla con teclado o puntero
+- **THEN** hover y selección SHALL distinguirse por superficie y marcador, no solo por color
+
+#### Scenario: Categorías como pills
+- **WHEN** la Flota lista el nivel de integración y la detección
+- **THEN** el nivel SHALL renderizarse como pill (con su verificación) y la detección como dot + palabra
+
+### Requirement: Identidad visual de entidades
+Cada agente SHALL mostrarse con un avatar de iniciales con color estable
+derivado de su id (mismo agente, mismo color, en toda vista y sesión), y los
+estados SHALL usar los mismos badges en todas las vistas — una entidad se
+reconoce de un vistazo dondequiera que aparezca.
+
+#### Scenario: Avatar estable por id
+- **WHEN** el mismo agente aparece en la Flota, en una sesión y en el drawer
+- **THEN** su avatar SHALL mostrar las mismas iniciales y el mismo color en los tres lugares
+
+### Requirement: Panel de detalle sin perder la lista
+Seleccionar una fila (agente de la Flota, sesión) SHALL abrir un panel de
+detalle lateral con la información completa y las acciones aplicables (usar
+en este proyecto, correr conformidad; cancelar, dirigir), manteniendo la
+lista visible y navegable; Esc SHALL cerrar el panel antes de actuar sobre la
+vista.
+
+#### Scenario: Drawer de agente con acciones
+- **WHEN** el usuario selecciona un agente detectado en la Flota
+- **THEN** el panel SHALL mostrar binario, nivel (declarado vs verificado), MCP y sus acciones
+
+#### Scenario: Esc cierra el panel primero
+- **WHEN** el usuario pulsa Esc con el panel de detalle abierto
+- **THEN** SHALL cerrarse el panel y la vista SHALL permanecer
+
+### Requirement: Superficie de Ajustes
+La superficie SHALL ofrecer Ajustes con casa propia, alcanzable desde el
+sidebar, con: tema (claro/oscuro/sistema), idioma (ES/EN), plantilla de
+"Abrir con…" (persistida y usada por el deep-link), el visor de la
+configuración efectiva del proyecto (`.meltemi/config.toml` y permisos) con
+salto directo a editarla en el editor trazable, y la declaración explícita de
+que no hay cuentas, red ni telemetría. Los ajustes MUST persistir en el
+directorio de datos del usuario.
+
+#### Scenario: La plantilla de Abrir con se configura y persiste
+- **WHEN** el usuario define la plantilla de "Abrir con…" en Ajustes y reinicia
+- **THEN** el deep-link SHALL usar esa plantilla sin depender de variables de entorno
+
+#### Scenario: Ver y editar la configuración efectiva
+- **WHEN** el usuario abre la sección de proyecto en Ajustes
+- **THEN** SHALL ver la configuración efectiva y poder saltar a editarla en el editor (guardado trazable)
+
+#### Scenario: La promesa de privacidad es visible
+- **WHEN** el usuario abre Ajustes
+- **THEN** la declaración sin cuentas, sin red y sin telemetría SHALL estar visible
+
 ### Requirement: Identidad visible en toda condición
 El chrome SHALL mostrar la marca real del proyecto (mark de `brand/` inline)
 junto al wordmark, y los estados vacíos SHALL usar iconografía de línea propia
