@@ -308,7 +308,7 @@ const es = {
   "transcript.collapse": "resumir",
   "transcript.empty": "sin eventos todavía",
 
-  "status.sessions": "{n} sesión(es)",
+  "status.sessions": "{n} en curso",
   "status.permissions": "{n} permiso(s)",
 
   "permissions.waitingWord": "esperando",
@@ -775,7 +775,7 @@ const en: Record<MessageKey, string> = {
   "transcript.collapse": "collapse",
   "transcript.empty": "no events yet",
 
-  "status.sessions": "{n} session(s)",
+  "status.sessions": "{n} running",
   "status.permissions": "{n} permission(s)",
 
   "permissions.waitingWord": "waiting",

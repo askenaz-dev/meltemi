@@ -4,8 +4,12 @@
   import { t } from "../i18n";
   import { pending, sessions } from "../stores";
 
+  // Running, not total: a session waiting on a permission is still running,
+  // and the label says "running" so the number can never contradict the table.
   const live = $derived(
-    $sessions.filter((s) => s.state === "active" || s.state === "starting").length,
+    $sessions.filter(
+      (s) => s.state === "active" || s.state === "starting" || s.state === "waiting_permission",
+    ).length,
   );
 </script>
 
