@@ -1257,8 +1257,10 @@ pub struct PendingPermission {
     pub options: Vec<PermissionOption>,
     /// Seconds the request has been waiting (snapshot at query time).
     pub waiting_seconds: u64,
-    /// Seconds until it expires; negative once expired (snapshot).
-    pub expires_in_seconds: i64,
+    /// Seconds until it expires; negative once expired (snapshot). Absent
+    /// when the wait policy imposes no deadline (waiting for the human).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_in_seconds: Option<i64>,
     /// Whether it has already expired but is still shown (never dropped
     /// silently).
     pub expired: bool,

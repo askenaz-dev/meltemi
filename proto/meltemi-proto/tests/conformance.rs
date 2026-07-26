@@ -210,7 +210,7 @@ fn permission_rules_and_queue_conform() {
             kind: PermissionOptionKind::AllowOnce,
         }],
         waiting_seconds: 12,
-        expires_in_seconds: 108,
+        expires_in_seconds: Some(108),
         expired: false,
         suggested_rule: Some(rule.clone()),
     };
@@ -220,8 +220,18 @@ fn permission_rules_and_queue_conform() {
         "permission",
         "pendingPermission",
         &PendingPermission {
-            expires_in_seconds: -4,
+            expires_in_seconds: Some(-4),
             expired: true,
+            suggested_rule: None,
+            ..pending.clone()
+        },
+    );
+    // A deadline-free entry (waiting for the human) omits the field.
+    assert_conforms(
+        "permission",
+        "pendingPermission",
+        &PendingPermission {
+            expires_in_seconds: None,
             suggested_rule: None,
             ..pending.clone()
         },

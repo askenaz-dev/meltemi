@@ -123,7 +123,6 @@
         "summary",
         "options",
         "waitingSeconds",
-        "expiresInSeconds",
         "expired"
       ],
       "properties": {
@@ -153,7 +152,7 @@
         },
         "expiresInSeconds": {
           "type": "integer",
-          "description": "Seconds until it expires; negative once expired (snapshot)."
+          "description": "Seconds until it expires; negative once expired (snapshot). Absent when the wait policy imposes no deadline (waiting for the human)."
         },
         "expired": {
           "type": "boolean",

@@ -2,7 +2,7 @@
 
 ## 1. Contrato
 
-- [ ] 1.1 `PendingPermission.expires_in_seconds` → `Option<i64>` en
+- [x] 1.1 `PendingPermission.expires_in_seconds` → `Option<i64>` en
   `meltemi-proto`, fuera de `required` en `permission.schema.json`, y
   conformance cubriendo presencia y ausencia
 
