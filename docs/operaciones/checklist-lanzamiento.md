@@ -69,7 +69,19 @@ La clave privada no entra en este repositorio ni en CI, nunca.
   criterio de qué nombre reclamar primero están en
   [`docs/release.md`](../release.md) («Crate namespace»).
 
-## 4. Deuda de firma de instaladores
+## 4. Immutable releases
+
+✅ Activado el 2026-07-26. Los assets de una release publicada ya no se pueden
+añadir, cambiar ni borrar, y el tag queda fijo a su commit — cierra el hueco que
+ni los checksums ni la firma cierran, porque hasta ahora nada impedía reemplazar
+un artefacto ya publicado.
+
+Consecuencia operativa que hay que tener presente: **firmar antes de publicar es
+obligatorio**. Si publicas primero, esa versión ya no admite el `.minisig` y el
+único remedio es cortar otra. `scripts/sign-release.ps1` lo comprueba antes de
+pedirte la passphrase.
+
+## 5. Deuda de firma de instaladores
 
 El MSI y el DMG salen sin firma de plataforma: Authenticode y la notarización de
 Apple exigen certificados comprados. Hasta entonces el instalador avisa en el

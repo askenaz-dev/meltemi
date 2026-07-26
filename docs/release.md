@@ -126,7 +126,14 @@ else, so one signature is enough:
 It downloads `SHA256SUMS`, signs it (minisign asks for the key's passphrase on
 the terminal — the script never sees or stores it), verifies the signature it
 just produced, uploads `SHA256SUMS.minisig`, and then asks whether to publish the
-draft. Publishing is the one step it never does on its own: it is the most
+draft.
+
+**That order is mandatory, not tidy.** This repository has immutable releases
+enabled: once a release is published its assets can no longer be added, changed
+or removed. Publish before attaching the signature and that version can never be
+signed at all — the only remedy is cutting a new one. The script checks the draft
+state before it asks for your passphrase, so the mistake costs a prompt rather
+than a version number. Publishing is the one step it never does on its own: it is the most
 visible, least reversible action in the procedure, so it stays a decision you
 make each release, not a default a script reaches for. It runs only on the
 maintainer's own machine, never in CI — see the key-custody note below for why.

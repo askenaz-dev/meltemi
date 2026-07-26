@@ -45,6 +45,17 @@ if (-not $Tag) {
     Write-Host "No -Tag given; using the latest release: $Tag"
 }
 
+# Checked BEFORE the passphrase prompt, not after: this repository has immutable
+# releases enabled, so a published release accepts no new assets. Signing first
+# and publishing second is therefore mandatory, not merely tidy — publish early
+# and the signature can never be attached to that version at all.
+$draft = gh release view $Tag --repo $Repo --json isDraft --jq ".isDraft"
+if ($draft -ne "true") {
+    Write-Warning "$Tag is already published. With immutable releases enabled, uploading the signature will be refused."
+    $go = Read-Host "Continue anyway? [y/N]"
+    if ($go -notmatch "^[Yy]") { throw "Stopped before signing: publish the NEXT release only after its signature is attached." }
+}
+
 # A throwaway directory, never the repo: SHA256SUMS and its signature are
 # release assets, not files this project tracks.
 $work = Join-Path $env:TEMP "meltemi-sign-$Tag"
