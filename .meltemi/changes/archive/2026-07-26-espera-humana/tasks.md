@@ -29,5 +29,5 @@
 
 ## 5. Verificación
 
-- [ ] 5.1 Gates locales completos + revisión adversarial multi-agente del
+- [x] 5.1 Gates locales completos + revisión adversarial multi-agente del
   diff; validate del motor sobre change y verdad viva

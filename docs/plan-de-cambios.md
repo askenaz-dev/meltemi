@@ -213,7 +213,7 @@ publican en el QA de la primera release que incluya la GUI.
 
 | Change | Alcance |
 |---|---|
-| `espera-humana` | Política de espera de permisos configurable: con cola viva se espera al humano en vez de default-deny a los 120 s (hoy hard-coded en 4 sitios), y la caída de la conexión dueña no resuelve la petición (hoy: denegación instantánea, `acp.rs:508`) |
+| ✅ `espera-humana` (2026-07-26) | Política de espera configurable (`[permissions]`: `wait`/`implement-wait`/`no-client-grace`): los flujos interactivos esperan al humano mientras haya cliente conectado; el fallo del push ya no resuelve la petición (la cola es la única fuente); sin clientes, denegación constitucional auditada tras la gracia |
 | `sesion-esperando` | El daemon setea `waiting_permission` de verdad (hoy superficie muerta del contrato) y `change/list` expone `gatePending` (hoy los gates pendientes son indescubribles por RPC) |
 | `eventos-para-tardios` | Suscripción al stream de eventos de sesiones que el cliente no inició (hoy `session/event` va solo a la conexión iniciadora) y formas asíncronas de los RPC que bloquean el turno entero (`sdd/gate`, `sdd/review-decide`, `worktree/dispatch`) |
 
