@@ -60,21 +60,39 @@ the `meltemid` daemon, plus:
 
 Before installing, verify the archive:
 
-```
+```bash
 # 1. Check the checksum
 sha256sum --check SHA256SUMS        # (shasum -a 256 on macOS; Get-FileHash on Windows)
 
 # 2. Verify the signature of the checksums file with the project's public key
-minisign -Vm SHA256SUMS -P <the public key printed on every release page>
+minisign -Vm SHA256SUMS -P <the public key below>
 ```
 
 Step 2 answers a question step 1 cannot: a checksum proves the file did not
 change in transit, a signature proves *who* published it. Both are needed, and
 in that order.
 
-The installer scripts perform this verification for you and refuse to proceed on
-a mismatch — there is no blind `curl | sh`: the script is short, readable, and
-its own hash is published.
+### The public key
+
+> **Not yet published.** The key exists and `v0.1.0` is signed with it, but its
+> public half has not landed in this repository yet, so step 2 above cannot be
+> completed by a reader today. Until it does, only step 1 is actually available.
+> This is stated plainly rather than papered over with a placeholder.
+
+The key belongs **here, in the repository**, and not on the release page — that
+distinction is the whole point of an anchor. Anyone who can publish a release can
+also edit the text beside it, so a key printed only there proves nothing: an
+attacker would replace the artifacts, sign them with their own key, print their
+own key next to them, and every published instruction would still pass. A key
+committed to the tree has a git history: changing it is a diff, with an author
+and a date, in a file thousands of clones already hold.
+
+**The installer scripts do step 1 only.** They fetch the asset and `SHA256SUMS`,
+compare the hash and refuse on a mismatch — there is no blind `curl | sh`: the
+script is short, readable, and its own hash is published. They do **not** verify
+the signature, because `minisign` is not present by default on any of the three
+platforms and a one-line installer that first demands a package install is not
+one line. Step 2 is yours to run, once, on the checksums file.
 
 ## Signing a release (maintainer)
 
@@ -137,9 +155,19 @@ signature still cover exactly what was published.
 ### Key custody
 
 The signing key is the **founding maintainer's** responsibility: generation,
-offline or hardware-backed storage, rotation schedule and revocation. This
-document records that the procedure exists and whose it is; the key material
-itself is never in this repository, and no CI job ever holds it.
+offline storage, and a rotation and repudiation procedure. The key material is
+never in this repository, and no CI job ever holds it.
+
+Two limits of the chosen tool, written down so nobody plans against a capability
+that is not there. Storage is **offline, not hardware-backed**: minisign has no
+HSM or PKCS#11 support, so "the key lives in a token" is not reachable without
+changing tools. And minisign has **no revocation mechanism** — there is no
+message a holder can publish that makes an old signature stop verifying. So
+"revoke" here can only mean: publish a new public key in this file, state in the
+release notes and on the site that the old key is repudiated from a given date,
+and re-sign what still matters. That works only because the key lives in the
+repository, where the replacement is an auditable commit; it is the same property
+that makes the anchor worth anything in the first place.
 
 ## Crate namespace (maintainer)
 

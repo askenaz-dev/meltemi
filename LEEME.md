@@ -75,13 +75,20 @@ escritorio. El cliente de terminal y el daemon funcionan en cualquiera desde el
 archivo de arriba, y la app de escritorio se compila desde el código (más abajo).
 Un `.rpm` es el siguiente paso.
 
-Cada release publica `SHA256SUMS` con firma separada. Verifica antes de instalar:
+Cada release publica `SHA256SUMS` con firma separada de minisign. Verifica el
+checksum y después quién lo firmó:
 
 ```bash
 sha256sum --check SHA256SUMS
+minisign -Vm SHA256SUMS -P <la clave pública de docs/release.md>
 ```
 
-(`shasum -a 256` en macOS; `Get-FileHash` en Windows.)
+(`shasum -a 256` en macOS; `Get-FileHash` en Windows.) El checksum prueba que el
+archivo llegó intacto; la firma prueba quién lo publicó. Los scripts instaladores
+hacen el primer paso por ti, no el segundo — `minisign` no viene con ningún
+sistema operativo, y un instalador de una línea que primero exige instalar un
+paquete no es de una línea. La clave y el procedimiento están en
+[`docs/release.md`](docs/release.md).
 
 Los scripts instaladores colocan `meltemi`, `meltemid` y el alias corto `mel` en
 tu `PATH`. Son cortos y auditables, publican su hash dentro del `SHA256SUMS`

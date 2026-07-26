@@ -62,14 +62,19 @@ to the **latest signed release** — you never have to know a version number:
 The core archive carries both binaries: the daemon `meltemid` and the terminal
 client `meltemi`. The desktop installer carries the desktop app.
 
-Every release publishes `SHA256SUMS` with a detached signature. Verify before
-installing:
+Every release publishes `SHA256SUMS` with a detached minisign signature. Verify
+the checksum, then verify who signed it:
 
 ```bash
 sha256sum --check SHA256SUMS
+minisign -Vm SHA256SUMS -P <the public key in docs/release.md>
 ```
 
-(`shasum -a 256` on macOS; `Get-FileHash` on Windows.)
+(`shasum -a 256` on macOS; `Get-FileHash` on Windows.) The checksum proves the
+file arrived intact; the signature proves who published it. The installer scripts
+do the first step for you, not the second — `minisign` ships with no operating
+system, and a one-line installer that first demands a package install is not one
+line. See [`docs/release.md`](docs/release.md) for the key and the procedure.
 
 Every desktop installer stays under 15 MB because none of them embeds a browser
 engine: each one uses your operating system's own. Windows bootstraps its runtime

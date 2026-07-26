@@ -115,6 +115,36 @@ fn signed_artifacts_and_verification_are_documented() {
         doc.to_ascii_lowercase().contains("custody"),
         "key custody procedure is documented (maintainer's)"
     );
+    // One name for the signature asset, everywhere. The pipeline's release notes
+    // said `SHA256SUMS.sig` while the documented procedure and the signing script
+    // produced `SHA256SUMS.minisig`, so the notes every downloader reads pointed
+    // at a file that was never published — and nothing failed, because nothing
+    // was checking.
+    let root = repo_root();
+    let signature = "SHA256SUMS.minisig";
+    for file in [
+        "docs/release.md",
+        "scripts/sign-release.ps1",
+        ".github/workflows/release.yml",
+    ] {
+        let text = read(&root, file);
+        assert!(
+            text.contains(signature),
+            "{file} names the signature asset `{signature}`"
+        );
+        // `.sig` alone would be a second, wrong name for the same thing.
+        assert!(
+            !text.contains("SHA256SUMS.sig"),
+            "{file} still uses the old `SHA256SUMS.sig` name"
+        );
+    }
+    // The trust anchor lives in the repository, not on the release page: whoever
+    // can publish a release can edit the text beside it, so a key printed only
+    // there proves nothing.
+    assert!(
+        !doc.contains("public key printed on every release page"),
+        "the public key must not be sourced from the release page it authenticates"
+    );
 }
 
 #[test]

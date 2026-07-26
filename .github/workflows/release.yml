@@ -267,7 +267,7 @@ jobs:
   # ONE merged SHA256SUMS, so the stable-name URLs the site and the README
   # promise (`releases/latest/download/<asset>`) have something to resolve to.
   # It stays a draft on purpose: the maintainer downloads SHA256SUMS, signs it
-  # with the key CI never holds, uploads `SHA256SUMS.sig` and publishes
+  # with the key CI never holds, uploads `SHA256SUMS.minisig` and publishes
   # (docs/release.md) — a red gate upstream means this job never runs and
   # nothing is published, not even as a draft.
   release:
@@ -313,7 +313,7 @@ jobs:
             --draft \
             --verify-tag \
             --title "Meltemi $GITHUB_REF_NAME" \
-            --notes "Signed release pending: the maintainer verifies the draft, signs SHA256SUMS with the project key (docs/release.md) and attaches SHA256SUMS.sig before publishing. Checksums cover every asset, including the installer scripts." \
+            --notes "Draft pending signature: the maintainer verifies these artifacts, signs SHA256SUMS with the project key and attaches SHA256SUMS.minisig before publishing. Checksums cover every asset, including the installer scripts. To verify a download, follow docs/release.md - it carries the public key and both steps." \
             release-assets/*
 
   # The site lint is a precondition of publishing on both paths: a tagged
