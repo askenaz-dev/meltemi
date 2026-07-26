@@ -24,7 +24,7 @@
 
 ## 4. Escenarios
 
-- [ ] 4.1 e2e en `e2e_permisos.rs`: los cuatro escenarios del delta «Espera
+- [x] 4.1 e2e en `e2e_permisos.rs`: los cuatro escenarios del delta «Espera
   humana» contra el mock-agent y config de fixture con cotas cortas
 
 ## 5. Verificación

@@ -313,3 +313,325 @@ async fn a_denied_turn_declares_the_denial() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// ---- espera-humana ----------------------------------------------------------
+
+/// A fixture whose config carries a `[permissions]` section besides the agent.
+fn fixture_cfg(tag: &str, permissions_toml: &str) -> PathBuf {
+    let root = fixture(tag, None);
+    let mock = mock_agent_bin();
+    std::fs::write(
+        root.join(".meltemi").join("config.toml"),
+        format!(
+            "[agent]\ncommand = ['{}']\n\n[permissions]\n{permissions_toml}",
+            mock.display()
+        ),
+    )
+    .unwrap();
+    root
+}
+
+/// Polls the queue over fresh connections until an entry appears.
+async fn wait_for_pending(endpoint: &str) -> serde_json::Value {
+    for _ in 0..200 {
+        let (peer, _incoming) = init_client(endpoint).await;
+        let pending = peer
+            .request(methods::PERMISSION_PENDING, &json!({}))
+            .await
+            .expect("pending ok");
+        peer.close();
+        if let Some(entry) = pending["pending"].as_array().and_then(|a| a.first()) {
+            return entry.clone();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the escalated request never appeared in the queue");
+}
+
+/// Polls `session/list` until the one session of `root` reads `ended`, then
+/// returns the parsed events of its log.
+async fn wait_for_ended_session_events(endpoint: &str, root: &str) -> Vec<serde_json::Value> {
+    let (peer, _incoming) = init_client(endpoint).await;
+    let mut session_id = None;
+    for _ in 0..200 {
+        let list = peer
+            .request(methods::SESSION_LIST, &json!({ "projectRoot": root }))
+            .await
+            .expect("session/list ok");
+        if let Some(first) = list["sessions"].as_array().and_then(|a| a.first())
+            && first["state"] == "ended"
+        {
+            session_id = Some(first["sessionId"].as_str().unwrap().to_string());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let session_id = session_id.expect("the session ended");
+    let log = peer
+        .request(
+            methods::SESSION_LOG,
+            &json!({ "projectRoot": root, "sessionId": session_id }),
+        )
+        .await
+        .expect("session/log ok");
+    peer.close();
+    log["lines"]
+        .as_array()
+        .expect("log lines")
+        .iter()
+        .filter_map(|l| l.as_str())
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .collect()
+}
+
+#[tokio::test]
+async fn the_owning_connections_death_does_not_resolve_the_request() {
+    // Scenario: La caída de la conexión dueña no resuelve la petición.
+    let root = fixture("owner-drop", None); // no rules → escalates; default wait
+    // SAFETY: no concurrent env readers in this test binary.
+    unsafe {
+        std::env::remove_var("MELTEMI_AGENT_COMMAND");
+    }
+    let (endpoint, daemon) = spawn_daemon("perm-owner-drop").await;
+    let root_str = root.display().to_string();
+
+    // Connection A starts the propose and holds the live push unanswered.
+    let (peer_a, incoming_a) = init_client(&endpoint).await;
+    let hold = tokio::spawn(async move {
+        let mut incoming_a = incoming_a;
+        while incoming_a.recv().await.is_some() {}
+    });
+    let _propose = tokio::spawn({
+        let peer_a = peer_a.clone();
+        let root = root_str.clone();
+        async move {
+            peer_a
+                .request(
+                    methods::PROPOSE,
+                    &json!({ "idea": "outlive the owner", "projectRoot": root }),
+                )
+                .await
+        }
+    });
+    let entry = wait_for_pending(&endpoint).await;
+    let request_id = entry["requestId"].as_str().unwrap().to_string();
+    let allow = entry["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["kind"] == "allow_once")
+        .expect("an allow option")["optionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // A second client stays connected while the OWNING connection dies.
+    let (peer_b, _incoming_b) = init_client(&endpoint).await;
+    hold.abort();
+    peer_a.close();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // The request is still pending — the dead push resolved nothing.
+    let pending = peer_b
+        .request(methods::PERMISSION_PENDING, &json!({}))
+        .await
+        .expect("pending ok");
+    let still = pending["pending"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["requestId"] == request_id.as_str());
+    assert!(still, "the request survived the owner's death: {pending:#}");
+
+    // The surviving client decides, and the agent receives the allow.
+    let decide = peer_b
+        .request(
+            methods::PERMISSION_DECIDE,
+            &json!({ "requestId": request_id, "optionId": allow }),
+        )
+        .await
+        .expect("decide ok");
+    assert_eq!(decide["status"], "applied");
+    peer_b.close();
+
+    let events = wait_for_ended_session_events(&endpoint, &root_str).await;
+    assert!(
+        events.iter().any(|e| e["type"] == "permission_decided"
+            && e["payload"]["decidedBy"] == "client"
+            && e["payload"]["denied"] == false),
+        "the human decision is on record, not a transport deny: {events:#?}"
+    );
+
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn a_deadline_free_wait_is_declared_without_expiry() {
+    // Scenario: Espera sin plazo declarada sin plazo.
+    let root = fixture("nodeadline", None); // default policy: while-connected
+    // SAFETY: no concurrent env readers in this test binary.
+    unsafe {
+        std::env::remove_var("MELTEMI_AGENT_COMMAND");
+    }
+    let (endpoint, daemon) = spawn_daemon("perm-nodeadline").await;
+    let root_str = root.display().to_string();
+
+    let (peer_a, incoming_a) = init_client(&endpoint).await;
+    let hold = tokio::spawn(async move {
+        let mut incoming_a = incoming_a;
+        while incoming_a.recv().await.is_some() {}
+    });
+    let propose = tokio::spawn({
+        let peer_a = peer_a.clone();
+        let root = root_str.clone();
+        async move {
+            peer_a
+                .request(
+                    methods::PROPOSE,
+                    &json!({ "idea": "wait without a clock", "projectRoot": root }),
+                )
+                .await
+        }
+    });
+
+    let entry = wait_for_pending(&endpoint).await;
+    assert!(
+        entry.get("expiresInSeconds").is_none(),
+        "no invented countdown: {entry:#}"
+    );
+    assert_eq!(entry["expired"], false, "{entry:#}");
+
+    // Decide so the turn completes.
+    let request_id = entry["requestId"].as_str().unwrap();
+    let allow = entry["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["kind"] == "allow_once")
+        .expect("an allow option")["optionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (peer_b, _incoming_b) = init_client(&endpoint).await;
+    peer_b
+        .request(
+            methods::PERMISSION_DECIDE,
+            &json!({ "requestId": request_id, "optionId": allow }),
+        )
+        .await
+        .expect("decide ok");
+    peer_b.close();
+
+    let result = tokio::time::timeout(Duration::from_secs(30), propose)
+        .await
+        .expect("propose finished")
+        .expect("join ok")
+        .expect("propose ok");
+    assert_eq!(result["status"], "completed", "{result:#}");
+
+    hold.abort();
+    peer_a.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn a_configured_bound_expires_audited_as_timeout() {
+    // Scenario: Cota configurada vence auditada.
+    let root = fixture_cfg("bounded", "wait = 1\n");
+    // SAFETY: no concurrent env readers in this test binary.
+    unsafe {
+        std::env::remove_var("MELTEMI_AGENT_COMMAND");
+    }
+    let (endpoint, daemon) = spawn_daemon("perm-bounded").await;
+    let root_str = root.display().to_string();
+
+    let (peer_a, incoming_a) = init_client(&endpoint).await;
+    let hold = tokio::spawn(async move {
+        let mut incoming_a = incoming_a;
+        while incoming_a.recv().await.is_some() {}
+    });
+    let propose = tokio::spawn({
+        let peer_a = peer_a.clone();
+        let root = root_str.clone();
+        async move {
+            peer_a
+                .request(
+                    methods::PROPOSE,
+                    &json!({ "idea": "expire on the bound", "projectRoot": root }),
+                )
+                .await
+        }
+    });
+
+    // Nobody decides: the 1-second bound expires and denies audited.
+    let result = tokio::time::timeout(Duration::from_secs(30), propose)
+        .await
+        .expect("propose finished")
+        .expect("join ok")
+        .expect("propose ok");
+    assert_eq!(result["status"], "completed", "{result:#}");
+    assert_eq!(result["deniedPermissions"], 1, "{result:#}");
+
+    let events = wait_for_ended_session_events(&endpoint, &root_str).await;
+    assert!(
+        events.iter().any(|e| e["type"] == "permission_decided"
+            && e["payload"]["decidedBy"] == "timeout"
+            && e["payload"]["denied"] == true),
+        "the expiry is audited as timeout: {events:#?}"
+    );
+
+    hold.abort();
+    peer_a.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn with_no_clients_the_constitutional_deny_fires_after_the_grace() {
+    // Scenario: Sin clientes, denegación constitucional tras la gracia.
+    let root = fixture_cfg("noclients", "no-client-grace = 0\n");
+    // SAFETY: no concurrent env readers in this test binary.
+    unsafe {
+        std::env::remove_var("MELTEMI_AGENT_COMMAND");
+    }
+    let (endpoint, daemon) = spawn_daemon("perm-noclients").await;
+    let root_str = root.display().to_string();
+
+    let (peer_a, incoming_a) = init_client(&endpoint).await;
+    let hold = tokio::spawn(async move {
+        let mut incoming_a = incoming_a;
+        while incoming_a.recv().await.is_some() {}
+    });
+    let _propose = tokio::spawn({
+        let peer_a = peer_a.clone();
+        let root = root_str.clone();
+        async move {
+            peer_a
+                .request(
+                    methods::PROPOSE,
+                    &json!({ "idea": "deny without clients", "projectRoot": root }),
+                )
+                .await
+        }
+    });
+    let _entry = wait_for_pending(&endpoint).await;
+
+    // The LAST client disconnects; with zero grace the constitutional deny
+    // fires as soon as the vigil observes the empty registry.
+    hold.abort();
+    peer_a.close();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let events = wait_for_ended_session_events(&endpoint, &root_str).await;
+    assert!(
+        events.iter().any(|e| e["type"] == "permission_decided"
+            && e["payload"]["decidedBy"] == "default_deny"
+            && e["payload"]["denied"] == true),
+        "the no-client deny is explicit and audited: {events:#?}"
+    );
+
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
