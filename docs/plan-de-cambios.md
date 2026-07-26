@@ -187,11 +187,19 @@ es un script (`scripts/capture-desktop.ps1`, `docs/ux/capturas.md`); la firma de
 de infraestructura de certificados; el arranque y la RAM en macOS y Linux se
 publican en el QA de la primera release que incluya la GUI.
 
-> **Gobernanza de alcance** (change `enmienda-edicion-movil`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) está acotado a monitorear/aprobar/dirigir y al acceso solo por túnel SSH por la spec `mobile-companion`.
+> **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
+
+### Prerrequisitos de daemon del Agent Boss (antes de `companero-movil`, sirven a TUI/GUI hoy)
+
+| Change | Alcance |
+|---|---|
+| `espera-humana` | Política de espera de permisos configurable: con cola viva se espera al humano en vez de default-deny a los 120 s (hoy hard-coded en 4 sitios), y la caída de la conexión dueña no resuelve la petición (hoy: denegación instantánea, `acp.rs:508`) |
+| `sesion-esperando` | El daemon setea `waiting_permission` de verdad (hoy superficie muerta del contrato) y `change/list` expone `gatePending` (hoy los gates pendientes son indescubribles por RPC) |
+| `eventos-para-tardios` | Suscripción al stream de eventos de sesiones que el cliente no inició (hoy `session/event` va solo a la conexión iniciadora) y formas asíncronas de los RPC que bloquean el turno entero (`sdd/gate`, `sdd/review-decide`, `worktree/dispatch`) |
 
 ## Fase 3 — se planifica al cerrar Fase 2
 
-`companero-movil` (gobernada por la spec `mobile-companion`: monitorear/aprobar/dirigir, sin edición, túnel SSH exclusivamente; su mecanismo de notificaciones es pregunta abierta declarada) · funciones de equipo y organización (meltemi.md §3).
+`companero-movil` (gobernada por las specs `mobile-companion` y `remote-access`: el puesto remoto del Agent Boss, cuatro verbos, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in; su design debe resolver la frontera Windows del túnel — named pipe no reenviable por OpenSSH — sin abrir jamás un puerto de red del daemon) · funciones de equipo y organización (meltemi.md §3).
 
 ## Namespaces del proyecto
 
