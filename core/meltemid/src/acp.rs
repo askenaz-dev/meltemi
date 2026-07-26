@@ -42,6 +42,7 @@ use meltemi_proto::{
     SessionEventParams, TurnStatus, methods,
 };
 
+use crate::config::WaitPolicy;
 use crate::pending::{NewRequest, PendingQueue, Resolution};
 use crate::permissions::{RequestFacts, RuleDecision, RuleSet};
 use crate::rpc::Peer;
@@ -67,8 +68,14 @@ pub struct SessionParams {
     /// multi-turn loop stops dispatching queued instructions even if the agent
     /// reports a non-cancelled stop reason (control-remoto-asistido).
     pub cancelled: Arc<AtomicBool>,
-    /// How long to wait for a human to answer a permission request.
-    pub permission_timeout: Duration,
+    /// How long an escalated request waits for a human decision
+    /// (espera-humana D2).
+    pub wait: WaitPolicy,
+    /// How long a pending request survives with no client connected before
+    /// the constitutional deny (espera-humana D3).
+    pub no_client_grace: Duration,
+    /// Registry of initialized clients, observed by the wait (D3).
+    pub clients: crate::clients::ClientRegistry,
     /// The permission rules evaluated before escalation (proxy-permisos D1).
     pub rules: Arc<RuleSet>,
     /// The daemon's shared pending-permission queue (D2).
@@ -120,7 +127,9 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         log,
         cancel,
         cancelled,
-        permission_timeout,
+        wait,
+        no_client_grace,
+        clients,
         rules,
         pending,
         load_session_id,
@@ -155,7 +164,9 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         pending: pending.clone(),
         project_root: project_root.clone(),
         denials: denials.clone(),
-        permission_timeout,
+        wait,
+        no_client_grace,
+        clients: clients.clone(),
     };
     let perm = HandlerState {
         peer: peer.clone(),
@@ -165,7 +176,9 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         pending: pending.clone(),
         project_root: project_root.clone(),
         denials: denials.clone(),
-        permission_timeout,
+        wait,
+        no_client_grace,
+        clients,
     };
 
     let result = Client
@@ -334,8 +347,12 @@ struct HandlerState {
     project_root: PathBuf,
     /// Count of denied permissions this turn.
     denials: Arc<AtomicU32>,
-    /// How long a request waits for a human before it is denied.
-    permission_timeout: Duration,
+    /// The wait policy of this flow (espera-humana D2).
+    wait: WaitPolicy,
+    /// Reconnect grace before the constitutional no-client deny (D3).
+    no_client_grace: Duration,
+    /// Registry of initialized clients the wait observes (D3).
+    clients: crate::clients::ClientRegistry,
 }
 
 /// Logs an agent update and forwards it to the Meltemi client (4.3).
@@ -408,9 +425,12 @@ async fn passthrough_permission(
 
 /// Escalates a request with no matching rule to the human via the pending
 /// queue: it registers the request, fires the live `permission/request` push
-/// to the connected client (fast path), and awaits whichever path resolves
-/// first — the push answer, a `permission/decide` from any client, or our own
-/// timeout. The queue makes the first resolution win.
+/// to the initiating client (fast path), and awaits the queue — the push
+/// answer or a `permission/decide` from any client, first one wins. The wait
+/// is governed by the flow's policy (espera-humana): a bounded policy expires
+/// audited as `timeout`; while clients are connected, `while-connected` waits
+/// for the human; when the last client disconnects and the reconnect grace
+/// passes, the constitutional deny fires explicit and audited (§3).
 async fn escalate(
     state: &HandlerState,
     facts: &RequestFacts,
@@ -427,7 +447,11 @@ async fn escalate(
         .map(str::to_string)
         .unwrap_or_else(|| tool.clone());
 
-    let (request_id, rx) = state
+    let deadline = match state.wait {
+        WaitPolicy::Bounded(seconds) => Some(Instant::now() + Duration::from_secs(seconds)),
+        WaitPolicy::WhileConnected => None,
+    };
+    let (request_id, mut rx) = state
         .pending
         .register(NewRequest {
             session_id: state.session_id.clone(),
@@ -436,12 +460,13 @@ async fn escalate(
             command: facts.command.clone(),
             options: options.to_vec(),
             project_root: Some(state.project_root.clone()),
-            deadline: Instant::now() + state.permission_timeout,
+            deadline,
         })
         .await;
 
     // Fire the live push in the background; its answer feeds the queue like a
-    // decide (first-wins). Keeps the existing contract for current clients.
+    // decide (first-wins). Its FAILURE feeds nothing: the queue is the only
+    // source of resolution (espera-humana D1).
     spawn_live_push(state, &request_id, tool_call, options);
 
     // The tool call the request referred to, when the agent named one: the
@@ -450,9 +475,20 @@ async fn escalate(
         .get("toolCallId")
         .and_then(Value::as_str)
         .map(str::to_string);
+
+    let bounded = async {
+        match deadline {
+            Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
+            None => std::future::pending().await,
+        }
+    };
+    tokio::pin!(bounded);
+    let no_clients = no_clients_sustained(state.clients.watch(), state.no_client_grace);
+    tokio::pin!(no_clients);
+
     let resolution = tokio::select! {
-        r = rx => r.ok(),
-        _ = tokio::time::sleep(state.permission_timeout) => {
+        r = &mut rx => r.ok(),
+        _ = &mut bounded => {
             state.pending.expire(&request_id).await;
             state.peer.notify(
                 methods::PERMISSION_TIMEOUT,
@@ -463,6 +499,13 @@ async fn escalate(
             );
             None
         }
+        _ = &mut no_clients => {
+            // The constitutional deny (§3), explicit and audited. It goes
+            // through the queue so a decide racing it is reconciled
+            // first-wins; either way the resolution arrives on `rx`.
+            default_deny_queue(&state.pending, &request_id).await;
+            rx.await.ok()
+        }
     };
     resolution.unwrap_or_else(|| Resolution {
         outcome: deny_outcome(options),
@@ -472,8 +515,44 @@ async fn escalate(
     })
 }
 
-/// Sends `permission/request` to the connected client and resolves the queue
-/// with its answer (or a default-deny when no client answers).
+/// Completes when the client count stays at zero for the whole grace window.
+/// A client connecting during the grace restarts the vigil; a registry that
+/// disappears (daemon teardown) never fires.
+async fn no_clients_sustained(mut clients: tokio::sync::watch::Receiver<usize>, grace: Duration) {
+    loop {
+        // Wait until the count reaches zero.
+        while *clients.borrow_and_update() > 0 {
+            if clients.changed().await.is_err() {
+                return std::future::pending().await;
+            }
+        }
+        // Zero now: it must stay zero for the whole grace.
+        let reconnected = tokio::time::timeout(grace, async {
+            loop {
+                if clients.changed().await.is_err() {
+                    // Registry gone: never fire the deny from here.
+                    return false;
+                }
+                if *clients.borrow_and_update() > 0 {
+                    return true;
+                }
+            }
+        })
+        .await;
+        match reconnected {
+            // A client returned within the grace: keep waiting for the human.
+            Ok(true) => continue,
+            Ok(false) => return std::future::pending().await,
+            // Grace elapsed with zero clients: fire.
+            Err(_) => return,
+        }
+    }
+}
+
+/// Sends `permission/request` to the initiating client and feeds the queue
+/// with its ANSWER only. A transport failure — connection gone, push never
+/// answered — resolves nothing: the request stays pending for whoever
+/// connects (espera-humana D1).
 fn spawn_live_push(
     state: &HandlerState,
     request_id: &str,
@@ -483,20 +562,29 @@ fn spawn_live_push(
     let peer = state.peer.clone();
     let pending = state.pending.clone();
     let request_id = request_id.to_string();
-    let timeout = state.permission_timeout;
+    let bound = match state.wait {
+        WaitPolicy::Bounded(seconds) => Some(Duration::from_secs(seconds)),
+        WaitPolicy::WhileConnected => None,
+    };
     let params = PermissionRequestParams {
         session_id: state.session_id.clone(),
         tool_call: tool_call.clone(),
         options: options.to_vec(),
     };
     tokio::spawn(async move {
-        // Bound the push to the escalation window: a client that holds the
-        // push unanswered (the tray's posture) must not leak a task past the
-        // deadline. A decide from any client resolves the queue first anyway.
-        match tokio::time::timeout(timeout, peer.request(methods::PERMISSION_REQUEST, &params))
-            .await
-        {
-            Ok(Ok(value)) => match serde_json::from_value::<PermissionRequestResult>(value) {
+        let push = peer.request(methods::PERMISSION_REQUEST, &params);
+        let answer = match bound {
+            // Bounded policy: don't leak the task past the deadline. An
+            // unbounded push ends when the client answers or its connection
+            // closes (the request future fails on disconnect).
+            Some(bound) => match tokio::time::timeout(bound, push).await {
+                Ok(answer) => answer,
+                Err(_) => return,
+            },
+            None => push.await,
+        };
+        match answer {
+            Ok(value) => match serde_json::from_value::<PermissionRequestResult>(value) {
                 Ok(result) => {
                     let option_id = match result.outcome {
                         PermissionOutcome::Selected { option_id } => Some(option_id),
@@ -504,12 +592,13 @@ fn spawn_live_push(
                     };
                     pending.decide(&request_id, option_id).await;
                 }
-                // A malformed answer denies by default.
+                // A malformed answer is still an explicit answer: deny.
                 Err(_) => default_deny_queue(&pending, &request_id).await,
             },
-            // No client connected, connection gone, or the push went
-            // unanswered until the deadline: deny by default.
-            Ok(Err(_)) | Err(_) => default_deny_queue(&pending, &request_id).await,
+            // Transport failure: the request stays pending for the queue.
+            Err(_) => {
+                tracing::debug!(%request_id, "permission push failed; request stays pending");
+            }
         }
     });
 }

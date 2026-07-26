@@ -61,7 +61,9 @@ struct Entry {
     /// created from the tray knows where to persist.
     project_root: Option<PathBuf>,
     created: Instant,
-    deadline: Instant,
+    /// `None` when the wait policy imposes no deadline (waiting for the
+    /// human, espera-humana D4).
+    deadline: Option<Instant>,
     shape: ShapeKey,
     suggested_rule: Option<PermissionRule>,
     /// `Some` while unresolved; taken by the first resolver (first-wins).
@@ -106,7 +108,8 @@ pub struct NewRequest {
     pub command: Option<String>,
     pub options: Vec<PermissionOption>,
     pub project_root: Option<PathBuf>,
-    pub deadline: Instant,
+    /// `None` = no deadline (the policy waits for the human).
+    pub deadline: Option<Instant>,
 }
 
 impl PendingQueue {
@@ -265,20 +268,22 @@ impl PendingQueue {
             .entries
             .iter()
             .map(|e| {
-                let expired = e.expired_at.is_some() || now >= e.deadline;
+                let expired = e.expired_at.is_some() || e.deadline.is_some_and(|d| now >= d);
                 // Signed seconds to the deadline: negative once past it, and
                 // clamped to at most -1 for any expired entry so it always
-                // reads as overdue.
-                let remaining = if now >= e.deadline {
-                    -(now.duration_since(e.deadline).as_secs() as i64)
-                } else {
-                    e.deadline.duration_since(now).as_secs() as i64
-                };
-                let expires_in_seconds = if expired {
-                    remaining.min(-1)
-                } else {
-                    remaining
-                };
+                // reads as overdue. A deadline-free entry declares none.
+                let expires_in_seconds = e.deadline.map(|deadline| {
+                    let remaining = if now >= deadline {
+                        -(now.duration_since(deadline).as_secs() as i64)
+                    } else {
+                        deadline.duration_since(now).as_secs() as i64
+                    };
+                    if expired {
+                        remaining.min(-1)
+                    } else {
+                        remaining
+                    }
+                });
                 PendingPermission {
                     request_id: e.request_id.clone(),
                     session_id: e.session_id.clone(),
@@ -358,7 +363,7 @@ mod tests {
                 option("reject", PermissionOptionKind::RejectOnce),
             ],
             project_root: None,
-            deadline: Instant::now() + Duration::from_secs(120),
+            deadline: Some(Instant::now() + Duration::from_secs(120)),
         }
     }
 
@@ -426,14 +431,19 @@ mod tests {
         let queue = PendingQueue::default();
         // A request already past its deadline.
         let mut request = new_request("cargo test");
-        request.deadline = Instant::now();
+        request.deadline = Some(Instant::now());
         let (id, _rx) = queue.register(request).await;
         queue.expire(&id).await;
 
         let snap = queue.snapshot().await;
         assert_eq!(snap.len(), 1, "expired entry stays visible immediately");
         assert!(snap[0].expired);
-        assert!(snap[0].expires_in_seconds < 0);
+        assert!(
+            snap[0]
+                .expires_in_seconds
+                .expect("bounded entry keeps its clock")
+                < 0
+        );
         // A late decide finds it already resolved (resolver consumed).
         assert_eq!(
             queue.resolve(&id, allow_resolution()).await,
@@ -499,5 +509,43 @@ mod tests {
         assert!(rx.try_recv().is_ok(), "register ticks subscribers");
         queue.resolve(&id, allow_resolution()).await;
         assert!(rx.try_recv().is_ok(), "resolve ticks subscribers");
+    }
+}
+
+#[cfg(test)]
+mod espera_humana_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn a_deadline_free_entry_declares_no_expiry() {
+        // Scenario: Espera sin plazo declarada sin plazo.
+        let queue = PendingQueue::default();
+        let (_id, _rx) = queue
+            .register(NewRequest {
+                session_id: "sess-1".into(),
+                tool: "execute".into(),
+                summary: "run".into(),
+                command: None,
+                options: vec![PermissionOption {
+                    option_id: "allow".into(),
+                    name: "Allow".into(),
+                    kind: meltemi_proto::PermissionOptionKind::AllowOnce,
+                }],
+                project_root: None,
+                deadline: None,
+            })
+            .await;
+        // Even well past any historical default, it neither expires nor
+        // invents a countdown.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let snap = queue.snapshot().await;
+        assert_eq!(snap.len(), 1);
+        assert!(!snap[0].expired, "no deadline, never expired by time");
+        assert!(
+            snap[0].expires_in_seconds.is_none(),
+            "no invented countdown: {:?}",
+            snap[0].expires_in_seconds
+        );
     }
 }

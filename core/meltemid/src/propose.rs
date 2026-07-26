@@ -16,7 +16,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -29,10 +28,6 @@ use crate::paths;
 use crate::rpc::RpcError;
 use crate::server::DaemonState;
 use crate::session_log::SessionLog;
-
-/// How long a permission request waits for the client before defaulting to
-/// deny. Generous for interactive use; the automated e2e answers immediately.
-const PERMISSION_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Handles the `propose` request end to end.
 pub async fn handle_propose(
@@ -173,6 +168,10 @@ pub async fn handle_propose(
     for diagnostic in &config.mcp_diagnostics {
         tracing::warn!(diagnostic, "mcp hygiene");
     }
+    // An invalid `[permissions]` value kept its default; say so (espera-humana).
+    for diagnostic in &config.permission_diagnostics {
+        tracing::warn!(diagnostic, "permissions config");
+    }
 
     // Expand any `@` references in the idea against the repo, auditing the
     // expansions in the log (gestion-contexto-repo). A missing reference is
@@ -197,7 +196,9 @@ pub async fn handle_propose(
         log: log.clone(),
         cancel: reg.cancel,
         cancelled: reg.cancelled,
-        permission_timeout: PERMISSION_TIMEOUT,
+        wait: config.interactive_wait(),
+        no_client_grace: config.no_client_grace(),
+        clients: state.clients.clone(),
         rules,
         pending: state.pending.clone(),
         // `propose` always opens a fresh session; resume is a separate flow.

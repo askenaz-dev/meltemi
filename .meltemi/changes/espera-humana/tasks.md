@@ -10,9 +10,9 @@
 
 - [x] 2.1 `[permissions]` en `config.rs` (`wait`, `implement-wait`,
   `no-client-grace`) con diagnósticos de valor inválido y tests de parseo
-- [ ] 2.2 Registro de clientes inicializados (contador + watch) en el ciclo
+- [x] 2.2 Registro de clientes inicializados (contador + watch) en el ciclo
   de conexión de `server.rs`
-- [ ] 2.3 `pending.rs` con plazo opcional y `acp.rs` escalando por política:
+- [x] 2.3 `pending.rs` con plazo opcional y `acp.rs` escalando por política:
   el push no resuelve en fallo de transporte, la gracia sin clientes deniega
   `default_deny`, la cota vencida deniega `timeout`; los cuatro flujos de
   `server.rs`/`propose.rs`/`sdd_flow.rs` pasan la política desde la config

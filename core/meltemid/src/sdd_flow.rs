@@ -28,8 +28,6 @@ use crate::sdd::{Artifact, CycleState, GateOutcome, GateStep, Mode};
 use crate::server::DaemonState;
 use crate::session_log::SessionLog;
 
-const PERMISSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-
 /// `sdd/explore`: deliberate with the agent in streaming, guaranteed to write
 /// nothing. Writes are denied by a deny-all posture and the `.meltemi` tree is
 /// checked to be unchanged afterward (defense in depth).
@@ -425,6 +423,10 @@ async fn run_turn(
     rules: RuleSet,
 ) -> Result<(), RpcError> {
     let config = Config::load(&state.config_dir, Some(project_root));
+    // An invalid `[permissions]` value kept its default; say so (espera-humana).
+    for diagnostic in &config.permission_diagnostics {
+        tracing::warn!(diagnostic, "permissions config");
+    }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let (agent_command, level) = match crate::levels::resolve_launch(&config, &path_var)? {
         crate::levels::Launch::Acp { argv, level } => (argv, level),
@@ -493,7 +495,9 @@ async fn run_turn(
         log: log.clone(),
         cancel: reg.cancel,
         cancelled: reg.cancelled,
-        permission_timeout: PERMISSION_TIMEOUT,
+        wait: config.interactive_wait(),
+        no_client_grace: config.no_client_grace(),
+        clients: state.clients.clone(),
         rules: Arc::new(rules),
         pending: state.pending.clone(),
         load_session_id: None,

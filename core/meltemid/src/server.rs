@@ -42,6 +42,9 @@ pub struct DaemonState {
     pub sessions: SessionRegistry,
     /// Shared pending-permission queue (survives reconnection, multi-client).
     pub pending: PendingQueue,
+    /// Count of initialized client connections, observed by the permission
+    /// wait (espera-humana D3).
+    pub clients: crate::clients::ClientRegistry,
     /// Per-tree activity and pending human-edit notes (edit-surface soft lock,
     /// gui-tauri-paridad design D4/D5).
     pub edits: Arc<crate::edits::EditHub>,
@@ -59,6 +62,7 @@ impl DaemonState {
             config_dir,
             sessions: SessionRegistry::default(),
             pending: PendingQueue::default(),
+            clients: crate::clients::ClientRegistry::default(),
             edits: Arc::default(),
             shutdown,
         })
@@ -105,6 +109,10 @@ pub async fn serve_until_shutdown(
 async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonState>) {
     let (peer, mut incoming) = Peer::start(stream);
     let mut initialized = false;
+    // Counts this connection as a client once it initializes; dropping the
+    // guard — however the connection ends — keeps the count honest, which is
+    // what the permission wait observes (espera-humana D3).
+    let mut client_guard: Option<crate::clients::ClientGuard> = None;
 
     // Forward pending-queue changes to this client as `permission/changed`,
     // so its tray reconciles to one snapshot without a round-trip. The
@@ -144,6 +152,9 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
                     match handle_initialize(&params, &state) {
                         Ok(result) => {
                             initialized = true;
+                            if client_guard.is_none() {
+                                client_guard = Some(state.clients.register());
+                            }
                             peer.respond(id, Ok(result));
                         }
                         Err(err) => {
@@ -683,7 +694,9 @@ async fn handle_worktree_dispatch(
         log: log.clone(),
         cancel: reg.cancel,
         cancelled: reg.cancelled,
-        permission_timeout: IMPLEMENT_PERMISSION_TIMEOUT,
+        wait: config.autonomous_wait(),
+        no_client_grace: config.no_client_grace(),
+        clients: state.clients.clone(),
         rules,
         pending: state.pending.clone(),
         load_session_id: None,
@@ -1319,9 +1332,6 @@ async fn handle_sdd_archive(params: Value) -> Result<Value, RpcError> {
     Ok(serde_json::to_value(result).expect("SddArchiveResult serializes"))
 }
 
-/// How long a per-task deployment turn waits for a human permission decision.
-const IMPLEMENT_PERMISSION_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// Appends an event to a session log guarded by a mutex (implement progress).
 async fn append(
     log: &std::sync::Arc<tokio::sync::Mutex<crate::session_log::SessionLog>>,
@@ -1530,7 +1540,9 @@ async fn handle_sdd_implement(
             log: log.clone(),
             cancel: reg.cancel.clone(),
             cancelled: reg.cancelled.clone(),
-            permission_timeout: IMPLEMENT_PERMISSION_TIMEOUT,
+            wait: config.autonomous_wait(),
+            no_client_grace: config.no_client_grace(),
+            clients: state.clients.clone(),
             rules: rules.clone(),
             pending: state.pending.clone(),
             load_session_id: None,
@@ -1669,11 +1681,6 @@ async fn handle_session_list(params: Value, state: &Arc<DaemonState>) -> Result<
     Ok(serde_json::to_value(SessionListResult { sessions: infos })
         .expect("SessionListResult serializes"))
 }
-
-/// How long a directed instruction's turn waits for a human to answer a
-/// permission request. Interactive steering, so the interactive budget (not the
-/// tighter autonomous-implement one).
-const DIRECT_PERMISSION_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// `session/direct`: steer an existing session (control-remoto-asistido, the
 /// third remote verb). An active session queues the instruction as its next
@@ -1864,6 +1871,9 @@ async fn resume_with_instruction(
         &state.config_dir,
         Some(&project_root),
     ));
+    // Only the wait policy is read here: a resumed session deliberately
+    // carries its prior MCP set, not a fresh config.
+    let config = crate::config::Config::load(&state.config_dir, Some(&project_root));
 
     let edit_scope = state.edits.enter(&project_root, &session_id, log.clone());
     let outcome = crate::acp::run_session(crate::acp::SessionParams {
@@ -1875,7 +1885,9 @@ async fn resume_with_instruction(
         log: log.clone(),
         cancel: reg.cancel,
         cancelled: reg.cancelled,
-        permission_timeout: DIRECT_PERMISSION_TIMEOUT,
+        wait: config.interactive_wait(),
+        no_client_grace: config.no_client_grace(),
+        clients: state.clients.clone(),
         rules,
         pending: state.pending.clone(),
         // The heart of resume: load the agent's prior session instead of a new

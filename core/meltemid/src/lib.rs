@@ -11,6 +11,7 @@ pub mod acp;
 pub mod analytics;
 pub mod archive;
 pub mod checkpoints;
+pub mod clients;
 pub mod clock;
 pub mod commit;
 pub mod config;
