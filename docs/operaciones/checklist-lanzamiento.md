@@ -30,6 +30,37 @@ que poner los cuatro (son el balanceo, no alternativas):
 Las AAAA son opcionales en el sentido de que el sitio funciona sin ellas, y
 obligatorias en el sentido de que sin ellas una red IPv6 pura no lo alcanza.
 
+> **El CNAME va SOLO en `www`, jamás en la raíz.** Es el error que este dominio ya
+> cometió una vez, y enganña porque *parece* funcionar: un CNAME en el apex
+> resuelve, el sitio responde por HTTP, y todo se ve bien. Pero GitHub Pages exige
+> A/AAAA en un dominio raíz — con un CNAME ahí **nunca pide el certificado**, y como
+> `.dev` está en la lista HSTS preload el navegador se niega a usar HTTP, así que
+> el sitio queda inalcanzable con un error de TLS que no menciona el DNS por
+> ninguna parte. Además un CNAME en el apex viola el DNS (no puede coexistir con
+> los SOA y NS que la raíz lleva obligatoriamente) y bloquearía el correo del
+> dominio. Si el panel te deja poner un CNAME en `@`, el panel se equivoca.
+
+**Diagnóstico rápido cuando el certificado no aparece.** No adivines ni esperes a
+ciegas: pregúntale a GitHub qué ve.
+
+```bash
+gh api repos/askenaz-dev/meltemi/pages/health
+```
+
+Los campos que deciden son `is_a_record`, `has_cname_record`,
+`should_be_a_record`, `is_pointed_to_github_pages_ip` y `caa_error`. Un apex sano
+lee `is_a_record: true` y `is_pointed_to_github_pages_ip: true`. Para ver lo que
+hay realmente en la zona, sin cachés de resolvers de por medio, consulta al
+nameserver autoritativo:
+
+```bash
+nslookup -type=any meltemi.dev ns1.dyna-ns.net
+```
+
+Y `https_error: "peer_failed_verification"` no significa que falte el certificado:
+significa que GitHub está presentando el de `*.github.io`, que no cubre tu
+dominio — el síntoma de que el certificado del dominio nunca se emitió.
+
 En Dynadot esto es **Mis dominios → meltemi.dev → DNS** con el modo de registros
 DNS (no el reenvío ni el estacionamiento: el reenvío rompe la verificación de
 Pages y el certificado). Cualquier registro `A`/`AAAA`/`CNAME` previo en la raíz
