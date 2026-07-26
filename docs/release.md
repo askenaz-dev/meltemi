@@ -101,17 +101,32 @@ so); leaking it is not (revoke, rotate, and announce).
 recomputed `SHA256SUMS`. Sign that one file — the checksums cover everything
 else, so one signature is enough:
 
-```bash
-gh release download vX.Y.Z --pattern SHA256SUMS --dir .
-minisign -Sm SHA256SUMS                  # writes SHA256SUMS.minisig
-minisign -Vm SHA256SUMS -p meltemi.pub   # verify before publishing, always
-gh release upload vX.Y.Z SHA256SUMS.minisig
+```powershell
+./scripts/sign-release.ps1 -Tag vX.Y.Z
 ```
 
-Then paste the public key into the release notes next to the verification
-command, and publish the draft. A release whose signature you have not verified
-yourself is not ready — the check above costs a second and catches the case
-where the wrong key signed.
+It downloads `SHA256SUMS`, signs it (minisign asks for the key's passphrase on
+the terminal — the script never sees or stores it), verifies the signature it
+just produced, uploads `SHA256SUMS.minisig`, and then asks whether to publish the
+draft. Publishing is the one step it never does on its own: it is the most
+visible, least reversible action in the procedure, so it stays a decision you
+make each release, not a default a script reaches for. It runs only on the
+maintainer's own machine, never in CI — see the key-custody note below for why.
+
+The manual equivalent, if you would rather run each step yourself:
+
+```bash
+gh release download vX.Y.Z --pattern SHA256SUMS --dir .
+minisign -Sm SHA256SUMS -s meltemi.key
+minisign -Vm SHA256SUMS -p meltemi.pub   # verify before publishing, always
+gh release upload vX.Y.Z SHA256SUMS.minisig
+gh release edit vX.Y.Z --draft=false
+```
+
+Either way, paste the public key into the release notes next to the verification
+command. A release whose signature you have not verified yourself is not ready
+— the check above costs a second and catches the case where the wrong key
+signed.
 
 **Installer signing is a separate matter.** The MSI and the DMG carry no
 platform signature yet: Windows Authenticode and Apple notarization need
