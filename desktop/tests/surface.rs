@@ -233,6 +233,33 @@ fn the_budget_measurements_are_published_in_qa() {
     );
 }
 
+// Scenario: Tamaño de instalador medido por plataforma publicada
+#[test]
+fn the_qa_note_records_a_measured_installer_size_per_published_platform() {
+    // The pipeline publishes three installers, so the QA note owes three
+    // numbers. Byte counts, not rounded megabytes: a rounded figure cannot be
+    // told apart from an estimate, and an estimate is the thing this scenario
+    // exists to forbid.
+    let qa = read("docs/qa/2026-07-25-gui-presupuestos.md");
+    for artifact in [".msi", ".dmg", ".deb"] {
+        assert!(
+            qa.contains(artifact),
+            "the QA note measures the {artifact} installer"
+        );
+    }
+    for measured in ["4 104 192", "4 571 648", "4 298 714"] {
+        assert!(
+            qa.contains(measured),
+            "the QA note carries the measured byte count {measured}"
+        );
+    }
+    // And no measurement is claimed for a format nobody publishes.
+    assert!(
+        !qa.contains("meltemi-desktop-Linux.AppImage"),
+        "the QA note must not present an unpublished artifact as a release measurement"
+    );
+}
+
 // Scenario: Saltable y persistente
 #[test]
 fn the_onboarding_flag_persists_and_needs_no_account_or_network() {
