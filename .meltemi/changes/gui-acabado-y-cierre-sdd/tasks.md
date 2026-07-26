@@ -15,7 +15,7 @@
 
 ## 3. Mapa del repositorio (daemon)
 
-- [ ] 3.1 Filtrar `.git` en el walker de `build_map` (`repo_map.rs`) y cubrir
+- [x] 3.1 Filtrar `.git` en el walker de `build_map` (`repo_map.rs`) y cubrir
   «Metadirectorio de git fuera del mapa» con un test unitario junto a los
   existentes
 

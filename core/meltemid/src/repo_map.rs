@@ -28,7 +28,11 @@ pub fn build_map(root: &Path, depth: Option<u32>, limit: Option<u32>) -> RepoMap
         // Honor `.gitignore` even when the root is not itself a git repo (a
         // fixture, or a subdirectory), so ignore rules always apply.
         .require_git(false)
-        .parents(true);
+        .parents(true)
+        // `.hidden(false)` lets context dotdirs like `.meltemi/` through, but
+        // the git metadirectory is never context: cut the subtree at the
+        // walker so no consumer sees it and it spends no truncation budget.
+        .filter_entry(|entry| entry.file_name() != std::ffi::OsStr::new(".git"));
     if let Some(d) = depth {
         // `ignore` depth counts the root as 0; +1 so `depth=0` lists the root's
         // immediate entries.
@@ -266,6 +270,31 @@ mod tests {
         );
         let keep = map.entries.iter().find(|e| e.path == "keep.rs").unwrap();
         assert!(keep.size > 0, "sizes reported");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn map_excludes_the_git_metadirectory() {
+        // Scenario: Metadirectorio de git fuera del mapa.
+        let dir = temp("gitdir");
+        std::fs::create_dir_all(dir.join(".git").join("objects").join("ab")).unwrap();
+        std::fs::write(dir.join(".git").join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::create_dir_all(dir.join(".meltemi")).unwrap();
+        std::fs::write(dir.join(".meltemi").join("config.toml"), "# ctx\n").unwrap();
+        std::fs::write(dir.join("keep.rs"), "fn main() {}").unwrap();
+
+        let map = build_map(&dir, None, None);
+        let paths: Vec<&str> = map.entries.iter().map(|e| e.path.as_str()).collect();
+        assert!(
+            !paths.iter().any(|p| *p == ".git" || p.starts_with(".git/")),
+            "the git metadirectory never appears: {paths:?}"
+        );
+        // The hidden dirs that ARE context stay listed.
+        assert!(
+            paths.contains(&".meltemi/config.toml"),
+            ".meltemi stays in the map: {paths:?}"
+        );
+        assert!(paths.contains(&"keep.rs"), "tracked file listed: {paths:?}");
         std::fs::remove_dir_all(&dir).ok();
     }
 
