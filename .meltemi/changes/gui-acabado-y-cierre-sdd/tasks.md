@@ -9,7 +9,7 @@
 
 ## 2. Árbol del editor (GUI)
 
-- [ ] 2.1 Declarar `flex: 0 0 auto` en las filas del árbol y de resultados de
+- [x] 2.1 Declarar `flex: 0 0 auto` en las filas del árbol y de resultados de
   `Editor.svelte` y cubrir «Filas del árbol sin recorte» en
   `desktop/tests/scenarios_shell.rs`
 

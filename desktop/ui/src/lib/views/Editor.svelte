@@ -732,6 +732,9 @@
   }
   .node,
   .result {
+    /* Rows of a scrolling flex column: without an explicit no-shrink they
+       compress below their line height when the tree outgrows the panel. */
+    flex: 0 0 auto;
     font-size: var(--fs-dense);
     text-align: left;
     border: 0;

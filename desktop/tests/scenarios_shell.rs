@@ -1201,3 +1201,24 @@ fn the_routed_view_owns_the_height_between_the_bars() {
         "the routed view claims the remaining height"
     );
 }
+
+// Scenario: Filas del árbol sin recorte
+#[test]
+fn tree_rows_never_compress_below_their_line() {
+    let editor = read("desktop/ui/src/lib/views/Editor.svelte");
+    // `.tree` and `.results` are scrolling flex columns; without an explicit
+    // no-shrink their rows compress below the line height when the tree
+    // outgrows the panel, clipping every label.
+    let node_rule = editor
+        .find(".node,")
+        .and_then(|start| {
+            editor[start..]
+                .find('}')
+                .map(|end| &editor[start..start + end])
+        })
+        .expect("the tree row rule exists");
+    assert!(
+        node_rule.contains("flex: 0 0 auto"),
+        "tree and result rows never shrink: {node_rule}"
+    );
+}
