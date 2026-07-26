@@ -45,15 +45,27 @@ fn shape(spec: &Spec) -> Vec<(String, Vec<String>)> {
 /// promise, it has sharpened it. Every entry here is a deliberate, reviewed and
 /// archived decision — the list is the audit trail, so an accidental deletion
 /// still fails this test.
-const SUPERSEDED: &[(&str, &str, &str, &str)] = &[(
-    "edit-surface",
-    "Advertencia por sesión de agente activa",
-    "Edición sobre worktree con agente trabajando",
-    // The migration-era spec itself deferred the concurrency policy to the
-    // phase-2 GUI change, which replaced this single warning with the three
-    // states of the soft lock (turn in flight / between turns / free tree).
-    "gui-tauri-paridad",
-)];
+const SUPERSEDED: &[(&str, &str, &str, &str)] = &[
+    (
+        "edit-surface",
+        "Advertencia por sesión de agente activa",
+        "Edición sobre worktree con agente trabajando",
+        // The migration-era spec itself deferred the concurrency policy to the
+        // phase-2 GUI change, which replaced this single warning with the three
+        // states of the soft lock (turn in flight / between turns / free tree).
+        "gui-tauri-paridad",
+    ),
+    (
+        "mobile-companion",
+        "Alcance del compañero móvil",
+        "Propuesta de edición en el móvil",
+        // The Agent Boss amendment sharpened "edición" into "autoría": the
+        // rejection scenario became "Propuesta de autoría en el móvil", so
+        // confirm-gated review DECISIONS (adopt/revert) stay distinguishable
+        // from free-content authoring, which remains excluded forever.
+        "enmienda-agent-boss",
+    ),
+];
 
 fn parse_at(path: &Path, capability: &str) -> Option<Spec> {
     let content = std::fs::read_to_string(path).ok()?;
