@@ -28,6 +28,6 @@
 
 ## 5. Verificación
 
-- [ ] 5.1 Gates locales (fmt, clippy, tests del workspace, checks de la UI) y
+- [x] 5.1 Gates locales (fmt, clippy, tests del workspace, checks de la UI) y
   smoke visual conducido por CDP sobre el binario reconstruido, publicado en
   `docs/qa/2026-07-26-gui-acabado-smoke.md`
