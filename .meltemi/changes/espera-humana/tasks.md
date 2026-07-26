@@ -8,7 +8,7 @@
 
 ## 2. Daemon
 
-- [ ] 2.1 `[permissions]` en `config.rs` (`wait`, `implement-wait`,
+- [x] 2.1 `[permissions]` en `config.rs` (`wait`, `implement-wait`,
   `no-client-grace`) con diagnósticos de valor inválido y tests de parseo
 - [ ] 2.2 Registro de clientes inicializados (contador + watch) en el ciclo
   de conexión de `server.rs`

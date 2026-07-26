@@ -12,8 +12,19 @@
 //! user-declared agents (`[[fleet.custom]]`). The shape stays small.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::Deserialize;
+
+/// How long an escalated permission request waits for a human decision
+/// (espera-humana D2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitPolicy {
+    /// No deadline: wait as long as at least one client is connected.
+    WhileConnected,
+    /// Wait at most this many seconds, then deny audited as `timeout`.
+    Bounded(u64),
+}
 
 /// Environment override for the agent command (a full command line, parsed
 /// with shell-words semantics by the ACP layer).
@@ -103,6 +114,37 @@ pub struct Config {
     /// Hygiene diagnostics for profiles with plaintext-secret-looking env
     /// values; never carry the value itself.
     pub fleet_diagnostics: Vec<String>,
+    /// `[permissions] wait`: escalation policy of interactive flows. `None`
+    /// keeps the default (wait while a client is connected).
+    pub permission_wait: Option<WaitPolicy>,
+    /// `[permissions] implement-wait`: policy of autonomous implement turns.
+    /// `None` keeps the default (bounded 30 s, the pre-existing value).
+    pub implement_wait: Option<WaitPolicy>,
+    /// `[permissions] no-client-grace`: seconds a pending request survives
+    /// with no client connected before the constitutional deny (§3). `None`
+    /// keeps the default (30).
+    pub no_client_grace: Option<u64>,
+    /// Diagnostics for invalid `[permissions]` values (default kept).
+    pub permission_diagnostics: Vec<String>,
+}
+
+impl Config {
+    /// The wait policy of interactive flows (propose, SDD cycle, direct).
+    pub fn interactive_wait(&self) -> WaitPolicy {
+        self.permission_wait.unwrap_or(WaitPolicy::WhileConnected)
+    }
+
+    /// The wait policy of autonomous implement turns: bounded by default so
+    /// an unattended pipeline never stalls silently.
+    pub fn autonomous_wait(&self) -> WaitPolicy {
+        self.implement_wait.unwrap_or(WaitPolicy::Bounded(30))
+    }
+
+    /// How long a pending request survives with no client connected before
+    /// the constitutional deny fires (absorbs a tunnel blip).
+    pub fn no_client_grace(&self) -> Duration {
+        Duration::from_secs(self.no_client_grace.unwrap_or(30))
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -113,6 +155,51 @@ struct RawConfig {
     fleet: RawFleet,
     #[serde(default)]
     mcp: RawMcp,
+    #[serde(default)]
+    permissions: RawPermissions,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawPermissions {
+    /// `"while-connected"` or a positive number of seconds.
+    #[serde(default)]
+    wait: Option<WaitSpec>,
+    /// Same shape, for autonomous implement turns.
+    #[serde(default, rename = "implement-wait")]
+    implement_wait: Option<WaitSpec>,
+    /// Non-negative seconds (0 = the constitutional deny fires immediately
+    /// when the last client disconnects).
+    #[serde(default, rename = "no-client-grace")]
+    no_client_grace: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum WaitSpec {
+    Seconds(i64),
+    Mode(String),
+}
+
+/// Parses one wait value; an invalid one keeps the default and leaves a
+/// diagnostic with the remedy (never a panic).
+fn parse_wait(spec: WaitSpec, key: &str, diagnostics: &mut Vec<String>) -> Option<WaitPolicy> {
+    match spec {
+        WaitSpec::Mode(mode) if mode == "while-connected" => Some(WaitPolicy::WhileConnected),
+        WaitSpec::Mode(other) => {
+            diagnostics.push(format!(
+                "permissions.{key} `{other}` is not recognized; use \"while-connected\" \
+                 or a positive number of seconds (default kept)"
+            ));
+            None
+        }
+        WaitSpec::Seconds(n) if n >= 1 => Some(WaitPolicy::Bounded(n as u64)),
+        WaitSpec::Seconds(n) => {
+            diagnostics.push(format!(
+                "permissions.{key} `{n}` must be a positive number of seconds (default kept)"
+            ));
+            None
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -255,6 +342,27 @@ impl Config {
     }
 
     fn apply(&mut self, raw: RawConfig) {
+        if let Some(spec) = raw.permissions.wait
+            && let Some(policy) = parse_wait(spec, "wait", &mut self.permission_diagnostics)
+        {
+            self.permission_wait = Some(policy);
+        }
+        if let Some(spec) = raw.permissions.implement_wait
+            && let Some(policy) =
+                parse_wait(spec, "implement-wait", &mut self.permission_diagnostics)
+        {
+            self.implement_wait = Some(policy);
+        }
+        if let Some(grace) = raw.permissions.no_client_grace {
+            if grace >= 0 {
+                self.no_client_grace = Some(grace as u64);
+            } else {
+                self.permission_diagnostics.push(format!(
+                    "permissions.no-client-grace `{grace}` must be zero or more seconds \
+                     (default kept)"
+                ));
+            }
+        }
         if let Some(command) = raw.agent.command.and_then(CommandSpec::into_argv) {
             self.agent_command = Some(command);
         }
@@ -648,5 +756,58 @@ mod tests {
         let config = Config::load(&empty, None);
         assert_eq!(config.agent_command, None);
         std::fs::remove_dir_all(&empty).ok();
+    }
+}
+
+#[cfg(test)]
+mod espera_humana_tests {
+    use super::*;
+
+    fn parse(toml: &str) -> Config {
+        let dir = std::env::temp_dir().join(format!(
+            "meltemi-cfg-wait-{}-{}",
+            std::process::id(),
+            toml.len()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.toml"), toml).unwrap();
+        let config = Config::load(&dir, None);
+        std::fs::remove_dir_all(&dir).ok();
+        config
+    }
+
+    #[test]
+    fn defaults_wait_for_the_human_and_bound_implement() {
+        let config = parse("");
+        assert_eq!(config.interactive_wait(), WaitPolicy::WhileConnected);
+        assert_eq!(config.autonomous_wait(), WaitPolicy::Bounded(30));
+        assert_eq!(config.no_client_grace(), Duration::from_secs(30));
+        assert!(config.permission_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn bounded_and_mode_values_parse() {
+        let config = parse(
+            "[permissions]\nwait = 300\nimplement-wait = \"while-connected\"\nno-client-grace = 0\n",
+        );
+        assert_eq!(config.interactive_wait(), WaitPolicy::Bounded(300));
+        assert_eq!(config.autonomous_wait(), WaitPolicy::WhileConnected);
+        assert_eq!(config.no_client_grace(), Duration::ZERO);
+        assert!(config.permission_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn invalid_values_keep_defaults_with_a_diagnostic() {
+        let config =
+            parse("[permissions]\nwait = \"forever\"\nimplement-wait = 0\nno-client-grace = -5\n");
+        assert_eq!(config.interactive_wait(), WaitPolicy::WhileConnected);
+        assert_eq!(config.autonomous_wait(), WaitPolicy::Bounded(30));
+        assert_eq!(config.no_client_grace(), Duration::from_secs(30));
+        assert_eq!(
+            config.permission_diagnostics.len(),
+            3,
+            "{:?}",
+            config.permission_diagnostics
+        );
     }
 }
