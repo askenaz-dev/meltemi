@@ -1,7 +1,7 @@
 # Meltemi — Documento Fundacional
 
 > **"Un rumbo, muchas velas."**
-> Versión 1.3 — enmendada el 14 de julio de 2026 (`enmienda-edicion-movil`); ratificación de la v1.3 pendiente del mantenedor fundador. Enmiendas previas: v1.2 (`formato-artefactos-meltemi`, ratificación pendiente), v1.1 (`enmiendas-fundacionales-v1`). Base v1.0 ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2).
+> Versión 1.4 — enmendada el 26 de julio de 2026 (`enmienda-agent-boss`: el compañero móvil es el puesto remoto del Agent Boss); ratificación de la v1.4 pendiente del mantenedor fundador. Enmiendas previas: v1.3 (`enmienda-edicion-movil`, ratificación pendiente), v1.2 (`formato-artefactos-meltemi`, ratificación pendiente), v1.1 (`enmiendas-fundacionales-v1`). Base v1.0 ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2).
 > Este documento practica lo que predica: define **qué** se construirá y **por qué**, antes de escribir una sola línea de código.
 
 ---
@@ -392,7 +392,7 @@ meltemi/                       (Apache-2.0)
 - **Hito v1.0**: paridad de núcleo verificada por CI; instalable en macOS/Windows/Linux (núcleo y TUI como binario único autocontenido; GUI con instalador mínimo); funciona headless por SSH.
 
 ### Fase 3 — Horizonte (mes 11+)
-- Compañero móvil (Tauri móvil): superficie compañera reducida para **monitorear, aprobar y dirigir** la flota — sin edición; acceso únicamente vía túnel SSH; regla de subconjunto respecto de TUI/GUI (spec `mobile-companion`).
+- Compañero móvil: el **puesto remoto del Agent Boss** — superficie compañera para **monitorear, aprobar, revisar y dirigir** la flota desde fuera de la oficina. Revisar es decidir (gates, checklist, adopción de archivos con confirmación), nunca autoría; acceso únicamente vía túnel SSH; aviso de espera opt-in y autohospedado con contenido mínimo (spec `remote-access`); regla de subconjunto respecto de TUI/GUI (spec `mobile-companion`). Prerrequisitos de daemon, paridad ×3: espera humana configurable sin denegación por caída de conexión, estado `waiting_permission` real y gates pendientes descubribles, y stream de eventos para clientes que no iniciaron la sesión.
 - Funciones de equipo: specs compartidas multi-repo, archivos de rumbo gobernados por políticas de la organización.
 - Esquemas SDD personalizados (research-first, ADR-first). Verificación automática y continua spec↔código — más allá del `/verify` bajo demanda — y property-based testing derivado de requisitos EARS.
 - Registro comunitario de skills, hooks y perfiles de agente.
