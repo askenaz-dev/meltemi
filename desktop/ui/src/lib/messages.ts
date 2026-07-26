@@ -95,6 +95,7 @@ const es = {
   "permissions.session": "sesión",
   "permissions.waitingFor": "esperando hace {s} s",
   "permissions.expiresIn": "vence en {s} s",
+  "permissions.waitingHuman": "esperando tu decisión",
   "permissions.expired": "vencida",
   "permissions.timeout.notice":
     "permiso vencido: denegado por plazo (sesión {session}, operación {tool})",
@@ -562,6 +563,7 @@ const en: Record<MessageKey, string> = {
   "permissions.session": "session",
   "permissions.waitingFor": "waiting for {s} s",
   "permissions.expiresIn": "expires in {s} s",
+  "permissions.waitingHuman": "waiting for your decision",
   "permissions.expired": "expired",
   "permissions.timeout.notice":
     "permission expired: denied on deadline (session {session}, operation {tool})",

@@ -19,7 +19,7 @@
 
 ## 3. Superficies
 
-- [ ] 3.1 TUI y GUI renderizan la espera sin plazo («esperando tu decisión»,
+- [x] 3.1 TUI y GUI renderizan la espera sin plazo («esperando tu decisión»,
   ES/EN) y sus tests de cableado/unidad se actualizan
 
 ## 4. Escenarios

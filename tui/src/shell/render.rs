@@ -872,7 +872,7 @@ fn render_permissions(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &Shel
 
 /// The age/deadline label of a tray row, with textual escalation as expiry
 /// nears — never color alone.
-fn tray_timing(waiting: u64, expires_in: i64, expired: bool, lang: Lang) -> String {
+fn tray_timing(waiting: u64, expires_in: Option<i64>, expired: bool, lang: Lang) -> String {
     if expired {
         return if lang == Lang::Es {
             "vencido".into()
@@ -880,6 +880,14 @@ fn tray_timing(waiting: u64, expires_in: i64, expired: bool, lang: Lang) -> Stri
             "expired".into()
         };
     }
+    // No deadline: the policy waits for the human (espera-humana).
+    let Some(expires_in) = expires_in else {
+        return if lang == Lang::Es {
+            format!("{waiting}s — esperando tu decisión")
+        } else {
+            format!("{waiting}s — waiting for your decision")
+        };
+    };
     let soon = (0..15).contains(&expires_in);
     match (lang, soon) {
         (Lang::Es, true) => format!("{waiting}s — ¡vence en {expires_in}s!"),
@@ -1564,7 +1572,7 @@ mod tests {
                 },
             ],
             waiting_seconds: 5,
-            expires_in_seconds: if expired { -1 } else { 100 },
+            expires_in_seconds: Some(if expired { -1 } else { 100 }),
             expired,
             suggested_rule: suggest.then(|| PermissionRule {
                 effect: PermissionRuleEffect::Allow,
@@ -1727,5 +1735,18 @@ mod tests {
             out.contains("reservado"),
             "reserved verbs are announced, not errors"
         );
+    }
+
+    #[test]
+    fn tray_timing_declares_the_deadline_free_wait() {
+        // Scenario: Espera sin plazo declarada sin plazo (permission-rules).
+        let es = super::tray_timing(42, None, false, Lang::Es);
+        assert!(es.contains("esperando tu decisión"), "{es}");
+        assert!(!es.contains("vence"), "no invented countdown: {es}");
+        let en = super::tray_timing(42, None, false, Lang::En);
+        assert!(en.contains("waiting for your decision"), "{en}");
+        // A bounded entry keeps today's countdown.
+        let bounded = super::tray_timing(5, Some(100), false, Lang::En);
+        assert!(bounded.contains("expires in 100s"), "{bounded}");
     }
 }

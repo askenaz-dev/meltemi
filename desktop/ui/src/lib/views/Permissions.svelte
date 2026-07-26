@@ -59,10 +59,12 @@
           <strong>{item.summary}</strong>
           {#if item.expired}
             <span class="expiredTag">! {$t("permissions.expired")}</span>
-          {:else}
+          {:else if item.expiresInSeconds !== undefined}
             <span class="timer">
               {$t("permissions.expiresIn", { s: item.expiresInSeconds })}
             </span>
+          {:else}
+            <span class="timer">{$t("permissions.waitingHuman")}</span>
           {/if}
         </div>
         <p class="meta">

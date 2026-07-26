@@ -60,7 +60,8 @@ export interface PendingPermission {
   summary: string;
   options: { optionId: string; name: string; kind?: string }[];
   waitingSeconds: number;
-  expiresInSeconds: number;
+  /** Absent when the wait policy imposes no deadline (waiting for the human). */
+  expiresInSeconds?: number;
   expired: boolean;
   suggestedRule?: PermissionRule;
 }
