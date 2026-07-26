@@ -181,6 +181,26 @@ dos idiomas. El hueco queda nombrado: fuera de la familia Debian no hay
 instalador gráfico hasta que exista un `.rpm`, que es change propia porque exige
 verificar los nombres de paquete en Fedora/RHEL en vez de adivinarlos.
 
+### `procedencia-de-release` — activa desde el 2026-07-26
+
+Nace de una pregunta del mantenedor tras firmar la v0.1.0 a mano: las empresas
+grandes no firman desde un portátil. Es cierto — usan HSM/KMS con clave no
+exportable, o firma keyless sin clave de largo plazo; la ceremonia humana firma
+claves, no releases. Pero la conclusión no es mover la clave a CI: un secreto de
+Actions es exactamente el caso que SLSA v1.2 prohíbe en lenguaje normativo, y
+**la firma manual es el único paso que una cuenta de GitHub comprometida no puede
+completar** — un atacante empuja un tag, CI construye y atestigua, y la
+atestación verifica perfectamente porque registra fielmente su commit.
+
+La change deja la firma donde está y añade lo que falta: una **atestación de
+build** sobre el `SHA256SUMS` publicado, que liga los artefactos al repositorio,
+al commit y al workflow. Enmienda además el requisito de custodia para que sus
+promesas sean cumplibles — el ancla de confianza vive en el repositorio y no en
+la página de release que autentica; el almacenamiento es offline, no
+hardware-backed (minisign no tiene HSM ni PKCS#11); y «revocar» queda definido
+como publicar clave nueva y repudiar la vieja, porque minisign carece de
+mecanismo de revocación.
+
 **Deuda declarada al archivar** (no se archivó nada fingiendo que estaba
 hecho): ✅ la captura de escritorio del sitio está publicada y su procedimiento
 es un script (`scripts/capture-desktop.ps1`, `docs/ux/capturas.md`); la firma de MSI/DMG sigue pendiente
