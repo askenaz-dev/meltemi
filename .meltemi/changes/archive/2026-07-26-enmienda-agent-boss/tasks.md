@@ -11,6 +11,6 @@
 
 ## 2. Verificación y archivo
 
-- [ ] 2.1 Validate del motor sobre la change y sobre la verdad viva tras el
+- [x] 2.1 Validate del motor sobre la change y sobre la verdad viva tras el
   fold de los deltas (`mobile-companion`, `remote-access`); revisión de
   consistencia de la cadena de versiones y referencias cruzadas
