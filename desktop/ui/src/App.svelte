@@ -475,11 +475,20 @@
   .main {
     flex: 1;
     min-width: 0;
-    display: grid;
-    grid-template-rows: auto auto auto 1fr auto;
+    /* A column of bars whose count varies (the daemon banner and the notices
+       are conditional): every bar keeps its natural height and the routed
+       view takes the remainder. A fixed grid row template cannot express
+       that — when a conditional bar is absent, auto-placement shifts the
+       view out of its 1fr track and the shell stops filling the window. */
+    display: flex;
+    flex-direction: column;
     min-height: 0;
   }
+  .main > :global(:not(main)) {
+    flex: 0 0 auto;
+  }
   main {
+    flex: 1 1 0;
     overflow: hidden;
     min-height: 0;
   }

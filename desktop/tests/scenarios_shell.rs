@@ -1177,3 +1177,27 @@ fn every_action_of_the_shell_is_reachable_from_the_keyboard() {
         "no control is taken out of the tab order: {offenders:?}"
     );
 }
+
+// ---- shell canvas (gui-acabado-y-cierre-sdd) ---------------------------------
+
+// Scenario: La vista ocupa el alto disponible
+#[test]
+fn the_routed_view_owns_the_height_between_the_bars() {
+    let app = app();
+    // The central column is a flex column: bars at natural height, the routed
+    // view takes the remainder. A fixed grid row template is forbidden here —
+    // the daemon banner and the notices are conditional children, and a
+    // template that counts rows stops filling the window when they are absent.
+    assert!(
+        app.contains("flex-direction: column"),
+        "the central column stacks as a flex column"
+    );
+    assert!(
+        !app.contains("grid-template-rows"),
+        "no fixed row template: conditional bars would displace the view"
+    );
+    assert!(
+        app.contains("flex: 1 1 0"),
+        "the routed view claims the remaining height"
+    );
+}

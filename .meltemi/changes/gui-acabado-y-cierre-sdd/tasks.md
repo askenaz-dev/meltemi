@@ -2,7 +2,7 @@
 
 ## 1. Lienzo del shell (GUI)
 
-- [ ] 1.1 Sustituir la rejilla de filas fijas de la columna central de
+- [x] 1.1 Sustituir la rejilla de filas fijas de la columna central de
   `App.svelte` por columna flex (barras a altura natural, vista con el resto)
   y cubrir «La vista ocupa el alto disponible» en
   `desktop/tests/scenarios_shell.rs`
