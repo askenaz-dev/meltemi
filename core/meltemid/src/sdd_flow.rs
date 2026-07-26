@@ -426,8 +426,8 @@ async fn run_turn(
 ) -> Result<(), RpcError> {
     let config = Config::load(&state.config_dir, Some(project_root));
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let agent_command = match crate::levels::resolve_launch(&config, &path_var)? {
-        crate::levels::Launch::Acp { argv, .. } => argv,
+    let (agent_command, level) = match crate::levels::resolve_launch(&config, &path_var)? {
+        crate::levels::Launch::Acp { argv, level } => (argv, level),
         _ => {
             return Err(RpcError::application(
                 error_codes::AGENT_COMMAND_NOT_CONFIGURED,
@@ -445,12 +445,9 @@ async fn run_turn(
         .register(&session_id, agent_command.clone())
         .await;
     crate::projects::touch(&state.data_dir, project_root);
-    let mut log = SessionLog::create(
-        &state.data_dir,
-        &crate::paths::project_key(project_root),
-        &session_id,
-    )
-    .map_err(RpcError::internal)?;
+    let project_key = crate::paths::project_key(project_root);
+    let mut log = SessionLog::create(&state.data_dir, &project_key, &session_id)
+        .map_err(RpcError::internal)?;
     let _ = log.append(SessionEventKind::SessionStarted {
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
@@ -462,9 +459,33 @@ async fn run_turn(
         .set_state(&session_id, SessionState::Active)
         .await;
 
+    // The start record: a crash mid-turn must keep listing as interrupted
+    // (that is what the state means), and the end record below completes it —
+    // the same shape as `propose`.
+    let started_at = crate::clock::now_rfc3339();
+    let _ = crate::session_index::append(
+        &state.data_dir,
+        &project_key,
+        &crate::session_index::SessionRecord {
+            session_id: session_id.clone(),
+            agent_command: agent_command.clone(),
+            project_root: project_root.display().to_string(),
+            level,
+            started_at: started_at.clone(),
+            ended_at: None,
+            final_status: None,
+            agent_session_id: None,
+            supports_load: false,
+            resumed_from: None,
+            // Authoring runs the project-configured agent, never a profile.
+            agent_id: config.agent_id.clone(),
+            profile: None,
+        },
+    );
+
     let edit_scope = state.edits.enter(project_root, &session_id, log.clone());
     let outcome = acp::run_session(SessionParams {
-        agent_command,
+        agent_command: agent_command.clone(),
         project_root: project_root.to_path_buf(),
         prompt,
         meltemi_session_id: session_id.clone(),
@@ -485,10 +506,36 @@ async fn run_turn(
     })
     .await;
 
-    state.sessions.deregister(&session_id).await;
-    outcome
-        .map(|_| ())
-        .map_err(|e| RpcError::internal(format!("authoring turn failed: {e}")))
+    // Finalize through the shared tail so an authoring turn ends like any
+    // other single-turn run: terminal events in the log, end record in the
+    // index, deregister. Without this, every completed authoring session
+    // listed as interrupted and its active time never counted.
+    let project_root_str = project_root.display().to_string();
+    let ctx = crate::session_finalize::SessionContext {
+        data_dir: &state.data_dir,
+        sessions: &state.sessions,
+        log: &log,
+        project_key: &project_key,
+        session_id: &session_id,
+        agent_command: &agent_command,
+        project_root: &project_root_str,
+        level,
+        started_at: &started_at,
+        resumed_from: None,
+        agent_id: config.agent_id.clone(),
+        profile: None,
+    };
+    match outcome {
+        Ok(session_outcome) => {
+            let _ = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
+            Ok(())
+        }
+        Err(e) => {
+            crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())
+                .await;
+            Err(RpcError::internal(format!("authoring turn failed: {e}")))
+        }
+    }
 }
 
 /// A rule posture that allows writes under `.meltemi/` (typical authoring) but

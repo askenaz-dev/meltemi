@@ -21,7 +21,7 @@
 
 ## 4. Cierre de sesión de autoría (daemon)
 
-- [ ] 4.1 Registrar el inicio en el índice y finalizar `run_turn`
+- [x] 4.1 Registrar el inicio en el índice y finalizar `run_turn`
   (`sdd_flow.rs`) por `session_finalize`, y cubrir «Turno de autoría
   finalizado queda cerrado» y «Fallo del turno también cierra» en
   `core/meltemid/tests/e2e_sdd.rs`

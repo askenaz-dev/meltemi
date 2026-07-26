@@ -249,3 +249,153 @@ async fn explore_leaves_the_tree_untouched() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test]
+async fn an_authoring_turn_finalizes_its_session_as_ended() {
+    // Scenario: Turno de autoría finalizado queda cerrado.
+    let root = std::env::temp_dir().join(format!("meltemi-e2e-sdd-end-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    fixture(&root, ", '--sdd-author'");
+    // SAFETY: no concurrent env readers in this test binary.
+    unsafe {
+        std::env::remove_var("MELTEMI_AGENT_COMMAND");
+    }
+    let (endpoint, daemon) = spawn("sdd-end").await;
+    let peer = client(&endpoint).await;
+    let root_str = root.display().to_string();
+
+    let started = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        peer.request(
+            methods::SDD_PROPOSE,
+            &json!({ "idea": "close the session", "projectRoot": root_str }),
+        ),
+    )
+    .await
+    .expect("propose returned")
+    .expect("propose ok");
+    assert_eq!(started["phase"], "gate_pending", "{started:#}");
+
+    // The authoring session closed through the shared finalizer: it lists as
+    // ended with a recorded end — never as interrupted.
+    let list = peer
+        .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .expect("session/list ok");
+    let sessions = list["sessions"].as_array().expect("sessions array");
+    assert_eq!(sessions.len(), 1, "{list:#}");
+    assert_eq!(sessions[0]["state"], "ended", "{list:#}");
+    assert!(
+        sessions[0]["endedAt"].is_string(),
+        "the end was recorded: {list:#}"
+    );
+
+    // And the log itself carries the terminal events, read over the contract.
+    let session_id = sessions[0]["sessionId"].as_str().expect("session id");
+    let log = peer
+        .request(
+            methods::SESSION_LOG,
+            &json!({ "projectRoot": root_str, "sessionId": session_id }),
+        )
+        .await
+        .expect("session/log ok");
+    let lines = log["lines"].as_array().expect("log lines");
+    let types: Vec<String> = lines
+        .iter()
+        .filter_map(|l| l.as_str())
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter_map(|e| e["type"].as_str().map(String::from))
+        .collect();
+    assert!(
+        types.iter().any(|t| t == "turn_completed") && types.iter().any(|t| t == "session_ended"),
+        "the log records the terminal pair: {types:?}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn a_failed_authoring_turn_still_closes_its_session() {
+    // Scenario: Fallo del turno también cierra.
+    let root = std::env::temp_dir().join(format!("meltemi-e2e-sdd-fail-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    // An agent command that cannot spawn: the turn fails before any prompt.
+    std::fs::create_dir_all(root.join(".meltemi")).unwrap();
+    let missing = root.join("no-such-agent");
+    std::fs::write(
+        root.join(".meltemi").join("config.toml"),
+        format!("[agent]\ncommand = ['{}']\n", missing.display()),
+    )
+    .unwrap();
+    // SAFETY: no concurrent env readers in this test binary.
+    unsafe {
+        std::env::remove_var("MELTEMI_AGENT_COMMAND");
+    }
+    let (endpoint, daemon) = spawn("sdd-fail").await;
+    let peer = client(&endpoint).await;
+    let root_str = root.display().to_string();
+
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        peer.request(
+            methods::SDD_EXPLORE,
+            &json!({ "topic": "anything", "projectRoot": root_str }),
+        ),
+    )
+    .await
+    .expect("explore returned");
+    assert!(outcome.is_err(), "the unspawnable agent fails the turn");
+
+    // The failure still closed the session: an end is recorded, no final
+    // status is invented, and nothing lists as interrupted.
+    let list = peer
+        .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .expect("session/list ok");
+    let sessions = list["sessions"].as_array().expect("sessions array");
+    assert_eq!(sessions.len(), 1, "{list:#}");
+    assert_eq!(sessions[0]["state"], "ended", "{list:#}");
+    assert!(
+        sessions[0]["endedAt"].is_string(),
+        "the end was recorded: {list:#}"
+    );
+    assert!(
+        sessions[0]["finalStatus"].is_null(),
+        "a failed turn states no final status: {list:#}"
+    );
+
+    // The close carries the error reason, read over the contract.
+    let session_id = sessions[0]["sessionId"].as_str().expect("session id");
+    let log = peer
+        .request(
+            methods::SESSION_LOG,
+            &json!({ "projectRoot": root_str, "sessionId": session_id }),
+        )
+        .await
+        .expect("session/log ok");
+    let events: Vec<Value> = log["lines"]
+        .as_array()
+        .expect("log lines")
+        .iter()
+        .filter_map(|l| l.as_str())
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "error" && e["payload"]["kind"] == "agent_session_failed"),
+        "the error and its kind are on record: {events:#?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "session_ended" && e["payload"]["reason"] == "error"),
+        "the session closed with the error reason: {events:#?}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
