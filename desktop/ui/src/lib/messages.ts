@@ -53,7 +53,7 @@ const es = {
   "sessions.empty.title": "Sin sesiones todavía",
   "sessions.empty.hint":
     "Una sesión es un agente trabajando bajo tus specs. Lanza una desde la paleta ( : ) — por ejemplo `propose` — o revisa la flota disponible.",
-  "sessions.empty.fleet": "Ver la flota (4)",
+  "sessions.empty.fleet": "Ver la flota",
   "sessions.resumable": "reanudable",
   "sessions.detail.transcript": "Registro de la sesión",
   "sessions.detail.live": "en vivo",
@@ -525,7 +525,7 @@ const en: Record<MessageKey, string> = {
   "sessions.empty.title": "No sessions yet",
   "sessions.empty.hint":
     "A session is an agent working under your specs. Launch one from the palette ( : ) — for example `propose` — or review the available fleet.",
-  "sessions.empty.fleet": "See the fleet (4)",
+  "sessions.empty.fleet": "See the fleet",
   "sessions.resumable": "resumable",
   "sessions.detail.transcript": "Session log",
   "sessions.detail.live": "live",

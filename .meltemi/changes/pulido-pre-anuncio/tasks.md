@@ -14,7 +14,7 @@
 
 ## 2. Etiqueta sin falso contador (GUI)
 
-- [ ] 2.1 Dejar `sessions.empty.fleet` en «Ver la flota» / «See the fleet» en
+- [x] 2.1 Dejar `sessions.empty.fleet` en «Ver la flota» / «See the fleet» en
   `desktop/ui/src/lib/messages.ts` (ES y EN) y cubrir «La acción de flota sin
   falso contador» en `desktop/tests/scenarios_shell.rs`; «El atajo conserva
   su afordancia» queda cubierto por el `kbd` existente del sidebar y el smoke

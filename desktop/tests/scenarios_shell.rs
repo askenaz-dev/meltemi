@@ -1298,6 +1298,42 @@ fn the_global_button_skin_lays_icon_and_label_on_one_line() {
     );
 }
 
+// Scenario: La acción de flota sin falso contador
+#[test]
+fn the_fleet_action_carries_no_embedded_shortcut_hint() {
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    let labels: Vec<&str> = messages
+        .lines()
+        .filter(|line| line.contains("\"sessions.empty.fleet\""))
+        .collect();
+    assert_eq!(labels.len(), 2, "the label exists in both languages");
+    for label in labels {
+        // In an empty state that says "no sessions", a parenthesized number
+        // next to "fleet" reads as a live agent count — which it is not. The
+        // shortcut hint does not travel embedded in a catalog string.
+        assert!(
+            !label.contains('(') && !label.contains(')'),
+            "the fleet action label suggests no count: {label}"
+        );
+    }
+}
+
+// Scenario: El atajo conserva su afordancia
+#[test]
+fn the_fleet_shortcut_keeps_its_home_in_the_sidebar() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    // The shortcut's dedicated affordance: the sidebar renders a `kbd` per
+    // keyed navigation item, and the Fleet item is keyed 4.
+    assert!(
+        sidebar.contains("<kbd>{item.key}</kbd>"),
+        "the sidebar shows each item's shortcut as kbd"
+    );
+    assert!(
+        sidebar.contains("{ id: \"fleet\", icon: \"fleet\", key: \"4\" }"),
+        "the Fleet item keeps its key"
+    );
+}
+
 // Scenario: Par de acciones del estado vacío a altura pareja
 #[test]
 fn empty_state_actions_keep_their_natural_height() {
