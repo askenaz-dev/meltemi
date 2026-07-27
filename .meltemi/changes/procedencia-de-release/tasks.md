@@ -14,7 +14,7 @@
 
 ## 2. Custodia y ancla de confianza
 
-- [ ] 2.1 Enmendar el requisito de custodia en la documentación: almacenamiento offline (no hardware-backed), y repudio definido como clave nueva en el repositorio más declaración fechada
+- [x] 2.1 Enmendar el requisito de custodia en la documentación: almacenamiento offline (no hardware-backed), y repudio definido como clave nueva en el repositorio más declaración fechada
 - [ ] 2.2 Publicar la clave pública en `docs/release.md` y enlazarla desde el sitio y los dos readmes, cuando el mantenedor la entregue
 
 ## 3. Verificación publicada

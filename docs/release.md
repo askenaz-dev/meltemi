@@ -109,11 +109,13 @@ password prompt with a passphrase you keep in your password manager:
 minisign -G -p meltemi.pub -s meltemi.key
 ```
 
-`meltemi.pub` is public: its one-line key goes in the release notes, on the
-downloads page and nowhere else it could be confused for the private half.
-`meltemi.key` is the secret: it never touches this repository, never touches CI,
-and its backup lives offline. Losing it is recoverable (publish a new key and say
-so); leaking it is not (revoke, rotate, and announce).
+`meltemi.pub` is public, and its home is this file, in the repository — the
+release notes and the downloads page point here instead of printing a copy that
+whoever publishes a release could swap. `meltemi.key` is the secret: it never
+touches this repository, never touches CI, and its backup lives offline. Losing
+it is recoverable (publish a new key and say so); leaking it means repudiating
+it the only way minisign allows — a new key in this file and a dated statement
+(see key custody below).
 
 **Per release.** The pipeline produces a draft release with every artifact and a
 recomputed `SHA256SUMS`. Sign that one file — the checksums cover everything
@@ -148,10 +150,11 @@ gh release upload vX.Y.Z SHA256SUMS.minisig
 gh release edit vX.Y.Z --draft=false
 ```
 
-Either way, paste the public key into the release notes next to the verification
-command. A release whose signature you have not verified yourself is not ready
-— the check above costs a second and catches the case where the wrong key
-signed.
+Either way, the release notes point at this file for the key and the procedure —
+they never carry their own copy of the key, which could drift from the anchor or
+be swapped along with the assets. A release whose signature you have not
+verified yourself is not ready — the check above costs a second and catches the
+case where the wrong key signed.
 
 **Installer signing is a separate matter.** The MSI and the DMG carry no
 platform signature yet: Windows Authenticode and Apple notarization need
@@ -248,7 +251,10 @@ Cada release publica archivos por plataforma con `meltemi`+`meltemid`, checksums
 y firma. El usuario verifica checksum y firma con instrucciones publicadas; los
 instaladores (`scripts/install.sh`, `scripts/install.ps1`) lo hacen por él, son
 legibles y con hash publicado, e instalan los binarios y el alias `mel`. La
-custodia de la clave es del mantenedor (documentada, nunca en el repo). El
+custodia de la clave es del mantenedor: la privada jamás toca el repositorio ni
+CI y se guarda offline —minisign no ofrece HSM ni revocación, así que repudiar
+es publicar clave nueva en el repositorio con declaración fechada—; la pública
+vive en el repositorio, que es el ancla, no en la página de release. El
 pipeline de release corre las tres plataformas con gates duros —suite, clippy,
 fmt, cargo-deny y presupuestos §12 (TUI < 25 MB; instalador GUI < 15 MB)— y
 aborta sin publicar ante cualquier rojo. La GUI se publica como instalador por
