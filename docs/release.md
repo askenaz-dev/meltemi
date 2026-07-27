@@ -58,19 +58,27 @@ the `meltemid` daemon, plus:
 
 ## Verifying a download
 
-Before installing, verify the archive:
+Before installing, verify the archive. The steps are ordered by what each one
+buys, so you can stop at the guarantee you need:
 
 ```bash
-# 1. Check the checksum
+# 1. Check the checksum: the file arrived intact
 sha256sum --check SHA256SUMS        # (shasum -a 256 on macOS; Get-FileHash on Windows)
 
-# 2. Verify the signature of the checksums file with the project's public key
+# 2. Verify the signature of the checksums file: the maintainer vouched for it
 minisign -Vm SHA256SUMS -P <the public key below>
+
+# 3. Verify the build provenance: which repository, commit and workflow produced it
+gh attestation verify SHA256SUMS --repo askenaz-dev/meltemi \
+  --signer-workflow askenaz-dev/meltemi/.github/workflows/release.yml
 ```
 
-Step 2 answers a question step 1 cannot: a checksum proves the file did not
-change in transit, a signature proves *who* published it. Both are needed, and
-in that order.
+Each step answers a question the previous one cannot. A checksum proves the
+file did not change in transit. A signature proves the maintainer signed these
+checksums, on a machine GitHub does not control. The attestation proves what
+*process* produced the published set — the one thing neither of the first two
+can say. Steps 2 and 3 each cost a tool that ships with no operating system:
+`minisign` for the signature, the GitHub CLI (`gh`) for the provenance.
 
 ### The public key
 
@@ -93,6 +101,32 @@ script is short, readable, and its own hash is published. They do **not** verify
 the signature, because `minisign` is not present by default on any of the three
 platforms and a one-line installer that first demands a package install is not
 one line. Step 2 is yours to run, once, on the checksums file.
+
+### Provenance: what the attestation proves
+
+The `release` job of
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) mints a
+build attestation whose subjects are the entries of the merged `SHA256SUMS` —
+the same single file the maintainer signs, so both mechanisms cover exactly the
+same set of assets. `gh attestation verify` proves that the file you hold
+matches an attestation minted by this repository's release workflow, for a
+specific commit and run; `--signer-workflow` pins that workflow identity, and a
+file built anywhere else fails the check.
+
+Two limits, written down so the claim is never read as more than it is:
+
+- **It attests the aggregation, not each build step.** The `release` job only
+  downloads what the six packaging jobs built and merges their checksums. The
+  attestation ties the published set to this workflow and this commit; it does
+  not attest the compilation of each artifact in its packaging job. Attesting
+  the builders themselves would be a future, stronger claim — this one is
+  modest and true.
+- **It is not a substitute for the maintainer's signature.** A compromised
+  GitHub account can push a tag, let CI build it, and mint an attestation that
+  verifies perfectly — it faithfully records the attacker's commit, which is
+  its job. The manual signature on a machine GitHub does not control is the one
+  step such an account cannot complete. The two mechanisms answer different
+  questions, and neither replaces the other.
 
 ## Signing a release (maintainer)
 
