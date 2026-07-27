@@ -141,9 +141,16 @@ impl Sessions {
     /// Closes every live session. Called when the ACP connection ends: the
     /// daemon is gone, so nothing this adapter launched has a reason to live.
     ///
-    /// This is the orderly path. A hard kill of the adapter cannot run it —
-    /// `kill_on_drop` on the child covers the process going away with its
-    /// parent, and the deeper guarantee belongs to the sandbox change.
+    /// This is the orderly path, and it is not the one that usually runs: the
+    /// crate's stdio connection does not end when the daemon closes its side
+    /// (verified against this binary and against `mock-agent`, which behaves
+    /// identically), so in practice the daemon kills the adapter — and a killed
+    /// process runs no cleanup. `kill_on_drop` does not survive that either: it
+    /// fires when the child handle is dropped, which needs Rust code to run.
+    /// Ending the provider with certainty when the adapter is killed takes a
+    /// job object on Windows and a process group elsewhere; it belongs with the
+    /// dialects that actually launch one (tasks 2.2/3.1), and its stronger form
+    /// with `sandbox-propio`.
     async fn close_all(&self, policy: ShutdownPolicy) {
         let live: Vec<Arc<Session>> = self.entries.lock().await.drain().map(|(_, s)| s).collect();
         for session in live {
