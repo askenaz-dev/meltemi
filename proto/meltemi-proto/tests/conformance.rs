@@ -530,6 +530,35 @@ fn context_project_conforms() {
 }
 
 #[test]
+fn session_watch_conforms() {
+    assert_conforms(
+        "session-watch",
+        "params",
+        &SessionWatchParams {
+            session_id: "sess-1".into(),
+            watch: true,
+        },
+    );
+    // Dropping interest travels the same shape.
+    assert_conforms(
+        "session-watch",
+        "params",
+        &SessionWatchParams {
+            session_id: "sess-1".into(),
+            watch: false,
+        },
+    );
+    assert_conforms(
+        "session-watch",
+        "result",
+        &SessionWatchResult {
+            session_id: "sess-1".into(),
+            watching: true,
+        },
+    );
+}
+
+#[test]
 fn session_cancel_conforms() {
     assert_conforms(
         "session-cancel",

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/session-watch.schema.json",
+  "title": "session/watch",
+  "description": "Request `session/watch` (client -> daemon): declare whether this connection receives a session's live event stream. The connection that started a session receives its `session/event` stream without declaring anything; any other connection must ask for it, and stops receiving it when it asks to stop or when it closes. Watching delivers what is emitted from that moment on — the history is read with `session/log`, and the daemon never queues events for a connection that is gone.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": ["sessionId", "watch"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "watch": {
+          "type": "boolean",
+          "description": "true to receive the session's events on this connection, false to stop."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["sessionId", "watching"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "watching": {
+          "type": "boolean",
+          "description": "Whether this connection is now watching that session."
+        }
+      }
+    }
+  }
+}

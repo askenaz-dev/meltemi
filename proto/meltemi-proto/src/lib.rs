@@ -60,6 +60,11 @@ pub mod methods {
     pub const SESSION_DIRECT: &str = "session/direct";
     /// Notification (daemon -> client): streamed session event.
     pub const SESSION_EVENT: &str = "session/event";
+    /// Request (client -> daemon): declare whether this connection watches a
+    /// session's event stream. The connection that started a session receives
+    /// its stream without asking; any other must declare it
+    /// (eventos-para-tardios).
+    pub const SESSION_WATCH: &str = "session/watch";
     /// Request (daemon -> client): permission passthrough from the agent.
     pub const PERMISSION_REQUEST: &str = "permission/request";
     /// Notification (daemon -> client): a permission request timed out.
@@ -1054,6 +1059,27 @@ pub struct ProposeResult {
 pub struct SessionCancelParams {
     /// The session to cancel.
     pub session_id: String,
+}
+
+/// Params of `session/watch`: declare (or drop) interest in a session's live
+/// event stream for this connection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionWatchParams {
+    /// The session whose stream to watch.
+    pub session_id: String,
+    /// `true` to receive its events on this connection, `false` to stop.
+    pub watch: bool,
+}
+
+/// Result of `session/watch`: what this connection now does with that session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionWatchResult {
+    /// The session echoed back.
+    pub session_id: String,
+    /// Whether this connection is now watching it.
+    pub watching: bool,
 }
 
 /// Params of `session/direct`: an instruction aimed at an existing session.

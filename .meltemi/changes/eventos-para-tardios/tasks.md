@@ -2,7 +2,7 @@
 
 ## 1. Contrato
 
-- [ ] 1.1 Método `session/watch` con sus tipos y esquema en `meltemi-proto`,
+- [x] 1.1 Método `session/watch` con sus tipos y esquema en `meltemi-proto`,
   y conformance de params y result
 
 ## 2. Daemon
