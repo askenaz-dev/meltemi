@@ -128,6 +128,25 @@ Two limits, written down so the claim is never read as more than it is:
   step such an account cannot complete. The two mechanisms answer different
   questions, and neither replaces the other.
 
+### Provenance: the public log, and verifying offline
+
+Because this repository is public, every attestation is signed through the
+Sigstore public-good instance and lands in a **public, permanent transparency
+log**. What gets recorded: the names and digests of the published assets and
+the identity of the workflow that minted the attestation — repository, workflow
+path, commit. That is build metadata, published deliberately; it is never user
+data, and it says nothing about who downloads or verifies anything. A project
+that promises no hidden telemetry states this itself rather than leaving it for
+a reader to discover.
+
+The two verification tools are not symmetric offline, and for a local-first
+product that deserves its own paragraph. minisign needs no network at all: the
+public key and `SHA256SUMS.minisig` are enough, on any machine, forever. `gh
+attestation verify` asks the GitHub API by default; an offline verification
+exists, but it requires the attestation bundle and the trusted material to have
+been downloaded beforehand from a machine that was online. Step 3 is the only
+step of the three that assumes connectivity.
+
 ## Signing a release (maintainer)
 
 The tool is [minisign](https://jedisct1.github.io/minisign/): one small signature
@@ -282,7 +301,12 @@ safety until the maintainer reserves the names).
 ## Summary (español)
 
 Cada release publica archivos por plataforma con `meltemi`+`meltemid`, checksums
-y firma. El usuario verifica checksum y firma con instrucciones publicadas; los
+y firma, más una atestación de procedencia acuñada por el workflow sobre el
+`SHA256SUMS` fusionado (cubre la agregación, no cada paso de build; queda en un
+log de transparencia público —metadato de build, jamás dato de usuario— y su
+verificación con `gh` consulta la red por defecto, a diferencia de minisign,
+que verifica sin conexión). El usuario verifica checksum, firma y procedencia
+con instrucciones publicadas; los
 instaladores (`scripts/install.sh`, `scripts/install.ps1`) lo hacen por él, son
 legibles y con hash publicado, e instalan los binarios y el alias `mel`. La
 custodia de la clave es del mantenedor: la privada jamás toca el repositorio ni
