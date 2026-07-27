@@ -11,9 +11,11 @@
 //! inside this process, which constitution §2 forbids however permissive the
 //! licence is.
 
+pub mod mapping;
 pub mod version;
 pub mod wire;
 
+use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
@@ -23,13 +25,15 @@ use agent_client_protocol::schema::v1::{
 use agent_client_protocol::{Client, ConnectionTo};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::Mutex;
+use tokio::process::ChildStdin;
+use tokio::sync::{Mutex, Notify, mpsc};
 
 use crate::adapter::{AdapterSpec, Dialect, ProviderDialect, ProviderSession};
 use crate::diagnostic::Refusal;
+use crate::jsonrpc::{Incoming, Peer};
 use crate::ndjson::Frame;
 use crate::supervisor::{
-    ProcessControl, ProviderCommand, ProviderProcess, ShutdownPolicy, SpawnedProvider, spawn,
+    self, ChildProcess, ProcessControl, ProviderCommand, ProviderProcess, ShutdownPolicy, spawn,
 };
 
 /// What this binary announces over ACP and which CLI it pilots.
@@ -56,6 +60,19 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// The id the handshake request carries. The adapter's own request numbering
 /// starts after it.
 const HANDSHAKE_ID: i64 = 1;
+
+/// How long the server gets to acknowledge an interruption before the provider
+/// is ended outright. A turn that will not stop must not keep the session — or
+/// the worktree it runs in — hostage.
+const INTERRUPT_GRACE: Duration = Duration::from_secs(5);
+
+/// A deadline far enough away to mean "not yet". The turn loop's grace sits
+/// here until an interruption moves it.
+const NEVER: Duration = Duration::from_secs(60 * 60 * 24 * 365);
+
+/// The error a server request gets while the approval relay is not wired: not
+/// one of JSON-RPC's own, and inside the range reserved for the application.
+const UNRELAYED_APPROVAL: i64 = -32010;
 
 /// The JSON-RPC server dialect: launches the official CLI in its server mode
 /// and pilots it.
@@ -129,29 +146,320 @@ impl Provenance {
 
 /// A session over the official CLI's server mode.
 pub struct CodexSession {
-    /// The provider process. `None` once the session has been shut down.
-    provider: Mutex<Option<SpawnedProvider>>,
+    /// The conversation with the provider.
+    peer: Peer<ChildStdin>,
+    /// Everything the provider says on its own, consumed one turn at a time.
+    incoming: Mutex<mpsc::UnboundedReceiver<Incoming>>,
+    /// The process handle, so the session can end what it started. `None` once
+    /// it has been shut down.
+    control: Mutex<Option<ChildProcess>>,
+    /// The turn in flight, and whether it has been asked to stop.
+    turn: TurnControl,
+    /// Where this session's updates go.
+    stream: AcpStream,
+    /// How long the provider gets to exit on its own.
+    shutdown: ShutdownPolicy,
 }
 
 impl ProviderSession for CodexSession {
-    async fn run_turn(&self, _prompt: PromptRequest) -> Result<StopReason, Refusal> {
-        Err(Refusal::new(
-            "dialect_not_wired",
-            SPEC.name,
-            "this adapter has shaken hands with the server but does not translate turns yet"
-                .to_string(),
-            "The thread/turn/item mapping and the approval relay land in \
-             adaptadores-propios-acp 2.3-2.4."
-                .to_string(),
-        ))
+    async fn run_turn(&self, prompt: PromptRequest) -> Result<StopReason, Refusal> {
+        // One turn at a time is the bridge's own invariant, so holding the
+        // incoming half for the length of a turn takes nothing from anyone.
+        let mut incoming = self.incoming.lock().await;
+        self.turn.begin();
+
+        let params = wire::TurnStartParams {
+            thread_id: self.turn.thread_id.clone(),
+            input: vec![wire::UserInput::Text {
+                text: mapping::prompt_text(&prompt),
+            }],
+        };
+        match drive_turn(&self.peer, &mut incoming, &self.turn, &self.stream, &params).await? {
+            TurnOutcome::Ended(stop) => Ok(stop),
+            TurnOutcome::Abandoned => {
+                // The server was asked to stop and said nothing. It does not get
+                // to hold the session — or the worktree — open while it decides.
+                self.stream.note(&format!(
+                    "the server did not acknowledge the interruption within {:?}; \
+                     ending the provider",
+                    self.turn.grace
+                ));
+                self.shutdown(self.shutdown).await;
+                Ok(StopReason::Cancelled)
+            }
+        }
     }
 
-    async fn interrupt(&self) {}
+    async fn interrupt(&self) {
+        interrupt(&self.peer, &self.turn).await;
+    }
 
     async fn shutdown(&self, policy: ShutdownPolicy) {
-        if let Some(mut provider) = self.provider.lock().await.take() {
-            let _ = provider.shutdown(policy).await;
+        self.peer.close_input().await;
+        if let Some(mut control) = self.control.lock().await.take() {
+            let _ = supervisor::end(&mut control, policy).await;
         }
+    }
+}
+
+/// The turn in flight: its id once the server names it, and whether it has been
+/// asked to stop.
+///
+/// A cancellation can arrive before the server has named the turn, which is
+/// precisely when a naive adapter drops it on the floor: there is nothing to
+/// name in the interruption yet. The intent is remembered instead, and sent the
+/// moment the id is known.
+struct TurnControl {
+    thread_id: String,
+    state: StdMutex<TurnState>,
+    /// Wakes the turn loop when an interruption has been asked for.
+    interrupted: Notify,
+    /// How long the server gets to acknowledge an interruption. A field rather
+    /// than a constant so a test can watch the whole "it will not stop" path
+    /// without waiting out a human-scale timeout.
+    grace: Duration,
+}
+
+#[derive(Debug, Default, Clone)]
+struct TurnState {
+    id: Option<String>,
+    interrupt_requested: bool,
+    interrupt_sent: bool,
+}
+
+impl TurnControl {
+    fn new(thread_id: String, grace: Duration) -> Self {
+        Self {
+            thread_id,
+            state: StdMutex::new(TurnState::default()),
+            interrupted: Notify::new(),
+            grace,
+        }
+    }
+
+    fn with<T>(&self, change: impl FnOnce(&mut TurnState) -> T) -> T {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        change(&mut state)
+    }
+
+    /// A new turn starts with nothing remembered: a cancellation of the last
+    /// one must not kill this one.
+    fn begin(&self) {
+        self.with(|state| *state = TurnState::default());
+    }
+}
+
+/// Asks the server to stop the turn in flight.
+///
+/// When the turn has no id yet the intent is recorded and the turn loop sends
+/// it as soon as the server names one — a cancellation that arrived a
+/// millisecond early must not be a cancellation that never happened.
+async fn interrupt<W: AsyncWrite + Unpin + Send>(peer: &Peer<W>, turn: &TurnControl) {
+    let id = turn.with(|state| {
+        state.interrupt_requested = true;
+        if state.interrupt_sent {
+            return None;
+        }
+        state.id.clone().inspect(|_| state.interrupt_sent = true)
+    });
+    if let Some(turn_id) = id {
+        send_interrupt(peer, turn, &turn_id).await;
+    }
+    // The loop arms the grace after which the provider is ended outright.
+    turn.interrupted.notify_one();
+}
+
+/// Sends the interruption, and does not wait forever for an answer: the answer
+/// that matters is the turn ending, and the loop is already watching for it.
+async fn send_interrupt<W: AsyncWrite + Unpin + Send>(
+    peer: &Peer<W>,
+    turn: &TurnControl,
+    turn_id: &str,
+) {
+    let params = wire::TurnInterruptParams {
+        thread_id: turn.thread_id.clone(),
+        turn_id: turn_id.to_string(),
+    };
+    let _ = tokio::time::timeout(turn.grace, peer.request(wire::TURN_INTERRUPT, &params)).await;
+}
+
+/// How a turn ended, before the session decides what to do about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TurnOutcome {
+    /// The turn is over.
+    Ended(StopReason),
+    /// The server was asked to stop and never acknowledged it.
+    Abandoned,
+}
+
+/// Runs one turn: start it, stream what the server says, and end when the
+/// server says the turn is over — or when it refuses to.
+///
+/// Written to be correct under either ordering of the `turn/start` answer and
+/// the streamed notifications, because the dumped schema does not settle which
+/// comes first and observing it takes a real model call. A turn ends on
+/// whichever terminal signal arrives first.
+async fn drive_turn<W, S>(
+    peer: &Peer<W>,
+    incoming: &mut mpsc::UnboundedReceiver<Incoming>,
+    turn: &TurnControl,
+    stream: &S,
+    params: &wire::TurnStartParams,
+) -> Result<TurnOutcome, Refusal>
+where
+    W: AsyncWrite + Unpin + Send,
+    S: TurnStream,
+{
+    let mut mapper = mapping::Mapper::new();
+    let started = peer.request(wire::TURN_START, params);
+    let mut started = std::pin::pin!(started);
+    let mut answered = false;
+
+    // Parked in the far future until an interruption arms it; from then on it
+    // is the deadline after which the provider is ended outright.
+    let mut grace = std::pin::pin!(tokio::time::sleep(NEVER));
+    let interrupted = turn.interrupted.notified();
+    let mut interrupted = std::pin::pin!(interrupted);
+    let mut armed = false;
+
+    loop {
+        tokio::select! {
+            answer = &mut started, if !answered => {
+                answered = true;
+                let value = answer.map_err(|error| turn_failed(&error.to_string()))?;
+                let Ok(result) = serde_json::from_value::<wire::TurnStartResult>(value) else {
+                    return Err(turn_failed("the server started a turn this adapter cannot read"));
+                };
+                learned_turn_id(peer, turn, &result.turn.id).await;
+                if let Some(outcome) = ended(result.turn.status)? {
+                    return Ok(outcome);
+                }
+            }
+            () = &mut interrupted, if !armed => {
+                armed = true;
+                grace.as_mut().reset(tokio::time::Instant::now() + turn.grace);
+            }
+            () = &mut grace, if armed => return Ok(TurnOutcome::Abandoned),
+            message = incoming.recv() => {
+                let Some(message) = message else {
+                    return Err(provider_gone());
+                };
+                match message {
+                    Incoming::Notification { method, params } => {
+                        let mapped = mapper.map(&method, &params);
+                        for update in mapped.updates {
+                            stream.emit(update);
+                        }
+                        if let Some(note) = mapped.noted {
+                            stream.note(&note);
+                        }
+                        match mapped.signal {
+                            Some(mapping::Signal::TurnStarted(id)) => {
+                                learned_turn_id(peer, turn, &id).await;
+                            }
+                            Some(mapping::Signal::TurnEnded(status)) => {
+                                if let Some(outcome) = ended(status)? {
+                                    return Ok(outcome);
+                                }
+                            }
+                            Some(mapping::Signal::TurnFailed(message)) => {
+                                return Err(turn_failed(&message));
+                            }
+                            None => {}
+                        }
+                    }
+                    Incoming::Request { id, method, .. } => {
+                        // The approval relay lands in task 2.4. Until it does,
+                        // the answer is no: an adapter that approved on its own
+                        // account would be the one thing this architecture
+                        // exists to prevent.
+                        stream.note(&format!("refused `{method}`: approvals are not relayed yet"));
+                        let _ = peer
+                            .respond_with_error(
+                                &id,
+                                UNRELAYED_APPROVAL,
+                                "this adapter does not relay approvals yet \
+                                 (adaptadores-propios-acp 2.4)",
+                            )
+                            .await;
+                    }
+                    Incoming::Noise(line) => stream.note(&format!("provider said: {line}")),
+                }
+            }
+        }
+    }
+}
+
+/// Records the turn's id and sends the interruption that was waiting for it.
+async fn learned_turn_id<W: AsyncWrite + Unpin + Send>(
+    peer: &Peer<W>,
+    turn: &TurnControl,
+    id: &str,
+) {
+    let owed = turn.with(|state| {
+        state.id = Some(id.to_string());
+        if state.interrupt_requested && !state.interrupt_sent {
+            state.interrupt_sent = true;
+            return true;
+        }
+        false
+    });
+    if owed {
+        send_interrupt(peer, turn, id).await;
+    }
+}
+
+/// What a turn status means for the ACP turn: `None` while it is still running.
+///
+/// # Errors
+///
+/// A failed turn is an error, not a stop reason: ACP has no way to say "the
+/// turn did not work", and answering `end_turn` would report a failure as a
+/// finished piece of work.
+fn ended(status: wire::TurnStatus) -> Result<Option<TurnOutcome>, Refusal> {
+    Ok(match status {
+        wire::TurnStatus::InProgress => None,
+        wire::TurnStatus::Completed => Some(TurnOutcome::Ended(StopReason::EndTurn)),
+        wire::TurnStatus::Interrupted => Some(TurnOutcome::Ended(StopReason::Cancelled)),
+        wire::TurnStatus::Failed => {
+            return Err(turn_failed("the server reported the turn failed"));
+        }
+    })
+}
+
+/// Where a turn's updates go.
+///
+/// The session sends them over ACP; a test collects them. The turn loop is the
+/// piece with the ordering subtleties — an interruption arriving before the
+/// server has named the turn, an answer arriving before or after the stream —
+/// and this is what lets all of it be exercised without a process in sight.
+trait TurnStream: Send + Sync {
+    /// Shows something in the session.
+    fn emit(&self, update: SessionUpdate);
+    /// Keeps something on the record without showing it as the agent's words.
+    fn note(&self, line: &str);
+}
+
+/// The real destination: the ACP connection this session was opened on.
+struct AcpStream {
+    session_id: SessionId,
+    cx: ConnectionTo<Client>,
+}
+
+impl TurnStream for AcpStream {
+    fn emit(&self, update: SessionUpdate) {
+        let _ = self
+            .cx
+            .send_notification(SessionNotification::new(self.session_id.clone(), update));
+    }
+
+    fn note(&self, line: &str) {
+        // The adapter's own stderr, which the daemon already collects: evidence
+        // kept without dressing it up as something the agent said.
+        eprintln!("{}: {line}", SPEC.name);
     }
 }
 
@@ -186,17 +494,64 @@ impl ProviderDialect for CodexDialect {
             }
         };
 
+        // The handshake was a strict question and answer, so it was done by
+        // hand. From here the conversation goes both ways at once, and reading
+        // becomes a task of its own.
+        let (mut control, writer, reader) = provider.into_parts();
+        let (peer, incoming) = Peer::start(writer, reader, HANDSHAKE_ID + 1);
+
+        let thread_id = match open_thread(&peer, &request).await {
+            Ok(thread_id) => thread_id,
+            Err(refusal) => {
+                peer.close_input().await;
+                let _ = supervisor::end(&mut control, self.shutdown).await;
+                return Err(refusal);
+            }
+        };
+
         // The effective binary and the version it turned out to be, into the
         // session log, before anything else this session does.
         let _ = cx.send_notification(SessionNotification::new(
-            session_id,
+            session_id.clone(),
             SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta())),
         ));
 
         Ok(CodexSession {
-            provider: Mutex::new(Some(provider)),
+            peer,
+            incoming: Mutex::new(incoming),
+            control: Mutex::new(Some(control)),
+            turn: TurnControl::new(thread_id, INTERRUPT_GRACE),
+            stream: AcpStream { session_id, cx },
+            shutdown: self.shutdown,
         })
     }
+}
+
+/// Opens the thread the ACP session maps onto, in the directory the session
+/// works in.
+///
+/// # Errors
+///
+/// Refuses when the server will not open one: a session with no thread would
+/// accept prompts it could never send anywhere.
+async fn open_thread<W: AsyncWrite + Unpin + Send>(
+    peer: &Peer<W>,
+    request: &NewSessionRequest,
+) -> Result<String, Refusal> {
+    let params = wire::ThreadStartParams {
+        cwd: request.cwd.display().to_string(),
+    };
+    let answer = peer
+        .request(wire::THREAD_START, &params)
+        .await
+        .map_err(|error| thread_refused(&error.to_string()))?;
+    serde_json::from_value::<wire::ThreadStartResult>(answer)
+        .map(|result| result.thread.id)
+        .map_err(|error| {
+            thread_refused(&format!(
+                "the server opened a thread this adapter cannot read ({error})"
+            ))
+        })
 }
 
 /// Shakes hands with the server and checks that it is a version this adapter
@@ -321,6 +676,38 @@ where
     }
 }
 
+/// The refusal for a thread the server would not open.
+fn thread_refused(detail: &str) -> Refusal {
+    Refusal::new(
+        "provider_thread_refused",
+        SPEC.provider_layer,
+        detail.to_string(),
+        "Check that the session's directory exists and that the CLI can work in it.".to_string(),
+    )
+}
+
+/// The refusal for a turn that did not run.
+fn turn_failed(detail: &str) -> Refusal {
+    Refusal::new(
+        "provider_turn_failed",
+        SPEC.provider_layer,
+        detail.to_string(),
+        "The turn did not complete. The session is still open: try again, or read the \
+         provider's own diagnostics in the session log."
+            .to_string(),
+    )
+}
+
+/// The refusal for a provider that went away mid-turn.
+fn provider_gone() -> Refusal {
+    Refusal::new(
+        "provider_gone",
+        SPEC.provider_layer,
+        "the CLI ended while the turn was running".to_string(),
+        "Open a new session; the provider's own diagnostics travel to the session log.".to_string(),
+    )
+}
+
 /// The refusal for a handshake that did not happen.
 fn handshake_failed(detail: &str) -> Refusal {
     Refusal::new(
@@ -382,6 +769,287 @@ mod tests {
 
     fn announcing(user_agent: &str) -> String {
         format!("{{\"id\":1,\"result\":{{\"userAgent\":\"{user_agent}\"}}}}\n")
+    }
+
+    /// A turn's updates, collected instead of sent.
+    #[derive(Default)]
+    struct Collected {
+        updates: StdMutex<Vec<SessionUpdate>>,
+        notes: StdMutex<Vec<String>>,
+    }
+
+    impl TurnStream for Collected {
+        fn emit(&self, update: SessionUpdate) {
+            self.updates.lock().unwrap().push(update);
+        }
+
+        fn note(&self, line: &str) {
+            self.notes.lock().unwrap().push(line.to_string());
+        }
+    }
+
+    impl Collected {
+        fn said(&self) -> Vec<String> {
+            self.updates
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|update| match update {
+                    SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
+                        agent_client_protocol::schema::v1::ContentBlock::Text(text) => {
+                            Some(text.text.clone())
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    /// The provider's side of a turn: one scripted server on a duplex pipe.
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    struct Server {
+        heard: tokio::io::Lines<tokio::io::BufReader<tokio::io::DuplexStream>>,
+        says: tokio::io::DuplexStream,
+    }
+
+    impl Server {
+        async fn next_call(&mut self) -> Value {
+            let line = self
+                .heard
+                .next_line()
+                .await
+                .unwrap()
+                .expect("the adapter said something");
+            serde_json::from_str(&line).expect("and it was JSON")
+        }
+
+        async fn say(&mut self, message: &Value) {
+            self.says
+                .write_all(format!("{message}\n").as_bytes())
+                .await
+                .unwrap();
+            self.says.flush().await.unwrap();
+        }
+
+        async fn notify(&mut self, method: &str, params: Value) {
+            self.say(&json!({"method": method, "params": params})).await;
+        }
+    }
+
+    /// A peer and a turn control wired to a scripted server.
+    fn wired(
+        grace: Duration,
+    ) -> (
+        Peer<tokio::io::DuplexStream>,
+        mpsc::UnboundedReceiver<Incoming>,
+        TurnControl,
+        Server,
+    ) {
+        use crate::ndjson::{FrameReader, FrameWriter};
+        let (adapter_out, provider_in) = tokio::io::duplex(8192);
+        let (provider_out, adapter_in) = tokio::io::duplex(8192);
+        let (peer, incoming) = Peer::start(
+            FrameWriter::new(adapter_out),
+            FrameReader::new(adapter_in),
+            2,
+        );
+        (
+            peer,
+            incoming,
+            TurnControl::new("thread-1".into(), grace),
+            Server {
+                heard: tokio::io::BufReader::new(provider_in).lines(),
+                says: provider_out,
+            },
+        )
+    }
+
+    fn turn_params() -> wire::TurnStartParams {
+        wire::TurnStartParams {
+            thread_id: "thread-1".into(),
+            input: vec![wire::UserInput::Text {
+                text: "do it".into(),
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn a_turn_streams_what_the_server_says_and_ends_when_it_says_the_turn_is_over() {
+        // Scenario: Conversación del servidor mapeada en streaming
+        //
+        // The answer to `turn/start` arrives last here, which is the ordering
+        // the dumped schema does not settle: the turn must end on the terminal
+        // signal, not on the answer it may never get first.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+
+        let params = turn_params();
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &params);
+        let serving = async {
+            let call = server.next_call().await;
+            assert_eq!(call["method"], wire::TURN_START);
+            assert_eq!(call["params"]["input"][0]["text"], "do it");
+            server
+                .notify(
+                    wire::TURN_STARTED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "inProgress", "items": []}}),
+                )
+                .await;
+            server
+                .notify(
+                    wire::AGENT_MESSAGE_DELTA,
+                    json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": "i1", "delta": "hola"}),
+                )
+                .await;
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+            server
+                .say(&json!({"id": call["id"], "result": {"turn": {"id": "turn-1", "status": "completed", "items": []}}}))
+                .await;
+        };
+
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+        assert_eq!(stream.said(), vec!["hola".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn a_cancellation_that_arrives_before_the_turn_has_a_name_is_still_delivered() {
+        // Scenario: Cancelación propagada al servidor
+        //
+        // The window every naive adapter drops the cancellation in: the human
+        // hit stop before the server had named the turn, so there was nothing
+        // to name in the interruption. The intent is remembered and sent the
+        // moment the name arrives.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_secs(30));
+        let stream = Collected::default();
+
+        let params = turn_params();
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &params);
+        let serving = async {
+            let start = server.next_call().await;
+            interrupt(&peer, &turn).await;
+            server
+                .notify(
+                    wire::TURN_STARTED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "inProgress", "items": []}}),
+                )
+                .await;
+
+            let stop = server.next_call().await;
+            assert_eq!(stop["method"], wire::TURN_INTERRUPT);
+            assert_eq!(stop["params"]["turnId"], "turn-1");
+            server.say(&json!({"id": stop["id"], "result": {}})).await;
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "interrupted", "items": []}}),
+                )
+                .await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "interrupted", "items": []}}}))
+                .await;
+        };
+
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::Cancelled));
+    }
+
+    #[tokio::test]
+    async fn a_server_that_will_not_stop_is_abandoned_so_the_session_can_end_it() {
+        // Scenario: Cancelación propagada al servidor
+        //
+        // Asked to stop, the server says nothing at all. It does not get to hold
+        // the session — or the worktree it runs in — open while it thinks about
+        // it: the turn is abandoned and the caller ends the process.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(20));
+        let stream = Collected::default();
+
+        let params = turn_params();
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &params);
+        let serving = async {
+            server.next_call().await;
+            server
+                .notify(
+                    wire::TURN_STARTED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "inProgress", "items": []}}),
+                )
+                .await;
+            // Give the loop the turn id before asking it to stop, then go quiet.
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            interrupt(&peer, &turn).await;
+            std::future::pending::<()>().await;
+        };
+
+        let outcome = tokio::select! {
+            outcome = driving => outcome,
+            () = serving => unreachable!("the server never finishes"),
+        };
+        assert_eq!(outcome.unwrap(), TurnOutcome::Abandoned);
+    }
+
+    #[tokio::test]
+    async fn an_approval_this_adapter_cannot_relay_yet_is_refused_not_granted() {
+        // Deny by default from the first day the wire can ask: an adapter that
+        // approved on its own account is the one thing this architecture exists
+        // to prevent. The relay to the permission proxy lands in task 2.4.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+
+        let params = turn_params();
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &params);
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": 7, "method": wire::FILE_CHANGE_APPROVAL,
+                             "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "i2"}}))
+                .await;
+            let answer = server.next_call().await;
+            assert_eq!(answer["id"], 7);
+            assert!(
+                answer["result"].is_null(),
+                "an approval that cannot be relayed is not granted: {answer}"
+            );
+            assert_eq!(answer["error"]["code"], UNRELAYED_APPROVAL);
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "completed", "items": []}}}))
+                .await;
+        };
+
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+    }
+
+    #[tokio::test]
+    async fn a_provider_that_disappears_mid_turn_refuses_instead_of_hanging() {
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+
+        let params = turn_params();
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &params);
+        let serving = async {
+            server.next_call().await;
+            drop(server);
+        };
+        let (outcome, ()) = tokio::join!(driving, serving);
+        let refusal = outcome.expect_err("a turn cannot end well on a provider that is gone");
+        assert!(
+            refusal.kind == "provider_gone" || refusal.kind == "provider_turn_failed",
+            "{refusal:?}"
+        );
     }
 
     #[tokio::test]

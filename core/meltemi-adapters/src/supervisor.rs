@@ -150,12 +150,38 @@ impl<C: ProcessControl, W: AsyncWrite + Unpin, R: AsyncRead + Unpin> ProviderPro
     pub async fn shutdown(&mut self, policy: ShutdownPolicy) -> std::io::Result<ShutdownOutcome> {
         // Closing the input is the documented way out for both provider wires.
         let _ = self.stdin.close().await;
-        if self.control.wait_within(policy.grace).await? {
-            return Ok(ShutdownOutcome::Exited);
-        }
-        self.control.kill().await?;
-        Ok(ShutdownOutcome::Killed)
+        end(&mut self.control, policy).await
     }
+
+    /// Hands over the three halves separately.
+    ///
+    /// A dialect that runs a bidirectional conversation has to read and write
+    /// at the same time, which a single owner cannot do; splitting is how the
+    /// reader becomes a task of its own while the writer stays where turns are
+    /// sent from. The control handle comes along because ending the process is
+    /// still the session's job, and nobody else's.
+    pub fn into_parts(self) -> (C, FrameWriter<W>, FrameReader<R>) {
+        (self.control, self.stdin, self.stdout)
+    }
+}
+
+/// Waits out the grace and kills what is still there.
+///
+/// A hung provider is a bug in the provider; leaving it running would make it a
+/// bug in Meltemi.
+///
+/// # Errors
+///
+/// Returns the underlying I/O error when waiting or killing fails.
+pub async fn end(
+    control: &mut impl ProcessControl,
+    policy: ShutdownPolicy,
+) -> std::io::Result<ShutdownOutcome> {
+    if control.wait_within(policy.grace).await? {
+        return Ok(ShutdownOutcome::Exited);
+    }
+    control.kill().await?;
+    Ok(ShutdownOutcome::Killed)
 }
 
 /// Launches the official CLI as the session's provider process.
