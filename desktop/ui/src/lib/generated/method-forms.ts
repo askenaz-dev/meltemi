@@ -125,6 +125,22 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
       }
     ]
   },
+  "session/watch": {
+    "schema": "session-watch.schema.json",
+    "def": "params",
+    "fields": [
+      {
+        "name": "sessionId",
+        "kind": "string",
+        "required": true
+      },
+      {
+        "name": "watch",
+        "kind": "boolean",
+        "required": true
+      }
+    ]
+  },
   "repo/map": {
     "schema": "repo-map.schema.json",
     "def": "params",

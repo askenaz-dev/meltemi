@@ -92,6 +92,9 @@ export const REGISTRY: RegistryEntry[] = [
     template: { projectRoot: "", sessionId: "" },
     injectRoot: "projectRoot",
   }),
+  R("session/watch", "palette.m.session.watch", {
+    template: { sessionId: "", watch: true },
+  }),
   R("repo/map", "palette.m.repo.map", {
     template: { projectRoot: "" },
     injectRoot: "projectRoot",

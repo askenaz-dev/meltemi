@@ -61,7 +61,7 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         name: "sessions",
         reserved: false,
-        methods: &[m::SESSION_LIST, m::SESSION_LOG],
+        methods: &[m::SESSION_LIST, m::SESSION_LOG, m::SESSION_WATCH],
         desc_es: "ir a Sesiones (activas e históricas)",
         desc_en: "go to Sessions (active and historical)",
     },

@@ -15,7 +15,7 @@
 
 ## 3. Superficies y paridad
 
-- [ ] 3.1 Registro de la paleta TUI, registro GUI y matriz
+- [x] 3.1 Registro de la paleta TUI, registro GUI y matriz
   `docs/paridad-nucleo.md` (gate de CI)
 - [ ] 3.2 La TUI filtra el transcript por la sesión mostrada; la GUI se
   suscribe al abrir el detalle y se da de baja al salir

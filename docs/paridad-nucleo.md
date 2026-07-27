@@ -25,6 +25,7 @@ future change — never a silent omission.
 | `context/project` | `project` | `project` | registry |
 | `session/list` | `sessions` | `sessions` | registry + Sessions view |
 | `session/log` | — | `sessions` (drill-in) | registry + session drill-in |
+| `session/watch` | — | `sessions` (drill-in) | registry + session drill-in (live stream) |
 | `session/cancel` | — | `cancel` (`x`) | registry + session drill-in |
 | `session/direct` | `direct` | `direct` | registry |
 | `repo/map` | — | `map` | registry |
