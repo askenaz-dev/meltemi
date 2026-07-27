@@ -34,7 +34,7 @@
 
 ## 4. Verificación
 
-- [ ] 4.1 Gates locales — `cargo fmt --check`, `cargo clippy -- -D warnings`,
+- [x] 4.1 Gates locales — `cargo fmt --check`, `cargo clippy -- -D warnings`,
   tests del workspace (incluidos `meltemi-desktop::scenarios_shell` y
   `meltemid::agents_guide`), `npm run check` y `npm run lint:i18n` — y smoke
   visual conducido por CDP sobre el binario reconstruido: los siete botones
