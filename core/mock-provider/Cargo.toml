@@ -12,5 +12,9 @@ publish = false
 name = "mock-claude-wire"
 path = "src/bin/mock-claude-wire.rs"
 
+[[bin]]
+name = "mock-codex-wire"
+path = "src/bin/mock-codex-wire.rs"
+
 [dependencies]
 serde_json.workspace = true

@@ -24,14 +24,27 @@ pub enum Step {
     AwaitInput,
 }
 
-/// Parses a script, rejecting a line that is neither a comment nor JSON: a
-/// fixture must fail at startup, never halfway through a turn.
+/// One meaningful line of a script: its 1-based number, its raw text (the
+/// bytes a wire emits verbatim) and its parsed value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Line {
+    /// 1-based line number in the script, for diagnostics.
+    pub number: usize,
+    /// The line exactly as written.
+    pub raw: String,
+    /// The line parsed as JSON.
+    pub value: serde_json::Value,
+}
+
+/// The meaningful lines of a script: comments and blanks dropped, everything
+/// else parsed. A line that is not JSON is rejected here, at startup, never
+/// halfway through a turn.
 ///
 /// # Errors
 ///
 /// Returns the offending line number and its content.
-pub fn parse(source: &str) -> Result<Vec<Step>, String> {
-    let mut steps = Vec::new();
+pub fn lines(source: &str) -> Result<Vec<Line>, String> {
+    let mut parsed = Vec::new();
     for (index, line) in source.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -39,18 +52,54 @@ pub fn parse(source: &str) -> Result<Vec<Step>, String> {
         }
         let value: serde_json::Value = serde_json::from_str(trimmed)
             .map_err(|error| format!("script line {}: not JSON ({error}): {trimmed}", index + 1))?;
-        match value.get("mock").and_then(serde_json::Value::as_str) {
+        parsed.push(Line {
+            number: index + 1,
+            raw: trimmed.to_string(),
+            value,
+        });
+    }
+    Ok(parsed)
+}
+
+/// Parses an emit/await script (the shape a one-way event wire plays).
+///
+/// # Errors
+///
+/// Returns the offending line number and its content.
+pub fn parse(source: &str) -> Result<Vec<Step>, String> {
+    let mut steps = Vec::new();
+    for line in lines(source)? {
+        match line.value.get("mock").and_then(serde_json::Value::as_str) {
             Some("await-input") => steps.push(Step::AwaitInput),
             Some(other) => {
                 return Err(format!(
                     "script line {}: unknown directive `{other}`",
-                    index + 1
+                    line.number
                 ));
             }
-            None => steps.push(Step::Emit(trimmed.to_string())),
+            None => steps.push(Step::Emit(line.raw)),
         }
     }
     Ok(steps)
+}
+
+/// Reads the script source the arguments or the environment select, else the
+/// binary's embedded default.
+///
+/// # Errors
+///
+/// Returns a message naming the unreadable path.
+pub fn source(args: &[String], env_var: &str, embedded: &str) -> Result<String, String> {
+    let from_args = args
+        .iter()
+        .position(|a| a == "--script")
+        .and_then(|at| args.get(at + 1))
+        .cloned();
+    match from_args.or_else(|| std::env::var(env_var).ok()) {
+        Some(path) => std::fs::read_to_string(&path)
+            .map_err(|error| format!("script `{path}` cannot be read: {error}")),
+        None => Ok(embedded.to_string()),
+    }
 }
 
 /// Loads the script to play: `--script <path>` wins, then the environment
@@ -60,20 +109,7 @@ pub fn parse(source: &str) -> Result<Vec<Step>, String> {
 ///
 /// Returns a message naming the unreadable path or the offending line.
 pub fn load(args: &[String], env_var: &str, embedded: &str) -> Result<Vec<Step>, String> {
-    let from_args = args
-        .iter()
-        .position(|a| a == "--script")
-        .and_then(|at| args.get(at + 1))
-        .cloned();
-    let path = from_args.or_else(|| std::env::var(env_var).ok());
-    match path {
-        Some(path) => {
-            let source = std::fs::read_to_string(&path)
-                .map_err(|error| format!("script `{path}` cannot be read: {error}"))?;
-            parse(&source)
-        }
-        None => parse(embedded),
-    }
+    parse(&source(args, env_var, embedded)?)
 }
 
 /// Plays a script over the given input and output.

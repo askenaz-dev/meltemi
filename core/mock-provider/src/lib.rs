@@ -20,4 +20,5 @@
 //! and opt-in (task 5.2), and it is that run — not this crate — that says the
 //! observed contract still holds.
 
+pub mod jsonrpc_wire;
 pub mod script;
