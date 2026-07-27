@@ -2,7 +2,7 @@
 
 ## 1. Skin global de botones (GUI)
 
-- [ ] 1.1 Añadir `display: inline-flex; align-items: center; gap: var(--sp-2)`
+- [x] 1.1 Añadir `display: inline-flex; align-items: center; gap: var(--sp-2)`
   a la regla global `button` de `desktop/ui/src/app.css`, fijar
   `align-items: center` en `.actions` de `EmptyState.svelte`, y cubrir
   «Icono y etiqueta en una línea» y «Par de acciones del estado vacío a

@@ -49,6 +49,9 @@
   }
   .actions {
     display: flex;
+    /* Never stretch one action to the height of another — also when the row
+       wraps, where each wrapped line would otherwise stretch on its own. */
+    align-items: center;
     gap: var(--sp-2);
     flex-wrap: wrap;
     justify-content: center;

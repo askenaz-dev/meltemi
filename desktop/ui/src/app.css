@@ -164,8 +164,14 @@ body {
 }
 
 /* Shared control skin: one solid button per zone; the brand gradient is
- * reserved for the shell's primary action. */
+ * reserved for the shell's primary action. The skin also aligns: Icon's svg
+ * is display:block, so without a display rule here every icon+label button
+ * would need a local flex re-declaration — and forgetting it stacks the icon
+ * over the label (pulido-pre-anuncio D1). */
 button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
   font: inherit;
   color: var(--text);
   background: var(--surface-2);

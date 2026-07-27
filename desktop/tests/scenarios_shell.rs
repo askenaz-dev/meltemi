@@ -1259,3 +1259,64 @@ fn the_change_table_shows_which_artifact_awaits_a_gate() {
         );
     }
 }
+
+// ---- icon-and-label controls (pulido-pre-anuncio) ----------------------------
+
+// Scenario: Icono y etiqueta en una línea
+#[test]
+fn the_global_button_skin_lays_icon_and_label_on_one_line() {
+    let css = read("desktop/ui/src/app.css");
+    // The bare element rule, not `.ghost`/`.primary` variants: the alignment
+    // must come from the skin itself, so a plain `<button>` with an icon and a
+    // label renders correct without any local re-declaration (design D1 — the
+    // per-component repetition WAS the root cause).
+    let rule = css
+        .split("\nbutton {")
+        .nth(1)
+        .expect("the shared button skin has a bare element rule")
+        .split('}')
+        .next()
+        .expect("rule body");
+    for declaration in [
+        "display: inline-flex",
+        "align-items: center",
+        "gap: var(--sp-2)",
+    ] {
+        assert!(
+            rule.contains(declaration),
+            "the global button rule declares `{declaration}`: {rule}"
+        );
+    }
+    // The root cause pair: Icon's svg is a block box, which is exactly why a
+    // button without a flex display breaks the line. If Icon ever stops doing
+    // this, the global rule still holds; if the rule ever goes, this test says
+    // why it existed.
+    let icon = read("desktop/ui/src/lib/components/Icon.svelte");
+    assert!(
+        icon.contains("display: block"),
+        "Icon's svg is a block box, which is what the skin's flex display absorbs"
+    );
+}
+
+// Scenario: Par de acciones del estado vacío a altura pareja
+#[test]
+fn empty_state_actions_keep_their_natural_height() {
+    let empty = read("desktop/ui/src/lib/components/EmptyState.svelte");
+    let rule = empty
+        .split(".actions {")
+        .nth(1)
+        .expect("the empty state has an actions row")
+        .split('}')
+        .next()
+        .expect("rule body");
+    // The default `stretch` was what equalized a healthy button to a broken
+    // one — and what made wrapped lines diverge, each stretching on its own.
+    assert!(
+        rule.contains("align-items: center"),
+        "each action keeps its natural height instead of stretching: {rule}"
+    );
+    assert!(
+        rule.contains("flex-wrap: wrap"),
+        "the row wraps, so the alignment rule must cover the wrapped case: {rule}"
+    );
+}
