@@ -224,6 +224,54 @@ y `fleet-catalog`; el refresco del registro es puente honesto mientras
 `adaptadores-propios-acp` no aterrice, y el build que acompañe el anuncio se
 reconstruye tras el merge.
 
+### `lanzador-conversacional` — abierta el 2026-07-27
+
+Nace de la prueba directa del mantenedor: el modal de lanzamiento actual le
+pareció «ordinario», y el mockup que siguió fijó la dirección final en tres
+directivas. **Supersede y absorbe** los borradores `sesion-conversacional` y
+`gestion-proyectos-en-superficie`, que no entran al backlog como changes
+propias. Uno: **home conversacional** — compositor al centro con el contexto
+como chips (proyecto, agente, modo); enviar navega hacia adentro de la
+sesión, a una vista de conversación con compositor persistente sobre
+`session/direct`, burbujas de turno **sobre** el log de eventos (el log de
+operador sigue a un conmutador: el transcript es la verdad) y tarjetas de
+permiso en línea, con estados honestos — «encolada» jamás finge respuesta.
+Dos: **el modo libre es el default** — una sesión nueva es una sesión libre
+gobernada sobre el proyecto elegido; Proponer y Explorar son modos opt-in
+del mismo compositor. Tres: **los proyectos viven en la navegación** —
+sección persistente con sesiones anidadas, «Abrir carpeta…» en el nav y en
+el chip (diálogo nativo vía el plugin oficial de Tauri, dependencia nueva
+del cliente justificada §10), acción rápida por proyecto.
+
+El default libre obliga a una honestidad de producto que la propuesta nombra
+con sus frases exactas: hoy **no existe RPC para iniciar una sesión libre**
+(`session/direct` exige sesión existente; `propose`/`sdd/explore` son verbos
+del método; `worktree/dispatch` exige change y tarea), y la promesa pública
+dice lo contrario — «ninguna línea de código se escribe sin una
+especificación revisada» (rumbo de producto y tesis de meltemi.md). La
+resolución: la sesión libre queda **gobernada siempre** (proxy
+deny-by-default, aislamiento y checkpoints, log apend-only — §3 no se
+negocia) pero **no spec-gated**; el método pasa de cerrojo a propuesta de
+valor por sesión. La redacción de rumbo/product.md y meltemi.md se enmienda
+con **ratificación del mantenedor como gate**; la constitución del propio
+repositorio no se toca — el desarrollo de Meltemi sigue spec-first.
+
+Al daemon entran solo los verbos que la dirección genuinamente no tiene: el
+arranque de sesión libre (forma final en el design), `project/register`
+(alta validada y canonicalizada) y `project/forget` (baja **solo del
+registro**, una línea de olvido en el JSONL que el plegado last-wins
+resuelve; jamás toca el disco), más el parámetro `agent` aditivo en el verbo
+nuevo y en `propose`/`sdd/explore` — resuelto por `resolve_fleet_agent`, con
+error estructurado que lista candidatos detectados en vez del string crudo.
+La conversación en sí es composición cliente sobre `eventos-para-tardios`.
+Paridad ×3 (§4): verbos CLI, `direct` interactivo en la TUI (hoy reservado
+en la paleta), render de proyectos, `docs/paridad-nucleo.md` al día; el
+cromo exclusivo de la GUI no tiene deber de paridad, toda capacidad nueva
+del daemon sí. Fuera de alcance: `menu-nativo-aplicacion` y
+`registro-agentes-en-superficie` siguen siendo changes propias (registrar
+agentes ≠ seleccionarlos), y el render conversacional del histórico
+archivado más allá del conmutador de log queda para futuro con evidencia.
+
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 
 ### Prerrequisitos de daemon del Agent Boss (antes de `companero-movil`, sirven a TUI/GUI hoy)
