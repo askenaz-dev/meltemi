@@ -24,7 +24,7 @@
     },
     "changeInfo": {
       "type": "object",
-      "required": ["name", "archived", "artifacts", "tasksDone", "tasksTotal", "reviewDecided", "reviewTotal", "verified", "verifyTotal"],
+      "required": ["name", "archived", "artifacts", "tasksDone", "tasksTotal", "reviewDecided", "reviewTotal", "verified", "verifyTotal", "gatePending"],
       "properties": {
         "name": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
         "archived": { "type": "boolean" },
@@ -35,7 +35,9 @@
         "reviewDecided": { "type": "integer", "minimum": 0 },
         "reviewTotal": { "type": "integer", "minimum": 0 },
         "verified": { "type": "integer", "minimum": 0 },
-        "verifyTotal": { "type": "integer", "minimum": 0 }
+        "verifyTotal": { "type": "integer", "minimum": 0 },
+        "gatePending": { "type": "boolean", "description": "Whether an authoring gate awaits a human decision on this change." },
+        "gateArtifact": { "type": "string", "enum": ["proposal", "specs", "design", "tasks", "constitution"], "description": "The artifact the pending gate is about; absent when no gate is pending." }
       }
     },
     "listResult": {

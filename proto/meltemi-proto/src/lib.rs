@@ -2243,6 +2243,12 @@ pub struct ChangeInfo {
     /// Verify scenarios verified / total.
     pub verified: u32,
     pub verify_total: u32,
+    /// Whether an authoring gate awaits a human decision on this change.
+    pub gate_pending: bool,
+    /// The artifact the pending gate is about (`proposal`, `specs`, `design`,
+    /// `tasks`, `constitution`); absent when no gate is pending.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate_artifact: Option<String>,
 }
 
 /// Result of `change/list`.

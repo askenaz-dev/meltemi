@@ -2,7 +2,7 @@
 
 ## 1. Contrato
 
-- [ ] 1.1 `ChangeInfo` gana `gate_pending`/`gate_artifact` en `meltemi-proto`,
+- [x] 1.1 `ChangeInfo` gana `gate_pending`/`gate_artifact` en `meltemi-proto`,
   declarados en `change.schema.json` (requerido / opcional), con conformance
   cubriendo con gate y sin gate
 

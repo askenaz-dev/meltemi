@@ -1655,6 +1655,8 @@ fn navigation_conforms() {
         review_total: 4,
         verified: 0,
         verify_total: 8,
+        gate_pending: false,
+        gate_artifact: None,
     };
     assert_conforms("change", "changeInfo", &info);
     // An archived change carries its date.
@@ -1664,6 +1666,16 @@ fn navigation_conforms() {
         &ChangeInfo {
             archived: true,
             archived_at: Some("2026-07-18".into()),
+            ..info.clone()
+        },
+    );
+    // A change whose authoring gate awaits names the artifact it is about.
+    assert_conforms(
+        "change",
+        "changeInfo",
+        &ChangeInfo {
+            gate_pending: true,
+            gate_artifact: Some("specs".into()),
             ..info.clone()
         },
     );
