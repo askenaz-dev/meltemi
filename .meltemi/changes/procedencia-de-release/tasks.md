@@ -16,6 +16,13 @@
 
 - [x] 2.1 Enmendar el requisito de custodia en la documentación: almacenamiento offline (no hardware-backed), y repudio definido como clave nueva en el repositorio más declaración fechada
 - [ ] 2.2 Publicar la clave pública en `docs/release.md` y enlazarla desde el sitio y los dos readmes, cuando el mantenedor la entregue
+  > En espera de la clave (2026-07-27): la mitad pública no está en ninguna
+  > parte del árbol y no se toma de ningún otro canal —la página de release
+  > es justo el origen que D3 descarta—. Cuando el mantenedor entregue la
+  > línea de `meltemi.pub` (su copia local, `~/keys/meltemi/meltemi.pub`),
+  > se pega en la sección «The public key» de `docs/release.md`
+  > reemplazando el aviso «Not yet published», y los enlaces del sitio y de
+  > los dos readmes ya apuntan a ese archivo como ancla.
 
 ## 3. Verificación publicada
 
