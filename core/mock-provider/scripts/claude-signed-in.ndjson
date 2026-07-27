@@ -1,0 +1,25 @@
+# Scripted headless-session wire: the provider CLI running under the account
+# the user already signed into (adaptadores-propios-acp design D4).
+#
+# The shapes below freeze the wire as observed for the supported version of the
+# CLI. They are a fixture, not a specification: the run against the real binary
+# is manual and opt-in (task 5.2), and that run is what says the contract still
+# holds.
+#
+# 1. The initial event, before any input. It carries the feature-detection
+#    array the adapter reads at handshake, and the source of the credentials in
+#    use: `none` means the signed-in session — no API key anywhere.
+{"type":"system","subtype":"init","session_id":"mock-claude-session","cwd":"/mock/project","model":"mock-sonnet","tools":["Read","Write","Bash"],"mcp_servers":[],"permissionMode":"default","apiKeySource":"none","capabilities":["interrupt_receipt_v1"],"slash_commands":[]}
+# 2. From here on, one turn per input message.
+{"mock":"await-input"}
+# 2a. Token-level deltas: what `--include-partial-messages` buys, and what the
+#     ACP session must show as streaming rather than as one late block.
+{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"mock-claude-session"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Working"}},"session_id":"mock-claude-session"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" on it."}},"session_id":"mock-claude-session"}
+{"type":"stream_event","event":{"type":"content_block_stop","index":0},"session_id":"mock-claude-session"}
+# 2b. A tool call and its result: the pair the permission path has to survive.
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_mock_1","name":"Write","input":{"file_path":"NOTES.md","content":"scripted"}}]},"session_id":"mock-claude-session"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_mock_1","content":"ok"}]},"session_id":"mock-claude-session"}
+# 2c. The final result closes the turn.
+{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"mock-claude-session","result":"Done.","usage":{"input_tokens":120,"output_tokens":34}}

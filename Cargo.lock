@@ -2465,6 +2465,13 @@ name = "mock-headless"
 version = "0.1.0"
 
 [[package]]
+name = "mock-provider"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "muda"
 version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

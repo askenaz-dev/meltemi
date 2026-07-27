@@ -1,0 +1,11 @@
+# The same wire, announcing the surface that demands an API key instead of the
+# signed-in session — the shape the announced flip of the CLI's bare mode would
+# produce (adaptadores-propios-acp design D4, pinned risk).
+#
+# This fixture exists so the guard can be exercised: the adapter must refuse
+# with a diagnostic and a remedy, and must never inject a credential to make
+# the session work anyway (task 3.1). Nothing follows the initial event here
+# because nothing should: the adapter is expected to stop at the handshake.
+{"type":"system","subtype":"init","session_id":"mock-claude-session","cwd":"/mock/project","model":"mock-sonnet","tools":["Read","Write","Bash"],"mcp_servers":[],"permissionMode":"default","apiKeySource":"ANTHROPIC_API_KEY","capabilities":[],"slash_commands":[]}
+{"mock":"await-input"}
+{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"mock-claude-session","result":"no credentials available"}

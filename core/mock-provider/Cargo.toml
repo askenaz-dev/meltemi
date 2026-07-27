@@ -1,0 +1,16 @@
+[package]
+name = "mock-provider"
+description = "Scripted provider wires for Meltemi's own-adapter tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "mock-claude-wire"
+path = "src/bin/mock-claude-wire.rs"
+
+[dependencies]
+serde_json.workspace = true
