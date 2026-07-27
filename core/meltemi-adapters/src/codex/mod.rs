@@ -12,6 +12,7 @@
 //! licence is.
 
 pub mod mapping;
+pub mod permission;
 pub mod version;
 pub mod wire;
 
@@ -19,8 +20,8 @@ use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    Meta, NewSessionRequest, PromptRequest, SessionId, SessionInfoUpdate, SessionNotification,
-    SessionUpdate, StopReason,
+    Meta, NewSessionRequest, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
+    SessionId, SessionInfoUpdate, SessionNotification, SessionUpdate, StopReason,
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use serde_json::{Value, json};
@@ -70,9 +71,10 @@ const INTERRUPT_GRACE: Duration = Duration::from_secs(5);
 /// here until an interruption moves it.
 const NEVER: Duration = Duration::from_secs(60 * 60 * 24 * 365);
 
-/// The error a server request gets while the approval relay is not wired: not
-/// one of JSON-RPC's own, and inside the range reserved for the application.
-const UNRELAYED_APPROVAL: i64 = -32010;
+/// JSON-RPC's own code for a method the receiver does not implement. The server
+/// asking something this adapter has no answer for gets the protocol's answer,
+/// not an invented one.
+const METHOD_NOT_FOUND: i64 = -32601;
 
 /// The JSON-RPC server dialect: launches the official CLI in its server mode
 /// and pilots it.
@@ -174,7 +176,16 @@ impl ProviderSession for CodexSession {
                 text: mapping::prompt_text(&prompt),
             }],
         };
-        match drive_turn(&self.peer, &mut incoming, &self.turn, &self.stream, &params).await? {
+        match drive_turn(
+            &self.peer,
+            &mut incoming,
+            &self.turn,
+            &self.stream,
+            &self.stream.session_id,
+            &params,
+        )
+        .await?
+        {
             TurnOutcome::Ended(stop) => Ok(stop),
             TurnOutcome::Abandoned => {
                 // The server was asked to stop and said nothing. It does not get
@@ -307,6 +318,7 @@ async fn drive_turn<W, S>(
     incoming: &mut mpsc::UnboundedReceiver<Incoming>,
     turn: &TurnControl,
     stream: &S,
+    session_id: &SessionId,
     params: &wire::TurnStartParams,
 ) -> Result<TurnOutcome, Refusal>
 where
@@ -335,6 +347,11 @@ where
                 };
                 learned_turn_id(peer, turn, &result.turn.id).await;
                 if let Some(outcome) = ended(result.turn.status)? {
+                    // The answer says the turn is over, and everything the
+                    // server already said belongs to it. Returning without
+                    // showing what is still queued would silently swallow the
+                    // whole turn whenever the answer happened to win the race.
+                    drain(peer, incoming, turn, stream, session_id, &mut mapper).await?;
                     return Ok(outcome);
                 }
             }
@@ -347,50 +364,139 @@ where
                 let Some(message) = message else {
                     return Err(provider_gone());
                 };
-                match message {
-                    Incoming::Notification { method, params } => {
-                        let mapped = mapper.map(&method, &params);
-                        for update in mapped.updates {
-                            stream.emit(update);
-                        }
-                        if let Some(note) = mapped.noted {
-                            stream.note(&note);
-                        }
-                        match mapped.signal {
-                            Some(mapping::Signal::TurnStarted(id)) => {
-                                learned_turn_id(peer, turn, &id).await;
-                            }
-                            Some(mapping::Signal::TurnEnded(status)) => {
-                                if let Some(outcome) = ended(status)? {
-                                    return Ok(outcome);
-                                }
-                            }
-                            Some(mapping::Signal::TurnFailed(message)) => {
-                                return Err(turn_failed(&message));
-                            }
-                            None => {}
-                        }
-                    }
-                    Incoming::Request { id, method, .. } => {
-                        // The approval relay lands in task 2.4. Until it does,
-                        // the answer is no: an adapter that approved on its own
-                        // account would be the one thing this architecture
-                        // exists to prevent.
-                        stream.note(&format!("refused `{method}`: approvals are not relayed yet"));
-                        let _ = peer
-                            .respond_with_error(
-                                &id,
-                                UNRELAYED_APPROVAL,
-                                "this adapter does not relay approvals yet \
-                                 (adaptadores-propios-acp 2.4)",
-                            )
-                            .await;
-                    }
-                    Incoming::Noise(line) => stream.note(&format!("provider said: {line}")),
+                if let Some(outcome) =
+                    handle(peer, turn, stream, session_id, &mut mapper, message).await?
+                {
+                    return Ok(outcome);
                 }
             }
         }
     }
+}
+
+/// Handles one thing the server said. `Some` means the turn is over.
+///
+/// # Errors
+///
+/// A turn the server reports as failed is an error, not a stop reason.
+async fn handle<W, S>(
+    peer: &Peer<W>,
+    turn: &TurnControl,
+    stream: &S,
+    session_id: &SessionId,
+    mapper: &mut mapping::Mapper,
+    message: Incoming,
+) -> Result<Option<TurnOutcome>, Refusal>
+where
+    W: AsyncWrite + Unpin + Send,
+    S: TurnStream,
+{
+    match message {
+        Incoming::Notification { method, params } => {
+            let mapped = mapper.map(&method, &params);
+            for update in mapped.updates {
+                stream.emit(update);
+            }
+            if let Some(note) = mapped.noted {
+                stream.note(&note);
+            }
+            match mapped.signal {
+                Some(mapping::Signal::TurnStarted(id)) => {
+                    learned_turn_id(peer, turn, &id).await;
+                    Ok(None)
+                }
+                Some(mapping::Signal::TurnEnded(status)) => ended(status),
+                Some(mapping::Signal::TurnFailed(message)) => Err(turn_failed(&message)),
+                None => Ok(None),
+            }
+        }
+        Incoming::Request { id, method, params } => {
+            relay_approval(peer, stream, session_id, &id, &method, &params).await;
+            Ok(None)
+        }
+        Incoming::Noise(line) => {
+            stream.note(&format!("provider said: {line}"));
+            Ok(None)
+        }
+    }
+}
+
+/// Handles everything the server has already said and nobody has read yet,
+/// without waiting for anything more.
+///
+/// # Errors
+///
+/// Propagates a failed turn found among what was queued.
+async fn drain<W, S>(
+    peer: &Peer<W>,
+    incoming: &mut mpsc::UnboundedReceiver<Incoming>,
+    turn: &TurnControl,
+    stream: &S,
+    session_id: &SessionId,
+    mapper: &mut mapping::Mapper,
+) -> Result<(), Refusal>
+where
+    W: AsyncWrite + Unpin + Send,
+    S: TurnStream,
+{
+    while let Ok(message) = incoming.try_recv() {
+        handle(peer, turn, stream, session_id, mapper, message).await?;
+    }
+    Ok(())
+}
+
+/// Puts one of the server's questions to the permission proxy, and answers the
+/// server with what the proxy said.
+///
+/// While this waits, the turn loop is not reading — which costs nothing: the
+/// peer's reader keeps draining the provider into its queue, and the server is
+/// itself waiting for this very answer before going on. A cancellation during
+/// the wait still lands, because ACP requires the client to answer every pending
+/// permission request with `Cancelled` when it cancels, and because the
+/// interruption is sent from the cancel handler's own task, not from here.
+async fn relay_approval<W, S>(
+    peer: &Peer<W>,
+    stream: &S,
+    session_id: &SessionId,
+    id: &Value,
+    method: &str,
+    params: &Value,
+) where
+    W: AsyncWrite + Unpin + Send,
+    S: TurnStream,
+{
+    if !permission::is_approval(method) {
+        stream.note(&format!(
+            "the server asked `{method}`, which this adapter has no answer for"
+        ));
+        let _ = peer
+            .respond_with_error(
+                id,
+                METHOD_NOT_FOUND,
+                "this adapter does not implement that method",
+            )
+            .await;
+        return;
+    }
+
+    let Ok(approval) = serde_json::from_value::<wire::ApprovalParams>(params.clone()) else {
+        // A question that cannot be read cannot be decided, and something that
+        // cannot be decided is refused.
+        stream.note(&format!("unreadable `{method}`, refused: {params}"));
+        let _ = peer
+            .respond(
+                id,
+                &wire::ApprovalResponse::new(wire::ApprovalDecision::Decline),
+            )
+            .await;
+        return;
+    };
+
+    let decision = stream
+        .ask(permission::request_for(session_id, method, &approval))
+        .await;
+    let answer = wire::ApprovalResponse::new(permission::decide(&decision));
+    let _ = peer.respond(id, &answer).await;
 }
 
 /// Records the turn's id and sends the interruption that was waiting for it.
@@ -441,6 +547,13 @@ trait TurnStream: Send + Sync {
     fn emit(&self, update: SessionUpdate);
     /// Keeps something on the record without showing it as the agent's words.
     fn note(&self, line: &str);
+    /// Puts a permission request to the proxy and waits for what it decides.
+    ///
+    /// The adapter never decides; it only asks and relays (design D5).
+    fn ask(
+        &self,
+        request: RequestPermissionRequest,
+    ) -> impl Future<Output = permission::Decision> + Send;
 }
 
 /// The real destination: the ACP connection this session was opened on.
@@ -460,6 +573,28 @@ impl TurnStream for AcpStream {
         // The adapter's own stderr, which the daemon already collects: evidence
         // kept without dressing it up as something the agent said.
         eprintln!("{}: {line}", SPEC.name);
+    }
+
+    async fn ask(&self, request: RequestPermissionRequest) -> permission::Decision {
+        // The daemon's proxy answers this: rules first, the human's tray when no
+        // rule decides, and the constitutional denial when no client is
+        // connected at all. None of that logic is here, and none of it should
+        // be.
+        match self.cx.send_request(request).block_task().await {
+            Ok(response) => match response.outcome {
+                RequestPermissionOutcome::Selected(selected) => {
+                    permission::Decision::Selected(selected.option_id.0.as_ref().to_string())
+                }
+                RequestPermissionOutcome::Cancelled => permission::Decision::Cancelled,
+                // An outcome this adapter does not recognise decides nothing,
+                // and deciding nothing is a refusal.
+                _ => permission::Decision::Unavailable,
+            },
+            Err(error) => {
+                self.note(&format!("the permission proxy could not decide: {error}"));
+                permission::Decision::Unavailable
+            }
+        }
     }
 }
 
@@ -771,11 +906,14 @@ mod tests {
         format!("{{\"id\":1,\"result\":{{\"userAgent\":\"{user_agent}\"}}}}\n")
     }
 
-    /// A turn's updates, collected instead of sent.
+    /// A turn's updates, collected instead of sent, and a permission proxy that
+    /// answers whatever the test arranged.
     #[derive(Default)]
     struct Collected {
         updates: StdMutex<Vec<SessionUpdate>>,
         notes: StdMutex<Vec<String>>,
+        asked: StdMutex<Vec<RequestPermissionRequest>>,
+        answers: StdMutex<Vec<permission::Decision>>,
     }
 
     impl TurnStream for Collected {
@@ -785,6 +923,17 @@ mod tests {
 
         fn note(&self, line: &str) {
             self.notes.lock().unwrap().push(line.to_string());
+        }
+
+        async fn ask(&self, request: RequestPermissionRequest) -> permission::Decision {
+            self.asked.lock().unwrap().push(request);
+            self.answers
+                .lock()
+                .unwrap()
+                .pop()
+                // Nothing was arranged: the proxy could not be reached, which is
+                // exactly the case that must end in a refusal.
+                .unwrap_or(permission::Decision::Unavailable)
         }
     }
 
@@ -887,7 +1036,8 @@ mod tests {
         let stream = Collected::default();
 
         let params = turn_params();
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &params);
+        let session = SessionId::new("s-1");
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
         let serving = async {
             let call = server.next_call().await;
             assert_eq!(call["method"], wire::TURN_START);
@@ -932,7 +1082,8 @@ mod tests {
         let stream = Collected::default();
 
         let params = turn_params();
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &params);
+        let session = SessionId::new("s-1");
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
         let serving = async {
             let start = server.next_call().await;
             interrupt(&peer, &turn).await;
@@ -973,7 +1124,8 @@ mod tests {
         let stream = Collected::default();
 
         let params = turn_params();
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &params);
+        let session = SessionId::new("s-1");
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
         let serving = async {
             server.next_call().await;
             server
@@ -996,28 +1148,87 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_approval_this_adapter_cannot_relay_yet_is_refused_not_granted() {
-        // Deny by default from the first day the wire can ask: an adapter that
-        // approved on its own account is the one thing this architecture exists
-        // to prevent. The relay to the permission proxy lands in task 2.4.
+    async fn an_approval_goes_to_the_proxy_and_the_proxys_answer_is_what_the_server_gets() {
+        // Scenario: Aprobación del servidor decidida por el proxy
         let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
         let stream = Collected::default();
+        stream
+            .answers
+            .lock()
+            .unwrap()
+            .push(permission::Decision::Selected(
+                permission::ALLOW_ONCE.into(),
+            ));
 
         let params = turn_params();
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &params);
+        let session = SessionId::new("s-1");
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
         let serving = async {
             let start = server.next_call().await;
             server
                 .say(&json!({"id": 7, "method": wire::FILE_CHANGE_APPROVAL,
-                             "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "i2"}}))
+                             "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "i2",
+                                        "reason": "it writes one file"}}))
                 .await;
             let answer = server.next_call().await;
             assert_eq!(answer["id"], 7);
-            assert!(
-                answer["result"].is_null(),
-                "an approval that cannot be relayed is not granted: {answer}"
+            assert_eq!(
+                answer["result"]["decision"], "accept",
+                "what the server gets is what the proxy decided: {answer}"
             );
-            assert_eq!(answer["error"]["code"], UNRELAYED_APPROVAL);
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "completed", "items": []}}}))
+                .await;
+        };
+
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+
+        let asked = stream.asked.lock().unwrap();
+        assert_eq!(asked.len(), 1, "the question was put once");
+        assert_eq!(asked[0].session_id.0.as_ref(), "s-1");
+        assert_eq!(
+            asked[0].tool_call.tool_call_id.0.as_ref(),
+            "i2",
+            "against the very item the server asked about"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_proxy_that_cannot_decide_is_a_refusal_and_the_server_hears_it() {
+        // Scenario: Aprobación del servidor decidida por el proxy
+        //
+        // No decision — no client, an error, an outcome nobody recognises — is a
+        // refusal. An adapter that let a gap in the chain read as consent would
+        // be the one thing this architecture exists to prevent.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": 7, "method": wire::COMMAND_EXECUTION_APPROVAL,
+                             "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "i2"}}))
+                .await;
+            assert_eq!(server.next_call().await["result"]["decision"], "decline");
+
+            // And something this adapter has no answer for at all gets the
+            // protocol's own answer, not an invented one — and certainly not a
+            // yes.
+            server
+                .say(&json!({"id": 8, "method": "thread/somethingElse", "params": {}}))
+                .await;
+            assert_eq!(server.next_call().await["error"]["code"], METHOD_NOT_FOUND);
+
             server
                 .notify(
                     wire::TURN_COMPLETED,
@@ -1039,7 +1250,8 @@ mod tests {
         let stream = Collected::default();
 
         let params = turn_params();
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &params);
+        let session = SessionId::new("s-1");
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
         let serving = async {
             server.next_call().await;
             drop(server);
