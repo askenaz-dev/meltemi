@@ -142,13 +142,16 @@ notepad install.ps1
         <h2 id="verify">Verify what you downloaded</h2>
         <p>
           Every release publishes a <code>SHA256SUMS</code> with a detached
-          signature made with the maintainer's key. Check the checksum, then check
-          the signature — the procedure, including where the public key lives, is in
-          the release documentation.
+          signature made with the maintainer's key, plus a build attestation minted
+          by the release workflow itself. Three checks, ordered by what each one
+          buys: the checksum tells you the file arrived intact, the signature tells
+          you the maintainer vouched for it, and the attestation tells you which
+          repository, commit and workflow produced it. The commands — and what each
+          check can and cannot prove — are in the release documentation.
         </p>
         <p>
           <a class="btn" href="https://github.com/askenaz-dev/meltemi/releases/latest/download/SHA256SUMS">SHA256SUMS of the latest release</a>
-          <a class="btn" href="https://github.com/askenaz-dev/meltemi/blob/main/docs/release.md">Checksum and signature procedure</a>
+          <a class="btn" href="https://github.com/askenaz-dev/meltemi/blob/main/docs/release.md">Checksum, signature and provenance procedure</a>
         </p>
         <div class="notice info">
           <strong><span aria-hidden="true">◆</span> Nothing is mirrored here.</strong>

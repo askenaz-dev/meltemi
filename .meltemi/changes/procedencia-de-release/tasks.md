@@ -28,7 +28,7 @@
 
 - [x] 3.1 Documentar `gh attestation verify` con `--signer-workflow`, diciendo qué atestigua el job que la emite y qué no
 - [x] 3.2 Declarar la nota de transparencia (§9) y la asimetría de verificación offline entre minisign y la atestación
-- [ ] 3.3 Reflejar los tres pasos —checksum, firma, procedencia— en `README.md`, `LEEME.md` y las dos páginas de descargas, ordenados por lo que cada uno compra
+- [x] 3.3 Reflejar los tres pasos —checksum, firma, procedencia— en `README.md`, `LEEME.md` y las dos páginas de descargas, ordenados por lo que cada uno compra
 
 ## 4. Cobertura
 

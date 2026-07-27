@@ -331,7 +331,7 @@ jobs:
             --draft \
             --verify-tag \
             --title "Meltemi $GITHUB_REF_NAME" \
-            --notes "Draft pending signature: the maintainer verifies these artifacts, signs SHA256SUMS with the project key and attaches SHA256SUMS.minisig before publishing. Checksums cover every asset, including the installer scripts. To verify a download, follow docs/release.md - it carries the public key and both steps." \
+            --notes "Draft pending signature: the maintainer verifies these artifacts, signs SHA256SUMS with the project key and attaches SHA256SUMS.minisig before publishing. Checksums cover every asset, including the installer scripts. To verify a download, follow docs/release.md - it carries the public key and the three checks: checksum, signature, provenance." \
             release-assets/*
 
   # The site lint is a precondition of publishing on both paths: a tagged

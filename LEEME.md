@@ -75,19 +75,23 @@ escritorio. El cliente de terminal y el daemon funcionan en cualquiera desde el
 archivo de arriba, y la app de escritorio se compila desde el código (más abajo).
 Un `.rpm` es el siguiente paso.
 
-Cada release publica `SHA256SUMS` con firma separada de minisign. Verifica el
-checksum y después quién lo firmó:
+Cada release publica `SHA256SUMS` con firma separada de minisign y una
+atestación de build acuñada por el workflow de release. Tres comprobaciones,
+ordenadas por lo que cada una compra — detente en la garantía que necesites:
 
 ```bash
-sha256sum --check SHA256SUMS
-minisign -Vm SHA256SUMS -P <la clave pública de docs/release.md>
+sha256sum --check SHA256SUMS                                      # 1. intacto
+minisign -Vm SHA256SUMS -P <la clave pública de docs/release.md>  # 2. avalado
+gh attestation verify SHA256SUMS --repo askenaz-dev/meltemi       # 3. procedencia
 ```
 
 (`shasum -a 256` en macOS; `Get-FileHash` en Windows.) El checksum prueba que el
-archivo llegó intacto; la firma prueba quién lo publicó. Los scripts instaladores
-hacen el primer paso por ti, no el segundo — `minisign` no viene con ningún
-sistema operativo, y un instalador de una línea que primero exige instalar un
-paquete no es de una línea. La clave y el procedimiento están en
+archivo llegó intacto; la firma prueba que el mantenedor lo avaló; la atestación
+prueba de qué repositorio, commit y workflow salió. Los scripts instaladores
+hacen el primer paso por ti, no los otros dos — `minisign` y `gh` no vienen con
+ningún sistema operativo, y un instalador de una línea que primero exige
+instalar un paquete no es de una línea. La clave, el comando completo de
+procedencia y qué prueba (y qué no) cada comprobación están en
 [`docs/release.md`](docs/release.md).
 
 Los scripts instaladores colocan `meltemi`, `meltemid` y el alias corto `mel` en
