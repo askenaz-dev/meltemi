@@ -159,7 +159,12 @@ async fn serve_connection(
                 }
                 Some(Incoming::Notification { method, params }) if method == methods::SESSION_EVENT => {
                     if let Some(line) = summarize_event(&params) {
-                        let _ = updates.send(Update::TranscriptLine(line));
+                        let session_id = params
+                            .get("sessionId")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string();
+                        let _ = updates.send(Update::TranscriptLine { session_id, line });
                     }
                 }
                 Some(Incoming::Notification { .. }) => {}

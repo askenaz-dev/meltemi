@@ -156,8 +156,10 @@ pub enum Update {
     PermissionQueue(Vec<PendingPermission>),
     /// The count of pending permission requests changed.
     Pending(usize),
-    /// A streamed transcript line for the observed session.
-    TranscriptLine(String),
+    /// A streamed transcript line, with the session it belongs to: the daemon
+    /// can now stream more than one session to a connection, so the line says
+    /// whose it is (eventos-para-tardios D7).
+    TranscriptLine { session_id: String, line: String },
     /// The fetched log of a historical session (summarized lines).
     SessionLog {
         session_id: String,
@@ -197,6 +199,10 @@ pub struct LiveData {
     /// session id it belongs to (so a stale fetch is ignored).
     pub session_log: Vec<String>,
     pub session_log_for: Option<String>,
+    /// The live session the detail view is showing, when one is open. While
+    /// set, transcript lines of any other session are dropped instead of
+    /// interleaving two transcripts in one buffer.
+    pub observed_live: Option<String>,
 }
 
 impl Default for LiveData {
@@ -224,6 +230,7 @@ impl LiveData {
             notices: Vec::new(),
             session_log: Vec::new(),
             session_log_for: None,
+            observed_live: None,
         }
     }
 
@@ -271,7 +278,15 @@ impl LiveData {
                     self.permission_queue.iter().filter(|p| !p.expired).count();
             }
             Update::Pending(n) => self.pending_permissions = n,
-            Update::TranscriptLine(line) => {
+            Update::TranscriptLine { session_id, line } => {
+                // A detail view showing one live session takes only its lines.
+                if self
+                    .observed_live
+                    .as_deref()
+                    .is_some_and(|observed| observed != session_id)
+                {
+                    return;
+                }
                 self.transcript.push(line);
                 if self.transcript.len() > TRANSCRIPT_CAP {
                     self.transcript.remove(0);
@@ -464,14 +479,23 @@ mod tests {
     fn transcript_follows_tail_until_scrolled() {
         // Scenario: Desplazarse suspende el seguimiento; volver al final lo reanuda.
         let mut live = LiveData::new();
-        live.apply(Update::TranscriptLine("l1".into()));
-        live.apply(Update::TranscriptLine("l2".into()));
+        live.apply(Update::TranscriptLine {
+            session_id: "s1".into(),
+            line: "l1".into(),
+        });
+        live.apply(Update::TranscriptLine {
+            session_id: "s1".into(),
+            line: "l2".into(),
+        });
         assert!(live.follow_tail);
         assert_eq!(live.scroll, 2);
         live.scroll_up();
         assert!(!live.follow_tail, "scrolling up suspends auto-follow");
         // A new line arrives but does not yank the view because we are scrolled.
-        live.apply(Update::TranscriptLine("l3".into()));
+        live.apply(Update::TranscriptLine {
+            session_id: "s1".into(),
+            line: "l3".into(),
+        });
         assert!(!live.follow_tail);
         // Scrolling back to the tail re-enables following.
         live.scroll_down();
@@ -525,7 +549,10 @@ mod tests {
             uptime_s: 1,
             sessions: 1,
         }));
-        live.apply(Update::TranscriptLine("[s1] agent_message".into()));
+        live.apply(Update::TranscriptLine {
+            session_id: "s1".into(),
+            line: "[s1] agent_message".into(),
+        });
         live.apply(Update::Conn(ConnState::Unreachable {
             detail: "closed".into(),
         }));
@@ -535,5 +562,43 @@ mod tests {
             "a cut marker is appended: {:?}",
             live.transcript
         );
+    }
+
+    #[test]
+    fn a_detail_view_takes_only_its_own_sessions_transcript() {
+        // Scenario: Cliente que llega a mitad de sesión — with more than one
+        // session streaming to a connection, the open detail must not
+        // interleave a foreign transcript into the one on screen.
+        let mut live = LiveData::new();
+        // No detail open: whatever streams is shown (the pre-existing shape).
+        live.apply(Update::TranscriptLine {
+            session_id: "s1".into(),
+            line: "before".into(),
+        });
+        assert_eq!(live.transcript.len(), 1);
+
+        // Drilled into s1: its lines land, another session's are dropped.
+        live.observed_live = Some("s1".into());
+        live.apply(Update::TranscriptLine {
+            session_id: "s1".into(),
+            line: "mine".into(),
+        });
+        live.apply(Update::TranscriptLine {
+            session_id: "s2".into(),
+            line: "someone else's".into(),
+        });
+        assert_eq!(
+            live.transcript,
+            vec!["before".to_string(), "mine".to_string()],
+            "only the observed session's lines are kept"
+        );
+
+        // Leaving the detail stops filtering.
+        live.observed_live = None;
+        live.apply(Update::TranscriptLine {
+            session_id: "s2".into(),
+            line: "after".into(),
+        });
+        assert_eq!(live.transcript.len(), 3);
     }
 }

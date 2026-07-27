@@ -240,11 +240,19 @@ fn handle_action(
                     project_root: root,
                 });
             }
-            _ => live.observe_session_log(None),
+            Some(row) => {
+                // A live session: no log to fetch, but its transcript is the
+                // only one this view accepts.
+                live.observed_live = Some(row.id.clone());
+                live.observe_session_log(None);
+            }
+            None => live.observe_session_log(None),
         }
     } else if was_drilled && !state.is_drilled() {
-        // Left the detail view: forget the fetched historical log.
+        // Left the detail view: forget the fetched historical log and stop
+        // filtering the streamed transcript.
         live.observe_session_log(None);
+        live.observed_live = None;
     }
     false
 }

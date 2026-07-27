@@ -173,6 +173,26 @@
       });
   });
 
+  // Ask the daemon for this session's live stream. The connection that
+  // started the session already receives it; for any other — a second window,
+  // a tunnelled phone — this is what turns the detail view live instead of a
+  // snapshot (eventos-para-tardios).
+  $effect(() => {
+    const watched = sessionId;
+    void request("session/watch", { sessionId: watched, watch: true }).catch(
+      () => {
+        // A daemon that cannot be reached will be retried by the shell; the
+        // log already fetched above remains the honest fallback.
+      },
+    );
+    return () => {
+      void request("session/watch", {
+        sessionId: watched,
+        watch: false,
+      }).catch(() => {});
+    };
+  });
+
   $effect(() =>
     onSessionEvent((message) => {
       if (message.sessionId !== sessionId) return;
