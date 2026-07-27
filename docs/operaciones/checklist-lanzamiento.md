@@ -7,13 +7,44 @@ Los procedimientos largos viven en `docs/release.md`; aquí está el orden.
 
 ## 1. Dominio `meltemi.dev` → GitHub Pages
 
-El repositorio ya declara el dominio de dos formas —`site/CNAME` y el ajuste de
-Pages— así que solo falta el DNS del registrador (Dynadot). El sitio se publica
-desde el workflow, no desde una rama.
+El único declarante que cuenta es **el ajuste de Pages del repositorio**. Existe
+un `site/CNAME`, pero al publicar desde un workflow propio de Actions GitHub lo
+ignora — está en su documentación: si publicas desde un workflow personalizado,
+cualquier archivo CNAME se ignora y no es necesario. Se conserva por si la
+publicación volviera a una rama, y su lint solo comprueba que no esté vacío. Quien
+depure esto empezando por ese archivo perderá el tiempo: el dominio se cambia en
+Settings → Pages.
 
-**Registros en el panel DNS del dominio.** El apex no admite `CNAME`, así que va
-por dirección; los cuatro valores de cada familia son los de GitHub Pages y hay
-que poner los cuatro (son el balanceo, no alternativas):
+**Registros en el panel DNS del dominio.** La raíz de una zona no admite `CNAME`
+(RFC 1034 §3.6.2: un CNAME no puede convivir con otros datos, y la raíz lleva SOA
+y NS por definición). Pero sí admite un **ANAME**, que Dynadot ofrece en su
+sección *Domain Record* y GitHub documenta al mismo nivel que los A: el
+autoritativo resuelve el destino por ti y responde direcciones. Esa es la fila
+preferida, porque delega en GitHub el mantenimiento de sus propias IPs:
+
+| Tipo | Nombre / Host | Valor |
+|---|---|---|
+| **ANAME** | `@` (raíz) | `askenaz-dev.github.io` |
+| CNAME | `www` | `askenaz-dev.github.io.` |
+
+El ANAME **sustituye** al CNAME o a los A de la raíz, no se suma: Dynadot rechaza
+combinarlo con `A`, `AAAA`, `Forward` o `Stealth Forward`, y GitHub avisa aparte
+de que registros extra en `@` pueden impedir que se genere el certificado.
+
+Verifica en el autoritativo que el ANAME devuelve **direcciones** y no un CNAME
+— Dynadot no documenta el comportamiento en el cable, y ANAME no es un tipo del
+DNS estándar sino una síntesis del servidor:
+
+```bash
+nslookup -type=a meltemi.dev ns1.dyna-ns.net
+nslookup -type=aaaa meltemi.dev ns1.dyna-ns.net
+```
+
+Si sigue apareciendo una línea `Aliases:` o un CNAME, el ANAME de Dynadot es un
+CNAME rebautizado y hay que caer a los registros por dirección de abajo.
+
+**Fallback por dirección.** Los cuatro valores de cada familia son el balanceo, no
+alternativas, y hay que poner los cuatro:
 
 | Tipo | Nombre / Host | Valor | TTL |
 |---|---|---|---|
@@ -62,8 +93,8 @@ significa que GitHub está presentando el de `*.github.io`, que no cubre tu
 dominio — el síntoma de que el certificado del dominio nunca se emitió.
 
 En Dynadot esto es **Mis dominios → meltemi.dev → DNS** con el modo de registros
-DNS (no el reenvío ni el estacionamiento: el reenvío rompe la verificación de
-Pages y el certificado). Cualquier registro `A`/`AAAA`/`CNAME` previo en la raíz
+DNS (no el reenvío ni el estacionamiento: el reenvío entrega tu TLS al
+registrador —que emite un certificado propio— e impide que GitHub emita el suyo). Cualquier registro `A`/`AAAA`/`CNAME` previo en la raíz
 —el estacionamiento del registrador suele dejar uno— hay que borrarlo: un apex
 con dos destinos falla la mitad de las veces, que es peor que fallar siempre.
 

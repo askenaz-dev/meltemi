@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://meltemi.dev/schemas/v1/analytics.schema.json",
+  "$id": "https://meltemi.dev/proto/v1/analytics.schema.json",
   "title": "analytics/usage",
   "description": "Local usage accounting, aggregated by the daemon over the session records it already keeps (analitica-consumo-local). Tokens are only ever the counters an official agent output reported; an absent counter stays absent and is never rendered as zero. Nothing here is estimated, and no figure comes from the provider account (quota, balance or billing are not visible).",
   "$defs": {
