@@ -803,9 +803,8 @@
     font-size: var(--fs-dense);
   }
   .quick {
-    display: inline-flex;
+    /* Deliberately tighter than the skin's --sp-2 (design D1). */
     gap: 4px;
-    align-items: center;
     color: var(--text-faint);
   }
   kbd {
@@ -821,8 +820,7 @@
     gap: var(--sp-2);
   }
   .actions button {
-    display: inline-flex;
-    align-items: center;
+    /* Deliberately tighter than the skin's --sp-2 (design D1). */
     gap: 4px;
     font-size: var(--fs-dense);
   }

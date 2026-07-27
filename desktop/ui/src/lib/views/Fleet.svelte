@@ -223,8 +223,6 @@
   }
   .agent {
     display: flex;
-    align-items: center;
-    gap: var(--sp-2);
     padding: 0;
     background: transparent;
     border-color: transparent;

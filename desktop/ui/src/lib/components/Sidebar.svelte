@@ -238,8 +238,6 @@
   }
   .project {
     display: flex;
-    align-items: center;
-    gap: var(--sp-2);
     background: var(--surface-2);
     border-color: var(--border);
     border-radius: var(--radius-panel);
@@ -281,8 +279,6 @@
   }
   .item {
     display: flex;
-    align-items: center;
-    gap: var(--sp-2);
     padding: 6px var(--sp-2);
     border-radius: var(--radius-control);
     color: var(--text-muted);
@@ -331,7 +327,7 @@
   }
   .groupName {
     display: flex;
-    align-items: center;
+    /* Deliberately tighter than the skin's --sp-2 (design D1). */
     gap: 6px;
     flex: 1;
     min-width: 0;
@@ -357,7 +353,7 @@
   }
   .leaf {
     display: flex;
-    align-items: center;
+    /* Deliberately tighter than the skin's --sp-2 (design D1). */
     gap: 6px;
     width: 100%;
     height: 28px;

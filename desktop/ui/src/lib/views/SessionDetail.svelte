@@ -472,8 +472,7 @@
   }
   .tools button {
     font-size: var(--fs-caption);
-    display: inline-flex;
-    align-items: center;
+    /* Deliberately tighter than the skin's --sp-2 (design D1). */
     gap: 4px;
   }
   .tools input {

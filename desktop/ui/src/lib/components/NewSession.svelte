@@ -313,9 +313,6 @@
     gap: var(--sp-1);
   }
   .agentBtn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-2);
     font-size: var(--fs-dense);
   }
   .agentBtn.sel {

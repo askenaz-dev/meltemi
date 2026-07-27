@@ -7,7 +7,7 @@
   `align-items: center` en `.actions` de `EmptyState.svelte`, y cubrir
   «Icono y etiqueta en una línea» y «Par de acciones del estado vacío a
   altura pareja» en `desktop/tests/scenarios_shell.rs`
-- [ ] 1.2 Retirar las re-declaraciones locales que dupliquen exactamente la
+- [x] 1.2 Retirar las re-declaraciones locales que dupliquen exactamente la
   regla global (TopBar, App, SessionDetail, Sidebar, Fleet, Sessions,
   NewSession, Editor — solo duplicados exactos; los overrides deliberados de
   `gap` se conservan, design D1), con `npm run check` limpio

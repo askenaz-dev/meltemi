@@ -133,9 +133,6 @@
   .search,
   .tray,
   .primary {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-2);
     font-size: var(--fs-dense);
   }
   .search {

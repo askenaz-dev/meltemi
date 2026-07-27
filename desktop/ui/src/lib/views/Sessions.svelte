@@ -313,9 +313,8 @@
   .chips .pill {
     border: 1px solid transparent;
     cursor: pointer;
-    display: inline-flex;
+    /* Deliberately tighter than the skin's --sp-2, matching .pill (design D1). */
     gap: var(--sp-1);
-    align-items: center;
   }
   .chips .pill.sel {
     border-color: var(--accent);
@@ -325,9 +324,8 @@
     margin-left: auto;
   }
   .filter button {
-    display: inline-flex;
+    /* Deliberately tighter than the skin's --sp-2 (design D1). */
     gap: var(--sp-1);
-    align-items: center;
   }
   kbd {
     font: inherit;

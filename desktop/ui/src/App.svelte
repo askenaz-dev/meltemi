@@ -513,8 +513,7 @@
   .bannerActions button {
     color: #fff;
     border-color: rgb(255 255 255 / 0.5);
-    display: inline-flex;
-    align-items: center;
+    /* Deliberately tighter than the skin's --sp-2 (design D1). */
     gap: var(--sp-1);
     font-size: var(--fs-caption);
   }
