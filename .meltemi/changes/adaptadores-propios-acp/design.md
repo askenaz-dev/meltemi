@@ -1,0 +1,283 @@
+# adaptadores-propios-acp — design
+
+## Context
+
+El nivel 2 de la flota pilota Claude Code y Codex a través de adaptadores
+ACP de terceros declarados en el registro. Ese suelo se movió: Zed archivó
+su `codex-acp` en Rust el 2026-07-22 («Development has moved to
+agentclientprotocol/codex-acp»), los adaptadores canónicos viven hoy en
+TypeScript bajo la org neutral `agentclientprotocol`, y el adaptador de
+Claude envuelve el Agent SDK que los términos de Anthropic (feb-2026)
+nombran como no autorizado para OAuth de suscripciones de consumo. El
+research (scratchpad de adaptadores, verificado 2026-07-27 contra GitHub,
+npm y la documentación de cada proveedor) estableció la arquitectura; el
+mantenedor dio la directiva: «no quiero ACP (adapters) de terceros. Revisa
+los que tenemos y construimos los propios». Los adaptadores propios dejan
+de ser una opción a evaluar: son los puntos de pilotaje que Meltemi
+distribuye.
+
+Esta change revierte el fuera-de-alcance que `niveles-integracion-conformidad`
+dejó registrado — proposal: «Mantener adaptadores propios: se consumen
+adaptadores abiertos existentes»; design: «mantener adaptadores propios (se
+consumen los abiertos existentes, declarados en datos)» — y lo hace por
+escrito, con fechas y fuentes (D1).
+
+Interacción con changes vecinas: `pulido-pre-anuncio` (pendiente,
+fast-forward) refresca los `adapter-install` de terceros a las
+distribuciones vigentes bajo `@agentclientprotocol` — debe aterrizar antes,
+por honestidad con el usuario de hoy (D11). `motor-propio-byok` (proposal
+redactada, sin implementar) describe la detección de directorio hermano
+para binarios `bundled`; como no existe en el código, esta change la
+implementa como mecanismo genérico y el motor la hereda (D8).
+
+## Goals / Non-Goals
+
+**Goals:** dos adaptadores ACP propios en Rust, en este monorepo, que
+pilotan exclusivamente los binarios oficiales `claude` y `codex` con la
+auth que cada CLI gestiona; los adaptadores viajan empaquetados en los
+instaladores y son la capa de pilotaje por defecto del registro para las
+dos entradas de nivel 2; detección genérica de capas `bundled`; permisos
+relevados al proxy vigente con compuerta dura y pérdidas visibles;
+conformidad por versión; notas legales veraces; guía reescrita en
+lockstep; CI sin red ni agentes reales.
+
+**Non-Goals:** forkear los adaptadores TypeScript; toda vía basada en el
+Agent SDK o en canales no documentados; prohibir los adaptadores de
+terceros (siguen pilotables por configuración); adaptadores para otros
+agentes; sandbox propio (change aparte); auto-actualización o descarga de
+adaptadores (el daemon jamás descarga nada); dialectos alternativos de los
+CLIs pilotados.
+
+## Decisions
+
+### D1 — Revertir la decisión registrada, por escrito
+
+`niveles-integracion-conformidad` excluyó mantener adaptadores propios
+cuando el ecosistema ofrecía adaptadores abiertos vivos y en Rust. Los
+hechos que la vencieron, con fecha: (1) 2026-07-22, Zed archiva
+`codex-acp` en Rust; las implementaciones canónicas quedan en TypeScript
+bajo `agentclientprotocol` — consumirlas exige un runtime Node en la
+distribución, contra el rumbo de un solo lenguaje de sistemas, y la única
+vía Rust del ecosistema es embeber el runtime del proveedor como librería
+(patrón que choca con §2, ver D6). (2) feb-2026, los términos de Anthropic
+nombran al Agent SDK como no autorizado para OAuth de suscripción; el
+adaptador canónico de Claude envuelve ese SDK y ningún fork escapa, porque
+la zona gris vive en la superficie de auth, no en el mantenedor. (3) El
+camino seguro que `docs/research/integracion-agentes.md` nombró desde el
+principio — pilotar el binario oficial con la sesión ya iniciada — no lo
+toma ningún adaptador del ecosistema; solo un adaptador propio lo toma.
+(4) 2026-07-27, la directiva del mantenedor. Una decisión registrada se
+revierte con otra decisión registrada: esta.
+
+### D2 — Un crate, dos binarios, cero dependencias nuevas
+
+`core/meltemi-adapters`: una librería de puente compartida (lado ACP,
+supervisión del subproceso proveedor, framing NDJSON, apagado limpio) y
+dos binarios, `meltemi-claude-acp` y `meltemi-codex-acp`. Un solo crate
+porque los dos adaptadores comparten más de la mitad de su esqueleto y sus
+tests; dos binarios porque el registro declara un punto de pilotaje por
+entrada y la detección resuelve binarios, no flags. Los nombres llevan el
+prefijo `meltemi-` y difieren de los binarios de terceros
+(`claude-agent-acp`, `codex-acp`): jamás una colisión de PATH ni una
+detección ambigua. Dependencias: tokio, serde/serde_json y el crate
+oficial `agent-client-protocol` — las tres ya pineadas en el workspace.
+**Ningún adaptador enlaza pila HTTP/TLS**: a diferencia de
+`meltemi-engine` (que necesita rustls para hablar con el modelo), aquí
+toda la red vive en el CLI oficial. La propiedad es verificable por
+cargo-deny igual que la de meltemid, y el shim MCP de permisos (D5) se
+implementa a mano sobre serde: JSON-RPC por stdio no justifica una
+dependencia nueva (§10).
+
+### D3 — Una capability `own-adapters`, sin nombres de terceros en specs
+
+El borrador de propuesta nombraba dos capabilities (`adapter-claude-code`,
+`adapter-codex`). Se corrige: la verdad viva de `.meltemi/specs/` no
+contiene un solo nombre de producto de terceros (verificado por grep), y
+el propio registro declara la regla — «third-party names live here, never
+in specs». Los slugs de capability son directorios de la verdad viva. Una
+sola capability `own-adapters` (espejo de `own-engine` en
+`motor-propio-byok`) con requisitos por dialecto, en términos neutrales:
+«dialecto de sesión headless de eventos JSON» y «dialecto de servidor
+JSON-RPC». Los nombres concretos (claude, codex, stream-json, app-server,
+flags) viven en el registro, en este design y en la guía — datos factuales
+de interoperabilidad, no verdad normativa.
+
+### D4 — Dialecto de sesión headless: el binario oficial `claude`, jamás el SDK, jamás `--bare`
+
+`meltemi-claude-acp` lanza el `claude` oficial con la sesión que el
+usuario ya inició: `-p --input-format stream-json --output-format
+stream-json --include-partial-messages`. Qué compra: deltas de tokens y
+transcripts de subagentes (casi-paridad de streaming con nivel 1),
+`--resume`/`--fork-session` headless con ámbito de directorio de proyecto
+y worktrees (calza con el modelo de Meltemi), `--mcp-config` para la
+proyección de perfiles MCP existente. Qué se prohíbe: el Agent SDK (zona
+gris nombrada por los términos del proveedor) y `--bare` (salta el OAuth y
+exige `ANTHROPIC_API_KEY` — exactamente lo que §2 y el principio BYOK no
+quieren como default).
+
+**Riesgo pineado**: la documentación del proveedor anuncia que `--bare`
+será el default de `-p` en una versión futura. Si ese flip llega y el
+adaptador no lo maneja, el OAuth muere en silencio. Mitigación: el evento
+`system/init` del cable trae un arreglo `capabilities` que existe para
+detección de features; el adaptador detecta la superficie efectiva en el
+handshake y, si el modo con sesión iniciada no está disponible (o el CLI
+indica modo de clave de API), **rehúsa con diagnóstico y remedio** — nunca
+degrada a inyectar una clave. La marca «docs del proveedor llaman a
+`claude -p` "the Agent SDK via the CLI"» es marketing sobre el mismo
+binario oficial; la frontera real es: binario oficial sí, librería SDK no.
+
+### D5 — Permisos del dialecto headless: prompt-tool + hooks, pérdidas declaradas
+
+Dos canales documentados, en capas:
+
+1. **`--permission-prompt-tool`** apunta a una herramienta de un servidor
+   MCP mínimo por stdio que el CLI lanza según el `--mcp-config`
+   proyectado. El servidor es el mismo binario `meltemi-claude-acp` en un
+   modo shim, conectado a su proceso padre por un canal privado heredado
+   al lanzar (pipe anónimo); cada petición del CLI se convierte en
+   `session/request_permission` de la sesión ACP del adaptador, que
+   meltemid proxya a la bandeja humana por el flujo vigente. **El daemon
+   no gana transporte alguno** y el shim no abre socket alguno.
+2. **Hooks `PreToolUse`** (inyectados vía `--settings`) como compuerta
+   dura: deniegan toda llamada no aprobada incluso si el CLI corre en un
+   modo permisivo (`bypassPermissions`). El orden de evaluación del
+   proveedor está documentado (hooks → deny → ask → mode → allow → prompt
+   tool), y los hooks son el eslabón que ninguna configuración del CLI
+   puede saltar.
+
+Pérdidas, por escrito y visibles en sesión: el prompt-tool solo se
+consulta cuando ninguna regla estática decide; `AskUserQuestion` y las
+herramientas `requiresUserInteraction` se auto-deniegan en modo no
+interactivo — el adaptador muestra la denegación con su motivo, no la
+esconde ni la aprueba por su cuenta; el contrato del prompt-tool está
+infradocumentado upstream (anthropics/claude-code#1175) y puede moverse —
+la detección de features de D4 es el amortiguador, y los fixtures de cable
+(D10) congelan el contrato observado por versión. El canal `canUseTool`
+del SDK existe en el mismo cable pero no está documentado: §6 lo excluye.
+En Windows no hay sandbox nativo del CLI (solo WSL2): la compuerta son los
+hooks más el worktree aislado, y `sandbox-propio` sigue siendo la change
+que cierra ese hueco.
+
+### D6 — Dialecto de servidor JSON-RPC: `codex app-server`, jamás el embed de librería
+
+`meltemi-codex-acp` lanza el `codex` oficial en modo `app-server`:
+JSON-RPC 2.0 bidireccional con delimitación por líneas sobre stdio,
+documentado por el proveedor como «the interface Codex uses to power rich
+interfaces such as the Codex VS Code extension» — publicado explícitamente
+para terceros. Las primitivas de conversación del servidor
+(hilo/turno/ítem) se mapean a la sesión ACP; las aprobaciones que el
+servidor solicita se relevan a `session/request_permission`.
+
+Se rechaza el patrón de las dos implementaciones Rust existentes (la de
+Zed, archivada; la comunitaria `cola-io`): ambas embeben `codex-core` y
+crates hermanos como dependencias de librería, con lo que el adaptador
+mismo hace red y lee el almacén de auth de Codex. Apache-2.0 de punta a
+punta y aún así incompatible con §2 («solo binarios oficiales, con la
+autenticación que cada agente gestiona»). Spawn del binario oficial, sin
+excepción.
+
+**Conformidad por versión**: `codex app-server generate-json-schema`
+vuelca el esquema exacto del binario instalado. Los tipos del adaptador se
+validan contra fixtures de ese esquema en CI (la disciplina que `proto/`
+ya practica) y el handshake detecta el desfase adaptador↔CLI y rehúsa con
+remedio — nunca se asume compatibilidad.
+
+### D7 — La prueba que §6 exige
+
+Del lado Meltemi el estándar es ACP, hablado con el crate oficial ya
+pineado en el workspace. Del lado proveedor **no existe estándar abierto
+que cubra el pilotaje programático de estos agentes**: ACP no lo cubre
+(los CLIs no lo hablan — ese es el problema entero), MCP es herramientas,
+LSP es inteligencia de código. Las superficies elegidas son la superficie
+programática oficial y documentada de cada proveedor: stream-json
+(documentación de headless/CLI del proveedor) y app-server (README y
+generadores de esquema del proveedor). El adaptador es exactamente la
+pieza que §6 bendice: traducción entre el estándar abierto y la superficie
+oficial del dueño. Regla de gobernanza heredada de `motor-propio-byok`:
+ninguna capacidad puede colgar de un canal no documentado del proveedor ni
+de un canal privado adaptador↔daemon — todo lo que exceda ACP base sería
+una extensión ACP abierta y documentada.
+
+### D8 — Flip del registro y detección `bundled` genérica
+
+Las filas `claude-code` y `codex-cli` cambian su capa adaptador:
+`bin = "meltemi-claude-acp"` / `bin = "meltemi-codex-acp"`, con
+`bundled = true` y sin `adapter-install` (la capa viaja en los
+instaladores de Meltemi). Las capas `cli-bin`, `cli-candidate-paths` y
+`cli-install` no se tocan: el CLI oficial se sigue detectando e instalando
+aparte, y la semántica de dos capas de `flota-deteccion-guia` queda
+intacta — solo cambia qué binario es la capa adaptador y de dónde sale.
+
+La detección `bundled` — sondear el directorio del ejecutable del daemon
+en ejecución — la describe la proposal de `motor-propio-byok`, pero esa
+change no tiene design ni código: **se implementa aquí como mecanismo
+genérico del registro** (cualquier capa con `bundled = true` lo usa; nada
+cuelga de un id concreto) y el motor lo hereda cuando llegue.
+Precedencia: PATH, luego `candidate-paths`, luego el directorio hermano
+del daemon — coherente con la filosofía vigente de que la intención del
+usuario pisa el default (override de entorno > `command` > id), y no es
+degradación silenciosa: el catálogo reporta la ruta absoluta y la fuente
+del hallazgo, el log de sesión registra el binario efectivo, y el skew
+adaptador↔daemon lo detecta el handshake ACP. `proto/` gana campos
+aditivos en la capa (procedencia empaquetada del hallazgo); paridad ×3
+heredada por `fleet/list`.
+
+Los adaptadores de terceros siguen pilotables por configuración (`custom`
+o `command` literal), sin trato distinto. El registro deja de
+recomendarlos; no los prohíbe.
+
+### D9 — Estatus legal: gris sigue gris, con la nota reescrita con verdad
+
+La nota de la entrada de Claude se reescribe para describir la
+arquitectura nueva: la capa de pilotaje ya no envuelve el Agent SDK — es
+el binario oficial con la sesión que el usuario inició, exactamente el
+camino seguro que la nota vigente señala. Pero el estatus **se queda en
+`grey`**: «tolerado» afirmaría que el proveedor tolera la orquestación de
+`claude -p` por terceros, y no existe evidencia publicada de eso — el
+research lo dice sin rodeos («Anthropic has published no OpenAI-style
+blessing»). Subir el estatus con la evidencia actual sería maquillaje al
+servicio propio, justo lo que el requisito «sin maquillaje» prohíbe. La
+nota nueva dice las dos cosas: esta vía elimina la exposición del SDK y no
+cuenta con postura publicada del proveedor. Si esa postura llega, la nota
+se actualiza con fuente. Codex permanece `tolerated` con nota actualizada:
+app-server fue publicado para terceros y la dependencia de supply chain
+sobre un repo archivado desaparece. (Si el mantenedor prefiere
+`tolerated`-con-nota para Claude — defendible según el research — es un
+cambio de un literal y de esta decisión, no de la arquitectura.)
+
+### D10 — Tests: fixtures de cable de proveedor, e2e real, conformidad manual
+
+CI jamás corre agentes reales ni toca red; entonces el cable del proveedor
+se simula, no el adaptador. Crate nuevo `core/mock-provider` (patrón
+mock-agent, cero dependencias nuevas) con dos binarios:
+
+- `mock-claude-wire`: emite stream-json guionado — `system/init` con
+  `capabilities`, deltas parciales, tool calls que disparan el prompt-tool
+  y los hooks, resultado final — y acepta entrada stream-json; guiones por
+  archivo/variable de entorno, como mock-agent.
+- `mock-codex-wire`: servidor JSON-RPC NDJSON guionado — handshake,
+  conversación hilo/turno/ítem, petición de aprobación — más un volcado de
+  esquema fixture para el test de conformidad.
+
+Tres anillos: (1) unit/integración del puente y de cada mapeo contra los
+mocks en memoria o por stdio; (2) e2e de workspace donde **meltemid pilota
+el binario real del adaptador** y este pilota el mock wire — el mismo
+anillo que hoy corre contra mock-agent; (3) conformidad contra CLIs reales:
+manual, por opt-in, con resultado persistido con fecha y versión, y los
+escenarios que solo un CLI real ejerce se marcan vía `sdd/verify-mark` con
+nota — la disciplina que `niveles-integracion-conformidad` estableció y
+`procedencia-de-release` ya practica.
+
+### D11 — Orden con `pulido-pre-anuncio`
+
+`pulido-pre-anuncio` aterriza primero: refresca los `adapter-install` de
+terceros a las distribuciones vigentes bajo `@agentclientprotocol`, porque
+el usuario de hoy merece comandos que instalen proyectos vivos. Esta
+change reemplaza después la capa adaptador de esas mismas filas y retira
+esos `adapter-install`. No hay conflicto: el requisito «Vigencia de las
+rutas de instalación de la instantánea» que pulido añade sigue aplicando a
+todo comando que sobreviva (los `cli-install`), y la revisión de la
+instantánea que esta change hace documenta su propia verificación con
+fuente y fecha, como ese requisito exige. Si por calendario esta change
+llegara antes, absorbe el refresco de datos trivialmente; el orden
+declarado es pulido → esta.

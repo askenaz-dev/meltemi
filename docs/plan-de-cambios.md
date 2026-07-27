@@ -272,6 +272,57 @@ del daemon sí. Fuera de alcance: `menu-nativo-aplicacion` y
 agentes ≠ seleccionarlos), y el render conversacional del histórico
 archivado más allá del conmutador de log queda para futuro con evidencia.
 
+### `adaptadores-propios-acp` — abierta el 2026-07-27 (directiva del mantenedor)
+
+Dos adaptadores ACP propios, en Rust y en este monorepo, para los dos agentes
+cuyo nivel 2 depende hoy de adaptadores de terceros: Claude Code y Codex. Esta
+change **revierte una decisión registrada** — `niveles-integracion-conformidad`
+dejó fuera de alcance «Mantener adaptadores propios: se consumen adaptadores
+abiertos existentes» — y la reversión se argumenta, no se esconde. El suelo se
+movió: Zed archivó su `codex-acp` en Rust el 2026-07-22 y los adaptadores
+canónicos viven ahora en TypeScript bajo la org `agentclientprotocol` — la
+opción Rust upstream murió, y las dos filas `adapter-install` del registro ya
+apuntan a rutas rancias. La zona gris del adaptador de Claude basado en Agent
+SDK es permanente: los términos de Anthropic (feb-2026) nombran al SDK como no
+autorizado para OAuth de suscripción, y ningún fork lo arregla porque la zona
+gris vive en la superficie de auth, no en quién mantiene el adaptador. Y los
+adaptadores propios pueden viajar `bundled = true` en los instaladores —
+reutilizando la detección de directorio hermano de `motor-propio-byok` —
+matando el muro de onboarding «adaptador no detectado» que
+`flota-deteccion-guia` diagnosticó.
+
+El adaptador de Claude pilota el **binario oficial `claude` con la sesión que
+el usuario ya inició**, vía `-p --input-format stream-json --output-format
+stream-json` — jamás el Agent SDK, jamás `--bare`; el flip anunciado de
+`--bare` como default de `-p` queda pineado como riesgo en el design, no se
+descubre después. Los permisos pasan por `--permission-prompt-tool` (un shim
+MCP por stdio que releva al socket existente de meltemid; el daemon no gana
+transporte alguno) con hooks `PreToolUse` como compuerta dura, y las pérdidas
+se declaran: `AskUserQuestion` se auto-deniega en modo no interactivo y el
+contrato del prompt-tool está infradocumentado upstream (issue #1175). El
+adaptador de Codex lanza el CLI oficial `codex` en modo `app-server` —
+JSON-RPC NDJSON por stdio, documentado, la misma interfaz que usa la extensión
+VS Code del propio proveedor, con esquema por versión vía
+`generate-json-schema` que es historia de conformidad lista — y **no** el
+patrón de embeber `codex-core` como librería de los adaptadores Rust
+archivados, que choca con §2 aunque sea limpio de licencia.
+
+**Honestidad legal sin maquillaje**: esto no vuelve «sancionado» a Claude —
+gris pasa a tolerado-con-nota en el mejor caso, y la nota del registro se
+mantiene veraz; Codex sigue tolerado y mejora, porque desaparece la
+dependencia de supply chain sobre un proyecto archivado. Anclas: §2 (binarios
+oficiales, auth gestionada por el agente — el adaptador jamás toca tokens),
+§5 (los adaptadores entran a la flota como cualquier otra entrada), §6
+(prueba por escrito: ACP es el estándar del lado Meltemi; del lado proveedor
+no hay estándar — stream-json y app-server son la superficie programática
+oficial de cada uno), §10 (dependencias confinadas a los crates adaptadores)
+y un solo lenguaje de sistemas. Fuera de alcance: forkear los adaptadores TS
+y toda vía basada en SDK. Por directiva del mantenedor (2026-07-27: «no
+quiero ACP de terceros… construimos los propios»), los adaptadores propios
+pasan a ser la capa por defecto del registro, empaquetados `bundled` en los
+instaladores; los de terceros siguen alcanzables por configuración del
+usuario, pero dejan de ser la vía recomendada.
+
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 
 ### Prerrequisitos de daemon del Agent Boss (antes de `companero-movil`, sirven a TUI/GUI hoy)
