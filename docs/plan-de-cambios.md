@@ -17,7 +17,7 @@
 | Research de integración de agentes persistido | ✅ `docs/research/integracion-agentes.md` |
 | Plan maestro de cambios | ✅ Este documento |
 | **Ratificación humana (Guillermo)** de meltemi.md, constitución y rumbo | ✅ 2026-07-11 |
-| **Registros operativos** (org GitHub, org npm, dominio, crates) | 🟡 org GitHub y npm hechas (`askenaz-dev`); dominio `meltemi.dev` comprado, DNS por apuntar a Pages; crates por reservar |
+| **Registros operativos** (org GitHub, org npm, dominio, crates) | 🟡 org GitHub y npm hechas (`askenaz-dev`); DNS de `meltemi.dev` apuntado a Pages (2026-07-26; el sitio sirve por HTTP, certificado HTTPS aún en provisión); **v0.1.0 publicada** (2026-07-26, 10 assets firmados); crates por reservar (verificados libres el 2026-07-27) |
 
 ## Fase 0 (en curso)
 
@@ -128,8 +128,12 @@ revisados uno por uno, deltas plegados a la verdad viva):
 | `sitio-web-producto` | `site/` estático (sin JS, sin orígenes externos), descargas a la última release firmada con nombres estables, tokens derivados del cliente y lint del sitio como gate |
 
 Pendientes de Fase 2: `motor-propio-byok` (propuesta redactada, activa) ·
-`sandbox-propio` · `hooks-eventos` · `plugins-skills-sdk` ·
-`i18n-superficies` · `metricas-sdd-locales` · `lsp-superficie-revision`.
+`pulido-pre-anuncio` (abierta 2026-07-27, en implementación) ·
+`lanzador-conversacional` (abierta 2026-07-27) · `adaptadores-propios-acp`
+(abierta 2026-07-27) · `registro-agentes-en-superficie` ·
+`menu-nativo-aplicacion` · `sandbox-propio` · `hooks-eventos` ·
+`plugins-skills-sdk` · `i18n-superficies` · `metricas-sdd-locales` ·
+`lsp-superficie-revision`.
 
 ### `motor-propio-byok` — propuesta activa desde el 2026-07-25
 
