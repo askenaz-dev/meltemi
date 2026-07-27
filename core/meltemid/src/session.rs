@@ -137,6 +137,10 @@ struct Entry {
     /// Present once the session opts into remote direction (`propose` and the
     /// `session/direct` resume branch).
     direction: Option<Direction>,
+    /// How many permission requests of this session are awaiting a human
+    /// decision. Counted, not toggled: with two requests in flight, resolving
+    /// one must not declare the session unblocked (sesion-esperando D1).
+    waiting: u32,
 }
 
 /// What [`SessionRegistry::register`] hands back to the ACP task that runs the
@@ -170,6 +174,7 @@ impl SessionRegistry {
                 cancel: Arc::clone(&cancel),
                 cancelled: Arc::clone(&cancelled),
                 direction: None,
+                waiting: 0,
             },
         );
         Registration { cancel, cancelled }
@@ -209,6 +214,30 @@ impl SessionRegistry {
     pub async fn set_state(&self, session_id: &str, state: SessionState) {
         if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
             entry.state = state;
+        }
+    }
+
+    /// A permission request of this session began waiting for a human: the
+    /// first one blocks the session (`waiting_permission`); further concurrent
+    /// ones only deepen the count (sesion-esperando D1).
+    pub async fn begin_waiting(&self, session_id: &str) {
+        if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
+            entry.waiting += 1;
+            if entry.waiting == 1 {
+                entry.state = SessionState::WaitingPermission;
+            }
+        }
+    }
+
+    /// A waiting request resolved (any way). The session goes back to `active`
+    /// only when none is left waiting; a session already deregistered is left
+    /// alone, so a turn that ended mid-wait never resurfaces as active (D2).
+    pub async fn end_waiting(&self, session_id: &str) {
+        if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
+            entry.waiting = entry.waiting.saturating_sub(1);
+            if entry.waiting == 0 {
+                entry.state = SessionState::Active;
+            }
         }
     }
 
@@ -300,6 +329,46 @@ mod tests {
 
         registry.deregister("s1").await;
         assert!(registry.is_empty().await);
+    }
+
+    #[tokio::test]
+    async fn waiting_is_counted_not_toggled() {
+        // Scenario: Sesión esperando se declara esperando
+        // Scenario: Resuelta la petición, la sesión vuelve a activa
+        // Scenario: Varias esperas simultáneas
+        let registry = SessionRegistry::default();
+        let _reg = registry.register("s1", vec!["mock-agent".into()]).await;
+        registry.set_state("s1", SessionState::Active).await;
+
+        registry.begin_waiting("s1").await;
+        assert_eq!(
+            registry.summaries().await[0].state,
+            SessionState::WaitingPermission,
+            "an escalated request blocks the session"
+        );
+
+        // A second concurrent request deepens the wait.
+        registry.begin_waiting("s1").await;
+        registry.end_waiting("s1").await;
+        assert_eq!(
+            registry.summaries().await[0].state,
+            SessionState::WaitingPermission,
+            "one resolved, another still waits"
+        );
+
+        registry.end_waiting("s1").await;
+        assert_eq!(
+            registry.summaries().await[0].state,
+            SessionState::Active,
+            "nothing left waiting"
+        );
+
+        // An unbalanced end neither underflows nor resurrects a gone session.
+        registry.end_waiting("s1").await;
+        assert_eq!(registry.summaries().await[0].state, SessionState::Active);
+        registry.deregister("s1").await;
+        registry.end_waiting("s1").await;
+        assert!(registry.is_empty().await, "a gone session stays gone");
     }
 
     #[tokio::test]
