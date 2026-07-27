@@ -115,6 +115,23 @@ fn the_api_key_variant_announces_the_surface_that_demands_a_key() {
 }
 
 #[test]
+fn the_wire_answers_what_version_it_is() {
+    // The session's events carry a feature array and no number, so the version
+    // a session records is the one this flag answers — and it says "mock", so
+    // that a log holding it can never be mistaken for a real CLI's.
+    let (code, stdout, stderr) = run(&["--version"], "");
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert!(stdout.contains("mock"), "stdout: {stdout}");
+    assert!(
+        stdout.split_whitespace().next().is_some_and(|token| token
+            .split(['-', '+'])
+            .next()
+            .is_some_and(|core| core.split('.').count() == 3)),
+        "the answer starts with a version an adapter can read: {stdout}"
+    );
+}
+
+#[test]
 fn input_that_is_not_the_dialect_fails_loudly() {
     // A fixture that tolerated a malformed turn would let a broken adapter
     // pass its own tests.

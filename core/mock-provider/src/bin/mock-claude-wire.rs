@@ -15,6 +15,11 @@
 //! default (`--api-key-mode` selects the embedded variant that announces the
 //! surface demanding an API key, so the adapter's refusal can be exercised).
 //!
+//! It also answers `--version` the way the real CLI does — one line, its own
+//! version — because that flag is the only place this wire carries a version at
+//! all: the session's events announce a feature array, not a number, so the
+//! version a session logs is the one the binary answers there.
+//!
 //! Input is held to the dialect: a line that is not JSON, or a message of a
 //! type this wire never receives, exits non-zero with a diagnostic. A fixture
 //! that quietly tolerated a malformed turn would let a broken adapter pass.
@@ -28,8 +33,16 @@ const SIGNED_IN: &str = include_str!("../../scripts/claude-signed-in.ndjson");
 /// The wire that announces the API-key surface instead.
 const API_KEY: &str = include_str!("../../scripts/claude-api-key.ndjson");
 
+/// What this wire answers when asked what it is. Deliberately marked as a mock:
+/// a session log that recorded it must read as a fixture, never as a real CLI.
+const VERSION: &str = "2.0.0-mock (mock-claude-wire)";
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--version") {
+        println!("{VERSION}");
+        return;
+    }
     let embedded = if args.iter().any(|a| a == "--api-key-mode") {
         API_KEY
     } else {

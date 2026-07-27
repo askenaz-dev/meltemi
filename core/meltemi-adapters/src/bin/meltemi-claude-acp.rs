@@ -14,19 +14,10 @@
 //! collide on the PATH, and detection must never be ambiguous about which one
 //! it found (design D2).
 
-use meltemi_adapters::adapter::{AdapterSpec, Dialect, PendingDialect, run};
-
-/// What this binary announces over ACP and which CLI it will pilot.
-const SPEC: AdapterSpec = AdapterSpec {
-    name: "meltemi-claude-acp",
-    provider_layer: "the official `claude` CLI",
-    provider_bin: "claude",
-    dialect: Dialect::HeadlessSession,
-};
+use meltemi_adapters::adapter::run;
+use meltemi_adapters::claude::ClaudeDialect;
 
 #[tokio::main]
 async fn main() -> agent_client_protocol::Result<()> {
-    // The headless session dialect is not wired yet, and this binary says so
-    // rather than answering turns it never ran (block 3 of the change).
-    run(PendingDialect::new(SPEC, "adaptadores-propios-acp 3.1-3.5")).await
+    run(ClaudeDialect::new()).await
 }

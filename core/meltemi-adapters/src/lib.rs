@@ -26,6 +26,7 @@
 
 pub mod adapter;
 pub mod bridge;
+pub mod claude;
 pub mod codex;
 pub mod diagnostic;
 pub mod jsonrpc;

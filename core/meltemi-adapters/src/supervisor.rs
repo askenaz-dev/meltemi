@@ -184,6 +184,22 @@ pub async fn end(
     Ok(ShutdownOutcome::Killed)
 }
 
+/// Which binary to launch: the override when it says something, the registry's
+/// name otherwise.
+///
+/// Every dialect has the same escape hatch — an environment variable naming a
+/// specific binary — because a CLI can live where the PATH does not reach, and
+/// because it is how the end-to-end tests put a scripted wire where the
+/// provider would be. It changes *which binary* is launched, never *what* is
+/// spoken to it. An override set to whitespace is somebody's empty variable,
+/// not an instruction.
+#[must_use]
+pub fn resolve_program(override_value: Option<String>, default_bin: &str) -> String {
+    override_value
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| default_bin.to_string())
+}
+
 /// Launches the official CLI as the session's provider process.
 ///
 /// `layer` names the layer in a refusal, worded as the fleet catalog words it.
@@ -207,7 +223,7 @@ pub fn spawn(command: &ProviderCommand, layer: &str) -> Result<SpawnedProvider, 
         // orphan holding a worktree open.
         .kill_on_drop(true)
         .spawn()
-        .map_err(|error| launch_refusal(command, layer, &error))?;
+        .map_err(|error| launch_refusal(&command.program, layer, &error))?;
 
     let stdin = child.stdin.take().ok_or_else(|| {
         Refusal::new(
@@ -236,15 +252,19 @@ pub fn spawn(command: &ProviderCommand, layer: &str) -> Result<SpawnedProvider, 
 }
 
 /// The refusal for a provider CLI that cannot be launched.
-fn launch_refusal(command: &ProviderCommand, layer: &str, error: &std::io::Error) -> Refusal {
+///
+/// Public because launching the CLI is not always the session's own spawn: a
+/// dialect may have to ask the binary something before it pilots it, and a
+/// binary that is not there must refuse with the same words either way.
+#[must_use]
+pub fn launch_refusal(program: &str, layer: &str, error: &std::io::Error) -> Refusal {
     Refusal::new(
         "provider_cli_not_launchable",
         layer,
-        format!("`{}` could not be launched ({error})", command.program),
+        format!("`{program}` could not be launched ({error})"),
         format!(
-            "Install the provider CLI and sign in, then check that `{}` is on your PATH \
-             (`meltemi fleet` shows the exact command for this entry).",
-            command.program
+            "Install the provider CLI and sign in, then check that `{program}` is on your PATH \
+             (`meltemi fleet` shows the exact command for this entry)."
         ),
     )
 }

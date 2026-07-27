@@ -381,94 +381,30 @@ fn session_closed(spec: &AdapterSpec) -> Refusal {
     )
 }
 
-/// A dialect that is declared but not wired yet: it opens a session over
-/// nothing and refuses every turn, naming the tasks that will wire it.
-///
-/// It exists so a binary can ship honestly before its provider mapping does. An
-/// adapter that answered `end_turn` while piloting nothing would be claiming
-/// work it never did.
-pub struct PendingDialect {
-    spec: AdapterSpec,
-    tasks: &'static str,
-}
-
-impl PendingDialect {
-    /// A dialect whose turn mapping lands in `tasks`.
-    #[must_use]
-    pub fn new(spec: AdapterSpec, tasks: &'static str) -> Self {
-        Self { spec, tasks }
-    }
-}
-
-/// The session a [`PendingDialect`] opens: it pilots nothing, and says so.
-pub struct PendingSession {
-    spec: AdapterSpec,
-    tasks: &'static str,
-}
-
-impl ProviderSession for PendingSession {
-    async fn run_turn(&self, _prompt: PromptRequest) -> Result<StopReason, Refusal> {
-        Err(Refusal::new(
-            "dialect_not_wired",
-            self.spec.name,
-            format!(
-                "this adapter does not yet translate turns to the {} of `{}`",
-                match self.spec.dialect {
-                    Dialect::HeadlessSession => "headless session dialect",
-                    Dialect::JsonRpcServer => "JSON-RPC server dialect",
-                },
-                self.spec.provider_bin
-            ),
-            format!(
-                "The turn mapping lands in {}; until then pilot the agent with another entry of the fleet.",
-                self.tasks
-            ),
-        ))
-    }
-
-    async fn interrupt(&self) {}
-
-    async fn shutdown(&self, _policy: ShutdownPolicy) {}
-}
-
-impl ProviderDialect for PendingDialect {
-    type Session = PendingSession;
-
-    fn spec(&self) -> AdapterSpec {
-        self.spec
-    }
-
-    async fn open(
-        &self,
-        _session_id: SessionId,
-        _request: NewSessionRequest,
-        _cx: ConnectionTo<Client>,
-    ) -> Result<Self::Session, Refusal> {
-        Ok(PendingSession {
-            spec: self.spec,
-            tasks: self.tasks,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn spec() -> AdapterSpec {
-        AdapterSpec {
-            name: "meltemi-test-acp",
-            provider_layer: "the official test CLI",
-            provider_bin: "test-cli",
-            dialect: Dialect::HeadlessSession,
+    /// A provider session that pilots nothing.
+    ///
+    /// What the registry's rules are about is bookkeeping — one turn at a time,
+    /// a cancellation reaching the turn it names, a closed session ending its
+    /// provider — and a real dialect underneath would only add a wire to keep
+    /// quiet about.
+    struct StubSession;
+
+    impl ProviderSession for StubSession {
+        async fn run_turn(&self, _prompt: PromptRequest) -> Result<StopReason, Refusal> {
+            Ok(StopReason::EndTurn)
         }
+
+        async fn interrupt(&self) {}
+
+        async fn shutdown(&self, _policy: ShutdownPolicy) {}
     }
 
-    fn pending() -> PendingSession {
-        PendingSession {
-            spec: spec(),
-            tasks: "adaptadores-propios-acp 3.1-3.5",
-        }
+    fn pending() -> StubSession {
+        StubSession
     }
 
     #[tokio::test]
@@ -537,18 +473,5 @@ mod tests {
             session.provider().await.is_none(),
             "and the provider went with it"
         );
-    }
-
-    #[tokio::test]
-    async fn a_dialect_that_is_not_wired_refuses_naming_the_task_that_wires_it() {
-        // The refusal is scaffolding, and says so: an adapter that answered a
-        // prompt with `end_turn` would claim work it never did.
-        let refusal = pending()
-            .run_turn(PromptRequest::new(SessionId::new("s"), vec![]))
-            .await
-            .expect_err("a dialect that pilots nothing cannot run a turn");
-        assert_eq!(refusal.kind, "dialect_not_wired");
-        assert!(refusal.detail.contains("test-cli"));
-        assert!(refusal.remedy.contains("3.1-3.5"));
     }
 }

@@ -34,7 +34,8 @@ use crate::diagnostic::Refusal;
 use crate::jsonrpc::{Incoming, Peer};
 use crate::ndjson::Frame;
 use crate::supervisor::{
-    self, ChildProcess, ProcessControl, ProviderCommand, ProviderProcess, ShutdownPolicy, spawn,
+    self, ChildProcess, ProcessControl, ProviderCommand, ProviderProcess, ShutdownPolicy,
+    resolve_program, spawn,
 };
 
 /// What this binary announces over ACP and which CLI it pilots.
@@ -96,19 +97,10 @@ impl CodexDialect {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            program: resolve_program(std::env::var(PROVIDER_BIN_ENV).ok()),
+            program: resolve_program(std::env::var(PROVIDER_BIN_ENV).ok(), SPEC.provider_bin),
             shutdown: ShutdownPolicy::default(),
         }
     }
-}
-
-/// Which binary to launch: the override when it says something, the registry's
-/// name otherwise. An override set to whitespace is somebody's empty variable,
-/// not an instruction.
-fn resolve_program(override_value: Option<String>) -> String {
-    override_value
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| SPEC.provider_bin.to_string())
 }
 
 /// What was actually launched and what it turned out to be: the two facts a
@@ -1410,10 +1402,13 @@ mod tests {
         // The knob the end-to-end test turns to put a scripted wire where the
         // provider would be. Without it, the registry's binary name stands —
         // and an empty variable is not an instruction to launch nothing.
-        assert_eq!(resolve_program(None), SPEC.provider_bin);
-        assert_eq!(resolve_program(Some("  ".into())), SPEC.provider_bin);
+        assert_eq!(resolve_program(None, SPEC.provider_bin), SPEC.provider_bin);
         assert_eq!(
-            resolve_program(Some("/tmp/mock-codex-wire".into())),
+            resolve_program(Some("  ".into()), SPEC.provider_bin),
+            SPEC.provider_bin
+        );
+        assert_eq!(
+            resolve_program(Some("/tmp/mock-codex-wire".into()), SPEC.provider_bin),
             "/tmp/mock-codex-wire"
         );
     }
