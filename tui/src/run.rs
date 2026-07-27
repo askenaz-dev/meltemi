@@ -1497,9 +1497,16 @@ fn render_changes(result: &ChangeListResult) -> String {
             .iter()
             .map(|(present, ch)| if *present { *ch } else { '·' })
             .collect();
+            // A pending authoring gate is what awaits a human right now, so it
+            // rides with the name instead of hiding in a column (sesion-esperando).
+            let gate = match (c.gate_pending, c.gate_artifact.as_deref()) {
+                (true, Some(artifact)) => format!("  <- gate: {artifact} awaits you"),
+                (true, None) => "  <- gate awaits you".to_string(),
+                (false, _) => String::new(),
+            };
             let _ = write!(
                 out,
-                "\n  active    {art}  tasks {}/{}  review {}/{}  verify {}/{}  {}",
+                "\n  active    {art}  tasks {}/{}  review {}/{}  verify {}/{}  {}{gate}",
                 c.tasks_done,
                 c.tasks_total,
                 c.review_decided,

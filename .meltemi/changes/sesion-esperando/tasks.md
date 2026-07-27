@@ -17,7 +17,7 @@
 
 ## 3. Superficies
 
-- [ ] 3.1 TUI y GUI muestran el gate pendiente en el listado de changes
+- [x] 3.1 TUI y GUI muestran el gate pendiente en el listado de changes
   (ES/EN), con sus tests de cableado/unidad
 
 ## 4. Escenarios

@@ -113,6 +113,10 @@ export interface ChangeInfo {
   reviewTotal: number;
   verified: number;
   verifyTotal: number;
+  /** Whether an authoring gate awaits a human decision on this change. */
+  gatePending: boolean;
+  /** The artifact the pending gate is about; absent when none is pending. */
+  gateArtifact?: string;
 }
 
 export interface SpecInfo {

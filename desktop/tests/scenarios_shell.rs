@@ -1222,3 +1222,40 @@ fn tree_rows_never_compress_below_their_line() {
         "tree and result rows never shrink: {node_rule}"
     );
 }
+
+// ---- pending gate in the change listing (sesion-esperando) -------------------
+
+// Scenario: Gate pendiente descubrible en el listado
+#[test]
+fn the_change_table_shows_which_artifact_awaits_a_gate() {
+    let project = read("desktop/ui/src/lib/views/Project.svelte");
+    // The listing carries the gate as its own column, so a change awaiting a
+    // human decision is legible without opening it.
+    assert!(
+        project.contains("project.col.gate"),
+        "the changes table has a gate column"
+    );
+    assert!(
+        project.contains("change.gatePending"),
+        "the row reads the contract's gatePending"
+    );
+    assert!(
+        project.contains("project.gateOn") && project.contains("change.gateArtifact"),
+        "a pending gate names the artifact it is about"
+    );
+    // Absence is stated, never invented.
+    assert!(
+        project.contains(":else"),
+        "a change with no gate renders the empty marker, not a blank cell"
+    );
+    // Both languages carry the new keys (the i18n lint enforces parity; this
+    // asserts the keys exist at all).
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    for key in ["project.col.gate", "project.gateOn", "project.gateWaiting"] {
+        assert_eq!(
+            messages.matches(&format!("\"{key}\"")).count(),
+            2,
+            "`{key}` is defined in both languages"
+        );
+    }
+}

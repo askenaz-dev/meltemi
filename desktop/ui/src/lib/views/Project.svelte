@@ -124,6 +124,7 @@
           <tr>
             <th scope="col">{$t("project.col.change")}</th>
             <th scope="col">{$t("project.col.state")}</th>
+            <th scope="col">{$t("project.col.gate")}</th>
             <th scope="col">{$t("project.col.tasks")}</th>
             <th scope="col">{$t("project.col.review")}</th>
             <th scope="col">{$t("project.col.verify")}</th>
@@ -137,6 +138,17 @@
                 {change.archived
                   ? `■ ${$t("project.archived")}`
                   : `▸ ${$t("project.active")}`}
+              </td>
+              <td>
+                {#if change.gatePending}
+                  <span class="gate">
+                    {change.gateArtifact
+                      ? $t("project.gateOn", { artifact: change.gateArtifact })
+                      : $t("project.gateWaiting")}
+                  </span>
+                {:else}
+                  <span class="muted">—</span>
+                {/if}
               </td>
               <td>{change.tasksDone}/{change.tasksTotal}</td>
               <td>{change.reviewDecided}/{change.reviewTotal}</td>
@@ -203,6 +215,12 @@
   }
   .muted {
     color: var(--text-muted);
+  }
+  /* A pending gate is the one row state that asks something of the human:
+     it carries weight and the warning hue, never color alone. */
+  .gate {
+    color: var(--warn);
+    font-weight: 600;
   }
 
 </style>
