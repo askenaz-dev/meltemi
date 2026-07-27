@@ -94,6 +94,54 @@ pub const RESULT: &str = "result";
 /// user logged into. Anything else is the surface design D4 refuses.
 pub const SIGNED_IN_KEY_SOURCE: &str = "none";
 
+// --- Inside a streamed model event ---------------------------------------
+
+/// A piece of a block arriving: the token-level delta itself.
+pub const CONTENT_BLOCK_DELTA: &str = "content_block_delta";
+/// A delta of the assistant's words.
+pub const TEXT_DELTA: &str = "text_delta";
+/// A delta of the assistant's thinking.
+pub const THINKING_DELTA: &str = "thinking_delta";
+
+// --- Message content blocks ----------------------------------------------
+
+/// Words.
+pub const TEXT: &str = "text";
+/// Thinking.
+pub const THINKING: &str = "thinking";
+/// A tool the assistant wants to run.
+pub const TOOL_USE: &str = "tool_use";
+/// What a tool answered.
+pub const TOOL_RESULT: &str = "tool_result";
+
+/// The field that marks an event as belonging to a subagent's transcript: the
+/// id of the tool call that spawned it.
+pub const PARENT_TOOL_USE_ID: &str = "parent_tool_use_id";
+
+// --- How a turn ends ------------------------------------------------------
+
+/// The turn ran to its end.
+pub const SUCCESS: &str = "success";
+/// The turn ran out of the CLI's own turn budget. Not a failure: a limit, and
+/// ACP has a stop reason that says exactly that.
+pub const ERROR_MAX_TURNS: &str = "error_max_turns";
+
+/// The user's turn, in the shape this wire takes it.
+///
+/// The content is a list of blocks rather than a bare string: that is the shape
+/// the provider's own message format is defined in, and the one a future
+/// non-text block could join without changing anything here.
+#[must_use]
+pub fn user_message(text: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": USER,
+        "message": {
+            "role": USER,
+            "content": [{"type": TEXT, "text": text}],
+        },
+    })
+}
+
 // --- The initial event ---------------------------------------------------
 
 /// The first event of a session.

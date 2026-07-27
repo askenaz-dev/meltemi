@@ -253,9 +253,14 @@ impl TurnControl {
 
     /// A new turn starts with nothing remembered: a cancellation of the last
     /// one must not kill this one.
+    ///
+    /// `send_replace` and not `send`: between turns nobody is subscribed, and
+    /// `send` refuses to change a value nobody is listening to — which would
+    /// leave a cancelled session's next turn born already cancelled, abandoned
+    /// the moment its grace ran out.
     fn begin(&self) {
         self.with(|state| *state = TurnState::default());
-        let _ = self.interrupted.send(false);
+        self.interrupted.send_replace(false);
     }
 
     /// Resolves once an interruption has been asked for — immediately if it
@@ -289,8 +294,10 @@ async fn interrupt<W: AsyncWrite + Unpin + Send>(peer: &Peer<W>, turn: &TurnCont
         send_interrupt(peer, turn, &turn_id).await;
     }
     // The loop arms the grace after which the provider is ended outright, and
-    // any permission still waiting on a human gives way.
-    let _ = turn.interrupted.send(true);
+    // any permission still waiting on a human gives way. `send_replace`,
+    // because a cancellation that arrives while nothing is subscribed still has
+    // to be remembered.
+    turn.interrupted.send_replace(true);
 }
 
 /// Sends the interruption, and does not wait forever for an answer: the answer
@@ -1126,6 +1133,25 @@ mod tests {
 
         let (outcome, ()) = tokio::join!(driving, serving);
         assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::Cancelled));
+    }
+
+    #[test]
+    fn a_new_turn_is_not_tainted_by_the_cancellation_of_the_last_one() {
+        // Nobody is subscribed between turns, which is exactly when a `watch`
+        // refuses to change: a session whose first turn was cancelled would
+        // have started its second one already cancelled, and abandoned it the
+        // moment the grace ran out.
+        let turn = TurnControl::new("thread-1".into(), Duration::from_millis(10));
+        turn.interrupted.send_replace(true);
+        turn.begin();
+        assert!(
+            !*turn.interrupted.borrow(),
+            "a stale cancellation must not kill the next honest turn"
+        );
+        assert!(
+            !turn.with(|state| state.interrupt_requested),
+            "and neither must the intent it left behind"
+        );
     }
 
     #[tokio::test]

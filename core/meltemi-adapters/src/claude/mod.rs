@@ -21,6 +21,7 @@
 //! - **Any undocumented channel.** The same wire carries the SDK's own control
 //!   protocol; it is not documented, so nothing here hangs off it (design D7).
 
+pub mod mapping;
 pub mod surface;
 pub mod wire;
 
@@ -34,13 +35,14 @@ use agent_client_protocol::schema::v1::{
 use agent_client_protocol::{Client, ConnectionTo};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::Mutex;
+use tokio::process::{ChildStdin, ChildStdout};
+use tokio::sync::{Mutex, watch};
 
 use crate::adapter::{AdapterSpec, Dialect, ProviderDialect, ProviderSession};
 use crate::diagnostic::Refusal;
-use crate::ndjson::Frame;
+use crate::ndjson::{Frame, FrameReader, FrameWriter};
 use crate::supervisor::{
-    ProcessControl, ProviderCommand, ProviderProcess, ShutdownPolicy, SpawnedProvider,
+    self, ChildProcess, ProcessControl, ProviderCommand, ProviderProcess, ShutdownPolicy,
     launch_refusal, resolve_program, spawn,
 };
 
@@ -71,6 +73,18 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How long the CLI gets to answer what version it is.
 const VERSION_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long a cancelled turn gets to end on its own before the provider is
+/// ended outright.
+///
+/// This surface documents no interruption at all — see [`ClaudeSession::interrupt`]
+/// — so this grace is not politeness about an unanswered request: it is the
+/// whole of the difference between asking and ending.
+const INTERRUPT_GRACE: Duration = Duration::from_secs(5);
+
+/// A deadline far enough away to mean "not yet". The turn loop's grace sits
+/// here until a cancellation moves it.
+const NEVER: Duration = Duration::from_secs(60 * 60 * 24 * 365);
 
 /// What the session log says when the CLI would not say what version it is.
 const UNKNOWN_VERSION: &str = "unknown";
@@ -151,44 +165,264 @@ impl Provenance {
 
 /// A session over the official CLI's headless mode.
 pub struct ClaudeSession {
-    /// The provider process this session pilots. `None` once it has been shut
-    /// down.
-    provider: Mutex<Option<SpawnedProvider>>,
+    /// The CLI's input: one user turn per line, and the end of it is what ends
+    /// the session.
+    writer: Mutex<FrameWriter<ChildStdin>>,
+    /// The CLI's output: everything the session is made of.
+    reader: Mutex<FrameReader<ChildStdout>>,
+    /// The process handle, so the session can end what it started. `None` once
+    /// it has been shut down.
+    control: Mutex<Option<ChildProcess>>,
+    /// The turn in flight, and whether it has been asked to stop.
+    turn: TurnControl,
+    /// Where this session's updates go.
+    stream: AcpStream,
+    /// How long the provider gets to exit on its own.
+    shutdown: ShutdownPolicy,
 }
 
 impl ProviderSession for ClaudeSession {
-    async fn run_turn(&self, _prompt: PromptRequest) -> Result<StopReason, Refusal> {
-        Err(Refusal::new(
-            "dialect_not_wired",
-            SPEC.provider_layer,
-            "this adapter opens the session but does not translate turns yet".to_string(),
-            "The turn mapping lands in adaptadores-propios-acp 3.2; until then pilot the agent \
-             with another entry of the fleet."
-                .to_string(),
-        ))
+    async fn run_turn(&self, prompt: PromptRequest) -> Result<StopReason, Refusal> {
+        // One turn at a time is the bridge's own invariant, so holding the
+        // output for the length of a turn takes nothing from anyone — and this
+        // wire has no way to tell two turns apart, so it must not be lent out.
+        let mut reader = self.reader.lock().await;
+        self.turn.begin();
+
+        let message = wire::user_message(&mapping::prompt_text(&prompt));
+        self.writer
+            .lock()
+            .await
+            .write_frame(&message)
+            .await
+            .map_err(|error| turn_failed(&format!("the turn could not be sent ({error})")))?;
+
+        match drive_turn(&mut reader, &self.turn, &self.stream).await? {
+            TurnOutcome::Ended(stop) => Ok(stop),
+            TurnOutcome::Abandoned => {
+                // The CLI was told the conversation is over and kept working.
+                // A human who pressed stop does not get to be made to wait out
+                // the turn they cancelled, and the worktree does not get to be
+                // held open by it.
+                self.stream.note(&format!(
+                    "the CLI did not end the cancelled turn within {:?}; ending the provider",
+                    self.turn.grace
+                ));
+                self.shutdown(self.shutdown).await;
+                Ok(StopReason::Cancelled)
+            }
+        }
     }
 
     async fn interrupt(&self) {
-        // Nothing runs a turn yet, so nothing has to be interrupted. What
-        // cancellation will mean on this wire is decided with the turn loop
-        // (task 3.2), and it is not obvious: the only interruption this CLI
-        // documents for a headless session is the end of its input.
+        // What this surface documents is the end of its input — which ends the
+        // session *after* the turn in flight, and is therefore not an
+        // interruption at all. The same wire does carry the provider SDK's own
+        // control protocol, which would interrupt properly; it is not
+        // documented, and design D7 forbids hanging a capability off a channel
+        // nobody published.
+        //
+        // So a cancellation says the honest thing first — no more turns — and
+        // the grace in the turn loop is what makes it a cancellation: a CLI
+        // that has not finished by then is ended outright.
+        let _ = self.writer.lock().await.close().await;
+        self.turn.ask_to_stop();
     }
 
     async fn shutdown(&self, policy: ShutdownPolicy) {
-        if let Some(mut provider) = self.provider.lock().await.take() {
-            // Closing the input is what ends a headless session; the grace and
-            // the kill are for a provider that ignores it.
-            //
-            // Worth knowing where this does *not* run: the daemon usually ends
-            // an adapter by killing it, and a killed process runs no cleanup at
-            // all. What saves this dialect there is the operating system —
-            // the CLI's stdin is a pipe whose only writer is this process, so
-            // the kill closes it and the CLI sees end of input on its own. The
-            // residual risk is a provider that ignores EOF, and ending *that*
-            // with certainty takes a job object on Windows and a process group
-            // elsewhere; that stronger form belongs with `sandbox-propio`.
-            let _ = provider.shutdown(policy).await;
+        // Closing the input is what ends a headless session; the grace and the
+        // kill are for a provider that ignores it.
+        //
+        // Worth knowing where this does *not* run: the daemon usually ends an
+        // adapter by killing it, and a killed process runs no cleanup at all.
+        // What saves this dialect there is the operating system — the CLI's
+        // stdin is a pipe whose only writer is this process, so the kill closes
+        // it and the CLI sees end of input on its own. The residual risk is a
+        // provider that ignores EOF, and ending *that* with certainty takes a
+        // job object on Windows and a process group elsewhere; that stronger
+        // form belongs with `sandbox-propio`.
+        let _ = self.writer.lock().await.close().await;
+        if let Some(mut control) = self.control.lock().await.take() {
+            let _ = supervisor::end(&mut control, policy).await;
+        }
+    }
+}
+
+/// The turn in flight, and whether it has been asked to stop.
+struct TurnControl {
+    /// Watched by the turn loop, which arms the grace when it changes. A
+    /// `watch` rather than a one-shot wake-up so that a second waiter — the
+    /// permission relay of task 3.3 — sees the same fact.
+    interrupted: watch::Sender<bool>,
+    /// How long a cancelled turn gets to end on its own. A field rather than a
+    /// constant so a test can watch the whole "it will not stop" path without
+    /// waiting out a human-scale timeout.
+    grace: Duration,
+}
+
+impl TurnControl {
+    fn new(grace: Duration) -> Self {
+        Self {
+            interrupted: watch::Sender::new(false),
+            grace,
+        }
+    }
+
+    /// A new turn starts with nothing remembered: a cancellation of the last one
+    /// must not kill this one.
+    ///
+    /// `send_replace` and not `send`: between turns nobody is subscribed, and
+    /// `send` refuses to change a value nobody is listening to — which would
+    /// leave a cancelled session's next turn born already cancelled.
+    fn begin(&self) {
+        self.interrupted.send_replace(false);
+    }
+
+    /// The turn has been asked to stop.
+    fn ask_to_stop(&self) {
+        self.interrupted.send_replace(true);
+    }
+
+    /// Whether the turn has been asked to stop.
+    fn asked_to_stop(&self) -> bool {
+        *self.interrupted.borrow()
+    }
+
+    /// Resolves once the turn has been asked to stop — immediately if it
+    /// already was.
+    async fn wait_interrupted(&self) {
+        let mut watching = self.interrupted.subscribe();
+        while !*watching.borrow_and_update() {
+            if watching.changed().await.is_err() {
+                // The sender lives as long as this control does; if it is gone,
+                // so is the turn.
+                return;
+            }
+        }
+    }
+}
+
+/// How a turn ended, before the session decides what to do about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TurnOutcome {
+    /// The turn is over.
+    Ended(StopReason),
+    /// The turn was cancelled and the CLI kept going.
+    Abandoned,
+}
+
+/// Where a turn's updates go.
+///
+/// The session sends them over ACP; a test collects them. The turn loop is the
+/// piece with the ordering subtleties — a cancellation with no interruption to
+/// send, an output that ends mid-turn — and this is what lets all of it be
+/// exercised without a process in sight.
+trait TurnStream: Send + Sync {
+    /// Shows something in the session.
+    fn emit(&self, update: SessionUpdate);
+    /// Keeps something on the record without showing it as the agent's words.
+    fn note(&self, line: &str);
+}
+
+/// The real destination: the ACP connection this session was opened on.
+struct AcpStream {
+    session_id: SessionId,
+    cx: ConnectionTo<Client>,
+}
+
+impl TurnStream for AcpStream {
+    fn emit(&self, update: SessionUpdate) {
+        let _ = self
+            .cx
+            .send_notification(SessionNotification::new(self.session_id.clone(), update));
+    }
+
+    fn note(&self, line: &str) {
+        // The adapter's own stderr, which the daemon already collects: evidence
+        // kept without dressing it up as something the agent said.
+        eprintln!("{}: {line}", SPEC.name);
+    }
+}
+
+/// Runs one turn: read what the CLI says until it says the turn is over — or
+/// until a cancellation runs out of patience with it.
+///
+/// # Errors
+///
+/// A turn the CLI reports as failed is an error, not a stop reason: ACP has no
+/// way to say "the turn did not work", and answering `end_turn` would report a
+/// failure as a finished piece of work.
+async fn drive_turn<R, S>(
+    reader: &mut FrameReader<R>,
+    turn: &TurnControl,
+    stream: &S,
+) -> Result<TurnOutcome, Refusal>
+where
+    R: AsyncRead + Unpin + Send,
+    S: TurnStream,
+{
+    let mut mapper = mapping::Mapper::new();
+
+    // Parked in the far future until a cancellation arms it; from then on it is
+    // the deadline after which the provider is ended outright.
+    let mut grace = std::pin::pin!(tokio::time::sleep(NEVER));
+    let interrupted = turn.wait_interrupted();
+    let mut interrupted = std::pin::pin!(interrupted);
+    let mut armed = false;
+
+    loop {
+        tokio::select! {
+            () = &mut interrupted, if !armed => {
+                armed = true;
+                grace.as_mut().reset(tokio::time::Instant::now() + turn.grace);
+            }
+            () = &mut grace, if armed => return Ok(TurnOutcome::Abandoned),
+            // Reading a line is cancellation safe, so losing this branch to
+            // another costs nothing: no byte of the session is dropped.
+            frame = reader.next_frame() => {
+                let frame = frame.map_err(|error| {
+                    turn_failed(&format!("the CLI's output could not be read ({error})"))
+                })?;
+                let Some(frame) = frame else {
+                    // The CLI closed its output. After a cancellation that is
+                    // the cancellation landing; before one it is a provider
+                    // that went away mid-turn, which is a different story and
+                    // gets a different answer.
+                    //
+                    // The question is put to the shared fact and not to `armed`
+                    // on purpose: `select!` picks at random among ready
+                    // branches, so a CLI that closed promptly after being
+                    // cancelled could be read here before this loop had even
+                    // noticed the cancellation — and a cancellation would land
+                    // as an error, at random.
+                    return if turn.asked_to_stop() {
+                        Ok(TurnOutcome::Ended(StopReason::Cancelled))
+                    } else {
+                        Err(provider_gone())
+                    };
+                };
+                let event = match frame {
+                    Frame::Json(event) => event,
+                    Frame::Unparsed(line) => {
+                        stream.note(&format!("provider said: {line}"));
+                        continue;
+                    }
+                };
+                let mapped = mapper.map(&event);
+                for update in mapped.updates {
+                    stream.emit(update);
+                }
+                if let Some(note) = mapped.noted {
+                    stream.note(&note);
+                }
+                match mapped.signal {
+                    Some(mapping::Signal::TurnEnded(stop)) => {
+                        return Ok(TurnOutcome::Ended(stop));
+                    }
+                    Some(mapping::Signal::TurnFailed(said)) => return Err(turn_failed(&said)),
+                    None => {}
+                }
+            }
         }
     }
 }
@@ -250,12 +484,21 @@ impl ProviderDialect for ClaudeDialect {
             provider_session: init.session_id.clone(),
         };
         let _ = cx.send_notification(SessionNotification::new(
-            session_id,
+            session_id.clone(),
             SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta())),
         ));
 
+        // The handshake was one message read by hand; from here the session is
+        // a stream that must be readable while a cancellation writes, so the
+        // halves go their separate ways.
+        let (control, writer, reader) = provider.into_parts();
         Ok(ClaudeSession {
-            provider: Mutex::new(Some(provider)),
+            writer: Mutex::new(writer),
+            reader: Mutex::new(reader),
+            control: Mutex::new(Some(control)),
+            turn: TurnControl::new(INTERRUPT_GRACE),
+            stream: AcpStream { session_id, cx },
+            shutdown: self.shutdown,
         })
     }
 }
@@ -413,6 +656,28 @@ fn refusal_before_the_session(event: &Value) -> Option<Refusal> {
          and to sign in if that is what it is asking for."
             .to_string(),
     ))
+}
+
+/// The refusal for a turn that did not run.
+fn turn_failed(detail: &str) -> Refusal {
+    Refusal::new(
+        "provider_turn_failed",
+        SPEC.provider_layer,
+        detail.to_string(),
+        "The turn did not complete. The session is still open: try again, or read the \
+         provider's own diagnostics in the session log."
+            .to_string(),
+    )
+}
+
+/// The refusal for a provider that went away mid-turn.
+fn provider_gone() -> Refusal {
+    Refusal::new(
+        "provider_gone",
+        SPEC.provider_layer,
+        "the CLI ended while the turn was running".to_string(),
+        "Open a new session; the provider's own diagnostics travel to the session log.".to_string(),
+    )
 }
 
 /// The refusal for a session the CLI never announced.
@@ -623,6 +888,184 @@ mod tests {
         assert_eq!(
             resolve_program(Some("/tmp/mock-claude-wire".into()), SPEC.provider_bin),
             "/tmp/mock-claude-wire"
+        );
+    }
+
+    /// A turn's updates, collected instead of sent.
+    #[derive(Default)]
+    struct Collected {
+        updates: std::sync::Mutex<Vec<SessionUpdate>>,
+        notes: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl TurnStream for Collected {
+        fn emit(&self, update: SessionUpdate) {
+            self.updates.lock().unwrap().push(update);
+        }
+
+        fn note(&self, line: &str) {
+            self.notes.lock().unwrap().push(line.to_string());
+        }
+    }
+
+    impl Collected {
+        fn said(&self) -> String {
+            self.updates
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|update| match update {
+                    SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
+                        agent_client_protocol::schema::v1::ContentBlock::Text(text) => {
+                            Some(text.text.clone())
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect()
+        }
+
+        fn tool_calls(&self) -> usize {
+            self.updates
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|update| matches!(update, SessionUpdate::ToolCall(_)))
+                .count()
+        }
+    }
+
+    /// A CLI that says exactly `lines` and then closes its output.
+    fn saying(lines: &str) -> FrameReader<std::io::Cursor<Vec<u8>>> {
+        FrameReader::new(std::io::Cursor::new(lines.as_bytes().to_vec()))
+    }
+
+    #[tokio::test]
+    async fn a_turn_streams_what_the_cli_says_and_ends_on_its_result() {
+        // Scenario: Eventos de sesión mapeados en streaming
+        let mut reader = saying(concat!(
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Working"}}}"#,
+            "\n",
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":" on it."}}}"#,
+            "\n",
+            "a banner the CLI printed\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Write","input":{"file_path":"NOTES.md"}}]}}"#,
+            "\n",
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}}"#,
+            "\n",
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"Done."}"#,
+            "\n",
+        ));
+        let stream = Collected::default();
+        let turn = TurnControl::new(Duration::from_millis(50));
+
+        let outcome = drive_turn(&mut reader, &turn, &stream).await.unwrap();
+        assert_eq!(outcome, TurnOutcome::Ended(StopReason::EndTurn));
+        assert_eq!(stream.said(), "Working on it.");
+        assert_eq!(stream.tool_calls(), 1);
+        assert!(
+            stream
+                .notes
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|note| note.contains("a banner")),
+            "and a line that is not JSON is kept rather than swallowed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_turn_the_cli_reports_as_failed_is_an_error_and_not_a_finished_turn() {
+        let mut reader = saying(concat!(
+            r#"{"type":"result","subtype":"error_during_execution","is_error":true,"result":"it broke"}"#,
+            "\n",
+        ));
+        let stream = Collected::default();
+        let turn = TurnControl::new(Duration::from_millis(50));
+
+        let refusal = drive_turn(&mut reader, &turn, &stream)
+            .await
+            .expect_err("a failed turn is not a stop reason");
+        assert_eq!(refusal.kind, "provider_turn_failed");
+        assert!(refusal.detail.contains("it broke"), "{}", refusal.detail);
+    }
+
+    #[tokio::test]
+    async fn a_cli_that_vanishes_mid_turn_refuses_instead_of_answering_end_turn() {
+        let mut reader = saying(r#"{"type":"stream_event","event":{}}"#);
+        let stream = Collected::default();
+        let turn = TurnControl::new(Duration::from_millis(50));
+
+        let refusal = drive_turn(&mut reader, &turn, &stream)
+            .await
+            .expect_err("a turn cannot end well on a CLI that is gone");
+        assert_eq!(refusal.kind, "provider_gone");
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_turn_that_the_cli_ignores_is_abandoned_so_the_session_can_end_it() {
+        // This surface documents no interruption: the end of its input stops
+        // the *next* turn, not this one. The grace is therefore the whole of
+        // what makes a cancellation a cancellation, and a CLI that talks
+        // through it does not get to hold the session open.
+        let (mut cli, adapter_side) = tokio::io::duplex(4096);
+        let mut reader = FrameReader::new(adapter_side);
+        let stream = Collected::default();
+        let turn = TurnControl::new(Duration::from_millis(30));
+
+        let driving = drive_turn(&mut reader, &turn, &stream);
+        let talking = async {
+            loop {
+                tokio::io::AsyncWriteExt::write_all(
+                    &mut cli,
+                    br#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"."}}}"#,
+                )
+                .await
+                .unwrap();
+                tokio::io::AsyncWriteExt::write_all(&mut cli, b"\n")
+                    .await
+                    .unwrap();
+                turn.ask_to_stop();
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+
+        let outcome = tokio::select! {
+            outcome = driving => outcome,
+            () = talking => unreachable!("the CLI never stops"),
+        };
+        assert_eq!(outcome.unwrap(), TurnOutcome::Abandoned);
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_turn_the_cli_does_end_is_cancelled_and_not_a_failure() {
+        // The other half of the same story: the CLI takes the hint and closes
+        // its output. That is the cancellation landing, not a provider that
+        // disappeared, and the two must not read the same.
+        let mut reader = saying("");
+        let stream = Collected::default();
+        let turn = TurnControl::new(Duration::from_secs(30));
+        turn.ask_to_stop();
+
+        assert_eq!(
+            drive_turn(&mut reader, &turn, &stream).await.unwrap(),
+            TurnOutcome::Ended(StopReason::Cancelled)
+        );
+    }
+
+    #[test]
+    fn a_new_turn_is_not_tainted_by_the_cancellation_of_the_last_one() {
+        // Nobody is subscribed between turns, which is exactly when a `watch`
+        // refuses to change: a session whose first turn was cancelled would
+        // have started its second one already cancelled.
+        let turn = TurnControl::new(Duration::from_millis(10));
+        turn.ask_to_stop();
+        assert!(turn.asked_to_stop());
+        turn.begin();
+        assert!(
+            !turn.asked_to_stop(),
+            "a stale cancellation must not kill the next honest turn"
         );
     }
 }
