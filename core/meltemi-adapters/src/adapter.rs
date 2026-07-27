@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The ACP surface both adapters share (adaptadores-propios-acp task 1.1).
+//! The ACP surface both adapters share (adaptadores-propios-acp tasks 1.1,
+//! 2.2).
 //!
 //! Toward meltemid an adapter is an ordinary ACP agent over stdio: the daemon
 //! pilots it exactly as it pilots a native level-1 agent, with the same
@@ -11,11 +12,10 @@
 //! This module owns the four entry points the daemon uses — `initialize`,
 //! `session/new`, `session/prompt`, `session/cancel` — and the session
 //! bookkeeping around them. What it deliberately does **not** own is the
-//! provider wire: translating a turn into the provider's dialect is the work of
-//! the JSON-RPC server dialect (tasks 2.2-2.4) and of the headless session
-//! dialect (tasks 3.1-3.5). Until a dialect is wired, a prompt **refuses**: an
-//! adapter that answered `end_turn` without piloting anything would be lying
-//! about work it never did.
+//! provider wire: that is a [`ProviderDialect`], and each binary supplies its
+//! own. The seam is narrow on purpose — open a session, run a turn, interrupt
+//! it, end it — because everything either dialect shares should live here and
+//! everything specific to one provider should be impossible to leak in.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,14 +23,14 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, CancelNotification, InitializeRequest, InitializeResponse,
-    NewSessionRequest, NewSessionResponse, PromptRequest, SessionId,
+    NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, SessionId, StopReason,
 };
-use agent_client_protocol::{Agent, Stdio};
+use agent_client_protocol::{Agent, Client, ConnectionTo, Stdio};
 use tokio::sync::Mutex;
 
-use crate::bridge::{CloseAction, LifecycleError, SessionLifecycle};
+use crate::bridge::{CancelAction, CloseAction, LifecycleError, SessionLifecycle, TurnEnd};
 use crate::diagnostic::Refusal;
-use crate::supervisor::{ShutdownPolicy, SpawnedProvider};
+use crate::supervisor::ShutdownPolicy;
 
 /// Which provider surface an adapter binary translates to ACP.
 ///
@@ -43,18 +43,6 @@ pub enum Dialect {
     HeadlessSession,
     /// A JSON-RPC 2.0 server with newline delimitation over stdio.
     JsonRpcServer,
-}
-
-impl Dialect {
-    /// The tasks that wire this dialect's turn mapping, named in the refusal a
-    /// skeleton prompt returns — so nobody has to guess whether the silence is
-    /// a bug or unbuilt scaffolding.
-    fn pending_tasks(self) -> &'static str {
-        match self {
-            Dialect::HeadlessSession => "adaptadores-propios-acp 3.1-3.5",
-            Dialect::JsonRpcServer => "adaptadores-propios-acp 2.2-2.4",
-        }
-    }
 }
 
 /// One adapter binary's identity: what it announces over ACP, and which
@@ -72,23 +60,73 @@ pub struct AdapterSpec {
     pub dialect: Dialect,
 }
 
+/// The provider side of one ACP session, once a dialect has opened it.
+///
+/// Every method takes `&self`: a cancellation arrives while a turn is in
+/// flight, and a session that had to be locked to be interrupted could not be
+/// interrupted at all.
+pub trait ProviderSession: Send + Sync + 'static {
+    /// Runs one turn and answers with the ACP stop reason it earned.
+    ///
+    /// Streaming updates travel over the connection the session was opened
+    /// with; what comes back here is only how the turn ended.
+    fn run_turn(
+        &self,
+        prompt: PromptRequest,
+    ) -> impl Future<Output = Result<StopReason, Refusal>> + Send;
+
+    /// Interrupts the turn in flight, in the provider's own terms.
+    fn interrupt(&self) -> impl Future<Output = ()> + Send;
+
+    /// Ends the provider process.
+    fn shutdown(&self, policy: ShutdownPolicy) -> impl Future<Output = ()> + Send;
+}
+
+/// How one adapter binary pilots its provider.
+pub trait ProviderDialect: Send + Sync + 'static {
+    /// The provider side of a session in this dialect.
+    type Session: ProviderSession;
+
+    /// What this binary announces over ACP and which CLI it pilots.
+    fn spec(&self) -> AdapterSpec;
+
+    /// Launches the official CLI for a new ACP session and hands back the
+    /// session that pilots it.
+    ///
+    /// # Errors
+    ///
+    /// Refuses — never falls back — when the CLI cannot be launched or does not
+    /// offer the surface the adapter requires.
+    fn open(
+        &self,
+        session_id: SessionId,
+        request: NewSessionRequest,
+        cx: ConnectionTo<Client>,
+    ) -> impl Future<Output = Result<Self::Session, Refusal>> + Send;
+}
+
 /// A session the daemon opened on this adapter.
-pub struct Session {
+pub struct Session<S> {
     /// The lifecycle rules that keep the ACP session and the provider process
     /// in step. Held under a plain lock and never across an await: the
     /// transitions are decisions, not work.
     lifecycle: StdMutex<SessionLifecycle>,
-    /// The provider process this session supervises, once its dialect launched
-    /// it (tasks 2.2/3.1). The base mapping owns its end: whoever closes the
-    /// session shuts it down.
-    provider: Mutex<Option<SpawnedProvider>>,
+    /// The provider process this session supervises. Behind an `Arc` so a turn
+    /// and a cancellation can hold it at once — which is the whole point of a
+    /// cancellation.
+    provider: Mutex<Option<Arc<S>>>,
 }
 
-impl Session {
-    fn new() -> Self {
+impl<S: ProviderSession> Session<S> {
+    /// A session over an already-opened provider.
+    fn new(provider: S) -> Self {
+        let mut lifecycle = SessionLifecycle::new();
+        lifecycle
+            .provider_started()
+            .expect("a fresh lifecycle has no provider yet");
         Self {
-            lifecycle: StdMutex::new(SessionLifecycle::new()),
-            provider: Mutex::new(None),
+            lifecycle: StdMutex::new(lifecycle),
+            provider: Mutex::new(Some(Arc::new(provider))),
         }
     }
 
@@ -101,40 +139,58 @@ impl Session {
         transition(&mut lifecycle)
     }
 
-    /// Closes the session and ends its provider process, if it has one.
+    /// The provider, if the session still has one.
+    async fn provider(&self) -> Option<Arc<S>> {
+        self.provider.lock().await.clone()
+    }
+
+    /// Closes the session and ends its provider process.
     async fn close(&self, policy: ShutdownPolicy) {
         if self.with_lifecycle(SessionLifecycle::close) == CloseAction::ShutDownProvider
-            && let Some(mut provider) = self.provider.lock().await.take()
+            && let Some(provider) = self.provider.lock().await.take()
         {
             // A provider that will not go politely is killed: the session is
             // over, and nothing of it may outlive the worktree it ran in.
-            let _ = provider.shutdown(policy).await;
+            provider.shutdown(policy).await;
         }
     }
 }
 
 /// The adapter's live sessions.
-#[derive(Default)]
-struct Sessions {
-    entries: Mutex<HashMap<String, Arc<Session>>>,
+struct Sessions<S> {
+    entries: Mutex<HashMap<String, Arc<Session<S>>>>,
     counter: AtomicU64,
 }
 
-impl Sessions {
-    /// Registers a new session and returns its id.
-    async fn open(&self, prefix: &str) -> String {
-        let id = format!(
+impl<S> Default for Sessions<S> {
+    fn default() -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            counter: AtomicU64::new(0),
+        }
+    }
+}
+
+impl<S: ProviderSession> Sessions<S> {
+    /// The id the next session will be addressed by. Minted before the provider
+    /// is launched because the dialect needs it: a session's very first update
+    /// — the provenance of the binary it just launched — already belongs to it.
+    fn next_id(&self, prefix: &str) -> SessionId {
+        SessionId::new(format!(
             "{prefix}-{}",
             self.counter.fetch_add(1, Ordering::Relaxed) + 1
-        );
+        ))
+    }
+
+    /// Registers an opened session under the id it was minted with.
+    async fn register(&self, id: &SessionId, provider: S) {
         self.entries
             .lock()
             .await
-            .insert(id.clone(), Arc::new(Session::new()));
-        id
+            .insert(session_key(id), Arc::new(Session::new(provider)));
     }
 
-    async fn get(&self, id: &str) -> Option<Arc<Session>> {
+    async fn get(&self, id: &str) -> Option<Arc<Session<S>>> {
         self.entries.lock().await.get(id).cloned()
     }
 
@@ -148,11 +204,11 @@ impl Sessions {
     /// process runs no cleanup. `kill_on_drop` does not survive that either: it
     /// fires when the child handle is dropped, which needs Rust code to run.
     /// Ending the provider with certainty when the adapter is killed takes a
-    /// job object on Windows and a process group elsewhere; it belongs with the
-    /// dialects that actually launch one (tasks 2.2/3.1), and its stronger form
-    /// with `sandbox-propio`.
+    /// job object on Windows and a process group elsewhere; that is where the
+    /// stronger form belongs, with `sandbox-propio`.
     async fn close_all(&self, policy: ShutdownPolicy) {
-        let live: Vec<Arc<Session>> = self.entries.lock().await.drain().map(|(_, s)| s).collect();
+        let live: Vec<Arc<Session<S>>> =
+            self.entries.lock().await.drain().map(|(_, s)| s).collect();
         for session in live {
             session.close(policy).await;
         }
@@ -162,9 +218,9 @@ impl Sessions {
 /// The capabilities this adapter announces.
 ///
 /// Announced honestly and no earlier than true: session load stays off until
-/// resume is mapped (task 3.5), and MCP passthrough until the projection is
-/// handed to the CLI (task 3.5). An adapter that announced them now would make
-/// the daemon offer a resume that cannot happen.
+/// resume is mapped, and MCP passthrough until the projection is handed to the
+/// CLI. An adapter that announced them now would make the daemon offer a resume
+/// that cannot happen.
 fn capabilities() -> AgentCapabilities {
     AgentCapabilities::new()
 }
@@ -179,8 +235,10 @@ fn session_key(id: &SessionId) -> String {
 /// # Errors
 ///
 /// Returns the ACP connection error when the stdio connection fails.
-pub async fn run(spec: AdapterSpec) -> agent_client_protocol::Result<()> {
-    let sessions = Arc::new(Sessions::default());
+pub async fn run<D: ProviderDialect>(dialect: D) -> agent_client_protocol::Result<()> {
+    let dialect = Arc::new(dialect);
+    let spec = dialect.spec();
+    let sessions: Arc<Sessions<D::Session>> = Arc::new(Sessions::default());
     let shutdown = ShutdownPolicy::default();
 
     let served = Agent
@@ -198,9 +256,28 @@ pub async fn run(spec: AdapterSpec) -> agent_client_protocol::Result<()> {
         .on_receive_request(
             {
                 let sessions = sessions.clone();
-                async move |_new_session: NewSessionRequest, responder, _cx| {
-                    let id = sessions.open(spec.name).await;
-                    responder.respond(NewSessionResponse::new(SessionId::new(id)))
+                let dialect = dialect.clone();
+                async move |request: NewSessionRequest, responder, cx: ConnectionTo<Client>| {
+                    let sessions = sessions.clone();
+                    let dialect = dialect.clone();
+                    let id = sessions.next_id(spec.name);
+                    // Launching the CLI and shaking hands with it is work, and
+                    // work does not belong on the dispatch loop: a provider
+                    // that took its time would freeze every other session of
+                    // this adapter while it did.
+                    cx.spawn({
+                        let cx = cx.clone();
+                        async move {
+                            match dialect.open(id.clone(), request, cx).await {
+                                Ok(provider) => {
+                                    sessions.register(&id, provider).await;
+                                    responder.respond(NewSessionResponse::new(id))
+                                }
+                                Err(refusal) => responder.respond_with_error(refusal.into()),
+                            }
+                        }
+                    })?;
+                    Ok(())
                 }
             },
             agent_client_protocol::on_receive_request!(),
@@ -208,7 +285,7 @@ pub async fn run(spec: AdapterSpec) -> agent_client_protocol::Result<()> {
         .on_receive_request(
             {
                 let sessions = sessions.clone();
-                async move |prompt: PromptRequest, responder, _cx| {
+                async move |prompt: PromptRequest, responder, cx: ConnectionTo<Client>| {
                     let Some(session) = sessions.get(&session_key(&prompt.session_id)).await else {
                         return responder.respond_with_error(unknown_session(&spec).into());
                     };
@@ -218,9 +295,28 @@ pub async fn run(spec: AdapterSpec) -> agent_client_protocol::Result<()> {
                     if let Err(error) = session.with_lifecycle(SessionLifecycle::turn_started) {
                         return responder.respond_with_error(turn_refused(&spec, error).into());
                     }
-                    let answer = responder.respond_with_error(dialect_not_wired(&spec).into());
-                    session.with_lifecycle(SessionLifecycle::turn_ended);
-                    answer
+                    let Some(provider) = session.provider().await else {
+                        session.with_lifecycle(SessionLifecycle::turn_ended);
+                        return responder.respond_with_error(session_closed(&spec).into());
+                    };
+                    // Same reason as above, plus one that is not optional here:
+                    // the turn awaits `session/request_permission`, whose answer
+                    // arrives on this very loop.
+                    cx.spawn(async move {
+                        let outcome = provider.run_turn(prompt).await;
+                        let end = session.with_lifecycle(SessionLifecycle::turn_ended);
+                        match outcome {
+                            // A turn that drained after a cancellation ended
+                            // cancelled, whatever the provider called it: ACP
+                            // requires that answer, and it is also the true one.
+                            Ok(stop) => responder.respond(PromptResponse::new(match end {
+                                TurnEnd::Cancelled => StopReason::Cancelled,
+                                TurnEnd::Completed => stop,
+                            })),
+                            Err(refusal) => responder.respond_with_error(refusal.into()),
+                        }
+                    })?;
+                    Ok(())
                 }
             },
             agent_client_protocol::on_receive_request!(),
@@ -228,12 +324,19 @@ pub async fn run(spec: AdapterSpec) -> agent_client_protocol::Result<()> {
         .on_receive_notification(
             {
                 let sessions = sessions.clone();
-                async move |cancel: CancelNotification, _cx| {
-                    if let Some(session) = sessions.get(&session_key(&cancel.session_id)).await {
-                        // The action the dialect must take on the provider's own
-                        // terms (tasks 2.3/3.2); the lifecycle decides *whether*
-                        // there is anything to interrupt at all.
-                        session.with_lifecycle(SessionLifecycle::cancel_requested);
+                async move |cancel: CancelNotification, cx: ConnectionTo<Client>| {
+                    if let Some(session) = sessions.get(&session_key(&cancel.session_id)).await
+                        && session.with_lifecycle(SessionLifecycle::cancel_requested)
+                            == CancelAction::InterruptTurn
+                        && let Some(provider) = session.provider().await
+                    {
+                        // Interrupting can wait on the provider, so it does not
+                        // happen here: this loop must stay free to deliver the
+                        // turn's own answer.
+                        cx.spawn(async move {
+                            provider.interrupt().await;
+                            Ok(())
+                        })?;
                     }
                     Ok(())
                 }
@@ -246,27 +349,6 @@ pub async fn run(spec: AdapterSpec) -> agent_client_protocol::Result<()> {
     // The daemon is gone: nothing this adapter launched has a reason to live.
     sessions.close_all(shutdown).await;
     served
-}
-
-/// The refusal a skeleton prompt returns: honest scaffolding, never a fake
-/// turn. It disappears when the dialect it names lands.
-fn dialect_not_wired(spec: &AdapterSpec) -> Refusal {
-    Refusal::new(
-        "dialect_not_wired",
-        spec.name,
-        format!(
-            "this adapter does not yet translate turns to the {} of `{}`",
-            match spec.dialect {
-                Dialect::HeadlessSession => "headless session dialect",
-                Dialect::JsonRpcServer => "JSON-RPC server dialect",
-            },
-            spec.provider_bin
-        ),
-        format!(
-            "The turn mapping lands in {}; until then pilot the agent with another entry of the fleet.",
-            spec.dialect.pending_tasks()
-        ),
-    )
 }
 
 /// The refusal for a prompt the session's lifecycle will not accept.
@@ -289,10 +371,89 @@ fn unknown_session(spec: &AdapterSpec) -> Refusal {
     )
 }
 
+/// A prompt for a session whose provider has already been shut down.
+fn session_closed(spec: &AdapterSpec) -> Refusal {
+    Refusal::new(
+        "session_closed",
+        spec.name,
+        "this session's provider process has already been shut down".to_string(),
+        "Open a new session.".to_string(),
+    )
+}
+
+/// A dialect that is declared but not wired yet: it opens a session over
+/// nothing and refuses every turn, naming the tasks that will wire it.
+///
+/// It exists so a binary can ship honestly before its provider mapping does. An
+/// adapter that answered `end_turn` while piloting nothing would be claiming
+/// work it never did.
+pub struct PendingDialect {
+    spec: AdapterSpec,
+    tasks: &'static str,
+}
+
+impl PendingDialect {
+    /// A dialect whose turn mapping lands in `tasks`.
+    #[must_use]
+    pub fn new(spec: AdapterSpec, tasks: &'static str) -> Self {
+        Self { spec, tasks }
+    }
+}
+
+/// The session a [`PendingDialect`] opens: it pilots nothing, and says so.
+pub struct PendingSession {
+    spec: AdapterSpec,
+    tasks: &'static str,
+}
+
+impl ProviderSession for PendingSession {
+    async fn run_turn(&self, _prompt: PromptRequest) -> Result<StopReason, Refusal> {
+        Err(Refusal::new(
+            "dialect_not_wired",
+            self.spec.name,
+            format!(
+                "this adapter does not yet translate turns to the {} of `{}`",
+                match self.spec.dialect {
+                    Dialect::HeadlessSession => "headless session dialect",
+                    Dialect::JsonRpcServer => "JSON-RPC server dialect",
+                },
+                self.spec.provider_bin
+            ),
+            format!(
+                "The turn mapping lands in {}; until then pilot the agent with another entry of the fleet.",
+                self.tasks
+            ),
+        ))
+    }
+
+    async fn interrupt(&self) {}
+
+    async fn shutdown(&self, _policy: ShutdownPolicy) {}
+}
+
+impl ProviderDialect for PendingDialect {
+    type Session = PendingSession;
+
+    fn spec(&self) -> AdapterSpec {
+        self.spec
+    }
+
+    async fn open(
+        &self,
+        _session_id: SessionId,
+        _request: NewSessionRequest,
+        _cx: ConnectionTo<Client>,
+    ) -> Result<Self::Session, Refusal> {
+        Ok(PendingSession {
+            spec: self.spec,
+            tasks: self.tasks,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bridge::CancelAction;
 
     fn spec() -> AdapterSpec {
         AdapterSpec {
@@ -303,23 +464,35 @@ mod tests {
         }
     }
 
+    fn pending() -> PendingSession {
+        PendingSession {
+            spec: spec(),
+            tasks: "adaptadores-propios-acp 3.1-3.5",
+        }
+    }
+
     #[tokio::test]
     async fn a_session_is_addressable_by_the_id_it_was_opened_with() {
         // The four entry points share one registry: `session/cancel` must reach
         // the very lifecycle `session/new` created, or a cancellation lands
         // nowhere and the turn runs on. And it must reach only that one.
         let sessions = Sessions::default();
-        let first = sessions.open("adapter").await;
-        let second = sessions.open("adapter").await;
+        let first = sessions.next_id("adapter");
+        let second = sessions.next_id("adapter");
         assert_ne!(first, second, "each session gets its own id");
+        sessions.register(&first, pending()).await;
+        sessions.register(&second, pending()).await;
 
-        let session = sessions.get(&first).await.expect("the session is live");
+        let session = sessions
+            .get(&session_key(&first))
+            .await
+            .expect("the session is live");
         session
             .with_lifecycle(SessionLifecycle::turn_started)
             .unwrap();
         assert_eq!(
             sessions
-                .get(&first)
+                .get(&session_key(&first))
                 .await
                 .expect("still live")
                 .with_lifecycle(SessionLifecycle::cancel_requested),
@@ -328,7 +501,7 @@ mod tests {
         );
         assert_eq!(
             sessions
-                .get(&second)
+                .get(&session_key(&second))
                 .await
                 .expect("still live")
                 .with_lifecycle(SessionLifecycle::cancel_requested),
@@ -341,28 +514,39 @@ mod tests {
     #[tokio::test]
     async fn closing_the_connection_closes_every_session_it_opened() {
         // When the daemon goes, the adapter's sessions go with it: a closed
-        // session takes no further turns, and its provider — once a dialect
-        // launches one — is shut down on this very path.
+        // session takes no further turns, and its provider is shut down on this
+        // very path.
         let sessions = Sessions::default();
-        let id = sessions.open("adapter").await;
-        let session = sessions.get(&id).await.expect("the session is live");
+        let id = sessions.next_id("adapter");
+        sessions.register(&id, pending()).await;
+        let session = sessions
+            .get(&session_key(&id))
+            .await
+            .expect("the session is live");
 
         sessions.close_all(ShutdownPolicy::default()).await;
         assert!(
-            sessions.get(&id).await.is_none(),
+            sessions.get(&session_key(&id)).await.is_none(),
             "the registry keeps no closed sessions"
         );
         assert_eq!(
             session.with_lifecycle(SessionLifecycle::turn_started),
             Err(LifecycleError::SessionClosed)
         );
+        assert!(
+            session.provider().await.is_none(),
+            "and the provider went with it"
+        );
     }
 
-    #[test]
-    fn a_skeleton_prompt_refuses_naming_the_task_that_wires_it() {
+    #[tokio::test]
+    async fn a_dialect_that_is_not_wired_refuses_naming_the_task_that_wires_it() {
         // The refusal is scaffolding, and says so: an adapter that answered a
         // prompt with `end_turn` would claim work it never did.
-        let refusal = dialect_not_wired(&spec());
+        let refusal = pending()
+            .run_turn(PromptRequest::new(SessionId::new("s"), vec![]))
+            .await
+            .expect_err("a dialect that pilots nothing cannot run a turn");
         assert_eq!(refusal.kind, "dialect_not_wired");
         assert!(refusal.detail.contains("test-cli"));
         assert!(refusal.remedy.contains("3.1-3.5"));

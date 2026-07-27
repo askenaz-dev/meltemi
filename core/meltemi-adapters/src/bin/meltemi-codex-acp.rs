@@ -16,15 +16,10 @@
 //! third-party adapter's (`codex-acp`): two different bridges must never
 //! collide on the PATH (design D2).
 
-use meltemi_adapters::adapter::{AdapterSpec, Dialect, run};
+use meltemi_adapters::adapter::run;
+use meltemi_adapters::codex::CodexDialect;
 
 #[tokio::main]
 async fn main() -> agent_client_protocol::Result<()> {
-    run(AdapterSpec {
-        name: "meltemi-codex-acp",
-        provider_layer: "the official `codex` CLI",
-        provider_bin: "codex",
-        dialect: Dialect::JsonRpcServer,
-    })
-    .await
+    run(CodexDialect::new()).await
 }
