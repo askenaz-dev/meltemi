@@ -200,6 +200,7 @@ pub async fn handle_propose(
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
+        events: state.events.clone(),
         rules,
         pending: state.pending.clone(),
         // `propose` always opens a fresh session; resume is a separate flow.

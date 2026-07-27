@@ -79,6 +79,9 @@ pub struct SessionParams {
     /// The session registry, so an escalated request declares the session
     /// blocked on a human decision (sesion-esperando).
     pub sessions: crate::session::SessionRegistry,
+    /// The hub every session event is published to, so any connection that
+    /// watches this session receives it (eventos-para-tardios).
+    pub events: crate::events::EventHub,
     /// The permission rules evaluated before escalation (proxy-permisos D1).
     pub rules: Arc<RuleSet>,
     /// The daemon's shared pending-permission queue (D2).
@@ -134,6 +137,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         no_client_grace,
         clients,
         sessions,
+        events,
         rules,
         pending,
         load_session_id,
@@ -172,6 +176,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         no_client_grace,
         clients: clients.clone(),
         sessions: sessions.clone(),
+        events: events.clone(),
     };
     let perm = HandlerState {
         peer: peer.clone(),
@@ -185,6 +190,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         no_client_grace,
         clients,
         sessions,
+        events,
     };
 
     let result = Client
@@ -361,6 +367,8 @@ struct HandlerState {
     clients: crate::clients::ClientRegistry,
     /// The session registry, to declare the session blocked while it waits.
     sessions: crate::session::SessionRegistry,
+    /// Where session events are published for every interested connection.
+    events: crate::events::EventHub,
 }
 
 /// Logs an agent update and forwards it to the Meltemi client (4.3).
@@ -371,9 +379,12 @@ async fn forward_update(state: &HandlerState, notification: SessionNotification)
         log.append(SessionEventKind::AgentUpdate { update }).ok()
     };
     if let Some(event) = event {
-        state.peer.notify(
-            methods::SESSION_EVENT,
-            &SessionEventParams {
+        // Published, not written against this one connection: the hub reaches
+        // the originating connection AND any other that watches this session,
+        // through a single delivery path (eventos-para-tardios D1).
+        state.events.publish(
+            state.peer.connection_id(),
+            SessionEventParams {
                 session_id: state.session_id.clone(),
                 event,
             },

@@ -499,6 +499,7 @@ async fn run_turn(
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
+        events: state.events.clone(),
         rules: Arc::new(rules),
         pending: state.pending.clone(),
         load_session_id: None,

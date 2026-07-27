@@ -7,10 +7,10 @@
 
 ## 2. Daemon
 
-- [ ] 2.1 Identificador de conexión en `Peer` (`meltemi-client`)
-- [ ] 2.2 Hub de eventos (`events.rs`) con test de entrega: al origen sin
+- [x] 2.1 Identificador de conexión en `Peer` (`meltemi-client`)
+- [x] 2.2 Hub de eventos (`events.rs`) con test de entrega: al origen sin
   suscripción, a un tercero solo si mira, a nadie más
-- [ ] 2.3 `acp.rs` publica en el hub; `server.rs` lleva el conjunto de
+- [x] 2.3 `acp.rs` publica en el hub; `server.rs` lleva el conjunto de
   sesiones miradas por conexión, el brazo de fan-out y el handler del método
 
 ## 3. Superficies y paridad

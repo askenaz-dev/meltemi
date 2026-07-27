@@ -45,6 +45,9 @@ pub struct DaemonState {
     /// Count of initialized client connections, observed by the permission
     /// wait (espera-humana D3).
     pub clients: crate::clients::ClientRegistry,
+    /// Session events published for every interested connection
+    /// (eventos-para-tardios).
+    pub events: crate::events::EventHub,
     /// Per-tree activity and pending human-edit notes (edit-surface soft lock,
     /// gui-tauri-paridad design D4/D5).
     pub edits: Arc<crate::edits::EditHub>,
@@ -63,6 +66,7 @@ impl DaemonState {
             sessions: SessionRegistry::default(),
             pending: PendingQueue::default(),
             clients: crate::clients::ClientRegistry::default(),
+            events: crate::events::EventHub::default(),
             edits: Arc::default(),
             shutdown,
         })
@@ -113,6 +117,11 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
     // guard — however the connection ends — keeps the count honest, which is
     // what the permission wait observes (espera-humana D3).
     let mut client_guard: Option<crate::clients::ClientGuard> = None;
+    // Sessions this connection asked to watch (`session/watch`). Its own
+    // sessions need no entry — the hub seals every event with the connection
+    // that originated it (eventos-para-tardios D1).
+    let mut watched: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut session_events = state.events.subscribe();
 
     // Forward pending-queue changes to this client as `permission/changed`,
     // so its tray reconciles to one snapshot without a round-trip. The
@@ -142,6 +151,27 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
                         continue;
                     }
                     // The queue is gone (daemon tearing down): stop forwarding.
+                    Err(RecvError::Closed) => break,
+                }
+            }
+            event = session_events.recv() => {
+                use tokio::sync::broadcast::error::RecvError;
+                match event {
+                    Ok(envelope) => {
+                        if initialized
+                            && crate::events::delivers(&envelope, peer.connection_id(), &watched)
+                        {
+                            peer.notify(methods::SESSION_EVENT, envelope.params.as_ref());
+                        }
+                        continue;
+                    }
+                    // Fell behind the bounded buffer: events were missed. The
+                    // complete, paginated source is `session/log` (D4); say so
+                    // once rather than pretend the stream was whole.
+                    Err(RecvError::Lagged(missed)) => {
+                        tracing::warn!(missed, "session event stream lagged; read session/log");
+                        continue;
+                    }
                     Err(RecvError::Closed) => break,
                 }
             }
@@ -185,6 +215,13 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
                     );
                     continue;
                 }
+                // `session/watch` is the one method whose state is the
+                // CONNECTION's, not the daemon's, so it is answered here
+                // rather than in the shared dispatcher (eventos-para-tardios).
+                if method == methods::SESSION_WATCH {
+                    peer.respond(id, watch_session(params, &mut watched));
+                    continue;
+                }
                 let state = Arc::clone(&state);
                 let peer_for_task = peer.clone();
                 tokio::spawn(async move {
@@ -202,6 +239,28 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
         }
     }
     tracing::debug!("connection closed");
+}
+
+/// `session/watch`: declare (or drop) this connection's interest in a
+/// session's live event stream. Watching an unknown or finished session is not
+/// an error — the client may be reconnecting around a session that just ended,
+/// and a refusal would say nothing it cannot read from `session/list`.
+fn watch_session(
+    params: Value,
+    watched: &mut std::collections::HashSet<String>,
+) -> Result<Value, RpcError> {
+    let params: meltemi_proto::SessionWatchParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("session/watch: {e}")))?;
+    if params.watch {
+        watched.insert(params.session_id.clone());
+    } else {
+        watched.remove(&params.session_id);
+    }
+    Ok(serde_json::to_value(meltemi_proto::SessionWatchResult {
+        session_id: params.session_id,
+        watching: params.watch,
+    })
+    .expect("SessionWatchResult serializes"))
 }
 
 fn handle_initialize(params: &Value, state: &DaemonState) -> Result<Value, RpcError> {
@@ -698,6 +757,7 @@ async fn handle_worktree_dispatch(
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
+        events: state.events.clone(),
         rules,
         pending: state.pending.clone(),
         load_session_id: None,
@@ -1545,6 +1605,7 @@ async fn handle_sdd_implement(
             no_client_grace: config.no_client_grace(),
             clients: state.clients.clone(),
             sessions: state.sessions.clone(),
+            events: state.events.clone(),
             rules: rules.clone(),
             pending: state.pending.clone(),
             load_session_id: None,
@@ -1891,6 +1952,7 @@ async fn resume_with_instruction(
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
+        events: state.events.clone(),
         rules,
         pending: state.pending.clone(),
         // The heart of resume: load the agent's prior session instead of a new

@@ -18,6 +18,7 @@ pub mod config;
 pub mod conformance;
 pub mod context;
 pub mod edits;
+pub mod events;
 pub mod fleet;
 pub mod git;
 pub mod implement;

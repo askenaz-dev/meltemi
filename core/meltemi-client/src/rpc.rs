@@ -127,6 +127,10 @@ pub struct Peer {
     pending: PendingMap,
     next_id: Arc<AtomicI64>,
     close: Arc<Notify>,
+    /// Identifies this connection among the live ones, so a daemon-side
+    /// fan-out can tell where an event came from (eventos-para-tardios D3).
+    /// Process-local and monotonic: it names no user and survives nothing.
+    connection: u64,
 }
 
 impl Peer {
@@ -138,11 +142,13 @@ impl Peer {
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel::<Incoming>();
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let close = Arc::new(Notify::new());
+        static NEXT_CONNECTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let peer = Self {
             outgoing: outgoing_tx,
             pending: Arc::clone(&pending),
             next_id: Arc::new(AtomicI64::new(1)),
             close: Arc::clone(&close),
+            connection: NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed),
         };
 
         let (read_half, mut write_half) = tokio::io::split(stream);
@@ -199,6 +205,13 @@ impl Peer {
         });
 
         (peer, incoming_rx)
+    }
+
+    /// This connection's process-local identifier. Distinguishes live
+    /// connections from each other; it is not an identity of any kind.
+    #[must_use]
+    pub fn connection_id(&self) -> u64 {
+        self.connection
     }
 
     /// Requests an orderly close: queued output is flushed, then the write
