@@ -277,6 +277,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # The provenance mint (procedencia-de-release): id-token for the OIDC
+      # token behind the Sigstore signing certificate, attestations to persist
+      # the attestation, artifact-metadata for the artifact storage record.
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -304,6 +310,18 @@ jobs:
           cd release-assets
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
+      # Build provenance over the same file the maintainer signs: the subjects
+      # are the entries of the merged SHA256SUMS, so one attestation covers
+      # every published asset exactly as the one detached signature does. This
+      # job only aggregates what the packaging jobs built, so the attestation
+      # ties the published set to this workflow and commit — it does not attest
+      # each build step (docs/release.md says so too, in the same words).
+      # Pinned by commit, not by a floating tag (§10): this step mints with the
+      # job's OIDC identity, and a moved tag must not be able to move it.
+      - name: Attest provenance of the merged checksums
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-checksums: release-assets/SHA256SUMS
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}

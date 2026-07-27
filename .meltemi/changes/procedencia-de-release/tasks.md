@@ -1,6 +1,6 @@
 ## 1. Atestación en el pipeline
 
-- [ ] 1.1 Añadir `id-token: write`, `attestations: write` y `artifact-metadata: write` al job `release`, y el paso `actions/attest` con `subject-checksums` sobre el `SHA256SUMS` fusionado, pineado por SHA (§10) tras verificar el tag vigente
+- [x] 1.1 Añadir `id-token: write`, `attestations: write` y `artifact-metadata: write` al job `release`, y el paso `actions/attest` con `subject-checksums` sobre el `SHA256SUMS` fusionado, pineado por SHA (§10) tras verificar el tag vigente
 - [ ] 1.2 Comprobar en una corrida real que el repositorio permite esos permisos en un job disparado por tag, y que la atestación no añade assets al conjunto publicado (presupuestos de tamaño intactos)
 
 ## 2. Custodia y ancla de confianza
