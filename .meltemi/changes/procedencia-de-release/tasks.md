@@ -32,4 +32,4 @@
 
 ## 4. Cobertura
 
-- [ ] 4.1 Tests por escenario: procedencia publicada, alcance declarado sin exagerar, registro público declarado, ancla fuera de la página que autentica, límites de la herramienta declarados
+- [x] 4.1 Tests por escenario: procedencia publicada, alcance declarado sin exagerar, registro público declarado, ancla fuera de la página que autentica, límites de la herramienta declarados
