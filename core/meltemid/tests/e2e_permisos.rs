@@ -748,3 +748,142 @@ async fn a_session_awaiting_a_decision_declares_itself_waiting() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test]
+async fn a_late_client_watches_a_session_it_did_not_start() {
+    // Scenario: Cliente que llega a mitad de sesión.
+    // Scenario: Sin declarar interés no llega el stream.
+    let root = fixture("watch", Some("[[rule]]\neffect = \"allow\"\n"));
+    // A deliberately slow turn: the mock holds it open before emitting
+    // anything, so the watcher has a window to join a session already in
+    // flight — which is the whole point of the scenario.
+    std::fs::write(
+        root.join(".meltemi").join("config.toml"),
+        format!(
+            "[agent]\ncommand = ['{}', '--turn-delay-ms', '600']\n",
+            mock_agent_bin().display()
+        ),
+    )
+    .unwrap();
+    // SAFETY: no concurrent env readers in this test binary.
+    unsafe {
+        std::env::remove_var("MELTEMI_AGENT_COMMAND");
+    }
+    let (endpoint, daemon) = spawn_daemon("perm-watch").await;
+    let root_str = root.display().to_string();
+
+    // A second connection that will NOT watch: it must stay silent.
+    let (peer_silent, mut incoming_silent) = init_client(&endpoint).await;
+    let silent_events = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let silent_counter = silent_events.clone();
+    let silent = tokio::spawn(async move {
+        while let Some(message) = incoming_silent.recv().await {
+            if let Incoming::Notification { method, .. } = message
+                && method == methods::SESSION_EVENT
+            {
+                silent_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    });
+
+    // A third connection that WILL watch. It learns the session id from
+    // session/list, exactly as a phone joining mid-turn would.
+    let (peer_watcher, mut incoming_watcher) = init_client(&endpoint).await;
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let watcher = tokio::spawn(async move {
+        while let Some(message) = incoming_watcher.recv().await {
+            if let Incoming::Notification { method, params } = message
+                && method == methods::SESSION_EVENT
+                && let Some(id) = params.get("sessionId").and_then(|v| v.as_str())
+            {
+                let _ = events_tx.send(id.to_string());
+            }
+        }
+    });
+
+    // The owner starts the turn. A slow mock keeps it alive long enough for
+    // the watcher to join mid-session.
+    let (peer_owner, incoming_owner) = init_client(&endpoint).await;
+    let drain_owner = tokio::spawn(async move {
+        let mut incoming_owner = incoming_owner;
+        while incoming_owner.recv().await.is_some() {}
+    });
+    let propose = tokio::spawn({
+        let peer_owner = peer_owner.clone();
+        let root = root_str.clone();
+        async move {
+            peer_owner
+                .request(
+                    methods::PROPOSE,
+                    &json!({ "idea": "stream to a late client", "projectRoot": root }),
+                )
+                .await
+        }
+    });
+
+    // Find the live session and watch it.
+    let mut session_id = None;
+    for _ in 0..200 {
+        let list = peer_watcher
+            .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+            .await
+            .expect("session/list ok");
+        if let Some(first) = list["sessions"].as_array().and_then(|a| a.first()) {
+            session_id = first["sessionId"].as_str().map(str::to_string);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let session_id = session_id.expect("a session appeared");
+    let watch = peer_watcher
+        .request(
+            methods::SESSION_WATCH,
+            &json!({ "sessionId": session_id, "watch": true }),
+        )
+        .await
+        .expect("session/watch ok");
+    assert_eq!(watch["watching"], true, "{watch:#}");
+    assert_eq!(watch["sessionId"], session_id.as_str());
+
+    // The turn completes; the owner got its stream as always.
+    let result = tokio::time::timeout(Duration::from_secs(30), propose)
+        .await
+        .expect("propose finished")
+        .expect("join ok")
+        .expect("propose ok");
+    assert_eq!(result["status"], "completed", "{result:#}");
+
+    // The watcher received events of a session it never started. (A race at
+    // the very end of a fast turn could leave it with none; give the tail a
+    // moment before asserting, and assert on what actually arrived.)
+    let mut seen = Vec::new();
+    while let Ok(Some(id)) =
+        tokio::time::timeout(Duration::from_millis(200), events_rx.recv()).await
+    {
+        seen.push(id);
+    }
+    assert!(
+        !seen.is_empty(),
+        "the watcher received the stream of a session it never started"
+    );
+    assert!(
+        seen.iter().all(|id| id == &session_id),
+        "only the watched session's events arrive: {seen:?}"
+    );
+
+    // And the connection that never asked heard nothing at all.
+    assert_eq!(
+        silent_events.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "a connection that did not watch receives no session events"
+    );
+
+    silent.abort();
+    watcher.abort();
+    drain_owner.abort();
+    peer_silent.close();
+    peer_watcher.close();
+    peer_owner.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}

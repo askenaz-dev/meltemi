@@ -22,7 +22,7 @@
 
 ## 4. Escenarios
 
-- [ ] 4.1 e2e: un segundo cliente conecta a mitad de turno, declara mirar la
+- [x] 4.1 e2e: un segundo cliente conecta a mitad de turno, declara mirar la
   sesión y recibe actualizaciones que no provocó; sin declarar, no recibe
 
 ## 5. Verificación
