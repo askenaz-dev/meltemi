@@ -2,6 +2,15 @@
 
 - [x] 1.1 Añadir `id-token: write`, `attestations: write` y `artifact-metadata: write` al job `release`, y el paso `actions/attest` con `subject-checksums` sobre el `SHA256SUMS` fusionado, pineado por SHA (§10) tras verificar el tag vigente
 - [ ] 1.2 Comprobar en una corrida real que el repositorio permite esos permisos en un job disparado por tag, y que la atestación no añade assets al conjunto publicado (presupuestos de tamaño intactos)
+  > Verificado sin tag (2026-07-27): `default_workflow_permissions: write` y
+  > sin política de organización que lo recorte (`gh api
+  > repos/askenaz-dev/meltemi/actions/permissions/workflow`); repositorio
+  > público, así que las atestaciones están disponibles en el plan actual;
+  > GitHub registra el workflow `Release` como activo tras el paso nuevo
+  > (`gh workflow list --all`) y el lint estructural del YAML pasa. Queda lo
+  > que solo una corrida real puede probar: el paso verde en un job disparado
+  > por tag y el conjunto de assets del draft sin adiciones. Se comprueba en
+  > el próximo tag `vX.Y.Z`; hasta entonces la casilla queda abierta.
 
 ## 2. Custodia y ancla de confianza
 
