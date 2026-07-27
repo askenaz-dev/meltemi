@@ -215,7 +215,7 @@ publican en el QA de la primera release que incluya la GUI.
 |---|---|
 | ✅ `espera-humana` (2026-07-26) | Política de espera configurable (`[permissions]`: `wait`/`implement-wait`/`no-client-grace`): los flujos interactivos esperan al humano mientras haya cliente conectado; el fallo del push ya no resuelve la petición (la cola es la única fuente); sin clientes, denegación constitucional auditada tras la gracia |
 | ✅ `sesion-esperando` (2026-07-26) | El daemon fija `waiting_permission` mientras una petición espera decisión (contado, para peticiones simultáneas) y `change/list` declara `gatePending` con el artefacto que espera, leído del estado del ciclo |
-| `eventos-para-tardios` | Suscripción al stream de eventos de sesiones que el cliente no inició (hoy `session/event` va solo a la conexión iniciadora) y formas asíncronas de los RPC que bloquean el turno entero (`sdd/gate`, `sdd/review-decide`, `worktree/dispatch`) |
+| ✅ `eventos-para-tardios` (2026-07-26) | Hub de eventos en el daemon y `session/watch`: la conexión que inició la sesión sigue recibiendo su stream, y cualquier otra lo pide por sesión. **Diferido con razón escrita**: las formas asíncronas de `sdd/gate`, `sdd/review-decide` y `worktree/dispatch` tocan la promesa ratificada de «pasos scriptables» y el stream las mitiga; entran como change propia si la evidencia de uso lo pide |
 
 ## Fase 3 — se planifica al cerrar Fase 2
 

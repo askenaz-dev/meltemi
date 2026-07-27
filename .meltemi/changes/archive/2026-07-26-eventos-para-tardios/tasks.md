@@ -27,5 +27,5 @@
 
 ## 5. Verificación
 
-- [ ] 5.1 Gates locales completos y validate del motor sobre change y verdad
+- [x] 5.1 Gates locales completos y validate del motor sobre change y verdad
   viva
