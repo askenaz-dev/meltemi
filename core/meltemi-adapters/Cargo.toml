@@ -22,6 +22,7 @@ path = "src/bin/meltemi-codex-acp.rs"
 # that property auditable.
 [dependencies]
 agent-client-protocol.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = [
     "rt-multi-thread",
@@ -34,4 +35,8 @@ tokio = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# The conformance suite validates this crate's wire types against the provider's
+# own dumped schema, the discipline `proto/` already practises with the same
+# pinned validator. Test-only, and no new workspace dependency.
+jsonschema.workspace = true
 toml.workspace = true

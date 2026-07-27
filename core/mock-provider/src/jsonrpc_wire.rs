@@ -229,8 +229,8 @@ mod tests {
         // belongs to the request, and only the request knows its id.
         let steps = parse(
             "{\"mock\":\"await-request\",\"method\":\"initialize\"}\n\
-             {\"mock\":\"respond\",\"result\":{\"appServerVersion\":\"1.0.0\"}}\n\
-             {\"mock\":\"notify\",\"method\":\"thread/event\",\"params\":{\"type\":\"turn.started\"}}\n",
+             {\"mock\":\"respond\",\"result\":{\"userAgent\":\"codex_cli_rs/0.77.0\"}}\n\
+             {\"mock\":\"notify\",\"method\":\"turn/started\",\"params\":{\"threadId\":\"t1\"}}\n",
         )
         .unwrap();
 
@@ -249,8 +249,8 @@ mod tests {
             sent[0]["id"], 41,
             "the answer carries the id it was asked with"
         );
-        assert_eq!(sent[0]["result"]["appServerVersion"], "1.0.0");
-        assert_eq!(sent[1]["method"], "thread/event");
+        assert_eq!(sent[0]["result"]["userAgent"], "codex_cli_rs/0.77.0");
+        assert_eq!(sent[1]["method"], "turn/started");
         assert!(sent[1].get("id").is_none(), "a notification has no id");
     }
 
@@ -260,14 +260,14 @@ mod tests {
         // the client asks meanwhile is acknowledged rather than ignored — a
         // fixture that deadlocks turns every bug into the same timeout.
         let steps = parse(
-            "{\"mock\":\"request\",\"method\":\"applyPatchApproval\",\"params\":{\"callId\":\"c1\"}}\n\
-             {\"mock\":\"notify\",\"method\":\"thread/event\",\"params\":{\"type\":\"turn.completed\"}}\n",
+            "{\"mock\":\"request\",\"method\":\"item/fileChange/requestApproval\",\"params\":{\"itemId\":\"i1\"}}\n\
+             {\"mock\":\"notify\",\"method\":\"turn/completed\",\"params\":{\"threadId\":\"t1\"}}\n",
         )
         .unwrap();
 
         let mut input = std::io::Cursor::new(
-            "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"interruptTurn\",\"params\":{}}\n\
-             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"decision\":\"approved\"}}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"turn/interrupt\",\"params\":{}}\n\
+             {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"decision\":\"accept\"}}\n",
         );
         let mut output = Vec::new();
         play(&steps, &mut input, &mut output).unwrap();
@@ -277,10 +277,10 @@ mod tests {
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        assert_eq!(sent[0]["method"], "applyPatchApproval");
+        assert_eq!(sent[0]["method"], "item/fileChange/requestApproval");
         assert_eq!(sent[1]["id"], 7, "the unplanned request was acknowledged");
         assert_eq!(
-            sent[2]["params"]["type"], "turn.completed",
+            sent[2]["method"], "turn/completed",
             "and the transcript went on once the answer arrived"
         );
     }

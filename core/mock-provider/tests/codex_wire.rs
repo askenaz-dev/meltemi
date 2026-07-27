@@ -84,87 +84,109 @@ fn is_response_to(id: i64) -> impl Fn(&Value) -> bool {
 fn the_wire_plays_a_whole_conversation_from_handshake_to_closed_turn() {
     let mut wire = Wire::start(&["app-server"]);
 
-    // 1. Handshake: the version the adapter checks for skew.
+    // 1. Handshake: the user agent is where the version a skew check reads
+    //    lives — the wire offers no other.
     wire.send(&json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {"clientInfo": {"name": "meltemi-codex-acp", "version": "0.1.0"}}
     }));
     let (initialized, _) = wire.read_until(is_response_to(1));
+    let user_agent = initialized["result"]["userAgent"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the handshake announces a user agent: {initialized}"));
     assert!(
-        initialized["result"]["appServerVersion"].is_string(),
-        "the handshake announces a version: {initialized}"
+        user_agent.starts_with("codex_cli_rs/"),
+        "and it carries the CLI's own version: {user_agent}"
     );
 
     // 2. A thread: what the ACP session maps onto.
     wire.send(&json!({
-        "jsonrpc": "2.0", "id": 2, "method": "newThread", "params": {"cwd": "/mock/project"}
+        "jsonrpc": "2.0", "id": 2, "method": "thread/start", "params": {"cwd": "/mock/project"}
     }));
     let (thread, _) = wire.read_until(is_response_to(2));
-    let thread_id = thread["result"]["threadId"]
+    let thread_id = thread["result"]["thread"]["id"]
         .as_str()
         .expect("the thread has an id")
         .to_string();
 
     // 3. A turn, streamed as items, up to the approval the server asks for.
     wire.send(&json!({
-        "jsonrpc": "2.0", "id": 3, "method": "sendUserTurn",
-        "params": {"threadId": thread_id, "items": [{"type": "text", "text": "do it"}]}
+        "jsonrpc": "2.0", "id": 3, "method": "turn/start",
+        "params": {"threadId": thread_id, "input": [{"type": "text", "text": "do it"}]}
     }));
-    let (approval, streamed) =
-        wire.read_until(|m| m.get("method").and_then(Value::as_str) == Some("applyPatchApproval"));
+    let (approval, streamed) = wire.read_until(|m| {
+        m.get("method").and_then(Value::as_str) == Some("item/fileChange/requestApproval")
+    });
 
-    let events: Vec<&str> = streamed
+    let methods: Vec<&str> = streamed
         .iter()
-        .filter_map(|m| m["params"]["event"]["type"].as_str())
+        .filter_map(|m| m["method"].as_str())
         .collect();
     assert!(
-        events.contains(&"turn.started") && events.contains(&"item.completed"),
-        "the turn streams its items before asking anything: {events:?}"
+        methods.contains(&"turn/started")
+            && methods.contains(&"item/agentMessage/delta")
+            && methods.contains(&"item/completed"),
+        "the turn streams its chunks and items before asking anything: {methods:?}"
     );
     assert!(
         approval["id"].is_i64(),
         "the approval is a request, not a notification: it must be answered"
     );
-    assert!(approval["params"]["fileChanges"].is_object());
+    assert_eq!(approval["params"]["itemId"], "item-2");
 
     // 4. The decision comes from the client — here standing in for the proxy.
     wire.send(&json!({
-        "jsonrpc": "2.0", "id": approval["id"].clone(), "result": {"decision": "approved"}
+        "jsonrpc": "2.0", "id": approval["id"].clone(), "result": {"decision": "accept"}
     }));
 
     // 5. Only then does the turn close and the turn request get its answer.
     let (turn, after) = wire.read_until(is_response_to(3));
-    let closing: Vec<&str> = after
-        .iter()
-        .filter_map(|m| m["params"]["event"]["type"].as_str())
-        .collect();
+    let closing: Vec<&str> = after.iter().filter_map(|m| m["method"].as_str()).collect();
     assert!(
-        closing.contains(&"turn.completed"),
+        closing.contains(&"turn/completed"),
         "the turn completes after the decision: {closing:?}"
     );
-    assert_eq!(turn["result"]["status"], "completed");
+    assert_eq!(turn["result"]["turn"]["status"], "completed");
 
     wire.finish();
 }
 
 #[test]
-fn the_wire_dumps_the_schema_of_what_it_speaks() {
-    // The provider CLI dumps its schema per version and this fixture mirrors
-    // it, so the conformance test can run in CI with no provider binary
-    // anywhere.
+fn the_wire_dumps_the_vendored_schema_the_way_the_cli_does() {
+    // The provider CLI dumps its schema per version into a directory, and this
+    // fixture writes the vendored official dump — not an imitation of it — so
+    // the conformance test can run in CI with no provider binary anywhere.
+    let out = std::env::temp_dir().join(format!("mock-codex-schema-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
     let dumped = Command::new(env!("CARGO_BIN_EXE_mock-codex-wire"))
-        .args(["app-server", "generate-json-schema"])
+        .args(["app-server", "generate-json-schema", "--out"])
+        .arg(&out)
         .output()
         .expect("the scripted wire is built next to this test");
     assert_eq!(dumped.status.code(), Some(0));
 
-    let schema: Value = serde_json::from_slice(&dumped.stdout).expect("the dump is JSON");
+    let written = |name: &str| -> Value {
+        let raw = std::fs::read_to_string(out.join(name))
+            .unwrap_or_else(|e| panic!("the dump wrote {name}: {e}"));
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{name} is JSON: {e}"))
+    };
     assert!(
-        schema["$defs"]["ApplyPatchApprovalParams"].is_object(),
+        written("FileChangeRequestApprovalParams.json")["required"].is_array(),
         "the dump describes the approval the wire asks for"
     );
-    assert!(
-        schema["$defs"]["InitializeResult"]["properties"]["appServerVersion"].is_object(),
-        "and the version field a skew check reads"
+    assert_eq!(
+        written("InitializeResponse.json")["required"],
+        json!(["userAgent"]),
+        "and the field a skew check reads"
     );
+
+    // Without `--out` the real CLI refuses; so does the fixture, rather than
+    // inventing a destination.
+    let refused = Command::new(env!("CARGO_BIN_EXE_mock-codex-wire"))
+        .args(["app-server", "generate-json-schema"])
+        .output()
+        .expect("the scripted wire is built next to this test");
+    assert_eq!(refused.status.code(), Some(2));
+
+    let _ = std::fs::remove_dir_all(&out);
 }

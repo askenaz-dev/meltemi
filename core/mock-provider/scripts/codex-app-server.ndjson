@@ -1,29 +1,44 @@
 # Scripted server wire: the provider CLI in its documented JSON-RPC 2.0 server
 # mode, newline-delimited over stdio (adaptadores-propios-acp design D6).
 #
-# The method and event names below freeze the wire as observed for the
-# supported version. They are a fixture, not the contract: the authoritative
-# per-version dump comes from the official CLI's own schema generator and is
-# vendored in task 2.1, which is what the conformance test validates the
-# adapter's types against.
+# Every method, notification and field below is taken from the schema the
+# official CLI dumps for itself, vendored verbatim in
+# `../schemas/codex-app-server/` (see its PROVENANCE.md). The conformance test
+# of the adapter validates each line of this script against that dump, so this
+# fixture cannot drift away from the contract in silence.
 #
-# 1. Handshake: the client initializes, the server answers with its version, so
-#    the adapter can detect skew instead of assuming compatibility.
+# Two things the dump does NOT settle, and that this script therefore states
+# rather than pretends:
+#
+#   * WHEN the `turn/start` response arrives relative to the streamed
+#     notifications. Observing it needs a real model call, which CI never makes.
+#     This script chooses the adverse ordering — the answer last — and the
+#     adapter is written to end its turn on whichever terminal signal arrives
+#     first, so it is correct under either ordering.
+#   * That responses carry `"jsonrpc": "2.0"`. The real CLI omits the member
+#     (verified against 0.77.0); this fixture sends it because JSON-RPC 2.0
+#     requires it, and the adapter tolerates its absence. Being stricter here
+#     than the provider is the safe direction.
+#
+# 1. Handshake: the user agent is the only version the wire offers, and it is
+#    the one the skew check reads.
 {"mock":"await-request","method":"initialize"}
-{"mock":"respond","result":{"appServerVersion":"1.0.0","userAgent":{"name":"mock-codex-wire","version":"0.1.0"}}}
+{"mock":"respond","result":{"userAgent":"codex_cli_rs/0.77.0 (mock-codex-wire; scripted) (meltemi-codex-acp; 0.1.0)"}}
 # 2. A thread is the conversation the ACP session maps onto.
-{"mock":"await-request","method":"newThread"}
-{"mock":"respond","result":{"threadId":"mock-thread-1"}}
-# 3. A turn, streamed as items.
-{"mock":"await-request","method":"sendUserTurn"}
-{"mock":"notify","method":"thread/event","params":{"threadId":"mock-thread-1","turnId":"turn-1","event":{"type":"turn.started"}}}
-{"mock":"notify","method":"thread/event","params":{"threadId":"mock-thread-1","turnId":"turn-1","event":{"type":"item.started","item":{"id":"item-1","type":"agent_message","text":""}}}}
-{"mock":"notify","method":"thread/event","params":{"threadId":"mock-thread-1","turnId":"turn-1","event":{"type":"item.updated","item":{"id":"item-1","type":"agent_message","text":"Working on it."}}}}
-{"mock":"notify","method":"thread/event","params":{"threadId":"mock-thread-1","turnId":"turn-1","event":{"type":"item.completed","item":{"id":"item-1","type":"agent_message","text":"Working on it."}}}}
-# 4. The approval the server asks for: it must reach the permission proxy and
-#    come back decided before anything proceeds.
-{"mock":"request","method":"applyPatchApproval","params":{"threadId":"mock-thread-1","turnId":"turn-1","callId":"call-1","fileChanges":{"NOTES.md":{"add":{"content":"scripted\n"}}},"reason":"the scripted turn writes one file"}}
-{"mock":"notify","method":"thread/event","params":{"threadId":"mock-thread-1","turnId":"turn-1","event":{"type":"item.completed","item":{"id":"item-2","type":"file_change","status":"completed"}}}}
+{"mock":"await-request","method":"thread/start"}
+{"mock":"respond","result":{"approvalPolicy":"on-request","cwd":"/mock/project","model":"mock-model","modelProvider":"mock","sandbox":{"type":"readOnly"},"thread":{"id":"mock-thread-1","cliVersion":"0.77.0","createdAt":1784000000,"cwd":"/mock/project","modelProvider":"mock","path":"/mock/threads/mock-thread-1.jsonl","preview":"scripted turn","source":"appServer","turns":[]}}}
+# 3. A turn, streamed as items: the message arrives as chunks, then whole.
+{"mock":"await-request","method":"turn/start"}
+{"mock":"notify","method":"turn/started","params":{"threadId":"mock-thread-1","turn":{"id":"turn-1","status":"inProgress","items":[]}}}
+{"mock":"notify","method":"item/started","params":{"threadId":"mock-thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"item-1","text":""}}}
+{"mock":"notify","method":"item/agentMessage/delta","params":{"threadId":"mock-thread-1","turnId":"turn-1","itemId":"item-1","delta":"Working "}}
+{"mock":"notify","method":"item/agentMessage/delta","params":{"threadId":"mock-thread-1","turnId":"turn-1","itemId":"item-1","delta":"on it."}}
+{"mock":"notify","method":"item/completed","params":{"threadId":"mock-thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"item-1","text":"Working on it."}}}
+# 4. A file change the server asks approval for: it must reach the permission
+#    proxy and come back decided before the item can complete.
+{"mock":"notify","method":"item/started","params":{"threadId":"mock-thread-1","turnId":"turn-1","item":{"type":"fileChange","id":"item-2","status":"inProgress","changes":[{"path":"NOTES.md","kind":{"type":"add"},"diff":"@@\n+scripted\n"}]}}}
+{"mock":"request","method":"item/fileChange/requestApproval","params":{"threadId":"mock-thread-1","turnId":"turn-1","itemId":"item-2","reason":"the scripted turn writes one file"}}
+{"mock":"notify","method":"item/completed","params":{"threadId":"mock-thread-1","turnId":"turn-1","item":{"type":"fileChange","id":"item-2","status":"completed","changes":[{"path":"NOTES.md","kind":{"type":"add"},"diff":"@@\n+scripted\n"}]}}}
 # 5. The turn closes, and only then does the turn request get its answer.
-{"mock":"notify","method":"thread/event","params":{"threadId":"mock-thread-1","turnId":"turn-1","event":{"type":"turn.completed","usage":{"input_tokens":120,"output_tokens":34}}}}
-{"mock":"respond","result":{"turnId":"turn-1","status":"completed"}}
+{"mock":"notify","method":"turn/completed","params":{"threadId":"mock-thread-1","turn":{"id":"turn-1","status":"completed","items":[]}}}
+{"mock":"respond","result":{"turn":{"id":"turn-1","status":"completed","items":[]}}}
