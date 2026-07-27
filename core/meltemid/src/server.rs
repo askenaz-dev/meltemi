@@ -697,6 +697,7 @@ async fn handle_worktree_dispatch(
         wait: config.autonomous_wait(),
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
+        sessions: state.sessions.clone(),
         rules,
         pending: state.pending.clone(),
         load_session_id: None,
@@ -1543,6 +1544,7 @@ async fn handle_sdd_implement(
             wait: config.autonomous_wait(),
             no_client_grace: config.no_client_grace(),
             clients: state.clients.clone(),
+            sessions: state.sessions.clone(),
             rules: rules.clone(),
             pending: state.pending.clone(),
             load_session_id: None,
@@ -1888,6 +1890,7 @@ async fn resume_with_instruction(
         wait: config.interactive_wait(),
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
+        sessions: state.sessions.clone(),
         rules,
         pending: state.pending.clone(),
         // The heart of resume: load the agent's prior session instead of a new

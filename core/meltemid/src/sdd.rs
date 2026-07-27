@@ -27,6 +27,18 @@ pub enum Artifact {
 }
 
 impl Artifact {
+    /// The artifact's contract name, as reported by the SDD verbs and the
+    /// change listing.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Artifact::Proposal => "proposal",
+            Artifact::Specs => "specs",
+            Artifact::Design => "design",
+            Artifact::Tasks => "tasks",
+        }
+    }
+
     /// The next artifact in the cycle, or `None` after `tasks`.
     #[must_use]
     pub fn next(self) -> Option<Artifact> {

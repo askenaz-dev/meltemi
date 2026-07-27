@@ -498,6 +498,7 @@ async fn run_turn(
         wait: config.interactive_wait(),
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
+        sessions: state.sessions.clone(),
         rules: Arc::new(rules),
         pending: state.pending.clone(),
         load_session_id: None,
@@ -589,13 +590,7 @@ fn gate_hint(change_name: &str) -> String {
 }
 
 fn artifact_str(a: Artifact) -> String {
-    match a {
-        Artifact::Proposal => "proposal",
-        Artifact::Specs => "specs",
-        Artifact::Design => "design",
-        Artifact::Tasks => "tasks",
-    }
-    .to_string()
+    a.as_str().to_string()
 }
 
 fn mode_str(m: Mode) -> String {

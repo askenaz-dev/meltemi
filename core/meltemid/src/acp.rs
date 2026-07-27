@@ -76,6 +76,9 @@ pub struct SessionParams {
     pub no_client_grace: Duration,
     /// Registry of initialized clients, observed by the wait (D3).
     pub clients: crate::clients::ClientRegistry,
+    /// The session registry, so an escalated request declares the session
+    /// blocked on a human decision (sesion-esperando).
+    pub sessions: crate::session::SessionRegistry,
     /// The permission rules evaluated before escalation (proxy-permisos D1).
     pub rules: Arc<RuleSet>,
     /// The daemon's shared pending-permission queue (D2).
@@ -130,6 +133,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         wait,
         no_client_grace,
         clients,
+        sessions,
         rules,
         pending,
         load_session_id,
@@ -167,6 +171,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         wait,
         no_client_grace,
         clients: clients.clone(),
+        sessions: sessions.clone(),
     };
     let perm = HandlerState {
         peer: peer.clone(),
@@ -179,6 +184,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         wait,
         no_client_grace,
         clients,
+        sessions,
     };
 
     let result = Client
@@ -353,6 +359,8 @@ struct HandlerState {
     no_client_grace: Duration,
     /// Registry of initialized clients the wait observes (D3).
     clients: crate::clients::ClientRegistry,
+    /// The session registry, to declare the session blocked while it waits.
+    sessions: crate::session::SessionRegistry,
 }
 
 /// Logs an agent update and forwards it to the Meltemi client (4.3).
@@ -464,6 +472,11 @@ async fn escalate(
         })
         .await;
 
+    // From here the session is blocked on a human: say so, so `session/list`
+    // distinguishes a session waiting on YOU from one hard at work
+    // (sesion-esperando). Counted, so concurrent requests nest correctly.
+    state.sessions.begin_waiting(&state.session_id).await;
+
     // Fire the live push in the background; its answer feeds the queue like a
     // decide (first-wins). Its FAILURE feeds nothing: the queue is the only
     // source of resolution (espera-humana D1).
@@ -507,6 +520,9 @@ async fn escalate(
             rx.await.ok()
         }
     };
+    // However it resolved, the session is no longer blocked on this request.
+    state.sessions.end_waiting(&state.session_id).await;
+
     resolution.unwrap_or_else(|| Resolution {
         outcome: deny_outcome(options),
         decided_by: PermissionDecidedBy::Timeout,

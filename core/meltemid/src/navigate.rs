@@ -119,6 +119,30 @@ fn aggregate(
         )
     };
 
+    // The authoring gate, read from the cycle state the SDD flow already
+    // persists (sesion-esperando D3). Archived history has no pending
+    // decisions, like its review and verify columns above.
+    let (gate_pending, gate_artifact) = if archived {
+        (false, None)
+    } else {
+        match crate::sdd::CycleState::load(change_dir) {
+            Some(cycle) if cycle.gate_pending => {
+                // `sdd/constitution` reuses the cycle under a synthetic change
+                // of that name; report what the verb reported, not the
+                // proposal slot it borrows.
+                let artifact = if name == "constitution" {
+                    Some("constitution".to_string())
+                } else {
+                    cycle.current.map(|a| a.as_str().to_string())
+                };
+                (true, artifact)
+            }
+            // No cycle state (a change not born of `sdd/propose`) states no
+            // gate rather than a gap.
+            _ => (false, None),
+        }
+    };
+
     ChangeInfo {
         name: name.to_string(),
         archived,
@@ -130,6 +154,8 @@ fn aggregate(
         review_total,
         verified,
         verify_total,
+        gate_pending,
+        gate_artifact,
     }
 }
 
@@ -476,5 +502,71 @@ mod tests {
             parse_archived("2026-13"),
             ("2026-13".to_string(), String::new())
         );
+    }
+
+    /// A change dir with an optional persisted cycle state.
+    fn change_fixture(tag: &str, cycle: Option<&crate::sdd::CycleState>) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("meltemi-nav-gate-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("proposal.md"), "## Why\n\nBecause.\n").unwrap();
+        if let Some(cycle) = cycle {
+            cycle.save(&dir).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn the_listing_declares_a_pending_gate_and_its_artifact() {
+        // Scenario: Gate pendiente descubrible en el listado.
+        use crate::sdd::{Artifact, CycleState, Mode};
+        let mut cycle = CycleState::new("demo", Mode::SpecFull, false);
+        cycle.current = Some(Artifact::Specs);
+        cycle.open_gate();
+        let dir = change_fixture("pending", Some(&cycle));
+
+        let linked = std::collections::HashSet::new();
+        let info = aggregate(&dir, &dir, "demo", false, None, &linked);
+        assert!(info.gate_pending, "the pending gate is declared");
+        assert_eq!(info.gate_artifact.as_deref(), Some("specs"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_change_without_a_cycle_declares_no_gate() {
+        // Scenario: Estado parcial honesto — absence stated, not invented.
+        let dir = change_fixture("nocycle", None);
+        let linked = std::collections::HashSet::new();
+        let info = aggregate(&dir, &dir, "demo", false, None, &linked);
+        assert!(!info.gate_pending);
+        assert_eq!(info.gate_artifact, None, "no artifact invented");
+
+        // A cycle whose gate was consumed declares none either.
+        use crate::sdd::{CycleState, Mode};
+        let cycle = CycleState::new("demo", Mode::SpecFull, false);
+        let open = change_fixture("consumed", Some(&cycle));
+        let info = aggregate(&open, &open, "demo", false, None, &linked);
+        assert!(!info.gate_pending, "no gate is open yet");
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&open);
+    }
+
+    #[test]
+    fn archived_history_has_no_pending_decisions() {
+        // Archived changes report frozen state, like review and verify.
+        use crate::sdd::{CycleState, Mode};
+        let mut cycle = CycleState::new("demo", Mode::SpecFull, false);
+        cycle.open_gate();
+        let dir = change_fixture("archived", Some(&cycle));
+
+        let linked = std::collections::HashSet::new();
+        let info = aggregate(&dir, &dir, "demo", true, Some("2026-07-26".into()), &linked);
+        assert!(!info.gate_pending, "history awaits nothing");
+        assert_eq!(info.gate_artifact, None);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
