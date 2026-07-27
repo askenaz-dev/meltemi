@@ -89,7 +89,7 @@ the surfaces show which of the two you are looking at.
 - Level 2 (official ACP adapter). MCP passthrough: yes.
 - Layers: official CLI `claude`, adapter `claude-agent-acp`
 - Install the CLI: `npm i -g @anthropic-ai/claude-code`
-- Install the adapter: `npm i -g @zed-industries/claude-agent-acp`
+- Install the adapter: `npm i -g @agentclientprotocol/claude-agent-acp`
 - **Legal status: grey.** The adapter drives the provider's Agent SDK, and
   consumer subscriptions are not licensed for third-party clients. The safe
   path is piloting the official binary you already signed into. Meltemi shows
@@ -100,7 +100,7 @@ the surfaces show which of the two you are looking at.
 - Level 2 (official ACP adapter).
 - Layers: official CLI `codex`, adapter `codex-acp`
 - Install the CLI: `npm i -g @openai/codex`
-- Install the adapter: `cargo install codex-acp`
+- Install the adapter: `npm i -g @agentclientprotocol/codex-acp`
 - Legal status: tolerated — the adapter wraps the CLI's own official
   app-server mode, and the CLI authenticates itself.
 

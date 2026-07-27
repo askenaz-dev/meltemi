@@ -31,7 +31,7 @@
 # meltemid can actually pilot today; the official CLI itself and the finer
 # level semantics arrive with the conformance suite change.
 
-version = "2026-07-09"
+version = "2026-07-27"
 
 [[agents]]
 id = "gemini-cli"
@@ -98,7 +98,7 @@ candidate-paths = []
 cli-bin = "claude"
 cli-candidate-paths = ["~/.local/bin/claude"]
 cli-install = "npm i -g @anthropic-ai/claude-code"
-adapter-install = "npm i -g @zed-industries/claude-agent-acp"
+adapter-install = "npm i -g @agentclientprotocol/claude-agent-acp"
 legal-status = "grey"
 legal-note = "The adapter drives the Agent SDK, and consumer subscriptions are not licensed for third-party clients; the safe path is piloting the official binary you already signed into."
 
@@ -113,7 +113,7 @@ candidate-paths = []
 cli-bin = "codex"
 cli-candidate-paths = []
 cli-install = "npm i -g @openai/codex"
-adapter-install = "cargo install codex-acp"
+adapter-install = "npm i -g @agentclientprotocol/codex-acp"
 legal-status = "tolerated"
 legal-note = "The adapter wraps the official app-server mode of the provider CLI; the CLI authenticates itself."
 

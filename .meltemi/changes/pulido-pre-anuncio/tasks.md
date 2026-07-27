@@ -22,7 +22,7 @@
 
 ## 3. Instantánea del registro y guía (daemon + docs)
 
-- [ ] 3.1 Actualizar los `adapter-install` de las dos entradas de nivel 2 en
+- [x] 3.1 Actualizar los `adapter-install` de las dos entradas de nivel 2 en
   `core/meltemid/data/fleet-registry.toml` al scope vigente
   `@agentclientprotocol` (design D3), subir `version` a `2026-07-27`, y
   actualizar las secciones correspondientes de `docs/agentes.md` en el mismo
