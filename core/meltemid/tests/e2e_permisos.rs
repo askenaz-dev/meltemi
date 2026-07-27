@@ -635,3 +635,116 @@ async fn with_no_clients_the_constitutional_deny_fires_after_the_grace() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test]
+async fn a_session_awaiting_a_decision_declares_itself_waiting() {
+    // Scenario: Sesión esperando se declara esperando.
+    // Scenario: Resuelta la petición, la sesión vuelve a activa.
+    let root = fixture("waitingstate", None); // no rules → the request escalates
+    // SAFETY: no concurrent env readers in this test binary.
+    unsafe {
+        std::env::remove_var("MELTEMI_AGENT_COMMAND");
+    }
+    let (endpoint, daemon) = spawn_daemon("perm-waitingstate").await;
+    let root_str = root.display().to_string();
+
+    // Connection A starts the propose and holds the live push unanswered, so
+    // the session sits blocked on a human.
+    let (peer_a, incoming_a) = init_client(&endpoint).await;
+    let hold = tokio::spawn(async move {
+        let mut incoming_a = incoming_a;
+        while incoming_a.recv().await.is_some() {}
+    });
+    let propose = tokio::spawn({
+        let peer_a = peer_a.clone();
+        let root = root_str.clone();
+        async move {
+            peer_a
+                .request(
+                    methods::PROPOSE,
+                    &json!({ "idea": "declare the wait", "projectRoot": root }),
+                )
+                .await
+        }
+    });
+
+    let entry = wait_for_pending(&endpoint).await;
+    let request_id = entry["requestId"].as_str().unwrap().to_string();
+    let allow = entry["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["kind"] == "allow_once")
+        .expect("an allow option")["optionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Another client observes the blocked session — the state the surfaces
+    // have always known how to paint, now actually set.
+    let (peer_b, _incoming_b) = init_client(&endpoint).await;
+    let mut waiting_seen = false;
+    for _ in 0..100 {
+        let list = peer_b
+            .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+            .await
+            .expect("session/list ok");
+        if list["sessions"]
+            .as_array()
+            .and_then(|a| a.first())
+            .is_some_and(|s| s["state"] == "waiting_permission")
+        {
+            waiting_seen = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        waiting_seen,
+        "the session blocked on a human decision declares waiting_permission"
+    );
+
+    // Decide: the session goes back to work, and says so.
+    peer_b
+        .request(
+            methods::PERMISSION_DECIDE,
+            &json!({ "requestId": request_id, "optionId": allow }),
+        )
+        .await
+        .expect("decide ok");
+    let mut active_again = false;
+    for _ in 0..100 {
+        let list = peer_b
+            .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+            .await
+            .expect("session/list ok");
+        let state = list["sessions"]
+            .as_array()
+            .and_then(|a| a.first())
+            .map(|s| s["state"].clone());
+        // `active` while the turn finishes, or already `ended` if it raced us:
+        // either way it is no longer blocked on a human.
+        if matches!(
+            state.as_ref().and_then(|s| s.as_str()),
+            Some("active") | Some("ended")
+        ) {
+            active_again = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(active_again, "the decided session is no longer waiting");
+    peer_b.close();
+
+    let result = tokio::time::timeout(Duration::from_secs(30), propose)
+        .await
+        .expect("propose finished")
+        .expect("join ok")
+        .expect("propose ok");
+    assert_eq!(result["status"], "completed", "{result:#}");
+
+    hold.abort();
+    peer_a.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}

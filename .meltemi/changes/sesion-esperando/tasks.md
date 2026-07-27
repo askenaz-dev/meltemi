@@ -22,7 +22,7 @@
 
 ## 4. Escenarios
 
-- [ ] 4.1 e2e: `session/list` declara `waiting_permission` mientras la
+- [x] 4.1 e2e: `session/list` declara `waiting_permission` mientras la
   petición espera y `active` tras decidir
 
 ## 5. Verificación
