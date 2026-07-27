@@ -1,4 +1,4 @@
-<!-- meltemi:context:begin sha256=177a9a71137dcc5127f84b8ffe446f1b9acaf82666c0c34dda62f2994e6f8b88 -->
+<!-- meltemi:context:begin sha256=4cc163b568f0705fbf497489d8aaa501ee6c97357ba3ae4952590202cb3f4577 -->
 # Meltemi — contexto proyectado
 
 _Compilado desde `.meltemi/` por `meltemi project`. El contenido del bloque gestionado se regenera; no editarlo a mano._
@@ -114,162 +114,221 @@ meltemi/
 
 **Prohibiciones**: credenciales de agentes (ni leerlas ni tocarlas); transporte de red en el daemon; dependencias que exijan cuentas de proveedores para compilar o testear; features del daemon accesibles desde una sola superficie.
 
-## Cambio activo: motor-propio-byok
+## Cambio activo: adaptadores-propios-acp
+
+# adaptadores-propios-acp
 
 ## Why
 
-El mantenedor pide tres cosas: una vía de referencia para modelos
-autohospedados (ollama en `http://localhost:11434` o cualquier endpoint
-OpenAI-compatible), de modo que "un agente Meltemi con el harness de
-Meltemi" corra contra un modelo local, con BYOK para los hospedados; el
-harness como concepto de primera clase con un default; y una decisión sobre
-su proyecto Forge Harnesses. La forma ya estaba escrita: meltemi.md D6
-promete que el motor propio "entra a la flota como un agente más… jamás un
-canal privilegiado", y esa frase decide la arquitectura completa. El motor
-es un binario ACP de nivel 1 que meltemid pilota por stdio exactamente como
-pilota a gemini-cli — mismas specs, mismo proxy de permisos, mismos
-worktrees y checkpoints — y todo su tráfico de red vive en el subproceso,
-donde hoy vive el de toda la flota. Así el daemon no gana ni una línea de
-HTTP (§3), la flota sigue siendo la única superficie de integración (§5) y
-el motor queda genuinamente opcional (rumbo de producto). Vive en este
-monorepo (`core/meltemi-engine`) porque es un hito de fase 2 de este
-proyecto y merece su disciplina — dejarlo fuera arriesga la inanición del
-hito D6 —, pero entra por la puerta pública del catálogo porque esa es la
-prueba más fuerte de neutralidad: Meltemi trata a su propio motor
-exactamente como trata a Codex.
+El mantenedor lo decidió sin ambigüedad: «no quiero ACP (adapters) de
+terceros. Revisa los que tenemos y construimos los propios». Esta change ya
+no evalúa la opción — la ejecuta: los adaptadores propios **son** los puntos
+de pilotaje que Meltemi distribuye, empaquetados en los mismos instaladores,
+y reemplazan a los adaptadores de terceros como capa por defecto del
+registro para las dos entradas de nivel 2 (Claude Code y Codex).
+
+La decisión revierte una registrada: `niveles-integracion-conformidad` dejó
+fuera de alcance «Mantener adaptadores propios: se consumen adaptadores
+abiertos existentes». Aquella decisión fue correcta con el ecosistema de
+entonces; cuatro hechos la vencieron. Primero, el suelo se movió: Zed
+archivó su `codex-acp` en Rust el 2026-07-22 y los adaptadores canónicos
+viven hoy en TypeScript bajo la org `agentclientprotocol` — consumirlos
+significa un runtime Node en la distribución, contra el rumbo de un solo
+lenguaje de sistemas, y la opción Rust upstream murió. Segundo, la zona
+gris del adaptador de Claude es permanente y no depende de quién lo
+mantiene: los términos de Anthropic (feb-2026) nombran al Agent SDK como no
+autorizado para OAuth de suscripción, el adaptador canónico envuelve
+exactamente ese SDK, y un fork heredaría la misma exposición — mientras que
+el camino seguro que el research ya nombró (pilotar el binario oficial
+`claude` donde el usuario ya hizo login) no lo toma ningún adaptador del
+ecosistema. Tercero, los adaptadores propios viajan `bundled` en los
+instaladores y matan el muro de onboarding «adaptador no detectado» que
+`flota-deteccion-guia` diagnosticó: instalar Meltemi más el CLI oficial del
+proveedor basta, sin `npm i -g` intermedio de un tercero. Cuarto, la
+directiva del mantenedor, que convierte lo anterior en rumbo y no en
+alternativa. La reversión queda argumentada por escrito en el design, con
+fechas y fuentes; una decisión registrada solo se revierte con otra
+decisión registrada.
 
 ## What Changes
 
-- **Crate nuevo `core/meltemi-engine`** (binario `meltemi-engine`, modo ACP
-  vía `meltemi-engine acp`): loader de harness, un solo dialecto de modelo
-  en v1 — `openai-chat`, cliente HTTP mínimo sobre rustls, solo saliente,
-  confinado al crate — y el bucle agéntico que mapea tool calls a
-  operaciones ACP del lado cliente: lecturas, escrituras y permisos vuelven
-  por el proxy existente de meltemid. El motor queda gobernado, no
-  confiado, y jamás escucha en puerto alguno. El design deja por escrito la
-  prueba que §6 exige (ningún estándar abierto cubre las APIs de
-  inferencia; la superficie chat OpenAI-compatible es la interoperable de
-  facto: ollama, llama.cpp, vLLM, LM Studio, OpenRouter; tampoco existe
-  estándar de manifiestos de harness) y la lectura estricta de §3: meltemid
-  no enlaza pila HTTP/TLS alguna — propiedad verificable por cargo-deny —
-  para que este debate no reabra la puerta después.
-- **Harness como manifiesto TOML v1**, el concepto de primera clase:
-  `schema = 1`, nombre, `[model]` (dialect, base-url, model,
-  `api-key = "${VAR}"` opcional), `[prompt]`, `[tools]` (allow/ask/deny que
-  moldean lo que el motor pide; el proxy sigue decidiendo) y `[limits]`.
-  Un modelo local y uno hospedado BYOK son el mismo esquema: solo cambian
-  `base-url` y la presencia de la referencia de clave. Literales que
-  parecen secretos se RECHAZAN con el remedio `${VAR}` (el lint de higiene
-  existente de perfiles/MCP); ninguna clave se persiste, se loguea ni asoma
-  en diagnósticos (§2).
-- **Harness default embebido** (`include_str!`, como el registro de flota)
-  apuntando a `http://localhost:11434/v1` — el único default que no
-  privilegia a proveedor comercial alguno (§5). Sin modelo alcanzable, el
-  motor rehúsa con diagnóstico y remedio ("nada escucha en
-  localhost:11434 — inicia ollama o declara un harness"; o lista lo que el
-  endpoint sí sirve); nunca degrada en silencio. Es un trade deliberado —
-  onboarding más duro que un default hospedado — y esta propuesta lo
-  defiende para que no se "arregle" a la ligera después.
-- **Descubrimiento y listado sin RPC nuevos**: harnesses en
-  `<config>/meltemi/harnesses/*.toml` y `.meltemi/harnesses/*.toml`
-  (proyecto pisa usuario por nombre, misma precedencia que perfiles y MCP);
-  `fleet/list` los anida bajo la entrada del motor con fuente
-  embedded/user/project — campos aditivos, paridad ×3 heredada. El daemon
-  valida forma e higiene de secretos; jamás interpreta semántica de
-  endpoint o prompt (§5 literal). Una sesión que nombra el motor o un
-  harness resuelve por el orden existente y lanza
-  `meltemi-engine acp --harness <ruta>`; binario y harness efectivos quedan
-  en el log de sesión como toda resolución de hoy.
-- **Entrada de registro** `meltemi-engine` (nivel 1, `acp-args = ["acp"]`)
-  más una extensión honesta: `bundled = true`, para que la detección sondee
-  también el directorio hermano del meltemid en ejecución — el motor viaja
-  en los mismos instaladores. Regla de gobernanza explícita en el design:
-  toda capacidad motor↔daemon más allá de ACP base debe ser una extensión
-  ACP abierta y documentada que cualquier agente tercero pueda implementar;
-  nada puede colgar de `id == "meltemi-engine"`.
-- **Forge Harnesses permanece como proyecto separado, conectado por
-  contrato de importación.** Absorberlo tiene méritos reales (cambios
-  atómicos, un solo CI), pero cada mérito choca con una regla: la
-  constitución entera aplicaría a un laboratorio de iteración de prompts
-  (spec-first por cada ajuste, clippy en 3 SO, Apache-2.0 + CLA desde el
-  día uno), el CI de Meltemi jamás ejecuta agentes reales ni red — la
-  absorción ni siquiera compra tests de integración — y arrastraría a
-  Meltemi hacia el marketplace que su rumbo explícitamente no es; el
-  registro comunitario ya tiene casa declarada en fase 3. El contrato: este
-  repo publica el esquema del manifiesto versionado (JSON Schema + fixtures
-  de conformidad) y Forge produce manifiestos que se prueban contra ellos;
-  instalar uno es copiarlo al directorio de harnesses, donde el daemon lo
-  valida y lo lista con su fuente. El daemon jamás descarga nada. Condición
-  explícita: si algún día se absorbe, entra Apache-2.0 bajo CLA, sin
-  excepciones.
-- **Guía de modelos autohospedados** en docs (EN): las dos vías con
-  honestidad — el motor propio con su harness, y la que ya funciona hoy sin
-  código nuevo (OpenCode y Aider de la flota actual soportan proveedores
-  ollama/OpenAI-compatible por su propia configuración), verificada contra
-  versiones actuales antes de publicarse, no citada de memoria.
+- **Crate nuevo `core/meltemi-adapters`**: una librería de puente ACP
+  compartida y **dos binarios**, `meltemi-claude-acp` y `meltemi-codex-acp`
+  — nombres distintos de los binarios de terceros (`claude-agent-acp`,
+  `codex-acp`) para que jamás colisionen en el PATH. **Cero dependencias
+  nuevas en el workspace**: tokio, serde y el crate oficial
+  `agent-client-protocol` ya son dependencias pineadas. Ninguno de los dos
+  adaptadores enlaza pila HTTP/TLS alguna — a diferencia del motor propio,
+  aquí no hay rustls que justificar: ambos lanzan el CLI oficial del
+  proveedor como subproceso y hablan JSON delimitado por líneas por stdio;
+  toda la red y toda la auth viven en el binario oficial, donde §2 las
+  exige.
+- **Adaptador de Claude** (`meltemi-claude-acp`): pilota el **binario
+  oficial `claude` con la sesión que el usuario ya inició**, vía `-p
+  --input-format stream-json --output-format stream-json
+  --include-partial-messages` — deltas de tokens y transcripts de
+  subagentes dan casi-paridad de streaming; `--resume` y `--fork-session`
+  funcionan headless con ámbito de directorio de proyecto y sus worktrees,
+  que calza con el modelo de Meltemi; `--mcp-config` recibe la proyección
+  de perfiles MCP existente. Jamás el Agent SDK, jamás `--bare`: el flip
+  anunciado de `--bare` como default de `-p` (mataría el OAuth en silencio)
+  queda **pineado como riesgo en el design**, con detección de features vía
+  el arreglo `capabilities` de `system/init` — que existe para exactamente
+  esto — y rehúso diagnosticado si la superficie con sesión iniciada no
+  está, nunca cambio silencioso a modo de clave de API.
+- **Permisos de Claude con passthrough real y pérdidas declaradas**:
+  `--permission-prompt-tool` apunta a un shim MCP mínimo por stdio que el
+  propio adaptador hospeda (el mismo binario en modo shim, conectado al
+  proceso padre por un canal privado); cada petición se releva a
+  `session/request_permission` de la sesión ACP del adaptador, que meltemid
+  proxya a la bandeja humana como toda petición de hoy — **el daemon no
+  gana transporte alguno**. Hooks `PreToolUse` como compuerta dura, que
+  deniega incluso en `bypassPermissions`. Lo que se pierde se escribe: el
+  prompt-tool solo se consulta cuando ninguna regla estática decide; las
+  herramientas `requiresUserInteraction` y `AskUserQuestion` se
+  auto-deniegan en modo no interactivo y la sesión lo muestra con motivo,
+  no lo esconde; el contrato del prompt-tool está infradocumentado upstream
+  (issue #1175). El canal `canUseTool` del SDK existe en el mismo cable
+  pero no está documentado: construir sobre él violaría el espíritu de §6,
+  así que no.
+- **Adaptador de Codex** (`meltemi-codex-acp`): lanza el CLI oficial
+  `codex` en modo `app-server` — JSON-RPC 2.0 con delimitación por líneas
+  sobre stdio, documentado, la misma interfaz que usa la extensión VS Code
+  del propio proveedor. El esquema por versión se vuelca con `codex
+  app-server generate-json-schema`, y eso es una historia de conformidad
+  lista: los tipos del adaptador se prueban contra fixtures del esquema, la
+  disciplina que `proto/` ya practica. Explícitamente **no** el patrón de
+  los adaptadores Rust archivados (Zed) y comunitarios: embeber
+  `codex-core` como librería hace que el adaptador mismo haga red y lea el
+  almacén de auth de Codex — choca con §2 aunque toda la cadena sea
+  Apache-2.0.
+- **Flip del registro**: las filas `claude-code` y `codex-cli` cambian su
+  capa adaptador a los binarios propios con `bundled = true`. La detección
+  de capa empaquetada — sondear también el directorio hermano del meltemid
+  en ejecución — la describe la propuesta de `motor-propio-byok` pero no
+  está implementada (esa change tiene solo proposal): **esta change la
+  implementa como mecanismo genérico del registro y el motor la hereda**.
+  Las capas `cli-bin` no se tocan (los CLIs oficiales se siguen detectando
+  aparte); mueren los `adapter-install` de terceros de esas filas, y el
+  remedio de una capa empaquetada ausente remite a reinstalar o reparar
+  Meltemi, no a un `npm i -g` ajeno. El estatus legal se reescribe **sin
+  maquillaje** para describir la arquitectura nueva con verdad: Claude
+  sigue en gris — la vía ofrecida es ahora exactamente el camino seguro que
+  el research nombró, pero Anthropic no ha publicado bendición alguna de
+  orquestadores terceros sobre `claude -p`, y la nota lo dice — jamás
+  «sancionado»; Codex sigue tolerado y mejora, porque OpenAI publicó
+  app-server precisamente para terceros y desaparece la dependencia de
+  supply chain sobre un repo archivado.
+- **La vía de terceros no se prohíbe, deja de recomendarse**: quien
+  prefiera un adaptador de terceros lo declara por configuración (entrada
+  `custom` o `command` literal) y el daemon lo pilota como cualquier otro,
+  sin trato distinto. La guía documenta la receta con su nota legal; el
+  registro ya no la recomienda.
+- **La prueba que §6 exige, por escrito en el design**: del lado Meltemi el
+  estándar es ACP, hablado con el crate oficial que ya es dependencia del
+  workspace. Del lado proveedor no existe estándar que cubra el pilotaje
+  programático de estos agentes: stream-json y app-server son la superficie
+  programática oficial de cada proveedor, cada una documentada por su
+  dueño. El adaptador es exactamente eso — traducción entre el estándar
+  abierto y la superficie oficial del proveedor — y ninguna capacidad puede
+  colgar de un canal no documentado.
+- **`docs/agentes.md` se reescribe en lockstep** (el test de coherencia
+  registro↔guía ya existe): la capa adaptador de estas entradas viaja con
+  Meltemi, qué hacer si falta, y la receta de terceros por configuración.
 
 ## Capabilities
 
 ### New Capabilities
-- `own-engine`: el bucle agéntico del motor propio como agente ACP nivel 1
-  — dialecto `openai-chat`, gobernado por el proxy, sin canal privilegiado.
-- `harness-config`: manifiestos de harness v1, default embebido con rechazo
-  diagnosticado, higiene `${VAR}`, descubrimiento y listado con fuente.
+- `own-adapters`: los adaptadores ACP propios como puentes gobernados sobre
+  el binario oficial de cada proveedor — dialecto de sesión headless de
+  eventos JSON y dialecto de servidor JSON-RPC, permisos relevados al proxy
+  vigente con compuerta dura y pérdidas visibles, conformidad por versión,
+  sin pila de red y sin canal privilegiado. (Una sola capability y sin
+  nombres de terceros en specs: los nombres de productos viven en el
+  registro como datos factuales, nunca en la verdad viva — la regla que el
+  propio registro declara.)
 
 ### Modified Capabilities
-- `fleet-catalog`: + entrada `meltemi-engine` con detección `bundled`; +
-  harnesses anidados bajo el motor en `fleet/list` (campos aditivos).
-- `initial-docs`: + guía de modelos autohospedados verificada.
+- `fleet-catalog`: + detección de capa empaquetada junto al daemon
+  (genérica, keyed en `bundled`, el motor propio la hereda); + adaptador
+  propio como punto de pilotaje por defecto de las entradas de nivel 2 con
+  la vía de terceros preservada por configuración; el remedio por capa
+  distingue capas empaquetadas (reinstalar Meltemi) de capas instalables.
+- `integration-levels`: la suite de conformidad de nivel 2 se ejerce en CI
+  a través de los adaptadores propios pilotando procesos proveedor
+  simulados; agentes reales siguen siendo manuales por opt-in. La reversión
+  del fuera-de-alcance registrado queda asentada en el design de esta
+  change.
+- `initial-docs`: la guía de agentes explica la capa empaquetada y
+  documenta la vía de terceros por configuración, sin inventar bendiciones.
 
 ## Impact
 
-- Workspace: crate nuevo `core/meltemi-engine` con la única dependencia
-  nueva (cliente HTTP mínimo sobre rustls, confinada al crate y justificada
-  en el design, §10 — el set de dependencias de meltemid no se mueve);
-  `core/meltemid` (fila de registro, detección `bundled`, descubrimiento de
-  harnesses), `proto/` (campos aditivos en `FleetAgent`), `tui/` y
-  `desktop/ui` (render de harnesses y del rechazo del default), matriz de
-  paridad, `rumbo/structure.md` (+ directorio), docs.
-- Distribución: el binario hermano viaja en los instaladores; el QA de
-  presupuesto de tamaño re-mide sus gates con el costo de rustls a la
-  vista; el skew de versión meltemid↔motor se detecta en el handshake ACP
-  con remedio, no se asume.
-- Peaje asumido y nombrado: cada lectura, escritura y permiso del motor
-  viaja por stdio ACP daemon↔motor, y el motor re-deriva contexto que el
-  daemon ya tiene. Es el precio de "jamás un canal privilegiado"; el design
-  lo declara, no se descubre después.
-- Tests: el bucle del motor contra un `ModelTransport` fake en memoria; el
-  dialecto HTTP contra un servidor de modelo fixture solo-loopback
-  (127.0.0.1, puerto efímero, in-process, sólido en los 3 SO); un e2e de
-  workspace donde meltemid pilota el binario real contra ese fixture. CI
-  sigue sin red externa ni agentes reales; los e2e del daemon siguen contra
-  mock-agent, intactos.
-- Analítica: las sesiones del motor leen "no reportado por el protocolo"
-  hasta que exista una extensión ACP abierta de usage — irónico para el
-  motor propio, y deuda declarada, no escondida (frontera de honestidad de
-  analitica-consumo-local).
+- Workspace: un crate nuevo `core/meltemi-adapters` (lib + dos binarios) y
+  un crate de fixtures `core/mock-provider` (dos binarios de cable
+  simulado), ambos sin dependencias externas nuevas — tokio, serde y
+  `agent-client-protocol` ya están pineados (§10). `core/meltemid` (filas
+  de registro, detección `bundled` genérica, remedios), `proto/` (campos
+  aditivos en las capas de `FleetAgent`: procedencia empaquetada del
+  hallazgo), `tui/` y `desktop/ui` (render de la fuente empaquetada y del
+  remedio nuevo), matriz de paridad, docs.
+- Distribución: dos binarios hermanos viajan en los instaladores; el QA de
+  presupuesto de tamaño re-mide sus gates (sin rustls el costo es
+  moderado, pero se mide, no se supone). El skew de versión adaptador↔CLI
+  se detecta — `system/init capabilities` en Claude, esquema volcado por
+  versión en Codex — con remedio, no se asume; el skew adaptador↔daemon lo
+  cubre el handshake ACP.
+- Orden con `pulido-pre-anuncio`: esa change aterriza ahora y refresca los
+  `adapter-install` de terceros a sus distribuciones vigentes — honestidad
+  para el usuario de hoy. Esta change reemplaza después la capa adaptador
+  de esas mismas filas; no hay conflicto: el requisito de vigencia de rutas
+  que pulido añade sigue aplicando a los comandos de instalación que
+  sobreviven (los `cli-install` de los CLIs oficiales), y esta change
+  documenta su propia verificación al revisar la instantánea.
+- Tests: CI sigue sin red externa ni agentes reales. Cada adaptador se
+  prueba contra un proceso fixture que habla el cable documentado de su
+  proveedor (stream-json guionado; app-server JSON-RPC guionado — por
+  stdio, sólido en los 3 SO, patrón mock-agent); un e2e de workspace donde
+  meltemid pilota el binario real del adaptador contra ese fixture; la
+  conformidad contra CLIs reales es manual y por opt-in, documentada vía
+  verify-mark, como `niveles-integracion-conformidad` estableció.
+- Peaje asumido y nombrado: los flujos `AskUserQuestion` de Claude se
+  auto-deniegan en modo `-p` — límite del proveedor, se muestra en sesión
+  con motivo; en Windows, Claude Code no trae sandbox nativo (solo WSL2),
+  la compuerta dura son los hooks más el worktree hasta que
+  `sandbox-propio` exista; y el contrato del prompt-tool puede moverse bajo
+  los pies (issue #1175) — riesgo pineado, con la detección de features
+  como amortiguador.
+- Honestidad legal: esta change no vuelve «sancionado» a Claude y la nota
+  del registro no lo dirá jamás; si Anthropic publica una postura, la nota
+  se actualiza con fuente, no con deseo.
 
 ## Fuera de alcance
 
-- Cliente HTTP o motor dentro de meltemid — jamás: destruiría la propiedad
-  auditable de que el daemon no enlaza red (§3) y haría al núcleo asumir
-  proveedores (§5).
-- `sandbox-propio`: change propia, ya listada en el plan.
-- Dialectos adicionales de modelo (cada uno con su prueba §6 escrita) y
-  cliente MCP nativo en el motor (meltemi.md lo asigna al motor, pero es
-  separable).
-- Cambio de modelo o harness in-sesión: los session modes de ACP no están
-  cableados hoy; se promueve con evidencia de demanda y por la vía ACP
-  (§6), no por RPC propio.
-- Verbo `meltemi engine import` y toda historia de registro, firmado o
-  descarga de Forge: el daemon jamás descarga nada; en v1 instalar un
-  harness es copiar un archivo que el daemon valida y lista al
-  descubrirlo. El verbo de conveniencia es fast-follow si se pide.
-- Hot-reload de harness y hooks de evaluación: presión de extensión sobre
-  la frontera ACP; futuro con evidencia, nunca canal privado.
-- Extensión de usage para el panel de analítica: change futura como
-  extensión ACP abierta y documentada.
-- Absorber Forge Harnesses; si algún día ocurre, entra Apache-2.0 bajo CLA,
-  sin excepciones (§12).
+- Forkear los adaptadores TypeScript: otro lenguaje, un runtime Node en la
+  distribución, y en el caso Claude hereda intacta la zona gris del SDK. Su
+  valor real es de material de referencia Apache-2.0 para la semántica del
+  mapeo ACP↔eventos de sesión, y así se usa.
+- Toda vía basada en el Agent SDK o en canales no documentados
+  (`canUseTool`): §6, sin excepciones.
+- Retirar la posibilidad de usar adaptadores de terceros: siguen pilotables
+  por configuración del usuario, hoy y después; lo que muere es su lugar de
+  capa recomendada en el registro.
+- Adaptadores propios para otros agentes: cada uno exige su prueba §6 y su
+  análisis legal propio, no se generaliza por analogía.
+- Dialectos o modos adicionales de los CLIs pilotados (p. ej. `codex exec
+  --json` como nivel 3 alternativo): la superficie elegida por dialecto es
+  una, con su prueba escrita; otra superficie sería otra change.
+- `sandbox-propio`: change propia, ya listada en el plan; aquí solo se
+  nombra el hueco de Windows que agranda su urgencia.
+- Auto-actualización o verbo de gestión de adaptadores: viajan con los
+  instaladores y se actualizan con Meltemi; el daemon jamás descarga nada.
+
+### Deltas
+
+- `fleet-catalog`: 3 requisitos
+- `initial-docs`: 1 requisito
+- `integration-levels`: 1 requisito
+- `own-adapters`: 5 requisitos
 
 <!-- meltemi:context:end -->
