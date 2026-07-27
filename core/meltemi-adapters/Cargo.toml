@@ -1,0 +1,37 @@
+[package]
+name = "meltemi-adapters"
+description = "Meltemi's own ACP adapters: governed bridges over each provider's official CLI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "meltemi-claude-acp"
+path = "src/bin/meltemi-claude-acp.rs"
+
+[[bin]]
+name = "meltemi-codex-acp"
+path = "src/bin/meltemi-codex-acp.rs"
+
+# No new workspace dependency (adaptadores-propios-acp design D2): the ACP side
+# speaks the official crate, the provider side is a subprocess and newline
+# JSON. Nothing here links an HTTP client or a TLS stack — deny.toml keeps
+# that property auditable.
+[dependencies]
+agent-client-protocol.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+    "io-std",
+    "io-util",
+    "process",
+    "sync",
+    "time",
+] }
+
+[dev-dependencies]
+toml.workspace = true

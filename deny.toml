@@ -59,6 +59,55 @@ wildcards = "deny"
 # every external dependency stays pinned exactly.
 allow-wildcard-paths = true
 
+# No HTTP client and no TLS stack in the workspace (adaptadores-propios-acp
+# design D2). The daemon owns no network transport (constitution §3) and the
+# own adapters own none either: they spawn the provider's official CLI and
+# speak newline-delimited JSON over stdio, so every byte that reaches a network
+# leaves from the official binary, with the auth that binary manages (§2).
+#
+# `reqwest` is the single gate through which an HTTP stack can enter this tree,
+# and only the desktop shell's webview framework pulls it. Naming `tauri` as
+# its sole wrapper keeps that door where it is: any other crate — an adapter,
+# the daemon, a future engine — that reaches for HTTP or TLS fails this gate
+# and must argue for its exception here, in writing, as design D2 did.
+[[bans.deny]]
+crate = "reqwest"
+wrappers = ["tauri"]
+reason = "HTTP belongs to the provider's official binary, never to Meltemi's own processes"
+
+[[bans.deny]]
+crate = "hyper"
+wrappers = ["reqwest", "hyper-util"]
+reason = "reachable only under the desktop shell's webview framework"
+
+[[bans.deny]]
+crate = "rustls"
+reason = "no TLS stack in the workspace; the official CLI owns the transport"
+
+[[bans.deny]]
+crate = "native-tls"
+reason = "no TLS stack in the workspace; the official CLI owns the transport"
+
+[[bans.deny]]
+crate = "openssl"
+reason = "no TLS stack in the workspace; the official CLI owns the transport"
+
+[[bans.deny]]
+crate = "openssl-sys"
+reason = "no TLS stack in the workspace; the official CLI owns the transport"
+
+[[bans.deny]]
+crate = "ureq"
+reason = "no HTTP client in the workspace; the official CLI owns the transport"
+
+[[bans.deny]]
+crate = "curl"
+reason = "no HTTP client in the workspace; the official CLI owns the transport"
+
+[[bans.deny]]
+crate = "isahc"
+reason = "no HTTP client in the workspace; the official CLI owns the transport"
+
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"

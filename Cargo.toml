@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "core/meltemi-adapters",
     "core/meltemi-client",
     "core/meltemid",
     "core/meltemi-spec",

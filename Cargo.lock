@@ -2328,6 +2328,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "meltemi-adapters"
+version = "0.1.0"
+dependencies = [
+ "agent-client-protocol",
+ "serde_json",
+ "tokio",
+ "toml 1.1.2+spec-1.1.0",
+]
+
+[[package]]
 name = "meltemi-client"
 version = "0.1.0"
 dependencies = [
