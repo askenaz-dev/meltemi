@@ -13,7 +13,7 @@
 - [x] 2.2 Lanzamiento y handshake del CLI oficial en modo app-server, con detección de desfase de versión y rehúso diagnosticado con remedio; binario y versión efectivos al log de sesión
 - [x] 2.3 Mapeo de conversación a la sesión ACP: primitivas hilo/turno/ítem como actualizaciones en streaming, cierre de turno y cancelación propagada al servidor
 - [x] 2.4 Aprobaciones del servidor relevadas a `session/request_permission` (decide el proxy de meltemid), con denegación por defecto ante ausencia de decisión
-- [ ] 2.5 E2e de workspace: meltemid pilota el binario real `meltemi-codex-acp` contra `mock-codex-wire` (streaming, permisos, cancelación), sin red ni agentes reales
+- [x] 2.5 E2e de workspace: meltemid pilota el binario real `meltemi-codex-acp` contra `mock-codex-wire` (streaming, permisos, cancelación), sin red ni agentes reales
 
 ## 3. Adaptador de sesión stream-json (`meltemi-claude-acp`)
 

@@ -27,7 +27,7 @@ use agent_client_protocol::{Client, ConnectionTo};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::ChildStdin;
-use tokio::sync::{Mutex, Notify, mpsc};
+use tokio::sync::{Mutex, mpsc, watch};
 
 use crate::adapter::{AdapterSpec, Dialect, ProviderDialect, ProviderSession};
 use crate::diagnostic::Refusal;
@@ -223,8 +223,11 @@ impl ProviderSession for CodexSession {
 struct TurnControl {
     thread_id: String,
     state: StdMutex<TurnState>,
-    /// Wakes the turn loop when an interruption has been asked for.
-    interrupted: Notify,
+    /// Watched by everything that must give way when an interruption is asked
+    /// for: the turn loop, and any permission still waiting on a human. A
+    /// `watch` and not a one-shot wake-up precisely because there is more than
+    /// one of them, and each has to see it.
+    interrupted: watch::Sender<bool>,
     /// How long the server gets to acknowledge an interruption. A field rather
     /// than a constant so a test can watch the whole "it will not stop" path
     /// without waiting out a human-scale timeout.
@@ -243,7 +246,7 @@ impl TurnControl {
         Self {
             thread_id,
             state: StdMutex::new(TurnState::default()),
-            interrupted: Notify::new(),
+            interrupted: watch::Sender::new(false),
             grace,
         }
     }
@@ -260,6 +263,20 @@ impl TurnControl {
     /// one must not kill this one.
     fn begin(&self) {
         self.with(|state| *state = TurnState::default());
+        let _ = self.interrupted.send(false);
+    }
+
+    /// Resolves once an interruption has been asked for — immediately if it
+    /// already was.
+    async fn wait_interrupted(&self) {
+        let mut watching = self.interrupted.subscribe();
+        while !*watching.borrow_and_update() {
+            if watching.changed().await.is_err() {
+                // The sender lives as long as this control does; if it is gone,
+                // so is the turn.
+                return;
+            }
+        }
     }
 }
 
@@ -279,8 +296,9 @@ async fn interrupt<W: AsyncWrite + Unpin + Send>(peer: &Peer<W>, turn: &TurnCont
     if let Some(turn_id) = id {
         send_interrupt(peer, turn, &turn_id).await;
     }
-    // The loop arms the grace after which the provider is ended outright.
-    turn.interrupted.notify_one();
+    // The loop arms the grace after which the provider is ended outright, and
+    // any permission still waiting on a human gives way.
+    let _ = turn.interrupted.send(true);
 }
 
 /// Sends the interruption, and does not wait forever for an answer: the answer
@@ -333,7 +351,7 @@ where
     // Parked in the far future until an interruption arms it; from then on it
     // is the deadline after which the provider is ended outright.
     let mut grace = std::pin::pin!(tokio::time::sleep(NEVER));
-    let interrupted = turn.interrupted.notified();
+    let interrupted = turn.wait_interrupted();
     let mut interrupted = std::pin::pin!(interrupted);
     let mut armed = false;
 
@@ -411,7 +429,7 @@ where
             }
         }
         Incoming::Request { id, method, params } => {
-            relay_approval(peer, stream, session_id, &id, &method, &params).await;
+            relay_approval(peer, turn, stream, session_id, &id, &method, &params).await;
             Ok(None)
         }
         Incoming::Noise(line) => {
@@ -456,6 +474,7 @@ where
 /// interruption is sent from the cancel handler's own task, not from here.
 async fn relay_approval<W, S>(
     peer: &Peer<W>,
+    turn: &TurnControl,
     stream: &S,
     session_id: &SessionId,
     id: &Value,
@@ -492,9 +511,13 @@ async fn relay_approval<W, S>(
         return;
     };
 
-    let decision = stream
-        .ask(permission::request_for(session_id, method, &approval))
-        .await;
+    // The wait gives way to a cancellation. Nothing else would: the proxy is
+    // free to take as long as a human takes, and a turn that was told to stop
+    // while a question sat unanswered would otherwise wait for both forever.
+    let decision = tokio::select! {
+        decision = stream.ask(permission::request_for(session_id, method, &approval)) => decision,
+        () = turn.wait_interrupted() => permission::Decision::Cancelled,
+    };
     let answer = wire::ApprovalResponse::new(permission::decide(&decision));
     let _ = peer.respond(id, &answer).await;
 }
