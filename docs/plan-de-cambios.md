@@ -207,6 +207,23 @@ es un script (`scripts/capture-desktop.ps1`, `docs/ux/capturas.md`); la firma de
 de infraestructura de certificados; el arranque y la RAM en macOS y Linux se
 publican en el QA de la primera release que incluya la GUI.
 
+### `pulido-pre-anuncio` — abierta el 2026-07-27, vía rápida
+
+Tres defectos de acabado a la vista del anuncio. Uno: **siete botones de la
+GUI apilan el icono sobre la etiqueta** — el skin global de botones no declara
+`display` y el svg de `Icon` es block, así que todo botón icono+texto sin
+regla flex local rompe la línea; la regla global gana `inline-flex` y las
+re-declaraciones locales duplicadas se retiran (la repetición por componente
+era la causa raíz). Dos: «Ver la flota (4)» incrusta el atajo de teclado como
+falso contador; el atajo ya tiene su afordancia `kbd` en el sidebar. Tres:
+los `adapter-install` del registro **recomiendan instalar desde rutas
+muertas** — el `codex-acp` Rust de Zed quedó archivado el 2026-07-22 y los
+adaptadores canónicos viven bajo `@agentclientprotocol` (verificado contra
+npm el 2026-07-27, no citado de memoria). Deltas ADDED-only sobre `gui-shell`
+y `fleet-catalog`; el refresco del registro es puente honesto mientras
+`adaptadores-propios-acp` no aterrice, y el build que acompañe el anuncio se
+reconstruye tras el merge.
+
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 
 ### Prerrequisitos de daemon del Agent Boss (antes de `companero-movil`, sirven a TUI/GUI hoy)
