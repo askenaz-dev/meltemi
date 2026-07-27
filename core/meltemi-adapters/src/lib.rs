@@ -25,4 +25,7 @@
 //!   other way in (see [`diagnostic`]).
 
 pub mod adapter;
+pub mod bridge;
 pub mod diagnostic;
+pub mod ndjson;
+pub mod supervisor;

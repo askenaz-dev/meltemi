@@ -3,7 +3,7 @@
 ## 1. Puente compartido y fixtures de cable de proveedor
 
 - [x] 1.1 Crear el crate `core/meltemi-adapters` (lib + binarios `meltemi-claude-acp` y `meltemi-codex-acp` con esqueleto ACP: initialize, session/new, prompt, cancel), miembro del workspace con cabeceras SPDX y sin dependencias externas nuevas (tokio, serde, agent-client-protocol ya pineados); gate cargo-deny verificando que el crate no enlaza pila HTTP/TLS
-- [ ] 1.2 Librería de puente compartida: supervisión del subproceso proveedor (lanzamiento, apagado limpio, kill ante cuelgue), framing NDJSON bidireccional y mapeo base sesión ACP ↔ ciclo de vida del subproceso, con tests unitarios sobre transportes en memoria
+- [x] 1.2 Librería de puente compartida: supervisión del subproceso proveedor (lanzamiento, apagado limpio, kill ante cuelgue), framing NDJSON bidireccional y mapeo base sesión ACP ↔ ciclo de vida del subproceso, con tests unitarios sobre transportes en memoria
 - [ ] 1.3 Crate `core/mock-provider` con el binario `mock-claude-wire`: emite stream-json guionado (evento inicial con `capabilities`, deltas parciales, tool calls, resultado final) y acepta entrada stream-json; guiones por archivo/variable de entorno, patrón mock-agent
 - [ ] 1.4 Binario `mock-codex-wire` en el mismo crate: servidor JSON-RPC 2.0 NDJSON guionado (handshake con versión, conversación hilo/turno/ítem, petición de aprobación) más volcado de esquema fixture para el test de conformidad
 
