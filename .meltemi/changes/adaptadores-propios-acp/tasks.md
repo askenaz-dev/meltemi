@@ -35,5 +35,5 @@
 
 ## 5. Conformidad y cierre
 
-- [ ] 5.1 La suite de conformidad ejerce los criterios de nivel 2 en CI pilotando los adaptadores propios contra los mock wires (streaming, cancelación, permisos, sesión), sin red ni binarios de proveedores reales
+- [x] 5.1 La suite de conformidad ejerce los criterios de nivel 2 en CI pilotando los adaptadores propios contra los mock wires (streaming, cancelación, permisos, sesión), sin red ni binarios de proveedores reales
 - [ ] 5.2 Corrida de conformidad manual contra los CLIs reales documentada (instrucciones opt-in por plataforma), resultado persistido con fecha y versión, y escenarios solo-manuales marcados vía verify-mark con nota
