@@ -26,9 +26,13 @@
 //! denied.** The shim denies when the adapter is gone, when the wait runs out,
 //! when anything at all fails; there is no path through this module on which
 //! silence becomes consent.
+//!
+//! The directory also holds the piloted CLI's configuration, and that is the
+//! second reason this module has a cleaning rule of its own: see
+//! [`sweep_stale`].
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::Value;
 
@@ -45,6 +49,11 @@ const POLL: Duration = Duration::from_millis(20);
 /// the session open forever. The adapter going away is detected long before
 /// this: its directory disappears.
 const SHIM_PATIENCE: Duration = Duration::from_secs(60 * 60);
+
+/// How long a channel is left alone before another session may remove it.
+///
+/// A whole day, and the width is the point — see [`sweep_stale`].
+pub const STALE_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// The prefix of a file the shim writes to ask.
 const ASK: &str = "ask-";
@@ -161,6 +170,84 @@ impl Rendezvous {
             })
         })
     }
+}
+
+/// Removes the channels of sessions that cannot still be running.
+///
+/// This exists because of how an adapter ends. The channel is also where the
+/// piloted CLI's configuration is written, and that configuration carries the
+/// environment values the daemon already resolved for the session's MCP
+/// servers — a copy of the user's own secrets. [`Rendezvous::close`] removes it
+/// when a session ends in order, and that is **not** the path that usually
+/// runs: the daemon ends an adapter by killing it, and a killed process runs no
+/// cleanup at all. Nothing inside this process can change that — a kill leaves
+/// no code of ours running, on any platform — so without a sweep every session
+/// ever run would leave one such directory behind for the life of the machine.
+///
+/// The rule is **age**, and the alternative was considered and refused: asking
+/// the operating system whether the owning process is still alive means both a
+/// dependency this crate does not have and a process id, and process ids are
+/// reused. Age is honest and needs nobody's permission.
+///
+/// Age is measured over the directory *and* everything in it, which makes it a
+/// genuine liveness signal rather than a proxy for start time: every tool call
+/// of a governed session creates and removes a file in here, so a live session
+/// touches its channel constantly, and one that has not been touched in a day
+/// has not run a tool in a day. The threshold is wide on purpose — the cost of
+/// sweeping a channel that was still live is a denial and never an approval
+/// (the shim reads the absence as "nobody can decide this" and says no), but a
+/// denial is still a session disturbed, and nothing this side of a day can be a
+/// session the user is watching.
+///
+/// Channels this very process opened are never candidates, whatever their age:
+/// this runs while sessions of our own are open.
+///
+/// Best effort throughout — a session must never fail to open because the
+/// leftover of another one could not be read. Returns how many it removed.
+pub fn sweep_stale(parent: &Path, prefix: &str, older_than: Duration) -> usize {
+    let family = format!("{prefix}-");
+    let ours = format!("{family}{}-", std::process::id());
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return 0;
+    };
+    let mut swept = 0;
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(&family) || name.starts_with(&ours) {
+            continue;
+        }
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        if last_touched(&path).is_some_and(|age| age >= older_than)
+            && std::fs::remove_dir_all(&path).is_ok()
+        {
+            swept += 1;
+        }
+    }
+    swept
+}
+
+/// How long ago anything in a channel was last written, created or removed.
+///
+/// `None` when the platform declines to say or answers with the future, and
+/// both of those read as "leave it alone": a directory whose age is unknown is
+/// not a directory to delete.
+fn last_touched(dir: &Path) -> Option<Duration> {
+    let mut newest = std::fs::metadata(dir).ok()?.modified().ok()?;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.filter_map(Result::ok) {
+            if let Ok(modified) = entry.metadata().and_then(|about| about.modified())
+                && modified > newest
+            {
+                newest = modified;
+            }
+        }
+    }
+    SystemTime::now().duration_since(newest).ok()
 }
 
 /// The shim's side: asks the adapter and waits for what it decides.
@@ -308,6 +395,62 @@ mod tests {
             asked_at.elapsed() < SHIM_PATIENCE,
             "and says so without waiting out its patience"
         );
+    }
+
+    #[test]
+    fn a_channel_no_session_can_be_using_is_removed_by_the_next_one() {
+        // Scenario: Canal de una sesión muerta retirado en la apertura siguiente
+        //
+        // The channel of a killed adapter holds that session's resolved
+        // configuration, secrets included, and nothing runs when a process is
+        // killed — so the next session is what has to remove it. Both halves of
+        // the rule are pinned here, because each on its own would be a bug: the
+        // sweep must reach a dead session's channel, and it must not reach one
+        // that could still be alive.
+        let parent = scratch("sweep");
+        std::fs::create_dir_all(&parent).expect("a parent to sweep");
+        let prefix = "meltemi-sweep-fixture";
+
+        // Two channels of adapters that are not this process, one of them
+        // holding what such a directory really holds.
+        let dead = parent.join(format!("{prefix}-{}-a", std::process::id() + 1));
+        Rendezvous::open(dead.clone()).expect("a dead session's channel");
+        std::fs::write(dead.join("mcp.json"), r#"{"env":{"TOKEN":"resolved"}}"#)
+            .expect("with the configuration it would have written");
+        let other = parent.join(format!("{prefix}-{}-b", std::process::id() + 2));
+        Rendezvous::open(other.clone()).expect("another one");
+        // One of ours, and one directory that is not a channel at all.
+        let ours = parent.join(format!("{prefix}-{}-live", std::process::id()));
+        Rendezvous::open(ours.clone()).expect("a channel of this very process");
+        let stranger = parent.join("not-a-channel");
+        std::fs::create_dir_all(&stranger).expect("someone else's directory");
+
+        assert_eq!(
+            sweep_stale(&parent, prefix, STALE_AFTER),
+            0,
+            "a channel touched moments ago belongs to a session that may be live"
+        );
+        assert!(dead.exists(), "so nothing is removed yet");
+
+        assert_eq!(
+            sweep_stale(&parent, prefix, Duration::ZERO),
+            2,
+            "aged out, the channels of other processes go"
+        );
+        assert!(
+            !dead.exists() && !other.exists(),
+            "and the configuration inside them goes with them"
+        );
+        assert!(
+            ours.exists(),
+            "a channel of this very process is never a candidate, at any age"
+        );
+        assert!(
+            stranger.exists(),
+            "and nothing that is not a channel of ours is touched"
+        );
+
+        let _ = std::fs::remove_dir_all(&parent);
     }
 
     #[tokio::test]

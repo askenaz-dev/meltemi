@@ -71,7 +71,13 @@ permisivos del propio CLI. WHERE la superficie del proveedor no puede
 relevar una interacción (herramientas solo interactivas), la denegación
 automática MUST mostrarse en la sesión con su motivo y el adaptador MUST
 NOT aprobarla por su cuenta. El relevo MUST NOT abrir transporte nuevo
-alguno en el daemon.
+alguno en el daemon. El canal privado de una sesión SHALL ser privado del
+usuario y SHALL retirarse al cerrarse la sesión en orden; WHERE el
+adaptador termina sin poder ejecutar ese cierre, los canales que ninguna
+sesión puede estar usando SHALL retirarse al abrirse el canal siguiente, de
+modo que la configuración resuelta de una sesión no se acumule sin límite.
+Ese retiro MUST NOT alcanzar el canal de una sesión que pueda seguir viva,
+y su peor efecto posible SHALL ser una denegación y nunca una aprobación.
 
 #### Scenario: Permiso decidido por el proxy vigente
 - **WHEN** el CLI pilotado solicita aprobación para una herramienta
@@ -87,6 +93,11 @@ alguno en el daemon.
 - **WHERE** el proveedor auto-deniega una herramienta que exige interacción directa
 - **THEN** la sesión SHALL mostrar la denegación con su motivo
 - **AND** el adaptador SHALL NOT aprobarla ni ocultarla
+
+#### Scenario: Canal de una sesión muerta retirado en la apertura siguiente
+- **WHERE** un adaptador terminado sin cierre dejó su canal con la configuración resuelta de su sesión
+- **THEN** la apertura del canal de una sesión nueva SHALL retirar los canales que ninguna sesión puede estar usando
+- **AND** SHALL NOT retirar el canal de una sesión que pueda seguir viva
 
 ### Requirement: Servidor JSON-RPC del proveedor como sesión ACP
 El adaptador del dialecto de servidor SHALL lanzar el CLI oficial en su

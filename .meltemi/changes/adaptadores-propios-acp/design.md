@@ -255,6 +255,10 @@ En Windows no hay sandbox nativo del CLI (solo WSL2): la compuerta son los
 hooks más el worktree aislado, y `sandbox-propio` sigue siendo la change
 que cierra ese hueco.
 
+Y una cosa más que este canal es y que este punto no decía: es también
+donde se escribe la configuración del CLI, secretos ya resueltos incluidos.
+Cuánto vive eso —y por qué no vive lo que este design creía— está en D13.
+
 ### D6 — Dialecto de servidor JSON-RPC: `codex app-server`, jamás el embed de librería
 
 `meltemi-codex-acp` lanza el `codex` oficial en modo `app-server`:
@@ -477,3 +481,64 @@ correcto y no prueba nada: el cable guionado sostiene su turno para siempre
 y la prueba muere de su propio plazo. Ahora esperan el `prompt_sent` y un
 trozo de mensaje del proveedor, que es lo que sus propios comentarios ya
 decían que esperaban.
+
+### D13 — El canal privado no sobrevive al olvido
+
+Añadida el 2026-07-28, misma revisión adversarial que D12, defecto
+distinto. El canal de sesión de D5 no guarda solo preguntas y respuestas:
+guarda también la configuración con la que se lanza el CLI, y ahí van los
+valores de entorno que el daemon **ya resolvió** para los servidores MCP
+de la sesión —secretos del usuario, en claro— junto a `settings.json`, que
+es la compuerta dura. `Rendezvous::close` lo retira al cerrarse la sesión
+en orden, y ese cierre no es el camino que corre: el daemon termina un
+adaptador matándolo, y un proceso matado no ejecuta limpieza alguna —ni
+`Drop`, ni `kill_on_drop`, nada, en ninguna plataforma. El resultado era un
+directorio por sesión, con sus secretos resueltos, acumulándose en el
+temporal del usuario mientras durase la máquina. Y el comentario del código
+afirmaba lo contrario —«este archivo es la única copia y se va cuando se va
+la sesión»—, que es la mitad que no se tolera: una afirmación falsa en el
+código envejece peor que el defecto que describe mal.
+
+**Lo elegido: barrer al abrir.** Antes de crear el canal de una sesión, el
+adaptador retira los canales que ninguna sesión puede estar usando. Corre
+ahí porque es el único momento en que este proceso está con certeza vivo y
+con certeza a punto de escribir secretos resueltos en el disco; no hay un
+«último momento» en un camino que termina en un kill.
+
+La regla es **antigüedad**, medida sobre el directorio y todo su contenido,
+con umbral de un día, y jamás sobre canales del propio proceso. Tres
+razones que la sostienen:
+
+- Es señal de vida real y no un sustituto del instante de arranque: cada
+  llamada a herramienta de una sesión gobernada crea y borra un archivo en
+  su canal, así que una sesión viva lo toca constantemente y una que no lo
+  ha tocado en un día no ha corrido una herramienta en un día.
+- Preguntar al sistema si el proceso dueño sigue vivo pide una dependencia
+  que este crate no tiene (§10) y, peor, un pid: los pid se reciclan, así
+  que la respuesta puede ser una mentira con forma de certeza.
+- El peor caso queda nombrado y es asimétrico: barrer un canal que seguía
+  vivo cuesta una **denegación** y jamás una aprobación —el shim lee la
+  ausencia como «nadie puede decidir esto» y dice no—, pero una denegación
+  sigue siendo una sesión perturbada, y por eso el umbral es ancho.
+
+**Lo descartado, con su motivo.** (a) Que el daemon cierre los adaptadores
+en orden en vez de matarlos: es mejor arquitectura y no es el remedio de
+esta change. Exige rehacer el camino cliente ACP del daemon —el crate
+oficial lanza el hijo y lo mata al soltar la conexión— y además la mitad
+del adaptador, porque su conexión stdio no termina cuando el par cierra la
+suya (verificado contra este binario y contra `mock-agent`, D10); es
+cirugía en el camino que usan **todos** los agentes, a las puertas de una
+release, y aun conseguida seguiría existiendo el kill para un adaptador
+colgado, de modo que el barrido haría falta igual. (b) No escribir el
+secreto: la superficie documentada del CLI toma la configuración MCP por
+archivo, pasarla por línea de comandos la haría visible en el listado de
+procesos de la máquina —peor, no mejor—, y borrarla en cuanto el CLI
+arranca sería apostar sobre cuándo la relee; con `settings.json` esa
+apuesta es la compuerta dura, y la compuerta dura no se apuesta.
+
+**Lo que el barrido no arregla, dicho aquí y no descubierto después**: el
+canal de la última sesión de la máquina sobrevive hasta que se abra otra.
+Acotar eso del todo exige (a) o un árbol de procesos que muera entero, que
+es de `sandbox-propio` y ya está anotado ahí. La delta de `own-adapters`
+recoge la regla en el requisito de permisos, con su escenario, y el
+comentario del código dice ahora lo que de verdad pasa.

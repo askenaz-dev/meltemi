@@ -417,13 +417,8 @@ impl Governed {
     /// to ask would run tools nobody governs, which is the one outcome this
     /// whole architecture exists to prevent.
     fn open(session_id: &SessionId, projected: &[McpServer]) -> Result<Self, Refusal> {
-        let dir = std::env::temp_dir().join(format!(
-            "{}-{}-{}",
-            SPEC.name,
-            std::process::id(),
-            sanitized(session_id.0.as_ref())
-        ));
-        let rendezvous = Rendezvous::open(dir).map_err(|error| ungoverned(&error.to_string()))?;
+        let rendezvous =
+            open_channel(session_id).map_err(|error| ungoverned(&error.to_string()))?;
 
         let exe = std::env::current_exe()
             .map_err(|error| ungoverned(&format!("this adapter cannot find itself ({error})")))?;
@@ -445,9 +440,16 @@ impl Governed {
         servers.insert(name, server);
 
         // Written inside the session's own private directory, which is where
-        // resolved environment values may live and nowhere else: the daemon
-        // already resolved them, this file is the only copy, and it goes when
-        // the session does. Nothing of it reaches a log.
+        // the environment values the daemon already resolved may live and
+        // nowhere else. Nothing of it reaches a log.
+        //
+        // It goes when the session ends in order — and that is not the path
+        // that usually runs, so it does not simply "go when the session does".
+        // The daemon ends an adapter by killing it, and a killed process runs
+        // no cleanup; this file outlives the session that needed it. It stays
+        // the user's own, in the user's own temporary directory, but a resolved
+        // secret lying around until the machine is wiped is not a thing to
+        // leave undescribed: what bounds it is the sweep in `open_channel`.
         let config = rendezvous.address().join("mcp.json");
         let settings = rendezvous.address().join("settings.json");
         let written =
@@ -470,6 +472,30 @@ impl Governed {
             undelivered,
         })
     }
+}
+
+/// Opens this session's private channel, after removing the channels no
+/// session can still be using.
+///
+/// The sweep runs here, at the one moment this adapter is certainly alive and
+/// certainly about to write a session's resolved configuration to disk. It
+/// cannot run at the end instead: the daemon ends an adapter by killing it, and
+/// there is no last moment on that path (`rendezvous::sweep_stale`).
+///
+/// # Errors
+///
+/// Returns the I/O error when the channel cannot be created or hardened; the
+/// sweep never contributes one, because a leftover nobody could read is not a
+/// reason to refuse a session.
+fn open_channel(session_id: &SessionId) -> std::io::Result<Rendezvous> {
+    let temp = std::env::temp_dir();
+    rendezvous::sweep_stale(&temp, SPEC.name, rendezvous::STALE_AFTER);
+    Rendezvous::open(temp.join(format!(
+        "{}-{}-{}",
+        SPEC.name,
+        std::process::id(),
+        sanitized(session_id.0.as_ref())
+    )))
 }
 
 /// The name of a projected server, whatever its transport.
@@ -1342,8 +1368,29 @@ mod tests {
         governed.rendezvous.close();
         assert!(
             !governed.config.exists(),
-            "and the file with the resolved values dies with the session"
+            "and the file with the resolved values goes when the session is closed in order"
         );
+    }
+
+    #[test]
+    fn opening_a_channel_sweeps_the_dead_and_spares_the_living() {
+        // Scenario: Canal de una sesión muerta retirado en la apertura siguiente
+        //
+        // The rule of the sweep is tested where it lives, in `rendezvous`; what
+        // is tested here is the wiring, and the half of it that would be a
+        // disaster rather than a leak. This runs while sessions of this very
+        // process are open, so opening the second channel must not remove the
+        // first — a session whose channel vanished denies every tool call it is
+        // asked about.
+        let first = open_channel(&SessionId::new("s-sweep-1")).expect("a first channel");
+        let second = open_channel(&SessionId::new("s-sweep-2")).expect("a second one");
+        assert_ne!(first.address(), second.address());
+        assert!(
+            first.address().exists(),
+            "opening a channel leaves this process's other sessions alone"
+        );
+        first.close();
+        second.close();
     }
 
     #[test]
