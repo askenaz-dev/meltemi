@@ -126,6 +126,31 @@ degrada a inyectar una clave. La marca «docs del proveedor llaman a
 `claude -p` "the Agent SDK via the CLI"» es marketing sobre el mismo
 binario oficial; la frontera real es: binario oficial sí, librería SDK no.
 
+**Enmienda (2026-07-28, tarea 5.2 — la corrida manual contra el CLI real)**:
+dos afirmaciones de arriba no sobrevivieron al binario. Fuente: `claude`
+2.1.167 en Windows 11 (26200), lanzado con exactamente los argumentos de
+sesión del adaptador; procedimiento y salidas en `docs/conformidad-manual.md`.
+
+1. **No existe arreglo `capabilities` en el evento inicial.** El evento real
+   trae `apiKeySource`, `claude_code_version`, `permissionMode`, `model`,
+   `tools`, `slash_commands`, `agents`, `skills` y `mcp_servers`; ningún
+   `capabilities`. La detección de features no puede colgar de él, y la
+   mitigación del flip de `--bare` descansa entonces sobre `apiKeySource`
+   —que **sí** existe y vale `"none"` bajo la sesión iniciada, con lo que el
+   nombre provisional de la tarea 1.3 queda anclado— más el rehúso ante
+   cualquier otra fuente anunciada. El código ya trataba `capabilities` como
+   información y nunca como requisito («capabilities are read, never
+   demanded»), así que la corrección es de esta decisión, no del adaptador.
+2. **El CLI no anuncia la sesión hasta recibir su primera entrada.** No es
+   lentitud: lanzado sin entrada, no emite nada en 60 segundos; escrita una
+   línea de entrada, el evento inicial llega en el acto. El handshake del
+   adaptador lo espera *antes* de enviar nada, de modo que contra el CLI real
+   toda sesión agota el plazo y rehúsa con `provider_handshake_failed` —
+   nivel verificado 0. El fixture emitía el evento inicial antes del primer
+   `await-input` y por eso ninguna prueba lo veía: un fixture solo prueba lo
+   que se le pidió parecerse. La corrección es la tarea 5.3, y con ella el
+   fixture pasa a emitirlo donde el CLI lo emite.
+
 ### D5 — Permisos del dialecto headless: prompt-tool + hooks, pérdidas declaradas
 
 Dos canales documentados, en capas:
@@ -293,6 +318,19 @@ manual, por opt-in, con resultado persistido con fecha y versión, y los
 escenarios que solo un CLI real ejerce se marcan vía `sdd/verify-mark` con
 nota — la disciplina que `niveles-integracion-conformidad` estableció y
 `procedencia-de-release` ya practica.
+
+**Enmienda (2026-07-28, tarea 5.2)**: el tercer anillo se materializa en
+`core/meltemid/tests/conformance_real.rs`, `#[ignore]` y además silencioso
+sin `MELTEMI_CONFORMANCE_REAL=1` — dos cerrojos, porque uno solo es el que
+se olvida. Persiste en el almacén real del usuario, que es lo que hace que
+`fleet/list` reporte el nivel verificado de una corrida de verdad. Regla que
+la corrida trajo consigo: **un criterio que no se pudo ejercer no se
+reporta**, ni aprobado ni fallido; `conformance::verified_level` se niega a
+otorgar un nivel cuyos criterios declarados no estén todos presentes, de
+modo que una corrida incompleta produce un resultado incompleto en lugar de
+uno halagador. Y `verifiedLevel: 0` es un resultado, no un fallo de la
+corrida: es lo que la primera corrida devolvió para el dialecto headless, y
+es la razón por la que existe la tarea 5.3.
 
 ### D11 — Orden con `pulido-pre-anuncio`
 

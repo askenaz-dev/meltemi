@@ -66,6 +66,13 @@ Detalle de disponibilidad y flags por agente: `docs/research/integracion-agentes
 - Las peticiones de permiso del agente fluyen al cliente y su decisión vuelve al agente (4.4).
 - El agente rellena `proposal.md` y el turno termina sin dejar procesos huérfanos (4.5, 5.1–5.3).
 
+## Y después: conformidad por nivel
+
+Este procedimiento demuestra que un agente real completa un ciclo. Lo que **no**
+demuestra es que los criterios de su nivel se cumplan uno por uno contra el
+binario que tienes instalado; eso es la corrida de conformidad manual, opt-in y
+documentada aparte: [`docs/conformidad-manual.md`](conformidad-manual.md).
+
 ## Diagnóstico
 
 - **`agent_not_detected` / el daemon no arranca el agente**: revisa que el comando de `agent.command` (o el binario del `agent.id` elegido; `meltemi fleet` muestra qué se detecta) esté en el `PATH` y autenticado.
