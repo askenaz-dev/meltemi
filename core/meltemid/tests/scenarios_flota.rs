@@ -918,3 +918,50 @@ fn every_surface_prints_the_remedy_it_is_given() {
         );
     }
 }
+
+/// Core parity (constitution §4) for the provenance of a bundled find: a field
+/// the daemon reports must reach every surface, not just the one whose author
+/// happened to be looking. No spec scenario of its own — it is the §4 rule
+/// applied to the field `fleet/list` gained here.
+#[test]
+fn the_three_surfaces_show_where_a_bundled_binary_came_from() {
+    let cli = read("tui/src/run.rs");
+    assert!(
+        cli.contains("(bundled with Meltemi)") && cli.contains("FleetLayerSource::Bundled"),
+        "the scriptable surface says a pilot binary came with Meltemi"
+    );
+    let tui = read("tui/src/shell/render.rs");
+    assert!(
+        tui.contains("[empaquetado con Meltemi]") && tui.contains("[bundled with Meltemi]"),
+        "the Fleet view marks it, in both languages"
+    );
+    assert!(
+        tui.contains("FleetLayerSource::Bundled"),
+        "reading the provenance the daemon reported, not guessing from a name"
+    );
+    let gui = read("desktop/ui/src/lib/views/Fleet.svelte");
+    assert!(
+        gui.contains("layer.source === \"bundled\""),
+        "the desktop layer detail marks it too"
+    );
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    let keys = catalog
+        .lines()
+        .filter(|line| line.contains("\"fleet.layer.bundled\""))
+        .count();
+    assert_eq!(keys, 2, "the label exists in both message catalogs");
+    // `--json` needs no work: it is the daemon's response verbatim, which is
+    // exactly why the field had to be part of the contract.
+    let contract = read("proto/schemas/v1/fleet.schema.json");
+    assert!(
+        contract.contains("fleetLayerSource"),
+        "the machine-readable surface carries it because the schema does"
+    );
+    // And the living matrix says so, so a future field cannot land in one
+    // surface and be discovered missing from the others by a user.
+    let matrix = read("docs/paridad-nucleo.md");
+    assert!(
+        matrix.contains("provenance"),
+        "the parity matrix records that the per-layer detail is rendered alike"
+    );
+}

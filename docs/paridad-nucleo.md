@@ -62,6 +62,15 @@ future change — never a silent omission.
 | `checkpoint/record-op` | — | `checkpoints` | registry |
 | `commit/task` | `commit` | `commit` | registry |
 
+A method having a home in the three surfaces is the floor, not the ceiling:
+what a method *reports* has to reach them alike too. `fleet/list` is the
+worked example — its per-entry detail (the layers, the **provenance** of each
+find, the composed state and the remedy) is rendered by the scriptable
+subcommand in human mode, by the Fleet view and by the desktop detail, and
+travels verbatim under `--json` because it is part of the contract. A field
+visible in one surface only is a §4 break even when the method itself is
+registered everywhere.
+
 ## Infrastructure
 
 | Method | Role |

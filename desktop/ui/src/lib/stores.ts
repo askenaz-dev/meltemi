@@ -73,6 +73,10 @@ export interface FleetLayer {
   binaryPath?: string;
   evidenceOnly?: boolean;
   install?: string;
+  /** The layer travels in Meltemi's own installers; it has no install command. */
+  bundled?: boolean;
+  /** Where the find came from; absent when the layer was not detected. */
+  source?: "path" | "candidate_path" | "bundled";
 }
 
 export type FleetInstallState =

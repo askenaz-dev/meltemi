@@ -166,6 +166,14 @@
               {:else}
                 <span class="faint">■ {$t("fleet.layer.missing")}</span>
               {/if}
+              <!-- Where the find came from, when it came with Meltemi: a binary
+                   the user never installed should say so, and a missing one
+                   should say it is ours to ship (adaptadores-propios-acp D8). -->
+              {#if layer.source === "bundled"}
+                <span class="faint">· {$t("fleet.layer.bundled")}</span>
+              {:else if layer.bundled && !layer.detected}
+                <span class="faint">· {$t("fleet.layer.bundledMissing")}</span>
+              {/if}
             </div>
           {/each}
         </div>

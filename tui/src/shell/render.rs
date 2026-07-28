@@ -266,6 +266,17 @@ fn render_body(frame: &mut Frame, area: Rect, state: &ShellState, live: &LiveDat
     }
 }
 
+/// Whether the entry's PILOT layer — the one a launch runs — was found beside
+/// the daemon rather than on the user's machine (adaptadores-propios-acp D8).
+/// The pilot is the adapter when the entry has one, its single layer otherwise.
+fn pilot_is_bundled(layers: &[meltemi_proto::FleetLayer]) -> bool {
+    layers
+        .iter()
+        .find(|layer| layer.kind == meltemi_proto::FleetLayerKind::Adapter)
+        .or_else(|| layers.first())
+        .is_some_and(|layer| layer.source == Some(meltemi_proto::FleetLayerSource::Bundled))
+}
+
 /// The Fleet view: the catalog with detection (glyph + word), the declared
 /// level as a textual label, and the configured-agent marker. With zero
 /// detected agents the registry is shown anyway — what could be orchestrated
@@ -322,6 +333,15 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
         if row.custom {
             label.push_str(" [custom]");
         }
+        // A pilot binary the user never installed says where it came from: it
+        // travelled in Meltemi's own installers (adaptadores-propios-acp D8).
+        if pilot_is_bundled(&row.layers) {
+            label.push_str(if ctx.lang == Lang::Es {
+                " [empaquetado con Meltemi]"
+            } else {
+                " [bundled with Meltemi]"
+            });
+        }
         if row.configured {
             label.push_str(&format!(
                 " {} {}",
@@ -350,6 +370,7 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
                     meltemi_proto::FleetLayerKind::Cli => "cli",
                     meltemi_proto::FleetLayerKind::Adapter => "adapter",
                 };
+                let bundled_find = layer.source == Some(meltemi_proto::FleetLayerSource::Bundled);
                 let mark = if layer.detected {
                     if layer.evidence_only {
                         if ctx.lang == Lang::Es {
@@ -357,10 +378,22 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
                         } else {
                             "shim only"
                         }
+                    } else if bundled_find {
+                        if ctx.lang == Lang::Es {
+                            "presente (empaquetado)"
+                        } else {
+                            "found (bundled)"
+                        }
                     } else if ctx.lang == Lang::Es {
                         "presente"
                     } else {
                         "found"
+                    }
+                } else if layer.bundled {
+                    if ctx.lang == Lang::Es {
+                        "falta (viaja con Meltemi)"
+                    } else {
+                        "missing (ships with Meltemi)"
                     }
                 } else if ctx.lang == Lang::Es {
                     "falta"

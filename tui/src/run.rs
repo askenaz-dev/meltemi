@@ -1261,6 +1261,17 @@ fn render_project(result: &ContextProjectResult) -> String {
     out
 }
 
+/// Whether the entry's PILOT layer — the one a launch runs — was found beside
+/// the daemon rather than on the user's machine (adaptadores-propios-acp D8).
+/// The pilot is the adapter when the entry has one, its single layer otherwise.
+fn pilot_is_bundled(layers: &[meltemi_proto::FleetLayer]) -> bool {
+    layers
+        .iter()
+        .find(|layer| layer.kind == meltemi_proto::FleetLayerKind::Adapter)
+        .or_else(|| layers.first())
+        .is_some_and(|layer| layer.source == Some(meltemi_proto::FleetLayerSource::Bundled))
+}
+
 /// Human rendering of the fleet catalog: detection word, declared level,
 /// id, name, then the detected path and the configured marker.
 fn render_fleet(fleet: &FleetListResult) -> String {
@@ -1292,6 +1303,12 @@ fn render_fleet(fleet: &FleetListResult) -> String {
         );
         if let Some(path) = &agent.binary_path {
             let _ = write!(out, " — {path}");
+            // Where the pilot binary came from, when it came with Meltemi: a
+            // path the user never installed deserves to say so
+            // (adaptadores-propios-acp D8).
+            if pilot_is_bundled(&agent.layers) {
+                let _ = write!(out, " (bundled with Meltemi)");
+            }
         }
         // Two-layer entries say which layer is missing and how to fix it
         // (flota-deteccion-guia D8): a bare "not detected" is not a diagnosis.
@@ -1313,9 +1330,13 @@ fn render_fleet(fleet: &FleetListResult) -> String {
                 let found = if layer.detected {
                     if layer.evidence_only {
                         "shim only"
+                    } else if layer.source == Some(meltemi_proto::FleetLayerSource::Bundled) {
+                        "found (bundled)"
                     } else {
                         "found"
                     }
+                } else if layer.bundled {
+                    "missing (bundled with Meltemi)"
                 } else {
                     "missing"
                 };
