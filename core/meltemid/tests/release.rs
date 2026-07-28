@@ -53,6 +53,12 @@ fn the_release_pipeline_gates_and_budget_abort() {
         wf.contains("MELTEMI_TUI_BUDGET_BYTES") && wf.contains("exit 1"),
         "the TUI size budget gate aborts the release when exceeded"
     );
+    // The bundled ACP adapters travel in every archive, so their size is part
+    // of what a user downloads and is gated like everything else that ships.
+    assert!(
+        wf.contains("MELTEMI_ADAPTER_BUDGET_BYTES"),
+        "the bundled adapters have a size budget of their own"
+    );
     // The three platforms.
     for os in ["ubuntu-latest", "macos-latest", "windows-latest"] {
         assert!(wf.contains(os), "the pipeline builds on {os}");
@@ -339,6 +345,72 @@ fn installers_are_auditable_and_create_the_mel_alias() {
     assert!(
         ps.contains("meltemid.exe"),
         "windows installer places the daemon"
+    );
+}
+
+#[test]
+fn the_bundled_adapters_ship_beside_the_daemon_on_all_three_platforms() {
+    // Detection probes the daemon's own directory for a bundled layer
+    // (adaptadores-propios-acp D8), so an installer that puts them anywhere
+    // else — or nowhere — leaves every level-2 entry reporting a missing
+    // adapter with a remedy the user cannot act on.
+    let root = repo_root();
+    let adapters = ["meltemi-claude-acp", "meltemi-codex-acp"];
+
+    let wf = read(&root, ".github/workflows/release.yml");
+    for platform in [
+        "meltemi-Windows.zip",
+        "meltemi-macOS.tar.gz",
+        "meltemi-Linux.tar.gz",
+    ] {
+        let line = wf
+            .lines()
+            .find(|line| line.contains(platform) && !line.trim_start().starts_with('#'))
+            .unwrap_or_else(|| panic!("the packaging step builds {platform}"));
+        for adapter in adapters {
+            assert!(
+                line.contains(adapter),
+                "{platform} must carry `{adapter}`: {line}"
+            );
+        }
+    }
+
+    let sh = read(&root, "scripts/install.sh");
+    let ps = read(&root, "scripts/install.ps1");
+    for adapter in adapters {
+        assert!(
+            sh.contains(adapter),
+            "the unix installer places `{adapter}` beside the daemon"
+        );
+        assert!(
+            ps.contains(&format!("{adapter}.exe")),
+            "the windows installer places `{adapter}.exe` beside the daemon"
+        );
+    }
+    // Both installers put everything in ONE directory: the daemon's own.
+    assert!(
+        sh.contains("-C \"$INSTALL_DIR\""),
+        "the unix installer extracts into the single install directory"
+    );
+    assert!(
+        ps.contains("-DestinationPath $InstallDir"),
+        "the windows installer expands into the single install directory"
+    );
+
+    // And the published description says so, so a manual installation lands
+    // the same way as a scripted one.
+    let doc = read(&root, "docs/release.md");
+    for adapter in adapters {
+        assert!(
+            doc.contains(adapter),
+            "docs/release.md names `{adapter}` among the published binaries"
+        );
+    }
+    // Prose wraps; the fact does not.
+    let flat = doc.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        flat.contains("same directory as the daemon"),
+        "and states where they must land"
     );
 }
 

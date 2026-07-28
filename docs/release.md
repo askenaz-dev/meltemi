@@ -41,8 +41,11 @@ assets too, with their checksums inside the signed `SHA256SUMS`: the site links
 a script whose hash travels signed, instead of hosting a copy of it.
 
 Each release publishes, per supported platform (see
-[platform notes](plataformas.md)), an archive containing the `meltemi` client and
-the `meltemid` daemon, plus:
+[platform notes](plataformas.md)), an archive containing the `meltemi` client,
+the `meltemid` daemon and the two ACP adapters Meltemi ships —
+`meltemi-claude-acp` and `meltemi-codex-acp` — which must land **in the same
+directory as the daemon**, because that is the last place its detection looks
+for them (`docs/agentes.md`). Plus:
 
 - a `SHA256SUMS` file with the checksum of every archive;
 - a detached signature for the checksums file;
@@ -261,8 +264,9 @@ every release, so the guard keeps working.
 
 ## Installers
 
-One-line, auditable installers place `meltemi` and `meltemid` on the user's
-`PATH` and create the short alias **`mel`**:
+One-line, auditable installers place `meltemi`, `meltemid` and the two bundled
+ACP adapters on the user's `PATH` — all in one directory — and create the short
+alias **`mel`**:
 
 - **Unix (macOS/Linux)**: [`scripts/install.sh`](../scripts/install.sh)
 - **Windows (PowerShell)**: [`scripts/install.ps1`](../scripts/install.ps1)
@@ -283,8 +287,9 @@ The release pipeline (`.github/workflows/release.yml`) is triggered by a `vX.Y.Z
 tag and runs on Windows, macOS, and Linux with **hard gates**: the full test
 suite, `cargo clippy -- -D warnings`, `cargo fmt --check`, `cargo deny`, and the
 **performance budgets** (meltemi.md §12, "Métricas de Éxito") — the TUI binary staying under
-**25 MB** and every GUI installer under **15 MB**. Any red gate aborts the
-release and **no artifact is published**. The GUI's runtime budgets (startup
+**25 MB**, every GUI installer under **15 MB**, and each bundled ACP adapter
+under **6 MB** (measured at ~3.15 MB apiece on 2026-07-28, see `docs/qa/`).
+Any red gate aborts the release and **no artifact is published**. The GUI's runtime budgets (startup
 under 1 s, idle memory under 80 MB) are measured per release and published in
 `docs/qa/` — honest measurements, not blocking CI gates, because they depend
 on the OS webview.
@@ -300,7 +305,8 @@ safety until the maintainer reserves the names).
 
 ## Summary (español)
 
-Cada release publica archivos por plataforma con `meltemi`+`meltemid`, checksums
+Cada release publica archivos por plataforma con `meltemi`+`meltemid`+los dos
+adaptadores ACP propios (que se instalan junto al daemon), checksums
 y firma, más una atestación de procedencia acuñada por el workflow sobre el
 `SHA256SUMS` fusionado (cubre la agregación, no cada paso de build; queda en un
 log de transparencia público —metadato de build, jamás dato de usuario— y su
@@ -314,7 +320,8 @@ CI y se guarda offline —minisign no ofrece HSM ni revocación, así que repudi
 es publicar clave nueva en el repositorio con declaración fechada—; la pública
 vive en el repositorio, que es el ancla, no en la página de release. El
 pipeline de release corre las tres plataformas con gates duros —suite, clippy,
-fmt, cargo-deny y presupuestos §12 (TUI < 25 MB; instalador GUI < 15 MB)— y
+fmt, cargo-deny y presupuestos §12 (TUI < 25 MB; instalador GUI < 15 MB;
+adaptador ACP < 6 MB cada uno)— y
 aborta sin publicar ante cualquier rojo. La GUI se publica como instalador por
 plataforma (MSI/DMG/deb) bajo la misma custodia de firmas; sus
 presupuestos de arranque y memoria se miden y publican en `docs/qa/` por

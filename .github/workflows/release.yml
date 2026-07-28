@@ -23,6 +23,14 @@ env:
   # GUI installer budget (gui-tauri-paridad; foundational §12): under 15 MB
   # per platform — the OS webview is used or bootstrapped, never embedded.
   MELTEMI_GUI_INSTALLER_BUDGET_BYTES: "15728640"
+  # Bundled ACP adapter budget (adaptadores-propios-acp): 6 MB per adapter.
+  # Measured on 2026-07-28 at ~3.15 MB each (docs/qa/2026-07-28-adaptadores-
+  # presupuesto.md), so the ceiling is roughly double what they cost today —
+  # loose enough not to fail on ordinary growth, tight enough that a binary
+  # which suddenly links a stack it must not have cannot slip into every
+  # installer unnoticed. The categorical ban lives in deny.toml; this is the
+  # measurement that keeps the claim honest.
+  MELTEMI_ADAPTER_BUDGET_BYTES: "6291456"
 
 jobs:
   gates:
@@ -89,6 +97,23 @@ jobs:
             exit 1
           fi
 
+      # The two ACP adapters travel in every installer beside the daemon, so
+      # their size is part of what a user downloads and is gated like the rest.
+      - name: Adapter size budget
+        shell: bash
+        run: |
+          ext=""
+          [ "${{ runner.os }}" = "Windows" ] && ext=".exe"
+          for name in meltemi-claude-acp meltemi-codex-acp; do
+            bin="target/release/${name}${ext}"
+            size=$(wc -c < "$bin")
+            echo "$name is $size bytes (budget ${MELTEMI_ADAPTER_BUDGET_BYTES})"
+            if [ "$size" -gt "${MELTEMI_ADAPTER_BUDGET_BYTES}" ]; then
+              echo "::error::$name exceeds its budget; aborting release"
+              exit 1
+            fi
+          done
+
   deny:
     name: cargo-deny
     if: startsWith(github.ref, 'refs/tags/')
@@ -132,17 +157,20 @@ jobs:
         shell: bash
         # Stable, version-free names per platform (sitio-web-producto D2): the
         # latest-release URL must resolve without anyone knowing the version.
+        # The two ACP adapters ship beside the daemon on all three platforms
+        # (adaptadores-propios-acp): detection probes the daemon's own directory
+        # for them, so they must land in the same place the daemon does.
         run: |
           mkdir -p dist
           case "${{ runner.os }}" in
             Windows)
-              7z a "dist/meltemi-Windows.zip" ./target/release/meltemi.exe ./target/release/meltemid.exe
+              7z a "dist/meltemi-Windows.zip" ./target/release/meltemi.exe ./target/release/meltemid.exe ./target/release/meltemi-claude-acp.exe ./target/release/meltemi-codex-acp.exe
               ;;
             macOS)
-              tar -czf "dist/meltemi-macOS.tar.gz" -C target/release meltemi meltemid
+              tar -czf "dist/meltemi-macOS.tar.gz" -C target/release meltemi meltemid meltemi-claude-acp meltemi-codex-acp
               ;;
             Linux)
-              tar -czf "dist/meltemi-Linux.tar.gz" -C target/release meltemi meltemid
+              tar -czf "dist/meltemi-Linux.tar.gz" -C target/release meltemi meltemid meltemi-claude-acp meltemi-codex-acp
               ;;
             *) echo "::error::unknown runner os"; exit 1 ;;
           esac

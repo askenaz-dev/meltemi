@@ -9,7 +9,9 @@
 #   1. Download the release archive for your platform and its SHA256SUMS.
 #   2. Verify: `sha256sum --check SHA256SUMS` (or `shasum -a 256 --check`).
 #   3. Verify the signature of SHA256SUMS with the published signing key.
-#   4. Extract `meltemi` and `meltemid` into a directory on your PATH.
+#   4. Extract `meltemi`, `meltemid` and the two `meltemi-*-acp` adapters into a
+#      directory on your PATH. Keep the adapters BESIDE the daemon: that is
+#      where it looks for them.
 #   5. Create the alias: `ln -s meltemi <dir>/mel`.
 #
 # Usage:
@@ -52,11 +54,18 @@ echo "Verifying checksum..."
 
 echo "Installing to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
-tar -xzf "$tmp/$asset" -C "$INSTALL_DIR" meltemi meltemid
-chmod +x "$INSTALL_DIR/meltemi" "$INSTALL_DIR/meltemid"
+# The two ACP adapters go in the same directory as the daemon, on purpose: it
+# probes its own directory for them, after your PATH and the well-known paths.
+binaries="meltemi meltemid meltemi-claude-acp meltemi-codex-acp"
+# shellcheck disable=SC2086  # word splitting is the intent: one arg per name
+tar -xzf "$tmp/$asset" -C "$INSTALL_DIR" $binaries
+for name in $binaries; do
+  chmod +x "$INSTALL_DIR/$name"
+done
 
 # The short alias `mel` -> meltemi.
 ln -sf "$INSTALL_DIR/meltemi" "$INSTALL_DIR/mel"
 
-echo "Installed: meltemi, meltemid, and the alias 'mel' in $INSTALL_DIR"
+echo "Installed in $INSTALL_DIR: meltemi, meltemid, the alias 'mel', and the"
+echo "ACP adapters meltemi-claude-acp and meltemi-codex-acp."
 echo "Ensure $INSTALL_DIR is on your PATH."
