@@ -327,6 +327,22 @@ Los adaptadores de terceros siguen pilotables por configuración (`custom`
 o `command` literal), sin trato distinto. El registro deja de
 recomendarlos; no los prohíbe.
 
+**Precisión (2026-07-28, revisión adversarial)**: «genérico» incluye la
+forma de entrada que este registro todavía no tiene y que el motor propio
+sí tendrá — **una sola capa, y empaquetada**, sin CLI de proveedor debajo.
+En esa forma el comando de instalación no se declara en `adapter-install`
+sino en `cli-install`, de modo que la guarda de parseo, escrita mirando
+solo la forma de dos capas, dejaba pasar la contradicción: una capa
+empaquetada con el comando de un tercero pegado. Dónde vive la regla queda
+fijado, porque estaba viviendo en el sitio equivocado: **en la capa**. El
+campo `install` es del contrato y una superficie puede leerlo directo de
+`fleet/list`, así que una capa empaquetada no lo lleva, se declare donde se
+declare; el remedio y el comando ofrecido lo consultan por una sola
+función, para que las dos salidas no puedan discrepar sobre una capa
+construida a mano; y la guarda de parseo pasa a mirar el campo que
+corresponde a la forma de **esa** entrada, para seguir rechazando la
+contradicción en el origen en vez de corregirla en silencio.
+
 ### D9 — Estatus legal: gris sigue gris, con la nota reescrita con verdad
 
 La nota de la entrada de Claude se reescribe para describir la

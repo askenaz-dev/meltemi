@@ -212,8 +212,18 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
         }
         // A bundled layer travels in Meltemi's installers; a third-party
         // install command for it would be a contradiction the surfaces would
-        // then have to choose between. Refuse the contradiction at the source.
-        if agent.bundled && agent.adapter_install.is_some() {
+        // then have to choose between. Refuse the contradiction at the source —
+        // in whichever field declares the command for THIS entry's pilot layer.
+        // An entry with an adapter over the provider's CLI declares it in
+        // `adapter-install`; an entry whose bundled binary is its only layer
+        // declares it in `cli-install`, and that second shape is the one an
+        // engine of our own will have.
+        let pilot_install = if agent.cli_bin.is_some() {
+            agent.adapter_install.as_ref()
+        } else {
+            agent.cli_install.as_ref()
+        };
+        if agent.bundled && pilot_install.is_some() {
             return Err(format!(
                 "registry entry `{}` declares its pilot layer bundled and also a \
                  third-party install command for it",
@@ -672,17 +682,37 @@ pub fn detect_layers(
                 .as_ref()
                 .map(|(path, _, _)| path.display().to_string()),
             evidence_only: found.as_ref().is_some_and(|(_, launchable, _)| !launchable),
-            install: if kind == FleetLayerKind::Adapter {
-                entry.adapter_install.clone()
-            } else {
-                entry.cli_install.clone()
-            },
+            install: pilot_install(entry, kind),
             bundled: entry.bundled,
             source: found.as_ref().and_then(|(_, _, source)| *source),
         });
     }
 
     layers
+}
+
+/// The install command of an entry's PILOT layer — `None` when there is none
+/// to give.
+///
+/// Which field declares it depends on the shape of the entry: `adapter-install`
+/// when the pilot is an adapter over the provider's own CLI, `cli-install` when
+/// the pilot binary IS the entry's only layer.
+///
+/// A bundled layer has none, whichever field was written: it travels in
+/// Meltemi's installers, and the remedy for it is reinstalling Meltemi. The
+/// rule is enforced here, on the layer, and not only where the sentence is
+/// composed, because the remedy is read off the layer twice — as prose and as
+/// a command a surface offers to copy — and an invariant kept in one of the two
+/// is not an invariant (adaptadores-propios-acp design D8).
+fn pilot_install(entry: &CatalogEntry, kind: FleetLayerKind) -> Option<String> {
+    if entry.bundled {
+        return None;
+    }
+    if kind == FleetLayerKind::Adapter {
+        entry.adapter_install.clone()
+    } else {
+        entry.cli_install.clone()
+    }
 }
 
 /// The layer whose absence an incomplete state is about — the one every
@@ -777,13 +807,29 @@ fn remedy_for(layer: &FleetLayer) -> String {
     } else {
         "was not found on this system"
     };
-    match (&layer.install, layer.bundled) {
-        (Some(command), _) => format!("{what} (`{bin}`) {trouble}: {command}"),
-        (None, true) => {
+    match offered_command(layer) {
+        Some(command) => format!("{what} (`{bin}`) {trouble}: {command}"),
+        None if layer.bundled => {
             format!("{what} (`{bin}`) {trouble}: reinstall or repair your Meltemi installation")
         }
-        (None, false) => format!("{what} (`{bin}`) {trouble}"),
+        None => format!("{what} (`{bin}`) {trouble}"),
     }
+}
+
+/// The install command a surface may be offered for a layer — `None` for a
+/// layer that travels with Meltemi, whatever its `install` field holds.
+///
+/// The invariant belongs to the layer and `pilot_install` is what keeps it
+/// there, because `install` is a field of the contract and a surface may read
+/// it straight off `fleet/list`. This is the same rule at the other end, read
+/// once by both things composed from a layer — the remedy's sentence and the
+/// command offered beside it — so that the two can never disagree about a
+/// layer somebody built by hand.
+fn offered_command(layer: &FleetLayer) -> Option<&str> {
+    if layer.bundled {
+        return None;
+    }
+    layer.install.as_deref()
 }
 
 /// Composes the honest install state of an entry from its layers, plus the
@@ -796,7 +842,7 @@ pub fn compose_state(
     let state = install_state(layers, launchable);
     let missing = missing_layer(layers, launchable);
     let remedy = missing.map(remedy_for);
-    let remedy_command = missing.and_then(|layer| layer.install.clone());
+    let remedy_command = missing.and_then(offered_command).map(str::to_string);
     (state, remedy, remedy_command)
 }
 
@@ -1079,6 +1125,57 @@ cli-bin = "x"
 "#;
         let error = parse_registry(bad).expect_err("bundled and an install command cannot coexist");
         assert!(error.contains("bundled"), "{error}");
+
+        // The same contradiction in the other shape an entry can have: one
+        // layer, bundled, and no provider CLI beneath it — which is the shape a
+        // pilot binary of our own has, and where the command is declared in
+        // `cli-install` instead. The guard used to read only the field the
+        // two-layer shape uses, so this parsed and yielded a bundled layer with
+        // somebody else's command attached to it.
+        let bad = r#"
+version = "test"
+
+[[agents]]
+id = "single-layer"
+name = "Single layer"
+level = 1
+bin = "meltemi-own-engine"
+bundled = true
+cli-install = "npm i -g somebody-elses-engine"
+"#;
+        let error = parse_registry(bad).expect_err("nor may they coexist in a single-layer entry");
+        assert!(error.contains("bundled"), "{error}");
+    }
+
+    #[test]
+    fn bundledness_beats_an_install_command_whoever_built_the_layer() {
+        // Scenario: Capa empaquetada ausente remite a la instalación de Meltemi
+        //
+        // The registry refuses to declare both; this is the same rule one layer
+        // down, for a layer built by something other than `detect_layers` — a
+        // test, a caller of tomorrow. Both halves are asserted because the
+        // remedy is composed from the layer twice: the sentence a surface
+        // prints and the command a surface offers to copy. An invariant kept in
+        // one of the two is not an invariant.
+        let bundled = FleetLayer {
+            bundled: true,
+            ..layer(FleetLayerKind::Cli, false, false)
+        };
+        let (state, remedy, command) = compose_state(&[bundled], false);
+        assert_eq!(state, FleetInstallState::NotDetected);
+        let remedy = remedy.expect("a missing layer always carries its remedy");
+        assert!(
+            remedy.contains("reinstall or repair"),
+            "the remedy for a bundled layer is Meltemi's own: {remedy}"
+        );
+        assert!(
+            !remedy.contains("install me"),
+            "and never the command that sat beside it: {remedy}"
+        );
+        assert!(
+            command.is_none(),
+            "which is not offered as a command either: {command:?}"
+        );
     }
 
     /// A layer helper for the composition tests.

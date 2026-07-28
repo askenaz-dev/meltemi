@@ -763,6 +763,81 @@ fn an_entry_with_its_own_adapter_is_ready_with_meltemi_and_the_official_cli() {
     }
 }
 
+// Scenario: La capa propia no ofrece instalación de terceros
+// Scenario: Capa empaquetada ausente remite a la instalación de Meltemi
+#[test]
+fn a_bundled_entry_that_is_its_own_only_layer_is_treated_like_one() {
+    use meltemi_proto::{FleetInstallState, FleetLayerKind, FleetLayerSource};
+    // The shape the registry does not have yet and will: a pilot binary of our
+    // own with no provider CLI beneath it, so its single layer IS the bundled
+    // one. Everything the two-layer entries are asserted to do, this shape must
+    // do too — the mechanism is generic or it is a special case waiting to be
+    // written for the next entry.
+    let dir = temp("bundled-single");
+    let path = dir.join("registry.toml");
+    std::fs::write(
+        &path,
+        "version = \"bundled-single-fixture\"
+[[agents]]
+id = \"single\"
+name = \"Single\"
+level = 1
+bin = \"meltemi-single-engine\"
+bundled = true
+acp-args = []
+",
+    )
+    .expect("write the fixture registry");
+    let catalog = meltemid::fleet::build_catalog(&meltemid::config::Config {
+        fleet_registry: Some(path),
+        ..Default::default()
+    });
+    let entry = catalog
+        .entries
+        .iter()
+        .find(|e| e.id == "single")
+        .expect("a single-layer bundled entry parses");
+
+    // Nothing on the PATH; the binary sits beside the daemon, as an installer
+    // would have put it.
+    let path_var = std::ffi::OsString::from(temp("bundled-single-path").display().to_string());
+    let beside = temp("bundled-single-beside");
+    fake_binary(&beside, "meltemi-single-engine");
+    let layers = meltemid::fleet::detect_layers(entry, &path_var, Some(&beside));
+    assert_eq!(layers.len(), 1, "there is no provider CLI under this one");
+    let only = &layers[0];
+    assert_eq!(only.kind, FleetLayerKind::Cli);
+    assert!(only.bundled, "and the one layer it has is the bundled one");
+    assert_eq!(
+        only.source,
+        Some(FleetLayerSource::Bundled),
+        "found by the same generic probe"
+    );
+    assert!(
+        only.install.is_none(),
+        "carrying no install command a surface could offer: {:?}",
+        only.install
+    );
+
+    // And when Meltemi's own installation is the broken part, the remedy says
+    // so — with no third-party command in it or beside it.
+    let nowhere = temp("bundled-single-nowhere");
+    let layers = meltemid::fleet::detect_layers(entry, &path_var, Some(&nowhere));
+    let (state, remedy, command) = meltemid::fleet::compose_state(&layers, false);
+    assert_eq!(state, FleetInstallState::NotDetected);
+    let remedy = remedy.expect("an incomplete state always carries its remedy");
+    let lower = remedy.to_lowercase();
+    assert!(
+        lower.contains("meltemi") && lower.contains("reinstall"),
+        "the remedy is Meltemi's own installation: {remedy}"
+    );
+    assert!(command.is_none(), "and no command is offered: {command:?}");
+
+    for d in [&dir, &beside, &nowhere] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
 // Scenario: Adaptador de terceros por configuración sigue pilotable
 #[test]
 fn a_third_party_adapter_declared_by_the_user_is_piloted_like_any_other() {
