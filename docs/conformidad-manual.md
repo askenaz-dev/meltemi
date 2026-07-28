@@ -193,9 +193,19 @@ binario:
 - `session` **aprueba**: el log registra el binario efectivo y `2.1.167`, la
   versión que el propio CLI respondió.
 - `permissions` **aprueba**: el CLI real preguntó por sus herramientas, la
-  pregunta llegó a la bandeja como `permission/request` y volvió decidida. Es
-  el primer ejercicio del passthrough completo —prompt-tool y hook— contra un
-  CLI que no es un fixture.
+  pregunta llegó a la bandeja como `permission/request` y volvió decidida. Lo
+  que quedó ejercido es **el hook**, y conviene decir cuál porque el
+  passthrough tiene dos canales y esta corrida no los ejerció los dos. El orden
+  documentado del proveedor pone el `PreToolUse` primero y su decisión es
+  final; el adaptador lo instala con matcher `*` y su código no tiene camino
+  por el que se abstenga —decide `allow` o `deny`, nunca «pregunta a otro»—, de
+  modo que el prompt-tool solo se alcanza cuando el hook no puede correr o
+  agota su plazo, y ninguna de esas dos cosas ocurrió aquí. El prompt-tool
+  sigue configurado en el mismo lanzamiento y CI lo ejerce contra el cable
+  simulado (directiva `ask-prompt-tool` en
+  `core/meltemid/tests/e2e_adaptadores_claude.rs`); contra un binario que no es
+  un fixture **no se ha ejercido todavía**, y es el tirante del cinturón
+  precisamente porque el cinturón no falló.
 - **`cancellation` no se ejerce**, y por eso el **nivel verificado sigue siendo
   0**: la corrida manual nunca ha ejercido ese criterio, y un nivel se otorga
   solo cuando todos los suyos están presentes y aprobados. Es un 0 distinto del

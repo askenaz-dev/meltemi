@@ -242,6 +242,17 @@ Dos canales documentados, en capas:
    tool), y los hooks son el eslabón que ninguna configuración del CLI
    puede saltar.
 
+   **Precisión (2026-07-28, revisión adversarial)**: ese mismo orden tiene una
+   consecuencia que este punto insinuaba al revés. Con la compuerta instalada
+   con matcher `*` y sin camino por el que se abstenga —decide `allow` o
+   `deny`, jamás «que pregunte otro»—, el prompt-tool **no se alcanza** mientras
+   el hook pueda correr. No es capa 1 y capa 2 turnándose: es el hook quien
+   pregunta, y el prompt-tool queda para el CLI que no corra hooks o para el
+   hook que falle o agote su plazo. Ambos canales se configuran igual y ambos
+   se ejercen en CI —el cable simulado tiene una directiva por canal— pero
+   contra un CLI real solo se ha ejercido el hook, y así lo dice
+   `docs/conformidad-manual.md` en vez de sumar los dos.
+
 Pérdidas, por escrito y visibles en sesión: el prompt-tool solo se
 consulta cuando ninguna regla estática decide; `AskUserQuestion` y las
 herramientas `requiresUserInteraction` se auto-deniegan en modo no
