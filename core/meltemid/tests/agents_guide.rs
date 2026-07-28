@@ -186,3 +186,139 @@ fn the_profile_examples_parse_as_configuration() {
         );
     }
 }
+
+/// The body of an entry's section: from its heading to the next one.
+fn section<'a>(guide: &'a str, id: &str) -> &'a str {
+    let start = guide
+        .find(&format!("### {id} — "))
+        .unwrap_or_else(|| panic!("the guide has a section for `{id}`"));
+    let body = &guide[start..];
+    body[4..]
+        .find("\n### ")
+        .map_or(body, |offset| &body[..offset + 4])
+}
+
+/// Prose wraps; facts do not. Compares on collapsed whitespace.
+fn flat(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+// Scenario: La capa empaquetada explicada sin comando de terceros
+#[test]
+fn a_bundled_layer_is_explained_with_meltemis_own_remedy_and_no_ones_command() {
+    let guide = guide();
+    let registry = registry();
+    let bundled: Vec<_> = registry.agents.iter().filter(|a| a.bundled).collect();
+    assert!(
+        !bundled.is_empty(),
+        "the snapshot pilots at least one entry through an adapter of our own"
+    );
+
+    for agent in bundled {
+        let body = flat(section(&guide, &agent.id));
+        assert!(
+            body.contains("travels in Meltemi's installers")
+                || body.contains("travels in Meltemi's own installers"),
+            "the section of `{}` must say the adapter ships with Meltemi: {body}",
+            agent.id
+        );
+        let lower = body.to_lowercase();
+        assert!(
+            lower.contains("reinstall or repair"),
+            "and what to do when it is missing: {body}"
+        );
+        // No install route for THAT layer, from anyone. The CLI layer keeps its
+        // own command; the pilot layer must not acquire one here.
+        for route in ["npm i -g @agentclientprotocol", "npx ", "cargo install"] {
+            assert!(
+                !body.contains(route),
+                "the section of `{}` offers a third-party route for the bundled layer: {body}",
+                agent.id
+            );
+        }
+    }
+
+    // The shared explanation exists once, where a reader looks for the concept.
+    assert!(
+        guide.contains("### The adapter layer travels with Meltemi"),
+        "the guide explains the bundled layer in its own right"
+    );
+}
+
+// Scenario: Receta de adaptador de terceros por configuración
+#[test]
+fn the_third_party_route_is_documented_as_available_and_not_recommended() {
+    let guide = guide();
+    let start = guide
+        .find("## Using a third-party ACP adapter instead")
+        .expect("the guide documents the third-party route");
+    let recipe = &guide[start..];
+    let recipe = recipe[3..]
+        .find("\n## ")
+        .map_or(recipe, |offset| &recipe[..offset + 3]);
+
+    // A recipe is configuration you can paste, not a paragraph saying it is
+    // possible. The TOML validity of every example is checked separately.
+    assert!(
+        recipe.contains("[[fleet.custom]]") && recipe.contains("agent.command"),
+        "the recipe shows both ways to declare it: {recipe}"
+    );
+    let flat_recipe = flat(recipe);
+    // Available, not recommended, and honest about what changes.
+    assert!(
+        flat_recipe.contains("not a prohibition")
+            || flat_recipe.contains("change of recommendation, not a prohibition"),
+        "it must present the route as available: {flat_recipe}"
+    );
+    assert!(
+        flat_recipe.to_lowercase().contains("terms"),
+        "and point the reader at the terms that govern it: {flat_recipe}"
+    );
+    assert!(
+        !flat_recipe.to_lowercase().contains("we recommend")
+            && !flat_recipe.to_lowercase().contains("recommended route"),
+        "without recommending it: {flat_recipe}"
+    );
+}
+
+// Scenario: Sin bendición inventada
+#[test]
+fn the_guide_claims_no_provider_approval_the_registry_does_not_declare() {
+    let guide = guide();
+    let registry = registry();
+    for agent in &registry.agents {
+        let Some(note) = &agent.legal_note else {
+            continue;
+        };
+        let body = flat(section(&guide, &agent.id));
+        let status = agent.legal_status.as_deref().unwrap_or("tolerated");
+        assert!(
+            body.to_lowercase().contains(status),
+            "the section of `{}` must state its declared status `{status}` ({note})",
+            agent.id
+        );
+        if status == "sanctioned" {
+            continue;
+        }
+        // A path the registry does not call sanctioned must not read as one.
+        for claim in [
+            "sanctioned",
+            "approved by",
+            "endorsed",
+            "blessed",
+            "officially supported by",
+            "authorized by",
+        ] {
+            assert!(
+                !body.to_lowercase().contains(claim),
+                "the section of `{}` claims approval the registry does not declare (`{claim}`): {body}",
+                agent.id
+            );
+        }
+    }
+    // And the guide says out loud that a future posture needs a source.
+    assert!(
+        flat(&guide).contains("with its source"),
+        "the guide promises to cite a source before changing a posture"
+    );
+}

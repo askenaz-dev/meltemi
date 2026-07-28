@@ -30,7 +30,7 @@
 - [x] 4.2 Flip de las filas de nivel 2 del registro: capa adaptador a los binarios propios con `bundled = true`, retiro de los `adapter-install` de terceros, capas `cli-*` intactas, notas legales reescritas con verdad (gris se queda gris, tolerado se queda tolerado) y `version` de la instantánea actualizada con verificación documentada (fuente y fecha)
 - [x] 4.3 Remedio de capa empaquetada ausente (reinstalar o reparar Meltemi, sin comando de terceros) compuesto en el daemon y presentado por igual en CLI humana/`--json`, TUI y GUI; rehúso de lanzamiento nombrando la capa según su tipo
 - [x] 4.4 Render de la procedencia empaquetada en la vista Flota de la TUI y el detalle de la GUI; matriz de paridad actualizada
-- [ ] 4.5 `docs/agentes.md` reescrita en lockstep con el registro (el test de coherencia registro↔guía se re-ancla): capa empaquetada explicada, remedios nuevos, y receta de adaptador de terceros por configuración con su nota legal, presentada sin recomendarla
+- [x] 4.5 `docs/agentes.md` reescrita en lockstep con el registro (el test de coherencia registro↔guía se re-ancla): capa empaquetada explicada, remedios nuevos, y receta de adaptador de terceros por configuración con su nota legal, presentada sin recomendarla
 - [ ] 4.6 Los instaladores empaquetan los dos binarios adaptadores junto a meltemid en las tres plataformas; el QA de presupuesto de tamaño re-mide sus gates con el costo real a la vista
 
 ## 5. Conformidad y cierre

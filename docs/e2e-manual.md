@@ -10,9 +10,12 @@ Este es el hito de la Fase 0: **`meltemid` pilota un agente de codificación rea
   - **OpenCode**: `opencode acp` → `agent.command = ["opencode", "acp"]`
   - **Kilo Code**: `kilo acp` → `agent.command = ["kilo", "acp"]`
   - **Cursor CLI**: `agent acp` → `agent.command = ["agent", "acp"]`
-  - **Claude Code / Codex** (vía adaptador ACP del ecosistema):
-    `agent.command = ["npx", "-y", "@agentclientprotocol/claude-agent-acp@latest"]`
-    (Nota ToS: Anthropic no permite suscripciones Pro/Max en herramientas de terceros; usa el binario oficial con su login o una API key — ver `docs/research/integracion-agentes.md`.)
+  - **Claude Code / Codex** (vía los adaptadores propios que Meltemi empaqueta):
+    `agent.id = "claude-code"` o `agent.id = "codex-cli"` — basta con tener el
+    CLI oficial del proveedor instalado y con sesión iniciada; el adaptador
+    viaja junto al daemon y no se instala aparte. El estatus legal de cada
+    entrada lo declara el registro y lo muestra la flota; ver `docs/agentes.md`
+    y `docs/research/integracion-agentes.md`.
 
 Detalle de disponibilidad y flags por agente: `docs/research/integracion-agentes.md`.
 

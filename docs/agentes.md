@@ -15,7 +15,7 @@ build fails.
 ## The two layers of a level-2 agent
 
 Meltemi pilots agents over the Agent Client Protocol (ACP). Some CLIs speak ACP
-themselves (**level 1**); others are driven through an official ACP **adapter**
+themselves (**level 1**); others are driven through an ACP **adapter**
 (**level 2**). That means a level-2 entry has two layers, and both must be
 present:
 
@@ -26,15 +26,37 @@ present:
 
 So "the provider CLI is installed but the Fleet says not detected" is not a
 bug: the pilot point is the adapter. The Fleet view names which layer is
-missing and prints the exact command; **Meltemi never runs an installer for
-you** (constitution §3: no silent external effects).
+missing and what to do about it; **Meltemi never runs an installer for you**
+(constitution §3: no silent external effects).
+
+### The adapter layer travels with Meltemi
+
+For the level-2 entries of the catalog, the adapter is **Meltemi's own** and
+ships in Meltemi's installers, beside the daemon. There is nothing to install
+for it and no third-party package involved: install Meltemi, install the
+provider's official CLI, and the entry is `ready`.
+
+Those adapters pilot the provider's official binary as a subprocess and nothing
+else. They link no HTTP client and no TLS stack, they listen on no port, and
+they never read, store or forward your credentials — the official CLI
+authenticates itself, exactly as it does when you run it by hand (constitution
+§2).
+
+If the Fleet reports such a layer missing, your Meltemi installation is
+incomplete: **reinstall or repair Meltemi**. You will not be given a package
+manager command for it, because there is no package to install — and Meltemi
+will not invent one.
+
+Detection reports where it found each layer, so a binary you never installed
+says where it came from. In the surfaces you will see `bundled with Meltemi`
+next to a pilot binary found beside the daemon.
 
 Composed states you will see:
 
 | State | Meaning |
 |---|---|
 | `ready` | The pilot point is present (and the official CLI too, when the entry declares one) |
-| `adapter_missing` | Your official CLI is installed; the ACP adapter is not |
+| `adapter_missing` | Your official CLI is installed; the ACP adapter is not. For a bundled adapter, reinstall or repair Meltemi |
 | `cli_missing` | The adapter is installed; the official CLI is not |
 | `not_detected` | Neither layer was found |
 | `not_launchable` | Something is installed, but only as a script shim that cannot be launched (see Windows below) |
@@ -44,7 +66,7 @@ Composed states you will see:
 | Level | Mechanism | What you get |
 |---|---|---|
 | 1 | Native ACP over stdio | Full integration: streaming, diffs, sessions, cancellation, permissions through Meltemi's tray |
-| 2 | Official ACP adapter | The same integration, through one open intermediate piece |
+| 2 | ACP adapter | The same integration, through one intermediate piece — Meltemi's own for the catalog entries, or one you declare yourself |
 | 3 | Structured headless mode | Programmatic runs inside mandatory guardrails; no rich permission channel |
 | 4 | Artifacts only | Context projection: the agent reads your specs from the repository |
 
@@ -127,6 +149,13 @@ For every layer, in order:
 
 1. Each directory of `PATH`, by binary name.
 2. The entry's well-known candidate paths (`~/` expands to your home).
+3. For a layer that ships with Meltemi, the directory of the running daemon.
+
+The order matters, and it is the one you would want: a copy you installed
+yourself always outranks the copy that came in the box. If you build an adapter
+from this repository and put it on your `PATH`, that is the one Meltemi runs,
+and the Fleet tells you so rather than leaving you to guess between two files
+with the same name.
 
 Nothing is ever executed to detect it — detection is pure filesystem probing,
 and it re-runs on every `fleet/list`, so installing an agent and refreshing the
@@ -200,6 +229,51 @@ command = ["/usr/local/bin/my-agent", "acp"]
 ```
 
 A custom entry is declared to speak ACP — that is what the daemon pilots.
+
+## Using a third-party ACP adapter instead
+
+The catalog ships Meltemi's own adapters and no longer points at anyone else's.
+That is a change of recommendation, not a prohibition: third-party ACP adapters
+exist, they are open source, and Meltemi pilots one exactly like any other
+entry the moment you declare it. Nothing in the daemon treats it differently
+for not being ours.
+
+Install the adapter however its publisher documents, then declare it and select
+it:
+
+```toml
+[[fleet.custom]]
+id = "vendor-acp-community"
+name = "Vendor ACP (third-party adapter)"
+command = ["vendor-acp", "--acp"]
+
+[agent]
+id = "vendor-acp-community"
+```
+
+A one-off is shorter: `agent.command = ["vendor-acp", "--acp"]` in the project
+configuration pins the literal command and skips the catalog entirely.
+
+What you should weigh before doing it, said plainly rather than sold either
+way:
+
+- **The status and the note are the entry's, not the adapter's.** The legal
+  status Meltemi shows for `claude-code` and `codex-cli` describes *the path
+  Meltemi ships*. A third-party adapter is a different path with its own terms,
+  and Meltemi has no note to show you about it — read the adapter's own
+  license and the provider's terms yourself.
+- **Some adapters drive a provider's agent SDK rather than its official
+  binary.** Where a provider's terms restrict which clients may use a consumer
+  subscription, that distinction is the whole question. Meltemi's own adapters
+  pilot the official binary with the session you already signed into, which is
+  why the catalog takes that route.
+- **The layer stops travelling with Meltemi.** Its versions, its updates and
+  its supply chain become yours to follow.
+
+Meltemi does not claim any provider blesses its own route either: the Fleet
+shows each entry's status and note as the registry declares them, and if a
+provider ever publishes a position, the note will be updated **with its
+source** rather than with an assumption.
 
 ## When something still does not work
 
