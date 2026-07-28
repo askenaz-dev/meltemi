@@ -643,7 +643,9 @@ async fn handle_worktree_dispatch(
         tracing::warn!(diagnostic = %d, "fleet profile hygiene");
     }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let resolved = crate::levels::resolve_fleet_agent(&config, &params.agent, &path_var)?;
+    let bundled = crate::fleet::bundled_dir();
+    let resolved =
+        crate::levels::resolve_fleet_agent(&config, &params.agent, &path_var, bundled.as_deref())?;
     let (agent_command, level) = match &resolved.launch {
         crate::levels::Launch::Acp { argv, level } => (argv.clone(), *level),
         crate::levels::Launch::Headless { level, .. }
@@ -1476,7 +1478,9 @@ async fn handle_sdd_implement(
     for d in &config.fleet_diagnostics {
         tracing::warn!(diagnostic = %d, "fleet profile hygiene");
     }
-    let resolved = crate::levels::resolve_fleet_agent(&config, &params.agent, &path_var)?;
+    let bundled = crate::fleet::bundled_dir();
+    let resolved =
+        crate::levels::resolve_fleet_agent(&config, &params.agent, &path_var, bundled.as_deref())?;
     let (agent_command, level) = match &resolved.launch {
         crate::levels::Launch::Acp { argv, level } => (argv.clone(), *level),
         crate::levels::Launch::Headless { level, .. }

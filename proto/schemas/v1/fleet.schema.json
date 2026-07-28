@@ -140,6 +140,15 @@
         "adapter"
       ]
     },
+    "fleetLayerSource": {
+      "type": "string",
+      "enum": [
+        "path",
+        "candidate_path",
+        "bundled"
+      ],
+      "description": "Where a detected layer's binary was found: the user's PATH, a declared candidate path, or beside the running daemon (a layer that travels in Meltemi's own installers)."
+    },
     "fleetLayer": {
       "type": "object",
       "required": [
@@ -168,6 +177,13 @@
         "install": {
           "type": "string",
           "minLength": 1
+        },
+        "bundled": {
+          "type": "boolean",
+          "description": "Whether the registry declares this layer as travelling in Meltemi's own installers; such a layer never carries a third-party install command."
+        },
+        "source": {
+          "$ref": "#/$defs/fleetLayerSource"
         }
       }
     },

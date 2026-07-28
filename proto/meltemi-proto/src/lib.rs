@@ -705,6 +705,22 @@ pub enum FleetLayerKind {
     Adapter,
 }
 
+/// Where a detected layer's binary came from (adaptadores-propios-acp design
+/// D8). Reported beside the absolute path, so a find is never anonymous: the
+/// same binary name can exist in several places, and which one won decides what
+/// a launch will execute.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FleetLayerSource {
+    /// Found by name on the user's `PATH`.
+    Path,
+    /// Found at one of the candidate paths the registry declares.
+    CandidatePath,
+    /// Found beside the running daemon: the layer travels in Meltemi's own
+    /// installers rather than being installed separately.
+    Bundled,
+}
+
 /// One detected (or missing) layer of a fleet entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -725,6 +741,14 @@ pub struct FleetLayer {
     /// user and never executed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install: Option<String>,
+    /// Whether the registry declares this layer as travelling in Meltemi's own
+    /// installers. Such a layer has no third-party install command: its remedy
+    /// is to reinstall or repair Meltemi.
+    #[serde(default)]
+    pub bundled: bool,
+    /// Where the find came from; present only when the layer was detected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<FleetLayerSource>,
 }
 
 /// The composed install state of an entry across its layers (design D2).

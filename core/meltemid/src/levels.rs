@@ -10,6 +10,7 @@
 //! the capabilities a level lacks are visible, never simulated.
 
 use std::ffi::OsStr;
+use std::path::Path;
 
 use serde_json::Value;
 
@@ -50,7 +51,11 @@ impl Launch {
 /// detects the headless binary and appends its native controls, L4 needs no
 /// process. Detection only — nothing is spawned here; failures are 2000
 /// (nothing configured) or 2001 (unknown id / binary not detected).
-pub fn resolve_launch(config: &Config, path_var: &OsStr) -> Result<Launch, RpcError> {
+pub fn resolve_launch(
+    config: &Config,
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> Result<Launch, RpcError> {
     if let Some(argv) = &config.agent_command {
         return Ok(Launch::Acp {
             argv: argv.clone(),
@@ -67,7 +72,7 @@ pub fn resolve_launch(config: &Config, path_var: &OsStr) -> Result<Launch, RpcEr
         ));
     };
     let catalog = build_catalog(config);
-    resolve_id_launch(&catalog, id, path_var)
+    resolve_id_launch(&catalog, id, path_var, bundled_dir)
 }
 
 /// A per-session agent resolution: the launch, an env overlay selecting the
@@ -96,6 +101,7 @@ pub fn resolve_fleet_agent(
     config: &Config,
     name: &str,
     path_var: &OsStr,
+    bundled_dir: Option<&Path>,
 ) -> Result<ResolvedAgent, RpcError> {
     use meltemi_proto::FleetResolutionSource;
     let catalog = build_catalog(config);
@@ -103,7 +109,7 @@ pub fn resolve_fleet_agent(
     // (a) A launch profile matched by name — resolve its underlying id, then
     //     overlay the auth-context env (`${VAR}` resolved; never a secret).
     if let Some(profile) = config.fleet_profiles.iter().find(|p| p.name == name) {
-        let launch = resolve_id_launch(&catalog, &profile.agent, path_var)?;
+        let launch = resolve_id_launch(&catalog, &profile.agent, path_var, bundled_dir)?;
         let env: Vec<(String, String)> = profile
             .env
             .iter()
@@ -129,7 +135,7 @@ pub fn resolve_fleet_agent(
 
     // (b) A catalog id matched by name.
     if catalog.entries.iter().any(|e| e.id == name) {
-        let launch = resolve_id_launch(&catalog, name, path_var)?;
+        let launch = resolve_id_launch(&catalog, name, path_var, bundled_dir)?;
         return Ok(ResolvedAgent {
             launch,
             env: Vec::new(),
@@ -140,7 +146,7 @@ pub fn resolve_fleet_agent(
     }
 
     // (c) A free label — the project-configured agent.
-    let launch = resolve_launch(config, path_var)?;
+    let launch = resolve_launch(config, path_var, bundled_dir)?;
     Ok(ResolvedAgent {
         launch,
         env: Vec::new(),
@@ -158,6 +164,7 @@ pub fn resolve_id_launch(
     catalog: &crate::fleet::Catalog,
     id: &str,
     path_var: &OsStr,
+    bundled_dir: Option<&Path>,
 ) -> Result<Launch, RpcError> {
     let Some(entry) = catalog.entries.iter().find(|e| e.id == id) else {
         return Err(not_detected(format!(
@@ -168,8 +175,13 @@ pub fn resolve_id_launch(
 
     match entry.level {
         1 => {
-            let bin = resolve_binary(entry.bin.as_deref(), &entry.candidate_paths, path_var)
-                .ok_or_else(|| layer_refusal(entry, path_var))?;
+            let bin = resolve_binary(
+                entry.bin.as_deref(),
+                &entry.candidate_paths,
+                path_var,
+                entry.bundled.then_some(bundled_dir).flatten(),
+            )
+            .ok_or_else(|| layer_refusal(entry, path_var, bundled_dir))?;
             let mut argv = vec![bin.display().to_string()];
             argv.extend(entry.acp_args.iter().cloned());
             Ok(Launch::Acp { argv, level: 1 })
@@ -177,16 +189,25 @@ pub fn resolve_id_launch(
         2 => {
             // Level 2 launches the declared ACP adapter, under the same passive
             // detection as a native agent.
-            let adapter =
-                resolve_binary(entry.adapter.as_deref(), &entry.candidate_paths, path_var)
-                    .ok_or_else(|| layer_refusal(entry, path_var))?;
+            let adapter = resolve_binary(
+                entry.adapter.as_deref(),
+                &entry.candidate_paths,
+                path_var,
+                entry.bundled.then_some(bundled_dir).flatten(),
+            )
+            .ok_or_else(|| layer_refusal(entry, path_var, bundled_dir))?;
             let mut argv = vec![adapter.display().to_string()];
             argv.extend(entry.adapter_args.iter().cloned());
             Ok(Launch::Acp { argv, level: 2 })
         }
         3 => {
-            let bin = resolve_binary(entry.headless.as_deref(), &entry.candidate_paths, path_var)
-                .ok_or_else(|| layer_refusal(entry, path_var))?;
+            let bin = resolve_binary(
+                entry.headless.as_deref(),
+                &entry.candidate_paths,
+                path_var,
+                entry.bundled.then_some(bundled_dir).flatten(),
+            )
+            .ok_or_else(|| layer_refusal(entry, path_var, bundled_dir))?;
             let mut argv = vec![bin.display().to_string()];
             argv.extend(entry.headless_args.iter().cloned());
             // Native controls Meltemi configures from data in one place (D2).
@@ -208,8 +229,12 @@ fn undetected(name: &str) -> String {
 /// fleet view gives: which layer is missing and the exact command that installs
 /// it (flota-deteccion-guia design D5). A generic "not detected" at the moment
 /// the user most needs the answer is what this replaces.
-fn layer_refusal(entry: &crate::fleet::CatalogEntry, path_var: &OsStr) -> RpcError {
-    let layers = crate::fleet::detect_layers(entry, path_var);
+fn layer_refusal(
+    entry: &crate::fleet::CatalogEntry,
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> RpcError {
+    let layers = crate::fleet::detect_layers(entry, path_var, bundled_dir);
     let (_, remedy, command) = crate::fleet::compose_state(&layers, false);
     let detail = match remedy {
         Some(remedy) => format!("agent `{}`: {remedy}", entry.id),
@@ -495,7 +520,7 @@ mod tests {
             }],
         );
         let path_var = std::env::join_paths([dir.clone()]).unwrap();
-        let err = resolve_fleet_agent(&config, "work", &path_var)
+        let err = resolve_fleet_agent(&config, "work", &path_var, None)
             .expect_err("an undetected profile must refuse");
         assert_eq!(err.code, meltemi_proto::error_codes::AGENT_NOT_DETECTED);
     }
@@ -516,7 +541,8 @@ mod tests {
             }],
         );
         let path_var = std::env::join_paths([dir.clone()]).unwrap();
-        let resolved = resolve_fleet_agent(&config, "work", &path_var).expect("profile resolves");
+        let resolved =
+            resolve_fleet_agent(&config, "work", &path_var, None).expect("profile resolves");
         assert_eq!(
             resolved.source,
             meltemi_proto::FleetResolutionSource::Profile
@@ -538,7 +564,7 @@ mod tests {
         let config = fleet_config(&dir, "known", vec![]);
         let path_var = std::env::join_paths([dir.clone()]).unwrap();
         let resolved =
-            resolve_fleet_agent(&config, "fast", &path_var).expect("free label falls back");
+            resolve_fleet_agent(&config, "fast", &path_var, None).expect("free label falls back");
         assert_eq!(
             resolved.source,
             meltemi_proto::FleetResolutionSource::Configured
@@ -558,7 +584,7 @@ mod tests {
             "version=\"v\"\n[[agents]]\nid=\"x\"\nname=\"X\"\nlevel=2\n\
              adapter=\"adapter-bin\"\nadapter-args=[\"--acp\"]\ncli-bin=\"x-cli\"\n",
         );
-        let launch = resolve_launch(&config, &path_var).unwrap();
+        let launch = resolve_launch(&config, &path_var, None).unwrap();
         assert_eq!(launch.level(), 2);
         assert!(matches!(launch, Launch::Acp { .. }), "L2 is an ACP launch");
         std::fs::remove_dir_all(&dir).ok();
@@ -573,7 +599,7 @@ mod tests {
             &dir,
             "version=\"v\"\n[[agents]]\nid=\"x\"\nname=\"X\"\nlevel=2\nadapter=\"absent-adapter\"\n",
         );
-        let err = resolve_launch(&config, &path_var).unwrap_err();
+        let err = resolve_launch(&config, &path_var, None).unwrap_err();
         assert_eq!(err.code, error_codes::AGENT_NOT_DETECTED);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -589,7 +615,7 @@ mod tests {
              headless=\"headless-bin\"\nheadless-args=[\"run\"]\n\
              native-controls=[\"--sandbox\",\"--no-network\"]\n",
         );
-        let launch = resolve_launch(&config, &path_var).unwrap();
+        let launch = resolve_launch(&config, &path_var, None).unwrap();
         match launch {
             Launch::Headless { argv, level } => {
                 assert_eq!(level, 3);
@@ -612,7 +638,7 @@ mod tests {
             &dir,
             "version=\"v\"\n[[agents]]\nid=\"x\"\nname=\"X\"\nlevel=4\nl4-target=\"AGENTS.md\"\n",
         );
-        let launch = resolve_launch(&config, std::ffi::OsStr::new("")).unwrap();
+        let launch = resolve_launch(&config, std::ffi::OsStr::new(""), None).unwrap();
         assert_eq!(launch, Launch::Artifacts { level: 4 });
         assert_eq!(l4_target_for(&config).as_deref(), Some("AGENTS.md"));
         std::fs::remove_dir_all(&dir).ok();
@@ -624,7 +650,7 @@ mod tests {
             agent_command: Some(vec!["some-agent".into()]),
             ..Config::default()
         };
-        let launch = resolve_launch(&config, std::ffi::OsStr::new("")).unwrap();
+        let launch = resolve_launch(&config, std::ffi::OsStr::new(""), None).unwrap();
         assert_eq!(launch.level(), 1);
     }
 
@@ -641,7 +667,7 @@ mod tests {
         };
         // No PATH, but a custom agent's bin must be detected to launch; here it
         // is absent, so resolution reports 2001 (honest).
-        let err = resolve_launch(&config, std::ffi::OsStr::new("")).unwrap_err();
+        let err = resolve_launch(&config, std::ffi::OsStr::new(""), None).unwrap_err();
         assert_eq!(err.code, error_codes::AGENT_NOT_DETECTED);
     }
 

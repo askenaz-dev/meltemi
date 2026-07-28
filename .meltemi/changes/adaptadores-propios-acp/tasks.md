@@ -26,7 +26,7 @@
 
 ## 4. Registro, detección empaquetada y superficies
 
-- [ ] 4.1 Detección genérica de capa empaquetada: sondeo del directorio hermano del daemon en ejecución para capas `bundled = true`, precedencia PATH → candidatas → hermano, fuente del hallazgo reportada; campos aditivos en `proto/` (esquema + tipos + conformidad) y tests con registro sustituido
+- [x] 4.1 Detección genérica de capa empaquetada: sondeo del directorio hermano del daemon en ejecución para capas `bundled = true`, precedencia PATH → candidatas → hermano, fuente del hallazgo reportada; campos aditivos en `proto/` (esquema + tipos + conformidad) y tests con registro sustituido
 - [ ] 4.2 Flip de las filas de nivel 2 del registro: capa adaptador a los binarios propios con `bundled = true`, retiro de los `adapter-install` de terceros, capas `cli-*` intactas, notas legales reescritas con verdad (gris se queda gris, tolerado se queda tolerado) y `version` de la instantánea actualizada con verificación documentada (fuente y fecha)
 - [ ] 4.3 Remedio de capa empaquetada ausente (reinstalar o reparar Meltemi, sin comando de terceros) compuesto en el daemon y presentado por igual en CLI humana/`--json`, TUI y GUI; rehúso de lanzamiento nombrando la capa según su tipo
 - [ ] 4.4 Render de la procedencia empaquetada en la vista Flota de la TUI y el detalle de la GUI; matriz de paridad actualizada

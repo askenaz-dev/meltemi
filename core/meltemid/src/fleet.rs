@@ -25,8 +25,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use meltemi_proto::{
-    FleetAgent, FleetAgentSource, FleetInstallState, FleetLayer, FleetLayerKind, FleetLegalStatus,
-    FleetListParams, FleetListResult, error_codes,
+    FleetAgent, FleetAgentSource, FleetInstallState, FleetLayer, FleetLayerKind, FleetLayerSource,
+    FleetLegalStatus, FleetListParams, FleetListResult, error_codes,
 };
 
 use crate::config::Config;
@@ -81,6 +81,11 @@ pub struct RegistryAgent {
     pub cli_candidate_paths: Vec<String>,
     pub cli_install: Option<String>,
     pub adapter_install: Option<String>,
+    /// Whether this entry's PILOT layer travels in Meltemi's own installers
+    /// (adaptadores-propios-acp design D8). Generic: nothing keys on an id, and
+    /// the provider's own CLI layer is never bundled — §2 forbids shipping
+    /// somebody else's agent, so only a binary Meltemi builds can be.
+    pub bundled: bool,
     pub legal_status: Option<String>,
     pub legal_note: Option<String>,
 }
@@ -128,6 +133,9 @@ struct RawRegistryAgent {
     cli_install: Option<String>,
     #[serde(default)]
     adapter_install: Option<String>,
+    /// The entry's pilot layer travels in Meltemi's own installers (design D8).
+    #[serde(default)]
+    bundled: bool,
     #[serde(default)]
     legal_status: Option<String>,
     #[serde(default)]
@@ -202,6 +210,16 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
                 agent.id
             ));
         }
+        // A bundled layer travels in Meltemi's installers; a third-party
+        // install command for it would be a contradiction the surfaces would
+        // then have to choose between. Refuse the contradiction at the source.
+        if agent.bundled && agent.adapter_install.is_some() {
+            return Err(format!(
+                "registry entry `{}` declares its pilot layer bundled and also a \
+                 third-party install command for it",
+                agent.id
+            ));
+        }
         agents.push(RegistryAgent {
             id: agent.id,
             name: agent.name,
@@ -220,6 +238,7 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
             cli_candidate_paths: agent.cli_candidate_paths,
             cli_install: agent.cli_install,
             adapter_install: agent.adapter_install,
+            bundled: agent.bundled,
             legal_status: agent.legal_status,
             legal_note: agent.legal_note,
         });
@@ -264,20 +283,41 @@ const WINDOWS_EXTS: &[&str] = &["exe", "cmd", "bat"];
 #[cfg(windows)]
 const WINDOWS_EVIDENCE_EXTS: &[&str] = &["ps1"];
 
-/// Resolves a catalog binary: `PATH` lookup by name, then the entry's
-/// candidate paths (`~/` expands to the home directory). Returns the
-/// absolute path when present. Pure filesystem probing — no subprocess is
-/// ever launched (design D2).
-pub fn resolve_binary(
+/// The directory the running executable lives in — where Meltemi's own
+/// bundled binaries sit beside the daemon, because the installers put them
+/// there together (adaptadores-propios-acp design D8). `None` when the platform
+/// declines to answer, which reads as "not found" rather than as a guess.
+///
+/// It is a *probe location*, never a claim: a binary found here is reported
+/// with its absolute path and its provenance like any other find.
+#[must_use]
+pub fn bundled_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    exe.parent().map(Path::to_path_buf)
+}
+
+/// Resolves a catalog binary and says WHERE it came from. Precedence: the
+/// user's `PATH` by name, the entry's declared candidate paths (`~/` expands to
+/// the home directory), and finally — only when `bundled_dir` is given, which
+/// the caller does only for a layer the registry declares bundled — the
+/// directory beside the running daemon (design D8).
+///
+/// The order is the philosophy already in force everywhere else: what the user
+/// installed outranks what Meltemi shipped. It is not a silent degradation
+/// either way, because the find carries its provenance.
+///
+/// Pure filesystem probing — no subprocess is ever launched (design D2).
+pub fn resolve_located(
     bin: Option<&str>,
     candidates: &[String],
     path_var: &OsStr,
-) -> Option<PathBuf> {
+    bundled_dir: Option<&Path>,
+) -> Option<(PathBuf, FleetLayerSource)> {
     if let Some(name) = bin {
         // A name carrying a path separator is a direct location.
         if name.contains('/') || name.contains('\\') {
             if let Some(hit) = probe(&expand_home(name)) {
-                return Some(absolute(hit));
+                return Some((absolute(hit), FleetLayerSource::Path));
             }
         } else {
             for dir in std::env::split_paths(path_var) {
@@ -285,17 +325,35 @@ pub fn resolve_binary(
                     continue;
                 }
                 if let Some(hit) = probe(&dir.join(name)) {
-                    return Some(absolute(hit));
+                    return Some((absolute(hit), FleetLayerSource::Path));
                 }
             }
         }
     }
     for candidate in candidates {
         if let Some(hit) = probe(&expand_home(candidate)) {
-            return Some(absolute(hit));
+            return Some((absolute(hit), FleetLayerSource::CandidatePath));
         }
     }
+    if let (Some(dir), Some(name)) = (bundled_dir, bin)
+        && !name.contains('/')
+        && !name.contains('\\')
+        && let Some(hit) = probe(&dir.join(name))
+    {
+        return Some((absolute(hit), FleetLayerSource::Bundled));
+    }
     None
+}
+
+/// [`resolve_located`] without the provenance, for the callers that only need
+/// to know what a launch would execute.
+pub fn resolve_binary(
+    bin: Option<&str>,
+    candidates: &[String],
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    resolve_located(bin, candidates, path_var, bundled_dir).map(|(path, _)| path)
 }
 
 fn absolute(path: PathBuf) -> PathBuf {
@@ -402,6 +460,8 @@ pub struct CatalogEntry {
     pub cli_candidate_paths: Vec<String>,
     pub cli_install: Option<String>,
     pub adapter_install: Option<String>,
+    /// Whether the entry's pilot layer travels in Meltemi's own installers.
+    pub bundled: bool,
     pub legal_status: Option<String>,
     pub legal_note: Option<String>,
 }
@@ -427,6 +487,7 @@ impl Default for CatalogEntry {
             cli_candidate_paths: Vec::new(),
             cli_install: None,
             adapter_install: None,
+            bundled: false,
             legal_status: None,
             legal_note: None,
         }
@@ -469,6 +530,7 @@ pub fn build_catalog(config: &Config) -> Catalog {
             cli_candidate_paths: agent.cli_candidate_paths,
             cli_install: agent.cli_install,
             adapter_install: agent.adapter_install,
+            bundled: agent.bundled,
             legal_status: agent.legal_status,
             legal_note: agent.legal_note,
         })
@@ -498,25 +560,38 @@ pub fn build_catalog(config: &Config) -> Catalog {
 
 /// Detects one entry: the absolute path of its binary when present. This is
 /// the pilot point — what a launch would execute — and therefore what
-/// `detected` reports (flota-deteccion-guia design D2).
-pub fn detect(entry: &CatalogEntry, path_var: &OsStr) -> Option<PathBuf> {
-    resolve_binary(entry.bin.as_deref(), &entry.candidate_paths, path_var)
+/// `detected` reports (flota-deteccion-guia design D2). `bundled_dir` is the
+/// directory beside the daemon, probed only when the entry declares its pilot
+/// layer bundled (adaptadores-propios-acp design D8).
+pub fn detect(
+    entry: &CatalogEntry,
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    resolve_binary(
+        entry.bin.as_deref(),
+        &entry.candidate_paths,
+        path_var,
+        entry.bundled.then_some(bundled_dir).flatten(),
+    )
 }
 
-/// Locates a layer as evidence of an installation: the launchable find first,
-/// then the evidence-only shims. The flag says whether the hit is launchable.
+/// Locates a layer as evidence of an installation: the launchable find first
+/// (with its provenance), then the evidence-only shims. The `bool` says whether
+/// the hit is launchable.
 fn resolve_layer(
     bin: Option<&str>,
     candidates: &[String],
     path_var: &OsStr,
-) -> Option<(PathBuf, bool)> {
-    if let Some(path) = resolve_binary(bin, candidates, path_var) {
-        return Some((path, true));
+    bundled_dir: Option<&Path>,
+) -> Option<(PathBuf, bool, Option<FleetLayerSource>)> {
+    if let Some((path, source)) = resolve_located(bin, candidates, path_var, bundled_dir) {
+        return Some((path, true, Some(source)));
     }
     if let Some(name) = bin {
         if name.contains('/') || name.contains('\\') {
             if let Some(hit) = probe_evidence(&expand_home(name)) {
-                return Some((absolute(hit), false));
+                return Some((absolute(hit), false, Some(FleetLayerSource::Path)));
             }
         } else {
             for dir in std::env::split_paths(path_var) {
@@ -524,15 +599,22 @@ fn resolve_layer(
                     continue;
                 }
                 if let Some(hit) = probe_evidence(&dir.join(name)) {
-                    return Some((absolute(hit), false));
+                    return Some((absolute(hit), false, Some(FleetLayerSource::Path)));
                 }
             }
         }
     }
     for candidate in candidates {
         if let Some(hit) = probe_evidence(&expand_home(candidate)) {
-            return Some((absolute(hit), false));
+            return Some((absolute(hit), false, Some(FleetLayerSource::CandidatePath)));
         }
+    }
+    if let (Some(dir), Some(name)) = (bundled_dir, bin)
+        && !name.contains('/')
+        && !name.contains('\\')
+        && let Some(hit) = probe_evidence(&dir.join(name))
+    {
+        return Some((absolute(hit), false, Some(FleetLayerSource::Bundled)));
     }
     None
 }
@@ -540,23 +622,41 @@ fn resolve_layer(
 /// The layers of an entry, each detected on its own (design D1/D3): a level-2
 /// entry has the official provider CLI plus the ACP adapter it is piloted
 /// through; every other entry has the single `cli` layer its `bin` names.
-pub fn detect_layers(entry: &CatalogEntry, path_var: &OsStr) -> Vec<FleetLayer> {
+///
+/// The bundled probe reaches only the entry's PILOT layer, and only when the
+/// registry declares it bundled: the provider's own CLI never travels with
+/// Meltemi (§2), so probing beside the daemon for it would be probing for
+/// something that cannot be there.
+pub fn detect_layers(
+    entry: &CatalogEntry,
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> Vec<FleetLayer> {
     let mut layers = Vec::new();
 
     if let Some(cli_bin) = &entry.cli_bin {
-        let found = resolve_layer(Some(cli_bin), &entry.cli_candidate_paths, path_var);
+        let found = resolve_layer(Some(cli_bin), &entry.cli_candidate_paths, path_var, None);
         layers.push(FleetLayer {
             kind: FleetLayerKind::Cli,
             bin: cli_bin.clone(),
             detected: found.is_some(),
-            binary_path: found.as_ref().map(|(path, _)| path.display().to_string()),
-            evidence_only: found.as_ref().is_some_and(|(_, launchable)| !launchable),
+            binary_path: found
+                .as_ref()
+                .map(|(path, _, _)| path.display().to_string()),
+            evidence_only: found.as_ref().is_some_and(|(_, launchable, _)| !launchable),
             install: entry.cli_install.clone(),
+            bundled: false,
+            source: found.as_ref().and_then(|(_, _, source)| *source),
         });
     }
 
     if let Some(bin) = &entry.bin {
-        let found = resolve_layer(Some(bin), &entry.candidate_paths, path_var);
+        let found = resolve_layer(
+            Some(bin),
+            &entry.candidate_paths,
+            path_var,
+            entry.bundled.then_some(bundled_dir).flatten(),
+        );
         // The pilot point is the adapter for a two-layer entry, the CLI itself
         // otherwise.
         let kind = if entry.cli_bin.is_some() {
@@ -568,13 +668,17 @@ pub fn detect_layers(entry: &CatalogEntry, path_var: &OsStr) -> Vec<FleetLayer> 
             kind,
             bin: bin.clone(),
             detected: found.is_some(),
-            binary_path: found.as_ref().map(|(path, _)| path.display().to_string()),
-            evidence_only: found.as_ref().is_some_and(|(_, launchable)| !launchable),
+            binary_path: found
+                .as_ref()
+                .map(|(path, _, _)| path.display().to_string()),
+            evidence_only: found.as_ref().is_some_and(|(_, launchable, _)| !launchable),
             install: if kind == FleetLayerKind::Adapter {
                 entry.adapter_install.clone()
             } else {
                 entry.cli_install.clone()
             },
+            bundled: entry.bundled,
+            source: found.as_ref().and_then(|(_, _, source)| *source),
         });
     }
 
@@ -669,14 +773,19 @@ fn legal_status_of(entry: &CatalogEntry) -> Option<FleetLegalStatus> {
 
 /// Materializes the `fleet/list` result: fresh detection on every call (D3),
 /// marking the entry `configured_id` selects, if any.
-pub fn list(config: &Config, configured_id: Option<&str>, path_var: &OsStr) -> FleetListResult {
+pub fn list(
+    config: &Config,
+    configured_id: Option<&str>,
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> FleetListResult {
     let catalog = build_catalog(config);
     let mut agents: Vec<FleetAgent> = catalog
         .entries
         .iter()
         .map(|entry| {
-            let binary = detect(entry, path_var);
-            let layers = detect_layers(entry, path_var);
+            let binary = detect(entry, path_var, bundled_dir);
+            let layers = detect_layers(entry, path_var, bundled_dir);
             let (install_state, remedy, remedy_command) = compose_state(&layers, binary.is_some());
             FleetAgent {
                 id: entry.id.clone(),
@@ -707,9 +816,9 @@ pub fn list(config: &Config, configured_id: Option<&str>, path_var: &OsStr) -> F
     // per session, not project-wide).
     for profile in &config.fleet_profiles {
         let underlying = catalog.entries.iter().find(|e| e.id == profile.agent);
-        let binary = underlying.and_then(|e| detect(e, path_var));
+        let binary = underlying.and_then(|e| detect(e, path_var, bundled_dir));
         let layers = underlying
-            .map(|e| detect_layers(e, path_var))
+            .map(|e| detect_layers(e, path_var, bundled_dir))
             .unwrap_or_default();
         let (install_state, remedy, remedy_command) = compose_state(&layers, binary.is_some());
         agents.push(FleetAgent {
@@ -757,7 +866,13 @@ pub fn handle_fleet_list(params: Value, state: &Arc<DaemonState>) -> Result<Valu
         None
     };
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let mut result = list(&config, configured_id.as_deref(), &path_var);
+    let bundled = bundled_dir();
+    let mut result = list(
+        &config,
+        configured_id.as_deref(),
+        &path_var,
+        bundled.as_deref(),
+    );
     // Enrich with the verified level from the last persisted conformance run
     // (design D4): declared vs verified is visible in the surfaces.
     let verified = crate::conformance::latest_by_agent(&state.data_dir);
@@ -775,7 +890,11 @@ pub fn handle_fleet_list(params: Value, state: &Arc<DaemonState>) -> Result<Valu
 /// two are already folded into `config.agent_command` by [`Config::load`].
 /// Resolution only detects — nothing is launched here; failures are 2000
 /// (nothing configured) or 2001 (id unknown or binary not detected).
-pub fn resolve_agent_command(config: &Config, path_var: &OsStr) -> Result<Vec<String>, RpcError> {
+pub fn resolve_agent_command(
+    config: &Config,
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> Result<Vec<String>, RpcError> {
     if let Some(argv) = &config.agent_command {
         return Ok(argv.clone());
     }
@@ -799,7 +918,7 @@ pub fn resolve_agent_command(config: &Config, path_var: &OsStr) -> Result<Vec<St
             catalog.registry_version
         )));
     };
-    match detect(entry, path_var) {
+    match detect(entry, path_var, bundled_dir) {
         Some(binary) => {
             let mut argv = vec![binary.display().to_string()];
             argv.extend(entry.acp_args.iter().cloned());
@@ -809,14 +928,16 @@ pub fn resolve_agent_command(config: &Config, path_var: &OsStr) -> Result<Vec<St
         // "not detected". It is built by `levels::resolve_id_launch`, which every
         // production launch path goes through; this entry point keeps the same
         // diagnosis by delegating to it (flota-deteccion-guia design D5).
-        None => Err(crate::levels::resolve_id_launch(&catalog, id, path_var)
-            .err()
-            .unwrap_or_else(|| {
-                not_detected(format!(
-                    "the binary of agent `{id}` ({}) was not detected on this system",
-                    entry.name
-                ))
-            })),
+        None => Err(
+            crate::levels::resolve_id_launch(&catalog, id, path_var, bundled_dir)
+                .err()
+                .unwrap_or_else(|| {
+                    not_detected(format!(
+                        "the binary of agent `{id}` ({}) was not detected on this system",
+                        entry.name
+                    ))
+                }),
+        ),
     }
 }
 
@@ -855,10 +976,10 @@ mod tests {
             ..CatalogEntry::default()
         };
         assert!(
-            detect(&entry, &path_var).is_none(),
+            detect(&entry, &path_var, None).is_none(),
             "a .ps1 is never returned as a launch target"
         );
-        let layers = detect_layers(&entry, &path_var);
+        let layers = detect_layers(&entry, &path_var, None);
         assert_eq!(layers.len(), 1);
         assert!(layers[0].detected, "the shim proves an installation");
         assert!(layers[0].evidence_only);
@@ -874,9 +995,9 @@ mod tests {
             bin: Some("both".into()),
             ..CatalogEntry::default()
         };
-        let found = detect(&entry, &path_var).expect("the .cmd is launchable");
+        let found = detect(&entry, &path_var, None).expect("the .cmd is launchable");
         assert!(found.to_string_lossy().ends_with("both.cmd"));
-        let layers = detect_layers(&entry, &path_var);
+        let layers = detect_layers(&entry, &path_var, None);
         assert!(layers[0].detected && !layers[0].evidence_only);
         assert_eq!(compose_state(&layers, true).0, FleetInstallState::Ready);
 
@@ -899,6 +1020,28 @@ adapter = "broken-acp"
         assert!(error.contains("cli-bin"), "{error}");
     }
 
+    #[test]
+    fn a_bundled_layer_may_not_also_declare_a_third_party_install() {
+        // The two declarations contradict each other: a layer that travels in
+        // Meltemi's installers has no third-party command, and a surface should
+        // never have to choose which of the two to believe.
+        let bad = r#"
+version = "test"
+
+[[agents]]
+id = "contradiction"
+name = "Contradiction"
+level = 2
+bin = "meltemi-x-acp"
+adapter = "meltemi-x-acp"
+bundled = true
+adapter-install = "npm i -g somebody-elses-adapter"
+cli-bin = "x"
+"#;
+        let error = parse_registry(bad).expect_err("bundled and an install command cannot coexist");
+        assert!(error.contains("bundled"), "{error}");
+    }
+
     /// A layer helper for the composition tests.
     fn layer(kind: FleetLayerKind, detected: bool, evidence_only: bool) -> FleetLayer {
         FleetLayer {
@@ -911,6 +1054,8 @@ adapter = "broken-acp"
             binary_path: detected.then(|| "/somewhere/bin".to_string()),
             evidence_only,
             install: Some("install me".into()),
+            bundled: false,
+            source: detected.then_some(FleetLayerSource::Path),
         }
     }
 
@@ -1131,12 +1276,15 @@ adapter = "broken-acp"
         fake_binary(&dir, "present-agent");
         let path_var = std::env::join_paths([dir.clone()]).unwrap();
 
-        let hit =
-            resolve_binary(Some("present-agent"), &[], &path_var).expect("present binary found");
+        let hit = resolve_binary(Some("present-agent"), &[], &path_var, None)
+            .expect("present binary found");
         assert!(hit.is_absolute(), "detection reports an absolute path");
         assert!(hit.starts_with(&dir));
 
-        assert_eq!(resolve_binary(Some("absent-agent"), &[], &path_var), None);
+        assert_eq!(
+            resolve_binary(Some("absent-agent"), &[], &path_var, None),
+            None
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1148,10 +1296,10 @@ adapter = "broken-acp"
         std::fs::write(dir.join("script.ps1"), "").unwrap();
         let path_var = std::env::join_paths([dir.clone()]).unwrap();
 
-        let hit = resolve_binary(Some("shim"), &[], &path_var).expect(".cmd shim detected");
+        let hit = resolve_binary(Some("shim"), &[], &path_var, None).expect(".cmd shim detected");
         assert!(hit.extension().unwrap().eq_ignore_ascii_case("cmd"));
         // .ps1 lies outside the bounded set: not detectable.
-        assert_eq!(resolve_binary(Some("script"), &[], &path_var), None);
+        assert_eq!(resolve_binary(Some("script"), &[], &path_var, None), None);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1161,7 +1309,7 @@ adapter = "broken-acp"
         let dir = temp_dir("execbit");
         std::fs::write(dir.join("plain"), "not executable").unwrap();
         let path_var = std::env::join_paths([dir.clone()]).unwrap();
-        assert_eq!(resolve_binary(Some("plain"), &[], &path_var), None);
+        assert_eq!(resolve_binary(Some("plain"), &[], &path_var, None), None);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1176,6 +1324,7 @@ adapter = "broken-acp"
             Some("tucked-away"),
             std::slice::from_ref(&candidate),
             &empty_path,
+            None,
         )
         .expect("candidate detected");
         assert_eq!(hit, bin);
@@ -1196,7 +1345,7 @@ adapter = "broken-acp"
             }],
             ..Config::default()
         };
-        let result = list(&config, None, &path_var);
+        let result = list(&config, None, &path_var, None);
         let mine = result
             .agents
             .iter()
@@ -1234,7 +1383,7 @@ adapter = "broken-acp"
             }],
             ..Config::default()
         };
-        let result = list(&config, None, &path_var);
+        let result = list(&config, None, &path_var, None);
         let profile = result
             .agents
             .iter()
@@ -1258,7 +1407,7 @@ adapter = "broken-acp"
             ..Config::default()
         };
         let argv =
-            resolve_agent_command(&config, OsStr::new("")).expect("the literal command wins");
+            resolve_agent_command(&config, OsStr::new(""), None).expect("the literal command wins");
         assert_eq!(argv, vec!["literal-agent".to_string(), "--x".to_string()]);
     }
 
@@ -1280,7 +1429,7 @@ adapter = "broken-acp"
             fleet_registry: Some(registry),
             ..Config::default()
         };
-        let argv = resolve_agent_command(&config, &path_var).expect("detected id resolves");
+        let argv = resolve_agent_command(&config, &path_var, None).expect("detected id resolves");
         assert_eq!(argv, vec![bin.display().to_string(), "--acp".to_string()]);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1307,6 +1456,7 @@ adapter = "broken-acp"
                 ..base.clone()
             },
             OsStr::new(""),
+            None,
         );
         assert_eq!(
             unknown.unwrap_err().code,
@@ -1320,6 +1470,7 @@ adapter = "broken-acp"
                 ..base
             },
             OsStr::new(""),
+            None,
         );
         assert_eq!(
             undetected.unwrap_err().code,
@@ -1331,7 +1482,7 @@ adapter = "broken-acp"
 
     #[test]
     fn nothing_configured_is_error_2000() {
-        let err = resolve_agent_command(&Config::default(), OsStr::new("")).unwrap_err();
+        let err = resolve_agent_command(&Config::default(), OsStr::new(""), None).unwrap_err();
         assert_eq!(err.code, error_codes::AGENT_COMMAND_NOT_CONFIGURED);
     }
 }

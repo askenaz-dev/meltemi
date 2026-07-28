@@ -1065,6 +1065,8 @@ fn fleet_layers_conform() {
             binary_path: None,
             evidence_only: false,
             install: Some("cargo install codex-acp".into()),
+            bundled: false,
+            source: None,
         },
     );
     assert_conforms(
@@ -1077,8 +1079,35 @@ fn fleet_layers_conform() {
             binary_path: Some("C:/shims/codex.cmd".into()),
             evidence_only: true,
             install: None,
+            bundled: false,
+            source: Some(FleetLayerSource::CandidatePath),
         },
     );
+    // A layer that travels in Meltemi's own installers: found beside the
+    // daemon, declared bundled, and carrying no install command at all
+    // (adaptadores-propios-acp design D8).
+    assert_conforms(
+        "fleet",
+        "fleetLayer",
+        &FleetLayer {
+            kind: FleetLayerKind::Adapter,
+            bin: "meltemi-codex-acp".into(),
+            detected: true,
+            binary_path: Some("/opt/meltemi/meltemi-codex-acp".into()),
+            evidence_only: false,
+            install: None,
+            bundled: true,
+            source: Some(FleetLayerSource::Bundled),
+        },
+    );
+    for source in [
+        FleetLayerSource::Path,
+        FleetLayerSource::CandidatePath,
+        FleetLayerSource::Bundled,
+    ] {
+        assert_conforms("fleet", "fleetLayerSource", &source);
+    }
+    assert_rejected("fleet", "fleetLayerSource", &json!("somewhere"));
     // The composed state and the legal status are closed enumerations.
     for state in [
         FleetInstallState::Ready,

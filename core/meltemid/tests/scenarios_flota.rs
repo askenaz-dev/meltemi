@@ -397,8 +397,9 @@ fn the_two_layers_are_detected_independently_with_their_own_remedy() {
     let cli_only = temp("cli-only");
     fake_binary(&cli_only, "provider");
     let path = std::ffi::OsString::from(cli_only.display().to_string());
-    let launchable = |path: &std::ffi::OsString| meltemid::fleet::detect(&entry, path).is_some();
-    let layers = meltemid::fleet::detect_layers(&entry, &path);
+    let launchable =
+        |path: &std::ffi::OsString| meltemid::fleet::detect(&entry, path, None).is_some();
+    let layers = meltemid::fleet::detect_layers(&entry, &path, None);
     assert_eq!(
         layers.len(),
         2,
@@ -438,7 +439,7 @@ fn the_two_layers_are_detected_independently_with_their_own_remedy() {
     let adapter_only = temp("adapter-only");
     fake_binary(&adapter_only, "provider-acp");
     let path = std::ffi::OsString::from(adapter_only.display().to_string());
-    let layers = meltemid::fleet::detect_layers(&entry, &path);
+    let layers = meltemid::fleet::detect_layers(&entry, &path, None);
     assert!(!layers[0].detected && layers[1].detected);
     let (state, remedy, command) = meltemid::fleet::compose_state(&layers, launchable(&path));
     assert_eq!(state, FleetInstallState::CliMissing);
@@ -450,7 +451,7 @@ fn the_two_layers_are_detected_independently_with_their_own_remedy() {
     fake_binary(&both, "provider");
     fake_binary(&both, "provider-acp");
     let path = std::ffi::OsString::from(both.display().to_string());
-    let layers = meltemid::fleet::detect_layers(&entry, &path);
+    let layers = meltemid::fleet::detect_layers(&entry, &path, None);
     assert!(layers.iter().all(|layer| layer.detected));
     let (state, remedy, command) = meltemid::fleet::compose_state(&layers, launchable(&path));
     assert_eq!(state, FleetInstallState::Ready);
@@ -458,7 +459,7 @@ fn the_two_layers_are_detected_independently_with_their_own_remedy() {
 
     // (d) Neither installed: not detected, and the remedy starts at the CLI.
     let neither = std::ffi::OsString::new();
-    let layers = meltemid::fleet::detect_layers(&entry, &neither);
+    let layers = meltemid::fleet::detect_layers(&entry, &neither, None);
     assert!(layers.iter().all(|layer| !layer.detected));
     let (state, remedy, _) = meltemid::fleet::compose_state(&layers, launchable(&neither));
     assert_eq!(state, FleetInstallState::NotDetected);
@@ -503,7 +504,7 @@ acp-args = []
     };
     let catalog = meltemid::fleet::build_catalog(&config);
 
-    let error = meltemid::levels::resolve_id_launch(&catalog, "provider", &path)
+    let error = meltemid::levels::resolve_id_launch(&catalog, "provider", &path, None)
         .expect_err("an incomplete agent refuses to launch");
     assert_eq!(error.code, meltemi_proto::error_codes::AGENT_NOT_DETECTED);
     let data = error.data.as_ref().expect("the refusal carries error data");
@@ -528,4 +529,162 @@ acp-args = []
         "not the other layer's command: {remedy}"
     );
     let _ = std::fs::remove_dir_all(&cli_only);
+}
+
+// ---- the bundled layer: found beside the daemon, and never before the PATH --
+
+/// A registry fixture with ONE entry whose pilot layer is declared bundled.
+/// The id is deliberately anonymous: the mechanism must work for any entry that
+/// declares the layer, and a test named after a product would let a per-id
+/// special case pass unnoticed (adaptadores-propios-acp design D8).
+fn bundled_registry(dir: &Path, id: &str) -> meltemid::fleet::Catalog {
+    let text = format!(
+        "version = \"bundled-fixture\"
+[[agents]]
+id = \"{id}\"
+name = \"{id}\"
+level = 2
+bin = \"meltemi-{id}-acp\"
+adapter = \"meltemi-{id}-acp\"
+bundled = true
+cli-bin = \"{id}\"
+cli-install = \"npm i -g {id}\"
+acp-args = []
+"
+    );
+    let path = dir.join("registry.toml");
+    std::fs::write(&path, text).expect("write the fixture registry");
+    let config = meltemid::config::Config {
+        fleet_registry: Some(path),
+        ..Default::default()
+    };
+    meltemid::fleet::build_catalog(&config)
+}
+
+// Scenario: Capa empaquetada detectada junto al daemon
+// Scenario: Mecanismo genérico sin casos por id
+#[test]
+fn a_bundled_layer_is_found_beside_the_daemon_and_says_so() {
+    use meltemi_proto::{FleetInstallState, FleetLayerKind, FleetLayerSource};
+
+    // The official CLI is on the PATH; the pilot layer is nowhere on it, and
+    // sits beside the daemon — the state of a machine where the user installed
+    // Meltemi and the provider CLI, and nothing else.
+    let beside = temp("bundled-beside");
+    let on_path = temp("bundled-path");
+    fake_binary(&on_path, "vendor");
+    fake_binary(&beside, "meltemi-vendor-acp");
+    let path_var = std::ffi::OsString::from(on_path.display().to_string());
+
+    // Two ids, one mechanism: the same fixture under a different id must behave
+    // identically, which is what "generic" means here.
+    for id in ["vendor", "another"] {
+        let fixtures = temp(&format!("bundled-reg-{id}"));
+        fake_binary(&on_path, id);
+        fake_binary(&beside, &format!("meltemi-{id}-acp"));
+        let catalog = bundled_registry(&fixtures, id);
+        let entry = catalog
+            .entries
+            .iter()
+            .find(|e| e.id == id)
+            .expect("the fixture entry");
+
+        let layers = meltemid::fleet::detect_layers(entry, &path_var, Some(&beside));
+        let pilot = layers
+            .iter()
+            .find(|layer| layer.kind == FleetLayerKind::Adapter)
+            .expect("the pilot layer");
+        assert!(pilot.detected, "{id}: the bundled layer is found");
+        assert!(
+            pilot.bundled,
+            "{id}: and the catalog says it travels with Meltemi"
+        );
+        assert_eq!(
+            pilot.source,
+            Some(FleetLayerSource::Bundled),
+            "{id}: the provenance of the find is reported"
+        );
+        let found = pilot.binary_path.as_deref().unwrap_or_default();
+        assert!(
+            Path::new(found).is_absolute() && Path::new(found).starts_with(&beside),
+            "{id}: with the absolute path it was found at: {found:?}"
+        );
+        assert!(
+            pilot.install.is_none(),
+            "{id}: a bundled layer offers no third-party install command"
+        );
+
+        // Composed: nothing else to install, so the entry is ready to pilot.
+        let launchable = meltemid::fleet::detect(entry, &path_var, Some(&beside)).is_some();
+        let (state, _, _) = meltemid::fleet::compose_state(&layers, launchable);
+        assert_eq!(
+            state,
+            FleetInstallState::Ready,
+            "{id}: Meltemi plus the official CLI is a complete installation"
+        );
+
+        // Without the bundled probe the very same entry is incomplete: the
+        // probe is what finds it, not a coincidence of the PATH.
+        let blind = meltemid::fleet::detect_layers(entry, &path_var, None);
+        assert!(
+            !blind[1].detected,
+            "{id}: nothing but the sibling directory holds this binary"
+        );
+        let _ = std::fs::remove_dir_all(&fixtures);
+    }
+    for dir in [&beside, &on_path] {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+// Scenario: El PATH conserva la precedencia sobre el empaquetado
+#[test]
+fn the_path_outranks_the_bundled_copy_and_the_launch_says_which_ran() {
+    use meltemi_proto::FleetLayerSource;
+    let beside = temp("precedence-beside");
+    let on_path = temp("precedence-path");
+    // The SAME binary name in both places: what the user installed must win.
+    let installed = fake_binary(&on_path, "meltemi-vendor-acp");
+    fake_binary(&beside, "meltemi-vendor-acp");
+    fake_binary(&on_path, "vendor");
+    let path_var = std::ffi::OsString::from(on_path.display().to_string());
+
+    let fixtures = temp("precedence-reg");
+    let catalog = bundled_registry(&fixtures, "vendor");
+    let entry = catalog.entries.iter().find(|e| e.id == "vendor").unwrap();
+
+    let layers = meltemid::fleet::detect_layers(entry, &path_var, Some(&beside));
+    assert_eq!(
+        layers[1].source,
+        Some(FleetLayerSource::Path),
+        "the PATH copy is the one reported"
+    );
+    assert_eq!(
+        layers[1].binary_path.as_deref(),
+        Some(installed.display().to_string().as_str()),
+        "with its own absolute path, not the bundled one"
+    );
+
+    // And it is the binary a launch would execute — the argv the session log
+    // then records as the effective binary.
+    let launch = meltemid::levels::resolve_id_launch(&catalog, "vendor", &path_var, Some(&beside))
+        .expect("a detected pilot layer launches");
+    let argv = match launch {
+        meltemid::levels::Launch::Acp { argv, .. } => argv,
+        other => panic!("expected an ACP launch, got {other:?}"),
+    };
+    assert_eq!(
+        argv.first().map(String::as_str),
+        Some(installed.display().to_string().as_str())
+    );
+    // The launch path logs exactly that program as the effective binary.
+    let server = read("core/meltemid/src/server.rs");
+    assert!(
+        server.contains("binary: agent_command.first().cloned().unwrap_or_default()"),
+        "the session log records the program the resolution picked"
+    );
+
+    for dir in [&beside, &on_path, &fixtures] {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

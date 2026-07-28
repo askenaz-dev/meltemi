@@ -86,22 +86,24 @@ pub async fn handle_propose(
     // suite, not piloted here.
     let config = Config::load(&state.config_dir, Some(&project_root));
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let (agent_command, level) = match crate::levels::resolve_launch(&config, &path_var)? {
-        crate::levels::Launch::Acp { argv, level } => (argv, level),
-        crate::levels::Launch::Headless { level, .. }
-        | crate::levels::Launch::Artifacts { level } => {
-            return Err(RpcError::application(
-                error_codes::AGENT_COMMAND_NOT_CONFIGURED,
-                "level not pilotable by propose",
-                "level_not_pilotable",
-                format!(
-                    "the configured agent is level {level}; `propose` needs an ACP-capable \
+    let bundled = crate::fleet::bundled_dir();
+    let (agent_command, level) =
+        match crate::levels::resolve_launch(&config, &path_var, bundled.as_deref())? {
+            crate::levels::Launch::Acp { argv, level } => (argv, level),
+            crate::levels::Launch::Headless { level, .. }
+            | crate::levels::Launch::Artifacts { level } => {
+                return Err(RpcError::application(
+                    error_codes::AGENT_COMMAND_NOT_CONFIGURED,
+                    "level not pilotable by propose",
+                    "level_not_pilotable",
+                    format!(
+                        "the configured agent is level {level}; `propose` needs an ACP-capable \
                      agent (level 1 or 2)"
-                ),
-                Some("Select a level 1/2 agent for interactive proposals.".into()),
-            ));
-        }
-    };
+                    ),
+                    Some("Select a level 1/2 agent for interactive proposals.".into()),
+                ));
+            }
+        };
 
     // Open the session and its log.
     let session_id = uuid::Uuid::new_v4().to_string();

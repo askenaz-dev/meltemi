@@ -428,18 +428,20 @@ async fn run_turn(
         tracing::warn!(diagnostic, "permissions config");
     }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let (agent_command, level) = match crate::levels::resolve_launch(&config, &path_var)? {
-        crate::levels::Launch::Acp { argv, level } => (argv, level),
-        _ => {
-            return Err(RpcError::application(
-                error_codes::AGENT_COMMAND_NOT_CONFIGURED,
-                "level not pilotable",
-                "level_not_pilotable",
-                "SDD authoring needs an ACP-capable agent (level 1 or 2)",
-                None,
-            ));
-        }
-    };
+    let bundled = crate::fleet::bundled_dir();
+    let (agent_command, level) =
+        match crate::levels::resolve_launch(&config, &path_var, bundled.as_deref())? {
+            crate::levels::Launch::Acp { argv, level } => (argv, level),
+            _ => {
+                return Err(RpcError::application(
+                    error_codes::AGENT_COMMAND_NOT_CONFIGURED,
+                    "level not pilotable",
+                    "level_not_pilotable",
+                    "SDD authoring needs an ACP-capable agent (level 1 or 2)",
+                    None,
+                ));
+            }
+        };
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
