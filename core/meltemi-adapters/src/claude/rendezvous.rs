@@ -118,7 +118,7 @@ impl Rendezvous {
             .and_then(|name| name.strip_prefix(ASK))
             .unwrap_or_default()
             .to_string();
-        write_atomically(&self.dir.join(format!("{ANSWER}{name}")), payload);
+        let _ = write_atomically(&self.dir.join(format!("{ANSWER}{name}")), payload);
         // Removed only now: a question that vanished before its answer existed
         // would be a question nobody ever answers.
         let _ = std::fs::remove_file(&ask.path);
@@ -176,7 +176,13 @@ pub fn ask(dir: &Path, tool: &str, tool_use_id: Option<&str>, input: &Value) -> 
         "toolUseId": tool_use_id,
         "input": input,
     });
-    write_atomically(&dir.join(format!("{ASK}{id}.json")), &question);
+    if !write_atomically(&dir.join(format!("{ASK}{id}.json")), &question) {
+        // A question nobody could ask is a question nobody will answer. Waiting
+        // out the patience for it would turn a full disk into an hour-long
+        // stall; the rule of this module is that anything which fails is a
+        // denial, and it applies to the asking too.
+        return None;
+    }
 
     let answer = dir.join(format!("{ANSWER}{id}.json"));
     let deadline = Instant::now() + SHIM_PATIENCE;
@@ -196,16 +202,17 @@ pub fn ask(dir: &Path, tool: &str, tool_use_id: Option<&str>, input: &Value) -> 
 }
 
 /// Writes a file whole or not at all: written beside itself, then renamed.
-fn write_atomically(path: &Path, value: &Value) {
+///
+/// Answers whether the file is now there, because on this channel a write that
+/// did not happen has to become a denial rather than a wait.
+fn write_atomically(path: &Path, value: &Value) -> bool {
     let partial = path.with_extension(format!(
         "{}{PARTIAL}",
         path.extension()
             .and_then(|e| e.to_str())
             .unwrap_or_default()
     ));
-    if std::fs::write(&partial, value.to_string()).is_ok() {
-        let _ = std::fs::rename(&partial, path);
-    }
+    std::fs::write(&partial, value.to_string()).is_ok() && std::fs::rename(&partial, path).is_ok()
 }
 
 /// A monotonic-enough tag so two questions from one process never collide.
@@ -287,10 +294,19 @@ mod tests {
         // The one failure mode this channel must have: no answer, never a
         // guess. The caller turns that into a denial, which is the only thing
         // it may be turned into.
+        //
+        // It is also the fast path: the question could not even be written, so
+        // the answer comes back at once instead of after the patience — a
+        // channel that cannot be written to is not a channel that is thinking.
         let dir = scratch("gone");
+        let asked_at = Instant::now();
         assert!(
             ask(&dir, "Bash", None, &json!({})).is_none(),
             "a channel that does not exist decides nothing"
+        );
+        assert!(
+            asked_at.elapsed() < SHIM_PATIENCE,
+            "and says so without waiting out its patience"
         );
     }
 
@@ -301,10 +317,10 @@ mod tests {
         // was read would be a question nobody ever answers.
         let dir = scratch("kept");
         let rendezvous = Rendezvous::open(dir.clone()).expect("the channel opens");
-        write_atomically(
+        assert!(write_atomically(
             &dir.join(format!("{ASK}1.json")),
             &json!({"tool": "Read", "input": {}}),
-        );
+        ));
 
         let first = rendezvous.next_ask().await;
         let again = rendezvous.next_ask().await;
