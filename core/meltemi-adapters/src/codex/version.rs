@@ -63,8 +63,8 @@ pub fn unreadable(layer: &str, user_agent: &str) -> Refusal {
             "the handshake announced `{user_agent}`, which carries no version this adapter can read"
         ),
         format!(
-            "Check that the CLI is the official one and that `{} app-server` is its documented server mode; \
-             this adapter reads the version from a `{}/<version>` token.",
+            "Check that the CLI is the official one and that it was started in its documented \
+             `{}` mode; this adapter reads the version from a `{}/<version>` token.",
             wire::SERVER_MODE_ARG,
             wire::USER_AGENT_PRODUCT
         ),
@@ -135,7 +135,12 @@ mod tests {
         let refusal = unreadable("the official `codex` CLI", "some-other-cli/9.9.9");
         assert_eq!(refusal.kind, "provider_version_unreadable");
         assert!(refusal.detail.contains("some-other-cli/9.9.9"));
-        assert!(!refusal.remedy.is_empty());
+        assert_eq!(
+            refusal.remedy.matches(wire::SERVER_MODE_ARG).count(),
+            1,
+            "the remedy names the server mode once, not twice: {}",
+            refusal.remedy
+        );
     }
 
     #[test]
