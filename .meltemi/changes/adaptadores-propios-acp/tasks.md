@@ -20,7 +20,7 @@
 - [x] 3.1 Lanzamiento del binario oficial con la sesión iniciada (`-p --input-format stream-json --output-format stream-json --include-partial-messages`), detección de features vía el arreglo `capabilities` del evento inicial y guarda contra el modo de clave de API (flip de `--bare`): rehúso diagnosticado, jamás inyección de credenciales
 - [x] 3.2 Mapeo de eventos a la sesión ACP: deltas parciales, tool calls, transcripts de subagentes y resultado final como actualizaciones en streaming
 - [x] 3.3 Shim MCP de permisos por stdio (el mismo binario en modo shim, canal privado con el proceso padre) registrado vía `--mcp-config` y apuntado por `--permission-prompt-tool`; cada petición relevada a `session/request_permission`
-- [ ] 3.4 Hooks `PreToolUse` inyectados vía `--settings` como compuerta dura (deniegan incluso en modo permisivo del CLI) y pérdidas visibles: auto-denegaciones de herramientas interactivas mostradas en sesión con motivo
+- [x] 3.4 Hooks `PreToolUse` inyectados vía `--settings` como compuerta dura (deniegan incluso en modo permisivo del CLI) y pérdidas visibles: auto-denegaciones de herramientas interactivas mostradas en sesión con motivo
 - [ ] 3.5 Passthrough de la proyección MCP de la sesión por `--mcp-config` y mapeo de reanudación (`--resume`/`--fork-session`) a la carga de sesión ACP, acotada al directorio del proyecto y sus worktrees
 - [ ] 3.6 E2e de workspace: meltemid pilota el binario real `meltemi-claude-acp` contra `mock-claude-wire` (streaming, prompt-tool, compuerta dura, cancelación), sin red ni agentes reales
 

@@ -14,26 +14,32 @@
 //! collide on the PATH, and detection must never be ambiguous about which one
 //! it found (design D2).
 //!
-//! **One binary, two roles.** Run by the daemon, it is the adapter. Run by the
-//! piloted CLI as one of its MCP servers — which is how that CLI asks a third
-//! party for permission — it is the shim of design D5, and it does nothing but
-//! carry questions to the adapter that launched the CLI. Shipping one binary is
-//! the point: the shim can never be a different version from the adapter it
-//! answers to, and the installers carry one file, not two.
+//! **One binary, three roles.** Run by the daemon, it is the adapter. Run by
+//! the piloted CLI as one of its MCP servers, it is the permission shim of
+//! design D5. Run by that same CLI as a hook, before every tool call, it is the
+//! hard gate. The two smaller roles decide nothing: they carry questions to the
+//! adapter that launched the CLI and deny when nobody answers. Shipping one
+//! binary is the point — a shim can never be a different version from the
+//! adapter it answers to, and the installers carry one file, not three.
 
 use std::path::Path;
 
 use meltemi_adapters::adapter::run;
-use meltemi_adapters::claude::{ClaudeDialect, shim};
+use meltemi_adapters::claude::{ClaudeDialect, gate, shim};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+
+    // Neither of the small roles needs a runtime: each is one question, asked
+    // by a CLI that is blocked until it hears back.
     if let Some(channel) = shim::requested(&args) {
-        // The permission shim needs no runtime: one CLI asks about one tool
-        // call at a time and is blocked until it hears back.
-        let stdin = std::io::stdin();
-        let stdout = std::io::stdout();
         shim::serve(Path::new(&channel), &mut stdin.lock(), &mut stdout.lock())?;
+        return Ok(());
+    }
+    if let Some(channel) = gate::requested(&args) {
+        gate::decide(Path::new(&channel), &mut stdin.lock(), &mut stdout.lock())?;
         return Ok(());
     }
     adapter()?;

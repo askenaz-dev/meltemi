@@ -147,6 +147,27 @@ pub fn deny(reason: &str) -> Value {
     json!({"behavior": "deny", "message": reason})
 }
 
+/// Why a tool cannot be relayed at all, when it cannot.
+///
+/// Some of this provider's tools do not ask for permission to act — they ask a
+/// human a question, in the CLI's own interface, and there is no interface here
+/// to ask it in. The provider refuses them itself in a non-interactive session;
+/// this adapter refuses them for the same reason and says so, because the one
+/// thing it must not do is put such a call to the proxy as though a yes could
+/// make it work.
+///
+/// The list is short and observed rather than guessed: a tool that is missing
+/// from it is relayed like any other, which is the safe direction to be wrong
+/// in — the proxy still decides, and the CLI still refuses what it cannot do.
+#[must_use]
+pub fn interactive_only(tool: &str) -> Option<&'static str> {
+    matches!(tool, "AskUserQuestion").then_some(
+        "this tool asks a person a question in the CLI's own interface, which a \
+         headless session does not have; the provider refuses it in this mode and \
+         Meltemi shows the refusal rather than hiding it",
+    )
+}
+
 /// What the session shows about a call that was refused.
 ///
 /// A denial the human never sees is a session that quietly did less than it
@@ -255,6 +276,22 @@ mod tests {
     #[test]
     fn the_cli_is_told_to_ask_through_the_tool_this_adapter_hosts() {
         assert_eq!(prompt_tool_reference(), "mcp__meltemi_permissions__approve");
+    }
+
+    #[test]
+    fn a_tool_that_needs_a_person_in_front_of_it_is_refused_with_that_as_the_reason() {
+        // Scenario: Interacción no relevable denegada con motivo visible
+        //
+        // Not a permission question at all: the tool wants to ask a human
+        // something in an interface this session does not have. Putting it to
+        // the proxy would offer a yes that could not work; refusing it silently
+        // would leave the human wondering what the agent did instead.
+        let said = interactive_only("AskUserQuestion").expect("it cannot be relayed");
+        assert!(said.contains("headless"), "{said}");
+        assert!(
+            interactive_only("Bash").is_none(),
+            "everything else is relayed like anything else"
+        );
     }
 
     #[test]

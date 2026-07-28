@@ -50,6 +50,9 @@ pub const MCP_CONFIG: &str = "--mcp-config";
 /// Names the tool the CLI must ask before running anything its own static rules
 /// did not already decide.
 pub const PERMISSION_PROMPT_TOOL: &str = "--permission-prompt-tool";
+/// Hands the CLI the settings this session runs under, which is where the hook
+/// that gates every tool call is installed.
+pub const SETTINGS: &str = "--settings";
 
 /// The flags that put the official CLI in the documented headless session, with
 /// the account the user already signed into.
@@ -131,19 +134,25 @@ pub const SUCCESS: &str = "success";
 /// ACP has a stop reason that says exactly that.
 pub const ERROR_MAX_TURNS: &str = "error_max_turns";
 
-/// The flags that hand the CLI its MCP servers and tell it where to ask.
+/// The flags that hand the CLI its MCP servers, tell it where to ask, and
+/// install the gate that no mode of the CLI can skip.
 ///
-/// Separate from [`session_args`] because these two are the session's own —
-/// they carry a path that exists for one session and disappears with it —
-/// while the launch surface is the same for every session this adapter ever
-/// opens.
+/// Separate from [`session_args`] because these are the session's own — they
+/// carry paths that exist for one session and disappear with it — while the
+/// launch surface is the same for every session this adapter ever opens.
 #[must_use]
-pub fn permission_args(config: &std::path::Path, prompt_tool: &str) -> Vec<String> {
+pub fn permission_args(
+    config: &std::path::Path,
+    prompt_tool: &str,
+    settings: &std::path::Path,
+) -> Vec<String> {
     vec![
         MCP_CONFIG.to_string(),
         config.display().to_string(),
         PERMISSION_PROMPT_TOOL.to_string(),
         prompt_tool.to_string(),
+        SETTINGS.to_string(),
+        settings.display().to_string(),
     ]
 }
 

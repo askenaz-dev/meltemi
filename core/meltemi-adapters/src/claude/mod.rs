@@ -21,6 +21,7 @@
 //! - **Any undocumented channel.** The same wire carries the SDK's own control
 //!   protocol; it is not documented, so nothing here hangs off it (design D7).
 
+pub mod gate;
 pub mod mapping;
 pub mod permission;
 pub mod rendezvous;
@@ -333,10 +334,13 @@ enum TurnOutcome {
 /// CLI has somewhere to ask: the private channel, and the configuration file
 /// that tells it where.
 struct Governed {
-    /// The channel the shim asks over.
+    /// The channel the shim and the gate ask over.
     rendezvous: Rendezvous,
-    /// The MCP configuration the CLI is handed.
+    /// The MCP configuration the CLI is handed: where to ask.
     config: PathBuf,
+    /// The settings the CLI is handed: the hook that runs before every tool
+    /// call, which no mode of the CLI can skip.
+    settings: PathBuf,
 }
 
 impl Governed {
@@ -365,13 +369,25 @@ impl Governed {
         servers.insert(name, server);
 
         let config = rendezvous.address().join("mcp.json");
-        if let Err(error) = std::fs::write(&config, wire::mcp_config(servers).to_string()) {
+        let settings = rendezvous.address().join("settings.json");
+        let written =
+            std::fs::write(&config, wire::mcp_config(servers).to_string()).and_then(|()| {
+                std::fs::write(
+                    &settings,
+                    gate::settings(&exe, rendezvous.address()).to_string(),
+                )
+            });
+        if let Err(error) = written {
             rendezvous.close();
             return Err(ungoverned(&format!(
                 "the CLI's configuration could not be written ({error})"
             )));
         }
-        Ok(Self { rendezvous, config })
+        Ok(Self {
+            rendezvous,
+            config,
+            settings,
+        })
     }
 }
 
@@ -575,6 +591,7 @@ impl ProviderDialect for ClaudeDialect {
         args.extend(wire::permission_args(
             &governed.config,
             &permission::prompt_tool_reference(),
+            &governed.settings,
         ));
         let command = ProviderCommand {
             program: self.program.clone(),
@@ -812,18 +829,26 @@ async fn relay<S: TurnStream>(
     session_id: &SessionId,
     ask: &rendezvous::Ask,
 ) {
-    let request = permission::request_for(
-        session_id,
-        &ask.tool,
-        ask.tool_use_id.as_deref(),
-        &ask.input,
-    );
-    let decision = tokio::select! {
-        decision = stream.ask(request) => decision,
-        () = turn.wait_interrupted() => permission::Decision::Cancelled,
+    // A tool that needs a person in front of it is not a permission question:
+    // no answer the proxy could give would make it work, so it is refused here
+    // and the reason is shown. Asking a human to approve something that cannot
+    // happen would be worse than useless.
+    let payload = match permission::interactive_only(&ask.tool) {
+        Some(reason) => permission::deny(reason),
+        None => {
+            let request = permission::request_for(
+                session_id,
+                &ask.tool,
+                ask.tool_use_id.as_deref(),
+                &ask.input,
+            );
+            let decision = tokio::select! {
+                decision = stream.ask(request) => decision,
+                () = turn.wait_interrupted() => permission::Decision::Cancelled,
+            };
+            permission::payload(&decision, &ask.input)
+        }
     };
-
-    let payload = permission::payload(&decision, &ask.input);
     // A refusal the human never sees is a session that quietly did less than it
     // was asked to. It is shown against the call it is about, with the reason
     // that produced it.
@@ -1321,6 +1346,72 @@ mod tests {
             "with the reason that produced it"
         );
         drop(shown);
+        channel.close();
+    }
+
+    #[tokio::test]
+    async fn a_tool_that_needs_a_person_is_refused_without_troubling_one() {
+        // Scenario: Interacción no relevable denegada con motivo visible
+        //
+        // The loss this dialect pays for being headless, made visible. No
+        // answer the proxy could give would let this tool work, so the proxy is
+        // never asked — and the refusal is shown in the session with the reason
+        // that produced it, rather than leaving the human to wonder what the
+        // agent did instead.
+        let (mut cli, adapter_side) = tokio::io::duplex(4096);
+        let mut reader = FrameReader::new(adapter_side);
+        let stream = Collected::default();
+        let turn = TurnControl::new(Duration::from_secs(30));
+        let channel = channel("interactive");
+        let session = session();
+
+        let asking = tokio::task::spawn_blocking({
+            let dir = channel.address().to_path_buf();
+            move || {
+                rendezvous::ask(
+                    &dir,
+                    "AskUserQuestion",
+                    Some("toolu_3"),
+                    &serde_json::json!({"question": "which one?"}),
+                )
+            }
+        });
+
+        let driving = async { drive_turn(&mut reader, &turn, &channel, &stream, &session).await };
+        let feeding = async {
+            let answered = asking.await.expect("the shim finished");
+            tokio::io::AsyncWriteExt::write_all(
+                &mut cli,
+                b"{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}\n",
+            )
+            .await
+            .unwrap();
+            answered
+        };
+        let (outcome, answered) = tokio::join!(driving, feeding);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+
+        let decision = answered.expect("a decision came back");
+        assert_eq!(decision["behavior"], "deny");
+        assert!(
+            decision["message"]
+                .as_str()
+                .is_some_and(|said| said.contains("headless")),
+            "the CLI is told why, in its own transcript: {decision}"
+        );
+        assert!(
+            stream.asked.lock().unwrap().is_empty(),
+            "nobody was asked to approve something that could not have worked"
+        );
+        assert!(
+            stream.updates.lock().unwrap().iter().any(|update| matches!(
+                update,
+                SessionUpdate::ToolCallUpdate(update)
+                    if update.tool_call_id.0.as_ref() == "toolu_3"
+            )),
+            "and the session shows the refusal: {:?}",
+            stream.updates.lock().unwrap()
+        );
         channel.close();
     }
 
