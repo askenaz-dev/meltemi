@@ -1147,8 +1147,16 @@ cli-bin = "x"
         for agent in two_layer {
             assert_eq!(agent.level, 2, "{} declares a CLI layer", agent.id);
             assert!(
-                agent.cli_install.is_some() && agent.adapter_install.is_some(),
-                "{} states how to install both layers",
+                agent.cli_install.is_some(),
+                "{} states how to install the provider's own CLI",
+                agent.id
+            );
+            // The pilot layer either says how to install it or says it travels
+            // with Meltemi. Never both, never neither.
+            assert_ne!(
+                agent.bundled,
+                agent.adapter_install.is_some(),
+                "{} must declare its pilot layer bundled OR give a command for it",
                 agent.id
             );
             assert!(

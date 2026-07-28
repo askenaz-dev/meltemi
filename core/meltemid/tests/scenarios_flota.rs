@@ -44,16 +44,20 @@ fn a_missing_layer_travels_with_the_exact_command_that_installs_it() {
             "{}: the official CLI layer declares how to install it",
             agent.id
         );
-        assert!(
+        // The pilot layer declares its command, or declares that it travels in
+        // Meltemi's own installers — one of the two, never neither, and never
+        // both (adaptadores-propios-acp design D8).
+        assert_ne!(
+            agent.bundled,
             agent.adapter_install.is_some(),
-            "{}: the adapter layer declares how to install it",
+            "{}: the pilot layer is bundled or installable, and says which",
             agent.id
         );
         // A remedy is a command the user can read and run, not a hint.
-        for command in [
-            agent.cli_install.as_deref().unwrap_or_default(),
-            agent.adapter_install.as_deref().unwrap_or_default(),
-        ] {
+        for command in [&agent.cli_install, &agent.adapter_install]
+            .into_iter()
+            .flatten()
+        {
             assert!(
                 command.split_whitespace().count() >= 2,
                 "{}: `{command}` does not look like a command",
@@ -687,4 +691,134 @@ fn the_path_outranks_the_bundled_copy_and_the_launch_says_which_ran() {
     for dir in [&beside, &on_path, &fixtures] {
         let _ = std::fs::remove_dir_all(dir);
     }
+}
+
+// ---- the shipped snapshot after the flip -----------------------------------
+
+/// The catalog built the way the daemon builds it, from the SHIPPED snapshot.
+fn shipped_catalog() -> meltemid::fleet::Catalog {
+    meltemid::fleet::build_catalog(&meltemid::config::Config::default())
+}
+
+// Scenario: Entrada lista con solo Meltemi y el CLI oficial
+// Scenario: La capa propia no ofrece instalación de terceros
+#[test]
+fn an_entry_with_its_own_adapter_is_ready_with_meltemi_and_the_official_cli() {
+    use meltemi_proto::{FleetInstallState, FleetLayerKind, FleetLayerSource};
+    let beside = temp("shipped-beside");
+    let on_path = temp("shipped-path");
+    let path_var = std::ffi::OsString::from(on_path.display().to_string());
+
+    let catalog = shipped_catalog();
+    let bundled: Vec<_> = catalog.entries.iter().filter(|e| e.bundled).collect();
+    assert!(
+        !bundled.is_empty(),
+        "the snapshot pilots at least one entry through an adapter of our own"
+    );
+
+    for entry in bundled {
+        // The user installed the provider's official CLI, and Meltemi. That is
+        // the whole installation.
+        fake_binary(&on_path, entry.cli_bin.as_deref().expect("a CLI layer"));
+        fake_binary(&beside, entry.bin.as_deref().expect("a pilot layer"));
+
+        let layers = meltemid::fleet::detect_layers(entry, &path_var, Some(&beside));
+        let pilot = layers
+            .iter()
+            .find(|layer| layer.kind == FleetLayerKind::Adapter)
+            .unwrap_or_else(|| panic!("{}: a pilot layer", entry.id));
+        assert!(
+            pilot.bundled,
+            "{}: the pilot layer is declared bundled",
+            entry.id
+        );
+        assert_eq!(pilot.source, Some(FleetLayerSource::Bundled));
+        assert!(
+            pilot.install.is_none(),
+            "{}: and offers no third-party install command",
+            entry.id
+        );
+        assert!(
+            entry.adapter_install.is_none(),
+            "{}: the registry declares none either",
+            entry.id
+        );
+
+        let launchable = meltemid::fleet::detect(entry, &path_var, Some(&beside)).is_some();
+        let (state, remedy, command) = meltemid::fleet::compose_state(&layers, launchable);
+        assert_eq!(
+            state,
+            FleetInstallState::Ready,
+            "{}: nothing else needs installing",
+            entry.id
+        );
+        assert!(
+            remedy.is_none() && command.is_none(),
+            "{}: a ready entry has nothing to remedy",
+            entry.id
+        );
+    }
+    for dir in [&beside, &on_path] {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+// Scenario: Adaptador de terceros por configuración sigue pilotable
+#[test]
+fn a_third_party_adapter_declared_by_the_user_is_piloted_like_any_other() {
+    use meltemid::config::CustomAgent;
+    let dir = temp("third-party");
+    let binary = fake_binary(&dir, "somebody-elses-acp");
+    let path_var = std::ffi::OsString::from(dir.display().to_string());
+
+    let config = meltemid::config::Config {
+        fleet_custom: vec![CustomAgent {
+            id: "third-party".into(),
+            name: "A third-party adapter".into(),
+            command: vec!["somebody-elses-acp".into(), "--acp".into()],
+        }],
+        ..Default::default()
+    };
+    let catalog = meltemid::fleet::build_catalog(&config);
+    let entry = catalog
+        .entries
+        .iter()
+        .find(|e| e.id == "third-party")
+        .expect("the user's entry joins the catalog");
+    assert!(
+        !entry.bundled,
+        "the user's own declaration is not a bundled layer"
+    );
+
+    let launch = meltemid::levels::resolve_id_launch(&catalog, "third-party", &path_var, None)
+        .expect("it is piloted like any other entry");
+    match launch {
+        meltemid::levels::Launch::Acp { argv, level } => {
+            assert_eq!(level, 1, "a declared ACP command is what it says it is");
+            assert_eq!(
+                argv.first().map(String::as_str),
+                Some(binary.display().to_string().as_str())
+            );
+            assert_eq!(argv.get(1).map(String::as_str), Some("--acp"));
+        }
+        other => panic!("expected an ACP launch, got {other:?}"),
+    }
+
+    // And no code path treats it differently for not being ours: the registry
+    // simply stopped recommending one.
+    let fleet = read("core/meltemid/src/fleet.rs");
+    let levels = read("core/meltemid/src/levels.rs");
+    for source in [&fleet, &levels] {
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production half");
+        for name in ["claude", "codex", "meltemi-claude-acp", "meltemi-codex-acp"] {
+            assert!(
+                !production.contains(name),
+                "detection must not name a product: `{name}`"
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -86,23 +86,29 @@ the surfaces show which of the two you are looking at.
 
 ### claude-code — Claude Code
 
-- Level 2 (official ACP adapter). MCP passthrough: yes.
-- Layers: official CLI `claude`, adapter `claude-agent-acp`
+- Level 2 (Meltemi's own ACP adapter). MCP passthrough: yes.
+- Layers: official CLI `claude`, adapter `meltemi-claude-acp`
 - Install the CLI: `npm i -g @anthropic-ai/claude-code`
-- Install the adapter: `npm i -g @agentclientprotocol/claude-agent-acp`
-- **Legal status: grey.** The adapter drives the provider's Agent SDK, and
-  consumer subscriptions are not licensed for third-party clients. The safe
-  path is piloting the official binary you already signed into. Meltemi shows
-  this note in the Fleet view instead of hiding it.
+- The adapter: nothing to install — `meltemi-claude-acp` travels in Meltemi's
+  installers, beside the daemon. If it is missing, reinstall or repair your
+  Meltemi installation.
+- **Legal status: grey.** Meltemi's adapter pilots the official CLI with the
+  session you already signed into — the safe path, never the provider's agent
+  SDK. It stays grey because the provider has published no position on
+  third-party orchestration of that CLI; if one appears, the note will cite it.
+  Meltemi shows this note in the Fleet view instead of hiding it.
 
 ### codex-cli — Codex CLI
 
-- Level 2 (official ACP adapter).
-- Layers: official CLI `codex`, adapter `codex-acp`
+- Level 2 (Meltemi's own ACP adapter).
+- Layers: official CLI `codex`, adapter `meltemi-codex-acp`
 - Install the CLI: `npm i -g @openai/codex`
-- Install the adapter: `npm i -g @agentclientprotocol/codex-acp`
-- Legal status: tolerated — the adapter wraps the CLI's own official
-  app-server mode, and the CLI authenticates itself.
+- The adapter: nothing to install — `meltemi-codex-acp` travels in Meltemi's
+  installers, beside the daemon. If it is missing, reinstall or repair your
+  Meltemi installation.
+- Legal status: tolerated — the adapter drives the CLI's own documented
+  app-server mode, published by the provider for third-party clients, and the
+  CLI authenticates itself.
 
 ### aider — Aider
 

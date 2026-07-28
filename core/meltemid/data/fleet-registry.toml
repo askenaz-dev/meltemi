@@ -26,12 +26,29 @@
 #                   (`~/.local/bin/claude`, never `~/.local/bin`): a directory
 #                   here detects nothing, silently. `~/` expands to the user's
 #                   home directory.
+#   bundled         the entry's PILOT layer travels in Meltemi's own installers,
+#                   so detection probes the directory beside the running daemon
+#                   as well — after PATH and the candidate paths, never before
+#                   (adaptadores-propios-acp D8). A bundled layer declares no
+#                   install command: its remedy is to reinstall or repair
+#                   Meltemi. Only a binary this project builds may be bundled;
+#                   the provider's own CLI never is (§2).
 #
 # For level-2 entries, `bin` names the ACP adapter binary — the entry point
 # meltemid can actually pilot today; the official CLI itself and the finer
 # level semantics arrive with the conformance suite change.
+#
+# Install-route currency (fleet-catalog, "Vigencia de las rutas de instalación"):
+# this revision REMOVES the two third-party `adapter-install` routes rather than
+# re-verifying them — the pilot layer of both level-2 entries is now a binary
+# Meltemi builds and ships. The only install commands that survive are the two
+# `cli-install` ones, unchanged from the 2026-07-27 snapshot whose verification
+# against the upstream distributions is recorded in the archived change
+# `pulido-pre-anuncio` (`.verify.jsonl`, verified 2026-07-27 against the npm
+# registry). No dead route survives this revision, because no third-party route
+# survives it.
 
-version = "2026-07-27"
+version = "2026-07-28"
 
 [[agents]]
 id = "gemini-cli"
@@ -82,40 +99,45 @@ bin = "opencode"
 acp-args = ["acp"]
 candidate-paths = ["~/.opencode/bin/opencode"]
 
-# Level 2: piloted through an official ACP adapter. `bin` is what detection
-# probes and the launcher runs (the adapter); `cli-bin` names the provider's
-# own official CLI, so the fleet can say which of the two layers is missing
-# instead of a bare "not detected" (flota-deteccion-guia D1).
+# Level 2: piloted through an ACP adapter. `bin` is what detection probes and
+# the launcher runs (the adapter); `cli-bin` names the provider's own official
+# CLI, so the fleet can say which of the two layers is missing instead of a bare
+# "not detected" (flota-deteccion-guia D1). Both adapters here are Meltemi's own
+# and travel in its installers (adaptadores-propios-acp D8), which is why they
+# declare `bundled` and no install command. A third-party adapter remains
+# perfectly pilotable — the user declares it with `[[fleet.custom]]` or a literal
+# `agent.command`, and the daemon treats it like any other entry. What changed is
+# that the registry no longer recommends one.
 [[agents]]
 id = "claude-code"
 name = "Claude Code"
 level = 2
-bin = "claude-agent-acp"
-adapter = "claude-agent-acp"
+bin = "meltemi-claude-acp"
+adapter = "meltemi-claude-acp"
 adapter-args = []
+bundled = true
 mcp = true
 candidate-paths = []
 cli-bin = "claude"
 cli-candidate-paths = ["~/.local/bin/claude"]
 cli-install = "npm i -g @anthropic-ai/claude-code"
-adapter-install = "npm i -g @agentclientprotocol/claude-agent-acp"
 legal-status = "grey"
-legal-note = "The adapter drives the Agent SDK, and consumer subscriptions are not licensed for third-party clients; the safe path is piloting the official binary you already signed into."
+legal-note = "Meltemi's own adapter pilots the official CLI with the session you already signed into — the safe path, never the provider's agent SDK, and never a mode that demands an API key. It stays grey because the provider has published no position on third-party orchestration of that CLI; if one appears, this note will cite it."
 
 [[agents]]
 id = "codex-cli"
 name = "Codex CLI"
 level = 2
-bin = "codex-acp"
-adapter = "codex-acp"
+bin = "meltemi-codex-acp"
+adapter = "meltemi-codex-acp"
 adapter-args = []
+bundled = true
 candidate-paths = []
 cli-bin = "codex"
 cli-candidate-paths = []
 cli-install = "npm i -g @openai/codex"
-adapter-install = "npm i -g @agentclientprotocol/codex-acp"
 legal-status = "tolerated"
-legal-note = "The adapter wraps the official app-server mode of the provider CLI; the CLI authenticates itself."
+legal-note = "Meltemi's own adapter drives the official CLI in the app-server mode the provider documents and published for third-party clients; the CLI authenticates itself, and no third-party package sits in between."
 
 # Level 3: structured headless run. No rich permission channel, so it runs
 # inside mandatory guardrails (bounded dir + native controls; design D2).

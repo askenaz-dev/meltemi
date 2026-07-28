@@ -307,3 +307,18 @@ instantánea que esta change hace documenta su propia verificación con
 fuente y fecha, como ese requisito exige. Si por calendario esta change
 llegara antes, absorbe el refresco de datos trivialmente; el orden
 declarado es pulido → esta.
+
+**Verificación de la instantánea de esta change (tarea 4.2, 2026-07-28)**:
+`pulido-pre-anuncio` se archivó el 2026-07-27 dejando la instantánea en
+`version = "2026-07-27"`. Esta revisión sube a `2026-07-28` y **retira** los
+dos `adapter-install` de terceros en vez de re-verificarlos: la capa de
+pilotaje de ambas entradas de nivel 2 pasa a ser un binario que Meltemi
+construye y empaqueta, de modo que ninguna ruta de terceros sobrevive a la
+revisión — y una ruta que no se declara no puede envejecer. Los únicos
+comandos de instalación que quedan son los dos `cli-install` de los CLIs
+oficiales, **idénticos** a los de la instantánea del 2026-07-27, cuya
+verificación contra la fuente de distribución (registro npm, 2026-07-27)
+consta en `.meltemi/changes/archive/2026-07-27-pulido-pre-anuncio/.verify.jsonl`.
+Ningún comando nuevo se introduce, así que no hay nada que citar de memoria.
+La misma nota vive en la cabecera del propio archivo de registro, donde la
+lee quien edite la instantánea la próxima vez.
