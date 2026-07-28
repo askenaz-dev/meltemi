@@ -67,6 +67,22 @@ pub struct AdapterSpec {
 /// flight, and a session that had to be locked to be interrupted could not be
 /// interrupted at all.
 pub trait ProviderSession: Send + Sync + 'static {
+    /// Prepares the dialect for the turn the bridge has just accepted:
+    /// whatever the last turn left behind — a cancellation asked for, an
+    /// interruption still owed — goes now, before this one exists.
+    ///
+    /// Synchronous, and called on the ACP dispatch loop rather than from inside
+    /// [`ProviderSession::run_turn`], which is the whole reason it is a method
+    /// of its own. `session/cancel` is delivered on that same loop, so the
+    /// order between the two is decided there and nowhere else: a cancellation
+    /// either arrives before the prompt was accepted, and there is no turn to
+    /// stop, or after this reset, and it stands. A dialect that reset itself
+    /// when the turn *began* — which is later, in a task the loop spawned — had
+    /// a window between the two where a cancellation was recorded and then
+    /// erased by the turn it was meant for: nothing was sent to the provider,
+    /// the whole turn ran, and the session still answered `cancelled`.
+    fn begin_turn(&self);
+
     /// Runs one turn and answers with the ACP stop reason it earned.
     ///
     /// Streaming updates travel over the connection the session was opened
@@ -367,20 +383,20 @@ pub async fn run<D: ProviderDialect>(dialect: D) -> agent_client_protocol::Resul
                         session.with_lifecycle(SessionLifecycle::turn_ended);
                         return responder.respond_with_error(session_closed(&spec).into());
                     };
-                    // Same reason as above, plus one that is not optional here:
-                    // the turn awaits `session/request_permission`, whose answer
-                    // arrives on this very loop.
+                    // Here and not inside the turn: the dialect's own turn
+                    // control is reset on this loop, beside the lifecycle guard
+                    // it belongs to, so that a `session/cancel` delivered on the
+                    // same loop can no longer be wiped by the turn it names.
+                    provider.begin_turn();
+                    // Same reason as the guard above, plus one that is not
+                    // optional here: the turn awaits
+                    // `session/request_permission`, whose answer arrives on this
+                    // very loop.
                     cx.spawn(async move {
                         let outcome = provider.run_turn(prompt).await;
                         let end = session.with_lifecycle(SessionLifecycle::turn_ended);
-                        match outcome {
-                            // A turn that drained after a cancellation ended
-                            // cancelled, whatever the provider called it: ACP
-                            // requires that answer, and it is also the true one.
-                            Ok(stop) => responder.respond(PromptResponse::new(match end {
-                                TurnEnd::Cancelled => StopReason::Cancelled,
-                                TurnEnd::Completed => stop,
-                            })),
+                        match prompt_answer(&spec, outcome, end) {
+                            Ok(stop) => responder.respond(PromptResponse::new(stop)),
                             Err(refusal) => responder.respond_with_error(refusal.into()),
                         }
                     })?;
@@ -419,6 +435,40 @@ pub async fn run<D: ProviderDialect>(dialect: D) -> agent_client_protocol::Resul
     served
 }
 
+/// What the daemon is answered with, given how the turn came back and what the
+/// session's lifecycle says happened to it.
+///
+/// The lifecycle has the last word on both halves, for the same reason: it is
+/// the only piece that knows a `session/cancel` arrived for *this* turn.
+///
+/// - A turn that drained after a cancellation ended **cancelled**, whatever the
+///   provider called it. ACP requires that answer and it is also the true one.
+/// - A turn that *failed* after a cancellation ended cancelled too. On a
+///   surface whose only documented stop is the end of its input, cancelling is
+///   precisely what makes the turn stop working — reporting that as a
+///   malfunction would tell the human their stop broke something, when it did
+///   exactly what they asked. The provider's own words are not lost: they go to
+///   this adapter's stderr, which the daemon already collects into the session
+///   log.
+fn prompt_answer(
+    spec: &AdapterSpec,
+    outcome: Result<StopReason, Refusal>,
+    end: TurnEnd,
+) -> Result<StopReason, Refusal> {
+    match (outcome, end) {
+        (Ok(stop), TurnEnd::Completed) => Ok(stop),
+        (Ok(_), TurnEnd::Cancelled) => Ok(StopReason::Cancelled),
+        (Err(refusal), TurnEnd::Cancelled) => {
+            eprintln!(
+                "{}: the cancelled turn ended with `{}`: {}",
+                spec.name, refusal.kind, refusal.detail
+            );
+            Ok(StopReason::Cancelled)
+        }
+        (Err(refusal), TurnEnd::Completed) => Err(refusal),
+    }
+}
+
 /// The refusal for a prompt the session's lifecycle will not accept.
 fn turn_refused(spec: &AdapterSpec, error: LifecycleError) -> Refusal {
     Refusal::new(
@@ -453,26 +503,56 @@ fn session_closed(spec: &AdapterSpec) -> Refusal {
 mod tests {
     use super::*;
 
-    /// A provider session that pilots nothing.
+    /// A provider session that pilots nothing and writes down what it was
+    /// asked, in the order it was asked.
     ///
     /// What the registry's rules are about is bookkeeping — one turn at a time,
     /// a cancellation reaching the turn it names, a closed session ending its
     /// provider — and a real dialect underneath would only add a wire to keep
-    /// quiet about.
-    struct StubSession;
+    /// quiet about. The log exists for the one rule that is about *order*
+    /// rather than about state.
+    #[derive(Default)]
+    struct StubSession {
+        calls: StdMutex<Vec<&'static str>>,
+    }
+
+    impl StubSession {
+        fn note(&self, what: &'static str) {
+            self.calls
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(what);
+        }
+
+        fn calls(&self) -> Vec<&'static str> {
+            self.calls
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
+        }
+    }
 
     impl ProviderSession for StubSession {
+        fn begin_turn(&self) {
+            self.note("begin_turn");
+        }
+
         async fn run_turn(&self, _prompt: PromptRequest) -> Result<StopReason, Refusal> {
+            self.note("run_turn");
             Ok(StopReason::EndTurn)
         }
 
-        async fn interrupt(&self) {}
+        async fn interrupt(&self) {
+            self.note("interrupt");
+        }
 
-        async fn shutdown(&self, _policy: ShutdownPolicy) {}
+        async fn shutdown(&self, _policy: ShutdownPolicy) {
+            self.note("shutdown");
+        }
     }
 
     fn pending() -> StubSession {
-        StubSession
+        StubSession::default()
     }
 
     #[tokio::test]
@@ -513,6 +593,113 @@ mod tests {
             "cancelling one session leaves the others running"
         );
         assert!(sessions.get("never-opened").await.is_none());
+    }
+
+    /// A spec to put in a refusal; which dialect it names decides nothing here.
+    const TEST_SPEC: AdapterSpec = AdapterSpec {
+        name: "meltemi-test-acp",
+        provider_layer: "the official test CLI",
+        provider_bin: "test-cli",
+        dialect: Dialect::HeadlessSession,
+    };
+
+    fn a_prompt(id: &SessionId) -> PromptRequest {
+        PromptRequest::new(id.clone(), Vec::new())
+    }
+
+    #[tokio::test]
+    async fn a_cancellation_between_the_prompt_and_its_turn_is_not_erased_by_it() {
+        // Scenario: Cancelación temprana no perdida entre la aceptación y el turno
+        //
+        // The ordering the ACP dispatch loop guarantees, replayed here because
+        // the window it closes is microseconds wide and no end-to-end test can
+        // be aimed at it. The loop is serial: it accepts `session/prompt`,
+        // takes the turn guard, resets the dialect, and only *then* spawns the
+        // turn — so a `session/cancel` delivered next is handled whole before
+        // the turn's first instruction runs.
+        //
+        // Reset the dialect from inside the spawned turn instead, which is
+        // where it used to happen, and the same three messages produce a
+        // different sequence: the cancellation is recorded and then wiped by
+        // the very turn it was meant for. Nothing reaches the provider, the
+        // whole turn runs — commands and file changes included — and the
+        // lifecycle still reports it cancelled. The work happens and the human
+        // is told it did not.
+        let sessions = Sessions::default();
+        let id = sessions.next_id("adapter");
+        sessions.register(&id, pending()).await;
+        let session = sessions.get(&session_key(&id)).await.expect("live");
+        let provider = session.provider().await.expect("the session has one");
+
+        // `session/prompt` arrives: guard, then reset, on the loop.
+        session
+            .with_lifecycle(SessionLifecycle::turn_started)
+            .unwrap();
+        provider.begin_turn();
+
+        // `session/cancel` arrives on that same loop, before the spawned turn
+        // has had a chance to run.
+        assert_eq!(
+            session.with_lifecycle(SessionLifecycle::cancel_requested),
+            CancelAction::InterruptTurn
+        );
+        provider.interrupt().await;
+
+        // And only now the turn itself.
+        let outcome = provider.run_turn(a_prompt(&id)).await;
+        let end = session.with_lifecycle(SessionLifecycle::turn_ended);
+
+        assert_eq!(
+            provider.calls(),
+            vec!["begin_turn", "interrupt", "run_turn"],
+            "the dialect is reset before a cancellation can reach it, never after"
+        );
+        assert_eq!(end, TurnEnd::Cancelled);
+        assert_eq!(
+            prompt_answer(&TEST_SPEC, outcome, end).expect("a cancelled turn is not an error"),
+            StopReason::Cancelled
+        );
+    }
+
+    #[test]
+    fn a_turn_a_cancellation_broke_is_answered_cancelled_and_not_as_a_malfunction() {
+        // Scenario: Turno cancelado reportado como cancelado
+        //
+        // On a surface whose only documented stop is the end of its input,
+        // cancelling is exactly what makes the turn stop working. Answering the
+        // daemon with that failure would tell the human their stop broke
+        // something, when it did the one thing they asked for — and ACP wants
+        // `cancelled` for a cancelled prompt in any case.
+        let broke = Refusal::new(
+            "session_finished",
+            TEST_SPEC.provider_layer,
+            "the input was closed by the cancellation".to_string(),
+            "Open a new session.".to_string(),
+        );
+        assert_eq!(
+            prompt_answer(&TEST_SPEC, Err(broke), TurnEnd::Cancelled)
+                .expect("a cancelled turn is answered, not refused"),
+            StopReason::Cancelled
+        );
+
+        // And a turn nobody cancelled still reports its failure as a failure: a
+        // rule that swallowed those would hide every real one.
+        let failed = Refusal::new(
+            "provider_turn_failed",
+            TEST_SPEC.provider_layer,
+            "it broke".to_string(),
+            "Try again.".to_string(),
+        );
+        assert_eq!(
+            prompt_answer(&TEST_SPEC, Err(failed), TurnEnd::Completed)
+                .expect_err("a failure nobody asked for is still a failure")
+                .kind,
+            "provider_turn_failed"
+        );
+        assert_eq!(
+            prompt_answer(&TEST_SPEC, Ok(StopReason::EndTurn), TurnEnd::Completed).unwrap(),
+            StopReason::EndTurn
+        );
     }
 
     #[tokio::test]

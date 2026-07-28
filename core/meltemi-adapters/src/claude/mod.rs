@@ -40,7 +40,7 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use serde_json::{Value, json};
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio::sync::{Mutex, watch};
 
@@ -191,20 +191,18 @@ pub struct ClaudeSession {
 }
 
 impl ProviderSession for ClaudeSession {
+    fn begin_turn(&self) {
+        self.turn.begin();
+    }
+
     async fn run_turn(&self, prompt: PromptRequest) -> Result<StopReason, Refusal> {
         // One turn at a time is the bridge's own invariant, so holding the
         // output for the length of a turn takes nothing from anyone — and this
         // wire has no way to tell two turns apart, so it must not be lent out.
         let mut reader = self.reader.lock().await;
-        self.turn.begin();
 
         let message = wire::user_message(&mapping::prompt_text(&prompt));
-        self.writer
-            .lock()
-            .await
-            .write_frame(&message)
-            .await
-            .map_err(|error| turn_failed(&format!("the turn could not be sent ({error})")))?;
+        send_turn(&mut *self.writer.lock().await, &message).await?;
 
         // Only now can the CLI be expected to say anything, so only now is its
         // initial event read and its surface checked — before a single event of
@@ -239,18 +237,27 @@ impl ProviderSession for ClaudeSession {
         }
     }
 
+    /// Cancels by ending the session's input — which **ends the session**, not
+    /// just the turn.
+    ///
+    /// What this surface documents is the end of its input. The same wire does
+    /// carry the provider SDK's own control protocol, which would interrupt a
+    /// turn properly and leave the session alive; it is not documented, and
+    /// design D7 forbids hanging a capability off a channel nobody published.
+    /// So the end of input is the only stop there is here, and taking it costs
+    /// the session: a CLI that has been told the conversation is over cannot be
+    /// given another turn, and this adapter will not pretend otherwise
+    /// ([`session_finished`]).
+    ///
+    /// That is a decision and not an accident, and it was made twice. The close
+    /// used to be `AsyncWrite::shutdown`, which against a child process does
+    /// nothing at all — so a cancellation sent the CLI no signal whatsoever,
+    /// the turn ran on until the grace expired, and the session then blamed the
+    /// CLI for ignoring something it was never told. Between a cancellation
+    /// that ends the session and one that does not happen, this dialect takes
+    /// the first: the human pressed stop.
     async fn interrupt(&self) {
-        // What this surface documents is the end of its input — which ends the
-        // session *after* the turn in flight, and is therefore not an
-        // interruption at all. The same wire does carry the provider SDK's own
-        // control protocol, which would interrupt properly; it is not
-        // documented, and design D7 forbids hanging a capability off a channel
-        // nobody published.
-        //
-        // So a cancellation says the honest thing first — no more turns — and
-        // the grace in the turn loop is what makes it a cancellation: a CLI
-        // that has not finished by then is ended outright.
-        let _ = self.writer.lock().await.close().await;
+        self.writer.lock().await.close();
         self.turn.ask_to_stop();
     }
 
@@ -266,7 +273,7 @@ impl ProviderSession for ClaudeSession {
         // provider that ignores EOF, and ending *that* with certainty takes a
         // job object on Windows and a process group elsewhere; that stronger
         // form belongs with `sandbox-propio`.
-        let _ = self.writer.lock().await.close().await;
+        self.writer.lock().await.close();
         if let Some(mut control) = self.control.lock().await.take() {
             let _ = supervisor::end(&mut control, policy).await;
         }
@@ -335,6 +342,12 @@ impl TurnControl {
 
     /// A new turn starts with nothing remembered: a cancellation of the last one
     /// must not kill this one.
+    ///
+    /// Called from [`ClaudeSession::begin_turn`] and from nowhere else, which
+    /// is the whole of what keeps it safe: the bridge runs it on the ACP
+    /// dispatch loop, in the same breath as the lifecycle's own turn guard, so
+    /// a cancellation delivered on that loop is either before this reset or
+    /// after it — never erased by it.
     ///
     /// `send_replace` and not `send`: between turns nobody is subscribed, and
     /// `send` refuses to change a value nobody is listening to — which would
@@ -549,6 +562,29 @@ impl TurnStream for AcpStream {
             }
         }
     }
+}
+
+/// Puts a turn on the CLI's input, or says why there is no input left to put it
+/// on.
+///
+/// # Errors
+///
+/// Refuses with [`session_finished`] when a cancellation already ended this
+/// session's input — which on this surface is the only stop there is, so there
+/// is nothing left to send a turn on and nothing a retry could fix — and with
+/// [`turn_failed`] when the write itself fails, which is a different story and
+/// gets a different remedy.
+async fn send_turn<W: AsyncWrite + Unpin>(
+    writer: &mut FrameWriter<W>,
+    message: &Value,
+) -> Result<(), Refusal> {
+    if writer.is_closed() {
+        return Err(session_finished());
+    }
+    writer
+        .write_frame(message)
+        .await
+        .map_err(|error| turn_failed(&format!("the turn could not be sent ({error})")))
 }
 
 /// Runs one turn: read what the CLI says until it says the turn is over — or
@@ -1030,6 +1066,27 @@ fn turn_failed(detail: &str) -> Refusal {
         detail.to_string(),
         "The turn did not complete. The session is still open: try again, or read the \
          provider's own diagnostics in the session log."
+            .to_string(),
+    )
+}
+
+/// The refusal for a turn asked of a session a cancellation already ended.
+///
+/// This dialect cancels by ending the CLI's input, because that is the only
+/// stop its surface documents ([`ClaudeSession::interrupt`]). The session
+/// survives as an ACP object — the daemon may still read it, close it, resume
+/// it by id — but it has no wire left to put a turn on, and a `turn_failed`
+/// inviting the human to "try again" would be a lie about which of those is
+/// true.
+fn session_finished() -> Refusal {
+    Refusal::new(
+        "session_finished",
+        SPEC.provider_layer,
+        "this session was cancelled, and on this surface a cancellation ends the CLI's input \
+         for good: no further turn can be sent on it"
+            .to_string(),
+        "Open a new session. Its previous turns are not lost: this agent's sessions can be \
+         resumed by id."
             .to_string(),
     )
 }
@@ -1701,6 +1758,42 @@ mod tests {
             TurnOutcome::Ended(StopReason::Cancelled)
         );
         channel.close();
+    }
+
+    #[tokio::test]
+    async fn a_turn_asked_of_a_cancelled_session_is_refused_with_the_truth_about_it() {
+        // Scenario: Turno posterior a una cancelación rehusado con remedio
+        //
+        // This dialect cancels by ending the CLI's input, because that is the
+        // only stop its surface documents — so a cancelled session has no wire
+        // left to put a turn on. It says exactly that. Answering `try again` on
+        // a session that can never take another turn would send the human back
+        // to a door that is not there.
+        let (adapter_side, _cli) = tokio::io::duplex(1024);
+        let mut writer = FrameWriter::new(adapter_side);
+        let message = wire::user_message("otra vez");
+        send_turn(&mut writer, &message)
+            .await
+            .expect("an open session takes a turn");
+
+        // What `interrupt` does, and the whole of what a cancellation can do
+        // here.
+        writer.close();
+        let refusal = send_turn(&mut writer, &message)
+            .await
+            .expect_err("a cancelled session has no input left");
+        assert_eq!(refusal.kind, "session_finished");
+        assert_eq!(refusal.layer, SPEC.provider_layer);
+        assert!(
+            refusal.remedy.contains("Open a new session"),
+            "and the remedy is the one that works: {}",
+            refusal.remedy
+        );
+        assert!(
+            refusal.remedy.contains("resumed by id"),
+            "with what it costs, which is nothing: {}",
+            refusal.remedy
+        );
     }
 
     #[test]

@@ -190,6 +190,13 @@ proceso y no una por turno— y una prueba corre ese cable sin entrada y exige
 silencio. Un fixture cortés en el punto exacto donde el binario no lo es no es
 media prueba: es una prueba de un proveedor que no existe.
 
+**Qué significa cancelar en este dialecto**: ver D12, punto 2. En resumen: el
+único paro que su superficie documenta es el fin de la entrada, ese fin llega de
+verdad, y por tanto **termina la sesión y no solo el turno**. Un turno posterior
+se rehúsa con `session_finished` y el remedio es abrir una sesión nueva — sin
+pérdida, porque la identidad dictada del punto 3 hace que las anteriores se
+reanuden por id.
+
 ### D5 — Permisos del dialecto headless: prompt-tool + hooks, pérdidas declaradas
 
 Dos canales documentados, en capas:
@@ -399,3 +406,74 @@ consta en `.meltemi/changes/archive/2026-07-27-pulido-pre-anuncio/.verify.jsonl`
 Ningún comando nuevo se introduce, así que no hay nada que citar de memoria.
 La misma nota vive en la cabecera del propio archivo de registro, donde la
 lee quien edite la instantánea la próxima vez.
+
+### D12 — Cerrar es soltar, y el turno se arma donde se acepta
+
+Añadida el 2026-07-28 tras la revisión adversarial de la change, antes de
+la puerta del mantenedor. Dos defectos del mismo tema —el ciclo de vida
+del turno y del proceso— y dos decisiones que quedan escritas porque
+cambian conducta observable.
+
+1. **Cerrar la entrada del proveedor es *soltar* el stream, jamás
+   `AsyncWrite::shutdown`.** Contra la entrada de un proceso hijo, tokio
+   implementa `poll_shutdown` como `Poll::Ready(Ok(()))` en las tres
+   plataformas (1.52.3: `process/unix/mod.rs`, y en Windows delegando en
+   `io/blocking.rs`): no cierra nada. Solo soltar el descriptor cierra la
+   tubería. Consecuencias que la change traía y nadie veía: todo apagado
+   limpio esperaba la gracia entera y terminaba matando al CLI
+   —`ShutdownOutcome::Exited` era inalcanzable contra un hijo real—, y en
+   el dialecto headless, donde cerrar la entrada **es** la cancelación, una
+   cancelación no enviaba señal alguna: el turno seguía hasta agotar su
+   gracia y la sesión anotaba que el CLI había ignorado algo que nunca se
+   le dijo. `FrameWriter::close` suelta el stream, es idempotente y un
+   frame escrito después se rehúsa con tubería rota en vez de fingir que
+   viajó.
+
+   Por qué ninguna prueba lo vio: todas conversaban por `tokio::io::duplex`,
+   que sí honra `shutdown` señalando fin de flujo. Un doble más educado que
+   aquello que sustituye — exactamente la clase de fallo que la tarea 5.3 ya
+   pagó una vez con un guión demasiado cortés. Por eso la corrección trae
+   una prueba contra un **proceso hijo real**
+   (`core/meltemi-adapters/tests/process_lifecycle.rs`), junto a las de
+   memoria y no en su lugar.
+
+2. **Una cancelación en el dialecto headless termina la sesión, no solo el
+   turno.** Es lo que su superficie permite: el único paro documentado es
+   el fin de la entrada, y ahora que ese fin llega de verdad, el CLI no
+   puede recibir otro turno. Se elige eso antes que una cancelación que no
+   ocurre — el humano apretó parar. La sesión sigue existiendo como objeto
+   ACP (se lee, se cierra, se reanuda por id), pero un turno posterior se
+   rehúsa con `session_finished` y su remedio dice la verdad: abrir una
+   sesión nueva, cuyos turnos previos no se pierden porque este dialecto
+   reanuda por id (D4, punto 3). Un `provider_turn_failed` invitando a
+   «reintentar» habría sido mentira sobre cuál de las dos cosas pasó.
+
+3. **El control de turno del dialecto se rearma donde el prompt se acepta,
+   en el bucle de despacho ACP, y no dentro del turno.** El bucle es
+   serial: `session/prompt` y `session/cancel` se atienden ahí, enteros,
+   antes de la tarea que corre el turno. Rearmar dentro del turno dejaba
+   una ventana —angosta y suficiente— en la que una cancelación quedaba
+   registrada y luego borrada por el turno al que iba dirigida: al servidor
+   no le llegaba nada, el turno corría completo —comandos y cambios de
+   archivo incluidos, cada uno aprobado por el proxy— y la sesión
+   respondía `cancelled` igual. El trabajo ocurría y al humano se le decía
+   que no. `ProviderSession::begin_turn` existe para eso y por eso es
+   síncrono.
+
+4. **Un turno que la cancelación rompe se responde `cancelled`, no como
+   avería.** Corolario de (2): en una superficie cuyo único paro es cerrar
+   la entrada, cancelar es precisamente lo que hace que el turno deje de
+   funcionar. Responder con ese error diría que el paro rompió algo cuando
+   hizo lo único que se le pidió, y ACP exige `cancelled` para un prompt
+   cancelado en cualquier caso. Las palabras del proveedor no se pierden:
+   van al stderr del adaptador, que el daemon ya recoge al log de sesión.
+
+Y una corrección de fixture que la misma revisión destapó, del mismo tema:
+los dos e2e de cancelación cancelaban en cuanto veían *cualquier*
+`agent_update`, y la procedencia de la sesión pasó a ser uno de ellos —
+emitido en `session/new`, antes de que exista el prompt. Cancelar contra
+una sesión sin turno se responde «no hay nada que interrumpir», que es
+correcto y no prueba nada: el cable guionado sostiene su turno para siempre
+y la prueba muere de su propio plazo. Ahora esperan el `prompt_sent` y un
+trozo de mensaje del proveedor, que es lo que sus propios comentarios ya
+decían que esperaban.

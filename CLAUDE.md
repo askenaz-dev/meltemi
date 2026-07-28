@@ -1,6 +1,6 @@
 @AGENTS.md
 
-<!-- meltemi:context:begin sha256=4cc163b568f0705fbf497489d8aaa501ee6c97357ba3ae4952590202cb3f4577 -->
+<!-- meltemi:context:begin sha256=a22d42453a4de500d2e141f17b48c9ec1303e67f7247fcc052698c3b09cbc6ef -->
 # Meltemi — contexto proyectado
 
 _Compilado desde `.meltemi/` por `meltemi project`. El contenido del bloque gestionado se regenera; no editarlo a mano._
@@ -331,6 +331,6 @@ decisión registrada.
 - `fleet-catalog`: 3 requisitos
 - `initial-docs`: 1 requisito
 - `integration-levels`: 1 requisito
-- `own-adapters`: 5 requisitos
+- `own-adapters`: 6 requisitos
 
 <!-- meltemi:context:end -->

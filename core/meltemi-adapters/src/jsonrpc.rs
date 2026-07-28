@@ -264,9 +264,11 @@ impl<W: AsyncWrite + Unpin + Send> Peer<W> {
     }
 
     /// Closes the provider's input: for this wire, end of input is the polite
-    /// way to say the conversation is over.
+    /// way to say the conversation is over — and the close is a real one, so
+    /// the server ends on its own rather than being killed at the end of a
+    /// grace it never knew was running.
     pub async fn close_input(&self) {
-        let _ = self.writer.lock().await.close().await;
+        self.writer.lock().await.close();
     }
 
     async fn send(&self, message: &Value) -> Result<(), PeerError> {

@@ -17,6 +17,14 @@
 //! - **Every write flushes.** The provider is waiting on a line, not on a
 //!   buffer: a turn that sits unflushed looks to the human like an agent that
 //!   went quiet.
+//! - **Closing drops the stream, and nothing else does.** Both dialects say
+//!   "the conversation is over" by ending the provider's input, so the close
+//!   has to be a real end of stream. `AsyncWrite::shutdown` is not one: on a
+//!   child process's input tokio implements it as `Poll::Ready(Ok(()))` on
+//!   every platform, so calling it closed nothing and every polite ending was a
+//!   kill. [`FrameWriter::close`] therefore *drops* the stream, which is what
+//!   the operating system reads as end of input — and a writer that has been
+//!   closed says so rather than pretending a later write went anywhere.
 
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines};
@@ -77,38 +85,66 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
 }
 
 /// Writes newline-delimited JSON to a provider's input stream.
+///
+/// `None` once the stream has been closed: closing *is* dropping it, because
+/// that is the only thing a process reads as end of input.
 pub struct FrameWriter<W> {
-    writer: W,
+    writer: Option<W>,
 }
 
 impl<W: AsyncWrite + Unpin> FrameWriter<W> {
     /// Frames an input stream.
     pub fn new(writer: W) -> Self {
-        Self { writer }
+        Self {
+            writer: Some(writer),
+        }
+    }
+
+    /// Whether the stream has been closed, and no further frame can travel.
+    ///
+    /// A dialect asks before it writes when the answer changes what the session
+    /// must say: on the headless wire a closed input is a session a
+    /// cancellation already ended, which is a different story from a write that
+    /// happened to fail.
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.writer.is_none()
     }
 
     /// Writes one value as a line and flushes it.
     ///
     /// # Errors
     ///
-    /// Returns the underlying I/O error when the write or the flush fails.
+    /// Returns the underlying I/O error when the write or the flush fails, and
+    /// a broken pipe when the stream has already been closed — a frame written
+    /// after the conversation ended reaches nobody, and saying so is the only
+    /// honest answer.
     pub async fn write_frame(&mut self, value: &Value) -> std::io::Result<()> {
+        let Some(writer) = self.writer.as_mut() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "the provider's input has been closed",
+            ));
+        };
         // `to_string` never emits a raw newline, so one value is always one
         // line: the framing cannot be broken by the payload.
         let mut line = serde_json::to_string(value)?;
         line.push('\n');
-        self.writer.write_all(line.as_bytes()).await?;
-        self.writer.flush().await
+        writer.write_all(line.as_bytes()).await?;
+        writer.flush().await
     }
 
     /// Closes the input stream: for both provider wires, end of input is the
     /// polite way to say the conversation is over.
     ///
-    /// # Errors
-    ///
-    /// Returns the underlying I/O error when the close fails.
-    pub async fn close(&mut self) -> std::io::Result<()> {
-        self.writer.shutdown().await
+    /// Dropping the stream is what closes it. `AsyncWrite::shutdown` looks like
+    /// the method for this and is not: against a child process's input tokio
+    /// answers it with `Poll::Ready(Ok(()))` and touches nothing, so the
+    /// provider never saw the end it was waiting for. Idempotent, and
+    /// infallible — there is no failure mode in letting go of a handle.
+    pub fn close(&mut self) {
+        // Every write already flushed, so nothing of the session is lost here.
+        self.writer = None;
     }
 }
 
@@ -133,7 +169,7 @@ mod tests {
             .write_frame(&json!({"jsonrpc": "2.0", "id": 1}))
             .await
             .unwrap();
-        writer.close().await.unwrap();
+        writer.close();
 
         assert_eq!(
             reader.next_frame().await.unwrap(),
@@ -148,6 +184,27 @@ mod tests {
             None,
             "a closed input reads as end of stream, not as an error"
         );
+    }
+
+    #[tokio::test]
+    async fn a_frame_written_after_the_close_is_refused_rather_than_dropped() {
+        // The close ended the conversation, so there is nowhere for a later
+        // frame to go. A writer that accepted it would let a dialect believe it
+        // had sent a turn nobody will ever read — which is exactly what a
+        // cancelled headless session would otherwise do on its next prompt.
+        let (adapter_side, _provider_side) = tokio::io::duplex(1024);
+        let mut writer = FrameWriter::new(adapter_side);
+
+        assert!(!writer.is_closed());
+        writer.close();
+        assert!(writer.is_closed());
+        writer.close();
+
+        let refused = writer
+            .write_frame(&json!({"type": "user"}))
+            .await
+            .expect_err("a closed stream carries nothing");
+        assert_eq!(refused.kind(), std::io::ErrorKind::BrokenPipe);
     }
 
     #[tokio::test]

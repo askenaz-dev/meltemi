@@ -8,12 +8,12 @@
 //! and a wire is selected by environment variable — which is per process.
 //!
 //! The scenario is the one this dialect makes ugly. Its surface documents no
-//! interruption at all: the end of the CLI's input stops the *next* turn, not
-//! the one running. So a wire that ignores the end of its input and keeps
-//! working is exactly the case that decides whether a human who pressed stop is
-//! made to wait. They are not: after a grace the adapter ends the process,
-//! rather than let a turn that will never finish hold the session and its
-//! worktree open.
+//! interruption at all: what a cancellation sends is the end of the CLI's
+//! input, which ends the session rather than the turn running in it. So a wire
+//! that stops reading and keeps working is exactly the case that decides
+//! whether a human who pressed stop is made to wait. They are not: after a
+//! grace the adapter ends the process, rather than let a turn that will never
+//! finish hold the session and its worktree open.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -29,10 +29,10 @@ use meltemid::transport::{Listener, connect};
 /// A provider that opens a turn, speaks once, and then works forever.
 ///
 /// The last directive is what makes it hang: the wire stops reading its input
-/// and never ends the turn, so neither the polite stop nor the end of the
-/// conversation reaches it. Everything before it is the same shape the fixture
-/// freezes for a real session — the session announced only after the first
-/// input, which is where this CLI announces it (task 5.3).
+/// and never ends the turn, so the end of the conversation is delivered to a
+/// process that has stopped listening for it. Everything before it is the same
+/// shape the fixture freezes for a real session — the session announced only
+/// after the first input, which is where this CLI announces it (task 5.3).
 const NEVER_STOPS: &str = r#"
 {"mock":"await-input"}
 {"mock":"once"}
@@ -180,13 +180,23 @@ async fn cancelling_ends_a_turn_the_cli_refuses_to_end() {
         }
     });
 
-    // Cancel only once the turn is demonstrably in flight — the CLI has spoken.
-    // Cancelling into a session that has not started its turn yet would prove
-    // nothing about the adapter.
+    // Cancel only once the turn is demonstrably in flight — the prompt has gone
+    // out and the CLI has spoken *in that turn*. Cancelling into a session
+    // whose turn has not started is answered by "there is nothing to
+    // interrupt", which is correct and proves nothing: the scripted wire then
+    // holds its turn open forever and the test dies of its own timeout.
+    //
+    // Asking for any agent update is not that question and stopped being it
+    // when the session's provenance became one: that update is emitted at
+    // `session/new`, before the prompt exists. A message chunk is the CLI
+    // speaking inside the turn, which is the fact this test needs.
     let mut session_id = None;
     for _ in 0..200 {
         let events = session_events(&peer, &root_str).await;
-        if events.iter().any(|event| event["type"] == "agent_update")
+        if events.iter().any(|event| event["type"] == "prompt_sent")
+            && events
+                .iter()
+                .any(|event| event["payload"]["update"]["sessionUpdate"] == "agent_message_chunk")
             && let Some(started) = events
                 .iter()
                 .find(|event| event["type"] == "session_started")

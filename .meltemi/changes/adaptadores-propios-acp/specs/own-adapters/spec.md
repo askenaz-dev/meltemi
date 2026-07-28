@@ -111,6 +111,40 @@ turno en curso del servidor.
 - **THEN** el adaptador SHALL interrumpir el turno en curso del servidor pilotado
 - **AND** SHALL terminar el subproceso de forma limpia si el servidor no responde
 
+### Requirement: Cancelación que llega y turno que dice la verdad
+Una cancelación aceptada para un turno en vuelo SHALL seguir vigente aunque
+llegue antes de que ese turno emita su primera instrucción: el adaptador
+MUST NOT registrar una cancelación y descartarla después al arrancar el
+turno al que iba dirigida. Todo turno que termine tras una cancelación
+SHALL responderse como cancelado, incluso WHERE la cancelación misma sea lo
+que impidió que el turno prosiguiera; el motivo original SHALL quedar en el
+log de sesión en lugar de perderse. WHERE la superficie del proveedor solo
+documenta el fin de la entrada como paro, el adaptador SHALL cerrar esa
+entrada de modo que el proceso proveedor lo perciba —terminando por su
+cuenta en vez de ser matado al agotarse la gracia— y SHALL rehusar con
+diagnóstico y remedio todo turno posterior de esa sesión, en lugar de darlo
+por enviado.
+
+#### Scenario: Cancelación temprana no perdida entre la aceptación y el turno
+- **WHEN** el daemon cancela un turno ya aceptado cuyo trabajo aún no ha comenzado
+- **THEN** la cancelación SHALL seguir vigente cuando el turno arranque
+- **AND** SHALL alcanzar al proveedor por el mecanismo que su superficie documenta
+
+#### Scenario: Turno cancelado reportado como cancelado
+- **IF** un turno termina en error porque la cancelación cortó su vía al proveedor
+- **THEN** la respuesta al daemon SHALL ser «cancelado» y no un fallo
+- **AND** el motivo original SHALL quedar registrado en el log de sesión
+
+#### Scenario: Fin de entrada percibido por el proceso proveedor
+- **WHEN** el adaptador cierra la entrada del subproceso proveedor
+- **THEN** un proveedor que termina con su entrada SHALL terminar por su cuenta
+- **AND** SHALL NOT depender de que se le mate al agotarse la gracia
+
+#### Scenario: Turno posterior a una cancelación rehusado con remedio
+- **WHERE** la cancelación acabó con la entrada que la superficie documenta como único paro
+- **THEN** un turno posterior de esa sesión SHALL rehusarse con diagnóstico y remedio
+- **AND** el remedio SHALL indicar cómo seguir sin perder lo ya conversado
+
 ### Requirement: Conformidad por versión y desfase rehusado
 WHERE el CLI pilotado puede volcar el esquema de su cable por versión, los
 tipos del adaptador SHALL validarse contra fixtures de ese esquema en la

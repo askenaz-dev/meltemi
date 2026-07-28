@@ -180,13 +180,23 @@ async fn cancelling_ends_a_turn_the_provider_refuses_to_end() {
         }
     });
 
-    // Cancel only once the turn is demonstrably in flight — the provider has
-    // spoken. Cancelling into a session that has not started its turn yet would
-    // prove nothing about the adapter.
+    // Cancel only once the turn is demonstrably in flight — the prompt has gone
+    // out and the provider has spoken *in that turn*. Cancelling into a session
+    // whose turn has not started is answered by "there is nothing to
+    // interrupt", which is correct and proves nothing: the scripted wire then
+    // holds its turn open forever and the test dies of its own timeout.
+    //
+    // Asking for any agent update is not that question and stopped being it
+    // when the session's provenance became one: that update is emitted at
+    // `session/new`, before the prompt exists. A message chunk is the provider
+    // speaking inside the turn, which is the fact this test needs.
     let mut session_id = None;
     for _ in 0..200 {
         let events = session_events(&peer, &root_str).await;
-        if events.iter().any(|event| event["type"] == "agent_update")
+        if events.iter().any(|event| event["type"] == "prompt_sent")
+            && events
+                .iter()
+                .any(|event| event["payload"]["update"]["sessionUpdate"] == "agent_message_chunk")
             && let Some(started) = events
                 .iter()
                 .find(|event| event["type"] == "session_started")

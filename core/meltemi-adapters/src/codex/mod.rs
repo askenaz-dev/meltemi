@@ -156,11 +156,14 @@ pub struct CodexSession {
 }
 
 impl ProviderSession for CodexSession {
+    fn begin_turn(&self) {
+        self.turn.begin();
+    }
+
     async fn run_turn(&self, prompt: PromptRequest) -> Result<StopReason, Refusal> {
         // One turn at a time is the bridge's own invariant, so holding the
         // incoming half for the length of a turn takes nothing from anyone.
         let mut incoming = self.incoming.lock().await;
-        self.turn.begin();
 
         let params = wire::TurnStartParams {
             thread_id: self.turn.thread_id.clone(),
@@ -253,6 +256,17 @@ impl TurnControl {
 
     /// A new turn starts with nothing remembered: a cancellation of the last
     /// one must not kill this one.
+    ///
+    /// Called from [`CodexSession::begin_turn`] and from nowhere else, and that
+    /// is load-bearing rather than tidy. This reset wipes the recorded intent
+    /// of [`interrupt`] as well as the flag, so running it from inside the turn
+    /// — where it used to live — left a window in which a cancellation was
+    /// recorded, erased, and never sent: the server ran the turn to the end,
+    /// commands and file changes included, while the session answered
+    /// `cancelled`. Run from the ACP dispatch loop in the same breath as the
+    /// lifecycle's own turn guard, that window does not exist: `session/cancel`
+    /// is delivered on that same loop, so it is either before this reset or
+    /// after it.
     ///
     /// `send_replace` and not `send`: between turns nobody is subscribed, and
     /// `send` refuses to change a value nobody is listening to — which would
@@ -1123,6 +1137,65 @@ mod tests {
 
             let stop = server.next_call().await;
             assert_eq!(stop["method"], wire::TURN_INTERRUPT);
+            assert_eq!(stop["params"]["turnId"], "turn-1");
+            server.say(&json!({"id": stop["id"], "result": {}})).await;
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "interrupted", "items": []}}),
+                )
+                .await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "interrupted", "items": []}}}))
+                .await;
+        };
+
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::Cancelled));
+    }
+
+    #[tokio::test]
+    async fn a_cancellation_recorded_before_the_turn_starts_still_reaches_the_server() {
+        // Scenario: Cancelación temprana no perdida entre la aceptación y el turno
+        //
+        // The other half of the bridge's ordering rule, from this dialect's
+        // side. The reset happens where the prompt is accepted; the
+        // cancellation lands after it and before the turn runs, which is the
+        // sequence a serial dispatch loop produces. The intent survives the
+        // whole of `turn/start` with nothing to name, and goes out the instant
+        // the server names the turn.
+        //
+        // While the reset lived inside the turn it wiped exactly this, and the
+        // server never heard a word about it.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_secs(30));
+        let stream = Collected::default();
+
+        turn.begin();
+        interrupt(&peer, &turn).await;
+        assert!(
+            turn.with(|state| state.interrupt_requested),
+            "the intent is recorded even with no turn to name yet"
+        );
+
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let serving = async {
+            let start = server.next_call().await;
+            assert_eq!(start["method"], wire::TURN_START);
+            server
+                .notify(
+                    wire::TURN_STARTED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "inProgress", "items": []}}),
+                )
+                .await;
+
+            let stop = server.next_call().await;
+            assert_eq!(
+                stop["method"],
+                wire::TURN_INTERRUPT,
+                "the cancellation that arrived first is the one that arrives at all"
+            );
             assert_eq!(stop["params"]["turnId"], "turn-1");
             server.say(&json!({"id": stop["id"], "result": {}})).await;
             server

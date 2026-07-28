@@ -148,8 +148,10 @@ impl<C: ProcessControl, W: AsyncWrite + Unpin, R: AsyncRead + Unpin> ProviderPro
     ///
     /// Returns the underlying I/O error when waiting or killing fails.
     pub async fn shutdown(&mut self, policy: ShutdownPolicy) -> std::io::Result<ShutdownOutcome> {
-        // Closing the input is the documented way out for both provider wires.
-        let _ = self.stdin.close().await;
+        // Closing the input is the documented way out for both provider wires,
+        // and closing means dropping the stream: see [`FrameWriter::close`] for
+        // why the method that looks like it does this does not.
+        self.stdin.close();
         end(&mut self.control, policy).await
     }
 
