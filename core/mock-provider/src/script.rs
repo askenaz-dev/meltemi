@@ -7,11 +7,21 @@
 //! - a line starting with `#` is a comment (the fixtures explain their own
 //!   wire, which a plain `.json` file could not do);
 //! - `{"mock":"await-input"}` waits for one line of input before continuing;
+//! - `{"mock":"once"}` says the line after it is emitted the first time the
+//!   wire reaches it and never again;
 //! - every other line must be valid JSON and is emitted verbatim.
 //!
 //! Emitted verbatim matters: a fixture that re-serialized its lines would
 //! normalize key order and drop the exact bytes a real provider sent, and the
 //! point of freezing a wire is to freeze it.
+//!
+//! `once` exists because ordering is part of a wire and a fixture that gets it
+//! wrong is worse than no fixture at all. One provider announces its session
+//! *after* the first input rather than before it, so its script has to open
+//! with `await-input` — which is also where each following turn resumes. Without
+//! a way to say "this line belongs to the first pass only", the fixture would
+//! either announce the session too early (the shape that hid a real defect
+//! through five tasks) or announce it once per turn (a shape no CLI has).
 
 use std::io::{BufRead, Write};
 
@@ -20,6 +30,9 @@ use std::io::{BufRead, Write};
 pub enum Step {
     /// Emit this line verbatim.
     Emit(String),
+    /// Emit this line verbatim the first time it is reached, and never again:
+    /// what a provider says once per process rather than once per turn.
+    EmitOnce(String),
     /// Wait for one line of input before going on.
     AwaitInput,
     /// Do something only the wire itself knows how to do — ask a permission
@@ -77,14 +90,34 @@ pub fn lines(source: &str) -> Result<Vec<Line>, String> {
 /// Returns the offending line number and its content.
 pub fn parse(source: &str) -> Result<Vec<Step>, String> {
     let mut steps = Vec::new();
+    let mut only_once: Option<usize> = None;
     for line in lines(source)? {
+        let marked = only_once.take();
         match line.value.get("mock").and_then(serde_json::Value::as_str) {
             Some("await-input") => steps.push(Step::AwaitInput),
+            Some("once") => only_once = Some(line.number),
             Some(_) => steps.push(Step::Directive(line.value)),
+            None if marked.is_some() => steps.push(Step::EmitOnce(line.raw)),
             None => steps.push(Step::Emit(line.raw)),
         }
+        // `once` marks a line the wire emits. Anything else after it — another
+        // marker, the end of the script — would silently mean nothing, and a
+        // fixture whose intent evaporates is the failure this whole primitive
+        // exists to prevent.
+        if let Some(at) = marked
+            && !matches!(steps.last(), Some(Step::EmitOnce(_)))
+        {
+            return Err(format!(
+                "script line {at}: `once` must be followed by a line the wire emits"
+            ));
+        }
     }
-    Ok(steps)
+    match only_once {
+        Some(at) => Err(format!(
+            "script line {at}: `once` must be followed by a line the wire emits"
+        )),
+        None => Ok(steps),
+    }
 }
 
 /// Reads the script source the arguments or the environment select, else the
@@ -121,7 +154,9 @@ pub fn load(args: &[String], env_var: &str, embedded: &str) -> Result<Vec<Step>,
 /// The first `await-input` is the turn boundary: once the script is exhausted
 /// the player loops back to it, so a preamble (a handshake, an init event) is
 /// emitted once and every further input replays a turn. A script with no
-/// `await-input` is emitted once and ends.
+/// `await-input` is emitted once and ends. A wire that announces itself only
+/// after its first input puts that announcement *inside* the turn and marks it
+/// `once`, which the replay then skips.
 ///
 /// `on_input` sees every input line: a fixture uses it to assert the adapter
 /// speaks the dialect it claims to. `on_directive` performs a step only the
@@ -143,6 +178,7 @@ pub fn play(
         .position(|step| *step == Step::AwaitInput)
         .unwrap_or(steps.len());
     let mut at = 0;
+    let mut spent = vec![false; steps.len()];
     loop {
         let Some(step) = steps.get(at) else {
             if turn_start >= steps.len() {
@@ -152,7 +188,9 @@ pub fn play(
             continue;
         };
         match step {
-            Step::Emit(line) => {
+            Step::EmitOnce(_) if spent[at] => {}
+            Step::Emit(line) | Step::EmitOnce(line) => {
+                spent[at] = true;
                 writeln!(output, "{line}").map_err(|e| format!("cannot write: {e}"))?;
                 // The adapter is waiting on this line, not on a full buffer.
                 output.flush().map_err(|e| format!("cannot flush: {e}"))?;
@@ -223,6 +261,52 @@ mod tests {
             "the preamble is emitted once; the turn replays per input"
         );
         assert_eq!(seen.len(), 2, "every input line reached the assertion hook");
+    }
+
+    #[test]
+    fn a_wire_that_announces_itself_after_its_first_input_says_it_once() {
+        // The shape the headless dialect's CLI actually has: silent until it is
+        // given something to do, and then announcing the session exactly once
+        // however many turns follow. The announcement lives inside the turn —
+        // there is nowhere earlier it could live — so the replay has to skip it.
+        let steps = parse(
+            "{\"mock\":\"await-input\"}\n\
+             {\"mock\":\"once\"}\n\
+             {\"type\":\"system\",\"subtype\":\"init\"}\n\
+             {\"type\":\"result\"}\n",
+        )
+        .unwrap();
+
+        let mut input = std::io::Cursor::new("{\"type\":\"user\"}\n{\"type\":\"user\"}\n");
+        let mut output = Vec::new();
+        play(
+            &steps,
+            &mut input,
+            &mut output,
+            |_| Ok(()),
+            |directive| Err(format!("no directive expected here: {directive}")),
+        )
+        .unwrap();
+
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "{\"type\":\"system\",\"subtype\":\"init\"}\n{\"type\":\"result\"}\n{\"type\":\"result\"}\n",
+            "nothing before the first input, the announcement once, a turn per message"
+        );
+    }
+
+    #[test]
+    fn a_once_that_marks_nothing_is_a_broken_script_and_says_so() {
+        // A marker whose line went away would leave the fixture silently
+        // meaning something else — which is the exact failure mode `once` was
+        // written to prevent, so it may not have one of its own.
+        for source in [
+            "{\"mock\":\"once\"}\n",
+            "{\"mock\":\"once\"}\n{\"mock\":\"await-input\"}\n{\"type\":\"result\"}\n",
+        ] {
+            let error = parse(source).expect_err("a marker with nothing to mark is broken");
+            assert!(error.contains("once"), "{error}");
+        }
     }
 
     #[test]

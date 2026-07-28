@@ -10,7 +10,7 @@
 //! against the real binary (task 5.2) is what re-anchors it. Nothing below was
 //! written from a blog post.
 //!
-//! Two decisions worth naming, because they are the ones that would rot
+//! Three decisions worth naming, because they are the ones that would rot
 //! quietly:
 //!
 //! - **The launch surface is one line and it is here.** [`session_args`] is the
@@ -18,6 +18,10 @@
 //!   headless session, with the account the user already signed into. `--bare`
 //!   is not there and will never be added — it skips the sign-in and demands a
 //!   key, which is the one degradation design D4 forbids.
+//! - **The session's identity is dictated, never learned.** [`session_id_args`]
+//!   hands the CLI the id this session will answer to on both sides, so nothing
+//!   about opening a session has to wait for the CLI to speak — which it does
+//!   not do until it has been given a turn to run (task 5.3).
 //! - **Incoming types are permissive.** No struct denies unknown fields and
 //!   every field the adapter does not require is optional: this wire grows
 //!   between CLI releases, and a session that refused to open because a new
@@ -53,6 +57,10 @@ pub const PERMISSION_PROMPT_TOOL: &str = "--permission-prompt-tool";
 /// Hands the CLI the settings this session runs under, which is where the hook
 /// that gates every tool call is installed.
 pub const SETTINGS: &str = "--settings";
+/// Tells the CLI which id this session has. It takes a UUID and uses it
+/// verbatim, which is what lets the adapter name a session before the CLI has
+/// said anything at all.
+pub const SESSION_ID: &str = "--session-id";
 
 /// The flags that put the official CLI in the documented headless session, with
 /// the account the user already signed into.
@@ -223,6 +231,23 @@ pub fn resume_args(provider_session: &str) -> Vec<String> {
     vec![RESUME.to_string(), provider_session.to_string()]
 }
 
+/// The flag that names a new session, so both sides call it the same thing from
+/// the first instant.
+///
+/// This is the other half of not waiting for the CLI to introduce itself: the
+/// adapter used to take the session's id out of the initial event, which meant
+/// no session could be opened until that event arrived — and it does not arrive
+/// until a turn has been sent. Dictating the id unties the two, and the id a
+/// later resume names is the one written here.
+///
+/// It never travels beside [`resume_args`]: a resume already names the session,
+/// and asking for two identities in one launch is a question the CLI should
+/// never have to answer.
+#[must_use]
+pub fn session_id_args(session: &str) -> Vec<String> {
+    vec![SESSION_ID.to_string(), session.to_string()]
+}
+
 /// The user's turn, in the shape this wire takes it.
 ///
 /// The content is a list of blocks rather than a bare string: that is the shape
@@ -241,31 +266,36 @@ pub fn user_message(text: &str) -> serde_json::Value {
 
 // --- The initial event ---------------------------------------------------
 
-/// The first event of a session.
+/// The first event of a session — which arrives **after** the first turn is
+/// sent, because this CLI announces nothing until it has been given something
+/// to do.
+///
+/// The fields below are the ones the adapter reads, and they are the ones the
+/// binary was seen to emit. What the whole event carried, observed against
+/// `claude` 2.1.167 on 2026-07-28 (task 5.3, and the run in
+/// `docs/conformidad-manual.md`): `type`, `subtype`, `cwd`, `session_id`,
+/// `tools`, `mcp_servers` as `{name, status}` objects, `model`,
+/// `permissionMode`, `slash_commands`, `apiKeySource`, `claude_code_version`,
+/// `output_style`, `agents`, `skills`, `plugins`, `uuid`, `memory_paths` and a
+/// handful of flags. What it did **not** carry is a `capabilities` array: the
+/// design assumed one and the binary settled it, so nothing here hangs off a
+/// field nobody emits.
 ///
 /// Field names on this wire are not uniform — some are snake_case and some are
 /// camelCase — so each one is spelled out rather than renamed wholesale. Being
 /// clever there would silently drop exactly the field the surface check reads.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct InitEvent {
-    /// The CLI's own id for this session, which is what a resume names.
-    #[serde(default)]
-    pub session_id: Option<String>,
     /// The model the session will run.
     #[serde(default)]
     pub model: Option<String>,
     /// Where the credentials come from. `none` is the signed-in session.
     #[serde(default, rename = "apiKeySource")]
     pub api_key_source: Option<String>,
-    /// The feature-detection array: what this build of the CLI announces it can
-    /// do. Read verbatim and never required by name — a capability this adapter
-    /// invented a name for would be a capability nobody can honour.
-    #[serde(default)]
-    pub capabilities: Vec<String>,
-    /// The tools the session starts with.
-    #[serde(default)]
-    pub tools: Vec<String>,
-    /// The permission mode the CLI will run under.
+    /// The permission mode the CLI came up in, which the session log records:
+    /// the adapter's own hard gate decides every call regardless, and knowing
+    /// which mode ran underneath it is the difference between reading a session
+    /// afterwards and guessing at it.
     #[serde(default, rename = "permissionMode")]
     pub permission_mode: Option<String>,
 }
@@ -309,18 +339,21 @@ mod tests {
     fn the_initial_event_is_read_field_by_field_and_survives_new_ones() {
         // The wire mixes snake_case and camelCase and grows between releases.
         // A session that refused to open because a field appeared would refuse
-        // for the provider's success.
+        // for the provider's success. The event below is the shape the real
+        // binary emitted, abridged; every field it carries that this adapter
+        // does not read must pass through without complaint.
         let init: InitEvent = serde_json::from_value(json!({
-            "type": "system", "subtype": "init",
-            "session_id": "abc", "cwd": "/p", "model": "sonnet",
-            "apiKeySource": "none", "capabilities": ["something_v1"],
-            "tools": ["Read"], "permissionMode": "default",
+            "type": "system", "subtype": "init", "cwd": "/p",
+            "session_id": "7d8c9c45-4a39-4503-ac3d-fdbb94f8f05b",
+            "tools": ["Read"], "mcp_servers": [{"name": "fs", "status": "connected"}],
+            "model": "sonnet", "permissionMode": "default",
+            "slash_commands": [], "apiKeySource": "none",
+            "claude_code_version": "2.1.167", "agents": [], "skills": [],
             "somethingBrandNew": {"nested": true}
         }))
         .expect("an initial event with an unknown field still parses");
-        assert_eq!(init.session_id.as_deref(), Some("abc"));
         assert_eq!(init.api_key_source.as_deref(), Some("none"));
-        assert_eq!(init.capabilities, vec!["something_v1".to_string()]);
+        assert_eq!(init.model.as_deref(), Some("sonnet"));
         assert_eq!(init.permission_mode.as_deref(), Some("default"));
 
         // And an event that announces none of it is still an event: the surface
@@ -328,7 +361,7 @@ mod tests {
         let bare: InitEvent = serde_json::from_value(json!({"type": "system", "subtype": "init"}))
             .expect("an initial event that announces nothing still parses");
         assert!(bare.api_key_source.is_none());
-        assert!(bare.capabilities.is_empty());
+        assert!(bare.model.is_none());
     }
 
     #[test]
@@ -344,9 +377,37 @@ mod tests {
     }
 
     #[test]
+    fn a_new_session_is_named_by_the_adapter_and_a_resumed_one_by_what_it_resumes() {
+        // Scenario: Reanudación mapeada a la sesión ACP
+        //
+        // One identity per launch, and the same string on both sides of it: the
+        // id dictated here is the id the daemon will hand back to `session/load`
+        // later, so the resume needs nothing remembered anywhere.
+        let fresh = session_id_args("7d8c9c45-4a39-4503-ac3d-fdbb94f8f05b");
+        assert_eq!(
+            fresh,
+            vec![
+                SESSION_ID.to_string(),
+                "7d8c9c45-4a39-4503-ac3d-fdbb94f8f05b".to_string()
+            ]
+        );
+        assert!(
+            !session_args()
+                .iter()
+                .chain(fresh.iter())
+                .any(|arg| arg == RESUME),
+            "a session being named is not a session being resumed"
+        );
+        assert!(
+            !resume_args("abc-123").iter().any(|arg| arg == SESSION_ID),
+            "and a resume names the session it continues, not a second one"
+        );
+    }
+
+    #[test]
     fn only_the_initial_event_is_mistaken_for_the_handshake() {
         assert!(is_init(
-            &json!({"type": "system", "subtype": "init", "capabilities": []})
+            &json!({"type": "system", "subtype": "init", "apiKeySource": "none"})
         ));
         assert!(!is_init(&json!({"type": "system", "subtype": "compact"})));
         assert!(!is_init(&json!({"type": "result", "subtype": "success"})));

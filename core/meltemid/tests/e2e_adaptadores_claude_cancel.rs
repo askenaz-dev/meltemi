@@ -31,10 +31,12 @@ use meltemid::transport::{Listener, connect};
 /// The last directive is what makes it hang: the wire stops reading its input
 /// and never ends the turn, so neither the polite stop nor the end of the
 /// conversation reaches it. Everything before it is the same shape the fixture
-/// freezes for a real session.
+/// freezes for a real session — the session announced only after the first
+/// input, which is where this CLI announces it (task 5.3).
 const NEVER_STOPS: &str = r#"
-{"type":"system","subtype":"init","session_id":"mock-claude-session","cwd":"/mock/project","model":"mock-sonnet","tools":["Read"],"mcp_servers":[],"permissionMode":"default","apiKeySource":"none","capabilities":["interrupt_receipt_v1"],"slash_commands":[]}
 {"mock":"await-input"}
+{"mock":"once"}
+{"type":"system","subtype":"init","cwd":"/mock/project","session_id":"mock-claude-session","tools":["Read"],"mcp_servers":[],"model":"mock-sonnet","permissionMode":"default","slash_commands":[],"apiKeySource":"none","claude_code_version":"2.0.0-mock"}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Thinking about it forever."}},"session_id":"mock-claude-session"}
 {"mock":"never-stop"}
 "#;

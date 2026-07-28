@@ -40,9 +40,15 @@ use meltemid::transport::{Listener, connect};
 /// The hook decides first and finally, which is the provider's own order; the
 /// prompt tool is asked separately here so that the channel a CLI without hooks
 /// would use is exercised too.
+///
+/// The session is announced *after* the first input, where the real CLI
+/// announces it (task 5.3): a wire that spoke before being spoken to would let
+/// an adapter that waits for the announcement first pass this test, which is
+/// exactly what happened until the real binary was run.
 const TWO_CHANNELS: &str = r#"
-{"type":"system","subtype":"init","session_id":"mock-claude-session","cwd":"/mock/project","model":"mock-sonnet","tools":["Read","Write","Bash"],"mcp_servers":[],"permissionMode":"default","apiKeySource":"none","capabilities":["interrupt_receipt_v1"],"slash_commands":[]}
 {"mock":"await-input"}
+{"mock":"once"}
+{"type":"system","subtype":"init","cwd":"/mock/project","session_id":"mock-claude-session","tools":["Read","Write","Bash"],"mcp_servers":[],"model":"mock-sonnet","permissionMode":"default","slash_commands":[],"apiKeySource":"none","claude_code_version":"2.0.0-mock"}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Working"}},"session_id":"mock-claude-session"}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" on it."}},"session_id":"mock-claude-session"}
 {"mock":"ask-hook","tool":"Write","toolUseId":"toolu_gate","input":{"file_path":"NOTES.md","content":"scripted"}}
@@ -252,30 +258,50 @@ async fn both_permission_channels_reach_the_human_and_the_turn_streams() {
         .collect();
 
     // The provenance of what was actually launched, and which credential it came
-    // up on — the fact nobody can reconstruct afterwards.
-    let provenance = updates
+    // up on — the fact nobody can reconstruct afterwards. It arrives as two
+    // updates because it is known at two moments: which binary was launched is
+    // a fact at `session/new`, and which credential it came up on is a fact only
+    // once the CLI has spoken, which this CLI does not do until it has a turn.
+    let provenance: Vec<&Value> = updates
         .iter()
-        .find_map(|update| {
-            let meta = &update["_meta"]["meltemi"];
-            meta.is_object().then(|| meta.clone())
-        })
+        .map(|update| &update["_meta"]["meltemi"])
+        .filter(|meta| meta.is_object())
+        .collect();
+    let launched = provenance
+        .iter()
+        .find(|meta| meta["providerBin"].is_string())
         .unwrap_or_else(|| panic!("the effective binary is in the log: {updates:#?}"));
     assert!(
-        provenance["providerBin"]
+        launched["providerBin"]
             .as_str()
             .expect("a binary")
             .contains("mock-claude-wire"),
-        "the log names what was launched: {provenance:#}"
+        "the log names what was launched: {launched:#}"
     );
     assert!(
-        provenance["providerVersion"]
+        launched["providerVersion"]
             .as_str()
             .is_some_and(|version| version.starts_with("2.0.0")),
-        "and the version it turned out to be: {provenance:#}"
+        "and the version it turned out to be: {launched:#}"
+    );
+    assert!(
+        launched["providerSession"]
+            .as_str()
+            .is_some_and(|session| session.len() == 36 && session.matches('-').count() == 4),
+        "and the id both sides call it, in the shape the CLI's session flag takes \
+         — a UUID, dictated rather than learned: {launched:#}"
+    );
+    let announced = provenance
+        .iter()
+        .find(|meta| meta["providerKeySource"].is_string())
+        .unwrap_or_else(|| panic!("what the CLI announced is in the log too: {updates:#?}"));
+    assert_eq!(
+        announced["providerKeySource"], "none",
+        "under the session the user signed into: {announced:#}"
     );
     assert_eq!(
-        provenance["providerKeySource"], "none",
-        "under the session the user signed into: {provenance:#}"
+        announced["providerModel"], "mock-sonnet",
+        "with the model it said it would run: {announced:#}"
     );
 
     // The turn streamed: what the wire sent token by token is in the log.

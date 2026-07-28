@@ -33,6 +33,12 @@ tokio = { workspace = true, features = [
     "sync",
     "time",
 ] }
+# Already a pinned workspace dependency (the daemon mints ids with it), so no
+# new name enters the workspace: the headless dialect dictates its session id to
+# the CLI, whose session flag takes a UUID, instead of learning the id from an
+# event that does not arrive until a turn has been sent
+# (adaptadores-propios-acp 5.3).
+uuid.workspace = true
 
 [dev-dependencies]
 # The conformance suite validates this crate's wire types against the provider's

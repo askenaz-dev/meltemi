@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! What the piloted CLI announces about itself, and the refusal when it is not
-//! the surface this adapter is allowed to pilot (adaptadores-propios-acp task
-//! 3.1, design D4).
+//! the surface this adapter is allowed to pilot (adaptadores-propios-acp tasks
+//! 3.1 and 5.3, design D4).
 //!
 //! The pinned risk this module exists for: the provider's documentation
 //! announces that the flag which **skips the sign-in and demands an API key**
@@ -12,19 +12,25 @@
 //! is exactly what constitution §2 and the BYOK principle refuse.
 //!
 //! So the surface is read, never assumed, out of the initial event: the source
-//! of the credentials in use, and the feature-detection array the CLI publishes
-//! for this very purpose. What the adapter does with each answer:
+//! of the credentials in use. **When** it is read moved in task 5.3 and the
+//! guard did not: the CLI says nothing until it has been given a turn, so the
+//! event arrives on the first one — and the check runs there, before a single
+//! event of that turn is mapped into the session. What the adapter does with
+//! each answer:
 //!
-//! - **The signed-in session**: the session opens.
+//! - **The signed-in session**: the turn runs.
 //! - **Any other credential source**: the session is refused, with a diagnosis
 //!   naming what was announced and a remedy. No credential is ever injected,
 //!   and no alternative way in is tried — the refusal *is* the answer.
-//! - **No announcement at all**: the session opens and the silence is recorded.
+//! - **No announcement at all**: the turn runs and the silence is recorded.
 //!   A field this adapter cannot see is not evidence of an API key, and
 //!   refusing every session because a name moved would break precisely when the
 //!   provider ships an improvement. What the guard prevents is a *silent*
 //!   switch; a switch nobody can see is put on the record instead of guessed at
 //!   in either direction.
+
+use agent_client_protocol::schema::v1::Meta;
+use serde_json::json;
 
 use super::wire;
 use crate::diagnostic::Refusal;
@@ -45,8 +51,10 @@ pub enum KeySource {
 pub struct Surface {
     /// Where the credentials come from.
     pub key_source: KeySource,
-    /// The feature-detection array, verbatim.
-    pub capabilities: Vec<String>,
+    /// The model the CLI said it would run, when it named one.
+    pub model: Option<String>,
+    /// The permission mode the CLI came up in.
+    pub permission_mode: Option<String>,
 }
 
 impl Surface {
@@ -60,19 +68,9 @@ impl Surface {
         };
         Self {
             key_source,
-            capabilities: init.capabilities.clone(),
+            model: init.model.clone(),
+            permission_mode: init.permission_mode.clone(),
         }
-    }
-
-    /// Whether the CLI announced a capability by this name.
-    ///
-    /// Capabilities are read, never demanded: this adapter requires none of
-    /// them by name, because a name it invented would be one no CLI could ever
-    /// answer to. What the array is for is knowing what the build in front of
-    /// it can do — and saying so in the session log.
-    #[must_use]
-    pub fn announces(&self, capability: &str) -> bool {
-        self.capabilities.iter().any(|held| held == capability)
     }
 
     /// The refusal when this is not a surface the adapter may pilot.
@@ -99,6 +97,36 @@ impl Surface {
              which is the signed-in one"
                 .to_string()
         })
+    }
+
+    /// What the CLI announced, as ACP extension metadata.
+    ///
+    /// It rides ACP's own `_meta` (design D7) rather than any private channel,
+    /// and it is a second update rather than part of the one the launch sends,
+    /// because it is known at a different moment: which binary was launched is
+    /// a fact at `session/new`, and which credential it came up on is a fact
+    /// only once the CLI has spoken.
+    #[must_use]
+    pub fn meta(&self) -> Meta {
+        let mut meta = Meta::new();
+        meta.insert(
+            "meltemi".into(),
+            json!({
+                "providerKeySource": self.key_source_label(),
+                "providerModel": self.model,
+                "providerPermissionMode": self.permission_mode,
+            }),
+        );
+        meta
+    }
+
+    /// How the announced credential source reads in the session log.
+    fn key_source_label(&self) -> String {
+        match &self.key_source {
+            KeySource::SignedIn => wire::SIGNED_IN_KEY_SOURCE.to_string(),
+            KeySource::Key(source) => source.clone(),
+            KeySource::Unannounced => "unannounced".to_string(),
+        }
     }
 }
 
@@ -129,26 +157,21 @@ pub fn refusal(layer: &str, announced: &str) -> Refusal {
 mod tests {
     use super::*;
 
-    fn init(source: Option<&str>, capabilities: &[&str]) -> wire::InitEvent {
+    fn init(source: Option<&str>) -> wire::InitEvent {
         wire::InitEvent {
             api_key_source: source.map(str::to_string),
-            capabilities: capabilities.iter().map(|c| (*c).to_string()).collect(),
-            ..wire::InitEvent::default()
+            model: Some("mock-sonnet".into()),
+            permission_mode: Some("default".into()),
         }
     }
 
     #[test]
     fn the_signed_in_session_is_the_one_surface_that_opens() {
         // Scenario: Rehúso ante modo que exige clave de API
-        let signed_in = Surface::of(&init(Some(wire::SIGNED_IN_KEY_SOURCE), &["interrupt_v1"]));
+        let signed_in = Surface::of(&init(Some(wire::SIGNED_IN_KEY_SOURCE)));
         assert_eq!(signed_in.key_source, KeySource::SignedIn);
         assert!(signed_in.check("the official CLI").is_ok());
         assert!(signed_in.note().is_none());
-        assert!(signed_in.announces("interrupt_v1"));
-        assert!(
-            !signed_in.announces("something-nobody-published"),
-            "capabilities are read, not wished for"
-        );
     }
 
     #[test]
@@ -159,7 +182,7 @@ mod tests {
         // session the user signed into. The adapter refuses and says which
         // credential took over — it never quietly runs the turn anyway, and it
         // has no credential of its own to offer.
-        let surface = Surface::of(&init(Some("ANTHROPIC_API_KEY"), &[]));
+        let surface = Surface::of(&init(Some("ANTHROPIC_API_KEY")));
         assert_eq!(
             surface.key_source,
             KeySource::Key("ANTHROPIC_API_KEY".into())
@@ -187,7 +210,7 @@ mod tests {
         // every session because a name moved would break exactly when the
         // provider ships an improvement — so the silence is recorded, which is
         // the one thing that is neither a guess nor a lie.
-        let quiet = Surface::of(&init(None, &[]));
+        let quiet = Surface::of(&init(None));
         assert_eq!(quiet.key_source, KeySource::Unannounced);
         assert!(quiet.check("the official CLI").is_ok());
         assert!(
@@ -196,5 +219,19 @@ mod tests {
                 .expect("the silence is noted")
                 .contains("did not announce")
         );
+        assert_eq!(
+            quiet.meta()["meltemi"]["providerKeySource"],
+            "unannounced",
+            "and the log says so in as many words rather than leaving a gap"
+        );
+    }
+
+    #[test]
+    fn what_the_cli_announced_travels_as_acp_extension_metadata() {
+        // Scenario: Versión efectiva registrada en el log
+        let meta = Surface::of(&init(Some(wire::SIGNED_IN_KEY_SOURCE))).meta();
+        assert_eq!(meta["meltemi"]["providerKeySource"], "none");
+        assert_eq!(meta["meltemi"]["providerModel"], "mock-sonnet");
+        assert_eq!(meta["meltemi"]["providerPermissionMode"], "default");
     }
 }

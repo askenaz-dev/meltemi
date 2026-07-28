@@ -30,6 +30,7 @@ pub mod surface;
 pub mod wire;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
@@ -39,7 +40,7 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use serde_json::{Value, json};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::AsyncRead;
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio::sync::{Mutex, watch};
 
@@ -47,8 +48,7 @@ use crate::adapter::{AdapterSpec, Dialect, Opened, ProviderDialect, ProviderSess
 use crate::diagnostic::Refusal;
 use crate::ndjson::{Frame, FrameReader, FrameWriter};
 use crate::supervisor::{
-    self, ChildProcess, ProcessControl, ProviderCommand, ProviderProcess, ShutdownPolicy,
-    launch_refusal, resolve_program, spawn,
+    self, ChildProcess, ProviderCommand, ShutdownPolicy, launch_refusal, resolve_program, spawn,
 };
 
 use rendezvous::Rendezvous;
@@ -69,12 +69,17 @@ pub const SPEC: AdapterSpec = AdapterSpec {
 /// reach. It changes *which binary* is launched, never *what* is spoken to it.
 pub const PROVIDER_BIN_ENV: &str = "MELTEMI_CLAUDE_BIN";
 
-/// How long the initial event may take to arrive before the session is refused.
+/// How long the initial event may take to arrive **after the first turn has
+/// been sent** before the session is refused.
 ///
 /// Generous, because this CLI runs on a language runtime that can take seconds
-/// to come up cold on Windows and may boot MCP servers before it speaks;
-/// finite, because a session that never opens and never fails is the worst of
-/// both.
+/// to come up cold on Windows and boots the session's MCP servers before it
+/// speaks; finite, because a session that never opens and never fails is the
+/// worst of both.
+///
+/// Counting from the turn and not from the launch is the whole of task 5.3: the
+/// CLI emits nothing at all until it has been given something to do, so a
+/// deadline that started at launch was a deadline nothing could ever meet.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How long the CLI gets to answer what version it is.
@@ -121,22 +126,22 @@ impl ClaudeDialect {
     }
 }
 
-/// What was actually launched and what it turned out to be: the facts a session
-/// must be able to prove afterwards.
+/// What was actually launched: the facts a session must be able to prove
+/// afterwards, all of them known before the CLI has said a word.
+///
+/// What the CLI then announces about *itself* is [`Surface`], and it lands in
+/// the session as its own update — later, because it is known later. Splitting
+/// them is not tidiness: pretending the credential source was known at launch
+/// is what task 5.3 had to undo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Provenance {
     /// The binary the adapter launched, as it was resolved.
     pub program: String,
     /// The version the CLI answered with, or [`UNKNOWN_VERSION`].
     pub version: String,
-    /// The feature-detection array the CLI announced, verbatim.
-    pub capabilities: Vec<String>,
-    /// Where the CLI said its credentials come from.
-    pub key_source: String,
-    /// The model the session runs, when the CLI named one.
-    pub model: Option<String>,
-    /// The CLI's own id for the session, which is what a resume names.
-    pub provider_session: Option<String>,
+    /// The id this session answers to on both sides: dictated to the CLI at
+    /// launch, and the name a later resume gives it.
+    pub session: String,
 }
 
 impl Provenance {
@@ -147,10 +152,6 @@ impl Provenance {
     /// meltemid (design D7). The daemon records agent updates verbatim, so this
     /// lands in the session log like any other, and any third-party agent can
     /// say the same thing the same way.
-    ///
-    /// The announced surface travels with it on purpose: which credential the
-    /// CLI came up on is the fact a human most needs on the record, and the one
-    /// nobody can reconstruct afterwards.
     #[must_use]
     pub fn meta(&self) -> Meta {
         let mut meta = Meta::new();
@@ -159,10 +160,7 @@ impl Provenance {
             json!({
                 "providerBin": self.program,
                 "providerVersion": self.version,
-                "providerCapabilities": self.capabilities,
-                "providerKeySource": self.key_source,
-                "providerModel": self.model,
-                "providerSession": self.provider_session,
+                "providerSession": self.session,
             }),
         );
         meta
@@ -187,6 +185,9 @@ pub struct ClaudeSession {
     stream: AcpStream,
     /// How long the provider gets to exit on its own.
     shutdown: ShutdownPolicy,
+    /// Whether the CLI's initial event has already been read. It arrives on the
+    /// first turn — see [`ClaudeSession::announcement`].
+    announced: AtomicBool,
 }
 
 impl ProviderSession for ClaudeSession {
@@ -204,6 +205,14 @@ impl ProviderSession for ClaudeSession {
             .write_frame(&message)
             .await
             .map_err(|error| turn_failed(&format!("the turn could not be sent ({error})")))?;
+
+        // Only now can the CLI be expected to say anything, so only now is its
+        // initial event read and its surface checked — before a single event of
+        // this turn is mapped into the session.
+        if let Err(refusal) = self.announcement(&mut reader).await {
+            self.shutdown(self.shutdown).await;
+            return Err(refusal);
+        }
 
         match drive_turn(
             &mut reader,
@@ -265,6 +274,42 @@ impl ProviderSession for ClaudeSession {
         // reads its absence as "nobody can decide this" and denies, which is the
         // only thing it may do.
         self.rendezvous.close();
+    }
+}
+
+impl ClaudeSession {
+    /// Reads the CLI's initial event and checks the surface it announces —
+    /// once, on the first turn.
+    ///
+    /// This is the handshake of this dialect, and it happens here rather than
+    /// at `session/new` because the CLI **emits nothing until it has been given
+    /// something to do** (task 5.3, verified against the real binary: launched
+    /// with its input held open and nothing written, it says not one byte). An
+    /// adapter that waited for the announcement before sending anything waited
+    /// for something that was waiting for it, and every session died of the
+    /// timeout.
+    ///
+    /// # Errors
+    ///
+    /// Refuses when the CLI never announces the session, ends before it does,
+    /// or announces a surface this adapter may not pilot. The caller ends the
+    /// provider on any of them: a turn is already in flight, and a CLI that may
+    /// not be piloted must not be left running one.
+    async fn announcement(&self, reader: &mut FrameReader<ChildStdout>) -> Result<(), Refusal> {
+        if self.announced.swap(true, Ordering::Relaxed) {
+            return Ok(());
+        }
+        let announced = Surface::of(&handshake(reader).await?);
+        // Before anything of this turn is mapped: the guard exists to stop a
+        // session, not to annotate one that already ran.
+        announced.check(SPEC.provider_layer)?;
+        if let Some(note) = announced.note() {
+            self.stream.note(&note);
+        }
+        self.stream.emit(SessionUpdate::SessionInfoUpdate(
+            SessionInfoUpdate::new().meta(announced.meta()),
+        ));
+        Ok(())
     }
 }
 
@@ -616,15 +661,22 @@ impl ProviderDialect for ClaudeDialect {
             .mcp_capabilities(McpCapabilities::new().http(true).sse(true))
     }
 
+    /// Opens a session under an id of this dialect's own minting.
+    ///
+    /// The id the bridge handed in is not used: the CLI takes a UUID for its
+    /// session flag, and dictating one is what lets a session be named — and
+    /// answered for — before the CLI has said anything (task 5.3). The name is
+    /// the same on both sides from the first instant, which is what a later
+    /// resume needs and what the initial event used to be read for.
     async fn open(
         &self,
-        session_id: SessionId,
+        _minted_by_the_bridge: SessionId,
         request: NewSessionRequest,
         cx: ConnectionTo<Client>,
     ) -> Result<Opened<Self::Session>, Refusal> {
         self.start(
             Start {
-                session_id,
+                session_id: SessionId::new(uuid::Uuid::new_v4().to_string()),
                 cwd: request.cwd,
                 mcp_servers: request.mcp_servers,
                 resume: None,
@@ -640,8 +692,8 @@ impl ProviderDialect for ClaudeDialect {
         cx: ConnectionTo<Client>,
     ) -> Result<Self::Session, Refusal> {
         // The id the daemon remembers is the CLI's own, because that is what
-        // `open` answered with — so resuming needs nothing remembered on either
-        // side.
+        // `open` dictated to it — so resuming needs nothing remembered on
+        // either side.
         //
         // What may be resumed is scoped by the CLI's own rule plus this
         // launch's working directory: it looks for the session among those of
@@ -667,7 +719,8 @@ impl ProviderDialect for ClaudeDialect {
 
 /// What a session needs to be launched, whether it is new or resumed.
 struct Start {
-    /// The id this session is addressed by until the CLI names its own.
+    /// The id this session is addressed by, on both sides: dictated to the CLI
+    /// when it is new, and the CLI's own when it is resumed.
     session_id: SessionId,
     /// Where the CLI runs: the project root or one of its worktrees.
     cwd: PathBuf,
@@ -678,18 +731,22 @@ struct Start {
 }
 
 impl ClaudeDialect {
-    /// Launches the CLI for one session and shakes hands with it.
+    /// Launches the CLI for one session.
     ///
     /// One path for a new session and a resumed one, because the difference
     /// between them is two arguments: everything that governs a session — the
-    /// channel, the gate, the surface check, the provenance — is the same
-    /// either way, and a second path would be a second place for one of them to
-    /// go missing.
+    /// channel, the gate, the provenance — is the same either way, and a second
+    /// path would be a second place for one of them to go missing.
+    ///
+    /// No handshake happens here, and that is the point of task 5.3: this CLI
+    /// announces itself only once it has a turn to run, so the announcement and
+    /// the surface check it feeds belong to the first turn
+    /// ([`ClaudeSession::announcement`]). What is knowable at launch — which
+    /// binary, which version, which id — is recorded here, where it is true.
     ///
     /// # Errors
     ///
-    /// Refuses when the CLI cannot be launched, cannot be governed, or
-    /// announces a surface this adapter may not pilot.
+    /// Refuses when the CLI cannot be launched or cannot be governed.
     async fn start(
         &self,
         start: Start,
@@ -711,15 +768,19 @@ impl ClaudeDialect {
             &permission::prompt_tool_reference(),
             &governed.settings,
         ));
-        if let Some(previous) = &start.resume {
-            args.extend(wire::resume_args(previous));
+        // A resume already names the session it continues; a new one is named
+        // here. Never both: two identities in one launch is a question the CLI
+        // should not have to answer.
+        match &start.resume {
+            Some(previous) => args.extend(wire::resume_args(previous)),
+            None => args.extend(wire::session_id_args(start.session_id.0.as_ref())),
         }
         let command = ProviderCommand {
             program: self.program.clone(),
             args,
             cwd: start.cwd.clone(),
         };
-        let mut provider = match spawn(&command, SPEC.provider_layer) {
+        let provider = match spawn(&command, SPEC.provider_layer) {
             Ok(provider) => provider,
             Err(refusal) => {
                 governed.rendezvous.close();
@@ -727,27 +788,6 @@ impl ClaudeDialect {
             }
         };
 
-        // From here on the process exists, so every refusal has to end it. A
-        // session that failed to open and left a CLI running would leak one
-        // process per attempt, holding the worktree it was launched in.
-        let init = match handshake(&mut provider).await {
-            Ok(init) => init,
-            Err(refusal) => {
-                let _ = provider.shutdown(self.shutdown).await;
-                governed.rendezvous.close();
-                return Err(refusal);
-            }
-        };
-
-        let announced = Surface::of(&init);
-        if let Err(refusal) = announced.check(SPEC.provider_layer) {
-            let _ = provider.shutdown(self.shutdown).await;
-            governed.rendezvous.close();
-            return Err(refusal);
-        }
-        if let Some(note) = announced.note() {
-            eprintln!("{}: {note}", SPEC.name);
-        }
         for undelivered in &governed.undelivered {
             // A tool the user declared and never got is exactly the kind of
             // absence that reads as a bug in the agent. It is said out loud.
@@ -758,35 +798,23 @@ impl ClaudeDialect {
             );
         }
 
-        // The session answers to the CLI's own id from here on, so that a later
-        // resume can name it without anything having to be remembered anywhere.
-        // When the CLI announces none, the minted id stands, and a resume of
-        // that session is refused by the CLI rather than answered wrongly.
-        let session_id = init
-            .session_id
-            .as_deref()
-            .filter(|_| start.resume.is_none())
-            .map_or_else(|| start.session_id.clone(), SessionId::new);
-
-        // The effective binary, the version it turned out to be and the surface
-        // it announced, into the session log before anything else this session
-        // does.
+        // The effective binary, the version it turned out to be and the id both
+        // sides call this session, into the session log before anything else
+        // this session does. What the CLI announces about itself joins them on
+        // the first turn, which is the first moment it says anything.
+        let session_id = start.session_id;
         let provenance = Provenance {
             program: self.program.clone(),
             version,
-            capabilities: announced.capabilities.clone(),
-            key_source: key_source_label(&announced),
-            model: init.model.clone(),
-            provider_session: init.session_id.clone(),
+            session: session_id.0.as_ref().to_string(),
         };
         let _ = cx.send_notification(SessionNotification::new(
             session_id.clone(),
             SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta())),
         ));
 
-        // The handshake was one message read by hand; from here the session is
-        // a stream that must be readable while a cancellation writes, so the
-        // halves go their separate ways.
+        // The session is a stream that must be readable while a cancellation
+        // writes, so the halves go their separate ways.
         let (control, writer, reader) = provider.into_parts();
         Ok(Opened {
             id: session_id.clone(),
@@ -798,17 +826,9 @@ impl ClaudeDialect {
                 rendezvous: governed.rendezvous,
                 stream: AcpStream { session_id, cx },
                 shutdown: self.shutdown,
+                announced: AtomicBool::new(false),
             },
         })
-    }
-}
-
-/// How the announced credential source reads in the session log.
-fn key_source_label(announced: &Surface) -> String {
-    match &announced.key_source {
-        surface::KeySource::SignedIn => wire::SIGNED_IN_KEY_SOURCE.to_string(),
-        surface::KeySource::Key(source) => source.clone(),
-        surface::KeySource::Unannounced => "unannounced".to_string(),
     }
 }
 
@@ -866,7 +886,8 @@ fn version_in(said: &str) -> Option<String> {
     })
 }
 
-/// Reads the session's initial event: the handshake of this dialect.
+/// Reads the session's initial event: the handshake of this dialect, which
+/// happens on the first turn because that is when the CLI first speaks.
 ///
 /// # Errors
 ///
@@ -874,35 +895,27 @@ fn version_in(said: &str) -> Option<String> {
 /// itself, or refuses the session outright — in which case the provider's own
 /// words travel to the human unchanged, because an authentication failure is
 /// the provider's to explain and this adapter has nothing to add to it.
-async fn handshake<C, W, R>(
-    provider: &mut ProviderProcess<C, W, R>,
-) -> Result<wire::InitEvent, Refusal>
+async fn handshake<R>(reader: &mut FrameReader<R>) -> Result<wire::InitEvent, Refusal>
 where
-    C: ProcessControl,
-    W: AsyncWrite + Unpin + Send,
     R: AsyncRead + Unpin + Send,
 {
-    tokio::time::timeout(HANDSHAKE_TIMEOUT, await_init(provider))
+    tokio::time::timeout(HANDSHAKE_TIMEOUT, await_init(reader))
         .await
         .map_err(|_| {
             handshake_failed(&format!(
-                "the CLI did not announce the session within {} seconds",
+                "the CLI did not announce the session within {} seconds of being sent a turn",
                 HANDSHAKE_TIMEOUT.as_secs()
             ))
         })?
 }
 
 /// Reads until the initial event arrives.
-async fn await_init<C, W, R>(
-    provider: &mut ProviderProcess<C, W, R>,
-) -> Result<wire::InitEvent, Refusal>
+async fn await_init<R>(reader: &mut FrameReader<R>) -> Result<wire::InitEvent, Refusal>
 where
-    C: ProcessControl,
-    W: AsyncWrite + Unpin + Send,
     R: AsyncRead + Unpin + Send,
 {
     loop {
-        let frame = provider.receive().await.map_err(|error| {
+        let frame = reader.next_frame().await.map_err(|error| {
             handshake_failed(&format!("the CLI's output could not be read ({error})"))
         })?;
         let Some(frame) = frame else {
@@ -1038,8 +1051,8 @@ fn handshake_failed(detail: &str) -> Refusal {
         SPEC.provider_layer,
         detail.to_string(),
         format!(
-            "Check that the official CLI is installed and signed in, and that `{} {}` starts a \
-             headless session (`meltemi fleet` shows the entry and its remedy).",
+            "Check that the official CLI is installed and signed in, and that `{} {}` answers a \
+             message written on its input (`meltemi fleet` shows the entry and its remedy).",
             SPEC.provider_bin,
             wire::session_args().join(" ")
         ),
@@ -1050,60 +1063,36 @@ fn handshake_failed(detail: &str) -> Refusal {
 mod tests {
     use super::*;
 
-    /// A provider process that plays a script, so a whole handshake runs in
-    /// memory: no binary, no pipes, same behaviour on the three platforms.
-    struct FakeProcess;
-
-    impl ProcessControl for FakeProcess {
-        async fn wait_within(&mut self, _grace: Duration) -> std::io::Result<bool> {
-            Ok(true)
-        }
-
-        async fn kill(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    /// Runs a handshake against a CLI that says exactly `lines`, and hands back
-    /// the outcome together with everything the adapter sent.
-    async fn handshake_against(lines: &str) -> (Result<wire::InitEvent, Refusal>, String) {
-        let (adapter_out, mut cli_in) = tokio::io::duplex(4096);
-        let (mut cli_out, adapter_in) = tokio::io::duplex(4096);
-        tokio::io::AsyncWriteExt::write_all(&mut cli_out, lines.as_bytes())
-            .await
-            .unwrap();
-        drop(cli_out);
-
-        let mut provider = ProviderProcess::new(FakeProcess, adapter_out, adapter_in);
-        let outcome = handshake(&mut provider).await;
-        drop(provider);
-
-        let mut sent = String::new();
-        tokio::io::AsyncReadExt::read_to_string(&mut cli_in, &mut sent)
-            .await
-            .unwrap();
-        (outcome, sent)
+    /// Runs a handshake against a CLI that says exactly `lines`.
+    ///
+    /// Nothing is written to the CLI here, and nothing can be: by the time this
+    /// runs, the turn has already been sent and the writer is somebody else's
+    /// half of the session. That separation is the fix of task 5.3 in the type
+    /// system — the handshake reads, and reading is all it can do.
+    async fn handshake_against(lines: &str) -> Result<wire::InitEvent, Refusal> {
+        handshake(&mut saying(lines)).await
     }
 
     const SIGNED_IN: &str = concat!(
-        r#"{"type":"system","subtype":"init","session_id":"s-9","model":"mock-sonnet","#,
-        r#""apiKeySource":"none","capabilities":["interrupt_receipt_v1"],"tools":["Read"]}"#,
+        r#"{"type":"system","subtype":"init","session_id":"7d8c9c45-4a39-4503-ac3d-fdbb94f8f05b","#,
+        r#""model":"mock-sonnet","apiKeySource":"none","permissionMode":"default","#,
+        r#""tools":["Read"],"claude_code_version":"2.1.167"}"#,
         "\n"
     );
 
     #[tokio::test]
     async fn the_handshake_reads_the_surface_the_cli_announces() {
         // Scenario: Versión efectiva registrada en el log
-        let (outcome, sent) = handshake_against(SIGNED_IN).await;
-        let init = outcome.expect("the signed-in surface opens the session");
-        assert_eq!(init.session_id.as_deref(), Some("s-9"));
-
+        let init = handshake_against(SIGNED_IN)
+            .await
+            .expect("the signed-in surface opens the session");
         let announced = Surface::of(&init);
         assert_eq!(announced.key_source, surface::KeySource::SignedIn);
-        assert!(announced.announces("interrupt_receipt_v1"));
-        assert!(
-            sent.is_empty(),
-            "the handshake is something the CLI says, not something it is asked: {sent}"
+        assert_eq!(announced.model.as_deref(), Some("mock-sonnet"));
+        assert_eq!(
+            announced.meta()["meltemi"]["providerKeySource"],
+            "none",
+            "and what it announced reaches the session log"
         );
     }
 
@@ -1113,22 +1102,20 @@ mod tests {
         //
         // The pinned risk of design D4, end to end at the handshake: the CLI
         // comes up on a key instead of the session the user signed into. The
-        // adapter refuses, and the one thing it must never do — send something
-        // to make the session work anyway — is asserted by what it wrote: not a
-        // byte.
-        let (outcome, sent) = handshake_against(concat!(
-            r#"{"type":"system","subtype":"init","apiKeySource":"ANTHROPIC_API_KEY","#,
-            r#""capabilities":[]}"#,
+        // adapter refuses — and the one thing it must never do, send something
+        // to make the session work anyway, it has no way to do from here: the
+        // handshake holds the reading half and nothing else.
+        let init = handshake_against(concat!(
+            r#"{"type":"system","subtype":"init","apiKeySource":"ANTHROPIC_API_KEY"}"#,
             "\n"
         ))
-        .await;
-        let init = outcome.expect("the event itself is readable");
+        .await
+        .expect("the event itself is readable");
         let refusal = Surface::of(&init)
             .check(SPEC.provider_layer)
             .expect_err("a key-bearing surface is not the one this adapter pilots");
         assert_eq!(refusal.kind, "provider_surface_not_signed_in");
         assert!(refusal.detail.contains("ANTHROPIC_API_KEY"));
-        assert!(sent.is_empty(), "nothing was injected: {sent}");
     }
 
     #[tokio::test]
@@ -1138,20 +1125,19 @@ mod tests {
         // The sign-in belongs to the CLI, so its explanation does too: the
         // adapter passes the message through and adds a remedy, never an
         // interpretation and never a credential.
-        let (outcome, sent) = handshake_against(concat!(
+        let refusal = handshake_against(concat!(
             r#"{"type":"result","subtype":"error_during_execution","is_error":true,"#,
             r#""result":"Invalid API key · Please run /login"}"#,
             "\n"
         ))
-        .await;
-        let refusal = outcome.expect_err("a session that never began cannot be piloted");
+        .await
+        .expect_err("a session that never began cannot be piloted");
         assert_eq!(refusal.kind, "provider_refused_session");
         assert!(
             refusal.detail.contains("Please run /login"),
             "the provider's own words travel unchanged: {}",
             refusal.detail
         );
-        assert!(sent.is_empty(), "nothing was injected: {sent}");
     }
 
     #[tokio::test]
@@ -1161,8 +1147,9 @@ mod tests {
             "starting up\n",
             "{\"type\":\"stream_event\",\"event\":{}}\n",
         ] {
-            let (outcome, _) = handshake_against(said).await;
-            let refusal = outcome.expect_err("a session cannot open on a handshake that failed");
+            let refusal = handshake_against(said)
+                .await
+                .expect_err("a session cannot open on a handshake that failed");
             assert_eq!(refusal.kind, "provider_handshake_failed", "for `{said}`");
             assert!(
                 refusal.remedy.contains(wire::STREAM_JSON),
@@ -1170,6 +1157,25 @@ mod tests {
                 refusal.remedy
             );
         }
+    }
+
+    #[tokio::test]
+    async fn the_announcement_is_waited_for_only_after_a_turn_has_been_sent() {
+        // Scenario: Eventos de sesión mapeados en streaming
+        //
+        // The defect task 5.3 exists for, as a deadline: a CLI that has been
+        // given nothing says nothing, so a handshake that ran before the turn
+        // could only ever end in the timeout. Here the wire stays open and
+        // silent — as the real binary does, verified against 2.1.167 — and the
+        // read is shown to be a wait rather than an answer.
+        let (_cli, adapter_side) = tokio::io::duplex(64);
+        let mut reader = FrameReader::new(adapter_side);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), await_init(&mut reader))
+                .await
+                .is_err(),
+            "an unprompted CLI announces nothing, and the adapter waits for it"
+        );
     }
 
     #[tokio::test]
@@ -1206,17 +1212,15 @@ mod tests {
     fn the_provenance_travels_as_acp_extension_metadata() {
         // Scenario: Versión efectiva registrada en el log
         //
-        // What the log will hold: which binary was launched, which version it
-        // turned out to be, and — the fact nobody can reconstruct afterwards —
-        // which credential the CLI came up on. Not a private channel: ACP's own
-        // `_meta` (design D7), which any agent may fill the same way.
+        // What the log will hold the moment the session opens: which binary was
+        // launched, which version it turned out to be, and the id both sides
+        // call the session — every one of them true before the CLI has said a
+        // word. Not a private channel: ACP's own `_meta` (design D7), which any
+        // agent may fill the same way.
         let provenance = Provenance {
             program: "/usr/local/bin/claude".into(),
-            version: "2.1.4".into(),
-            capabilities: vec!["interrupt_receipt_v1".into()],
-            key_source: wire::SIGNED_IN_KEY_SOURCE.into(),
-            model: Some("sonnet".into()),
-            provider_session: Some("s-9".into()),
+            version: "2.1.167".into(),
+            session: "7d8c9c45-4a39-4503-ac3d-fdbb94f8f05b".into(),
         };
         let update =
             SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta()));
@@ -1225,11 +1229,10 @@ mod tests {
             logged["_meta"]["meltemi"]["providerBin"],
             "/usr/local/bin/claude"
         );
-        assert_eq!(logged["_meta"]["meltemi"]["providerVersion"], "2.1.4");
-        assert_eq!(logged["_meta"]["meltemi"]["providerKeySource"], "none");
+        assert_eq!(logged["_meta"]["meltemi"]["providerVersion"], "2.1.167");
         assert_eq!(
-            logged["_meta"]["meltemi"]["providerCapabilities"][0],
-            "interrupt_receipt_v1"
+            logged["_meta"]["meltemi"]["providerSession"], "7d8c9c45-4a39-4503-ac3d-fdbb94f8f05b",
+            "the id a later resume will name"
         );
     }
 

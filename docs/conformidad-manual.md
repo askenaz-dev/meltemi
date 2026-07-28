@@ -97,10 +97,11 @@ Una línea por corrida, con su fecha y la versión del CLI que respondió:
   "agentId": "claude-code",
   "verifiedLevel": 0,
   "agentVersion": "2.1.167",
-  "runAt": "2026-07-28T17:22:14Z",
+  "runAt": "2026-07-28T18:07:37Z",
   "criteria": [
-    { "level": 2, "name": "streaming", "passed": false },
-    { "level": 2, "name": "session", "passed": false }
+    { "level": 2, "name": "streaming", "passed": true },
+    { "level": 2, "name": "session", "passed": true },
+    { "level": 2, "name": "permissions", "passed": true }
   ]
 }
 ```
@@ -114,6 +115,15 @@ Dos reglas de lectura, ambas deliberadas:
   vez de uno halagador.
 - **`verifiedLevel: 0` es un resultado**, no un error de la corrida. Significa
   que contra ese binario, ese día, el nivel no quedó verificado.
+
+Las dos reglas juntas tienen una consecuencia que conviene decir en voz alta,
+porque el número solo no la cuenta: **esta corrida no ejerce la cancelación**,
+que es uno de los cuatro criterios que el nivel 2 declara, de modo que su
+`verifiedLevel` es 0 aunque los tres criterios que sí ejerce aprueben. El
+ejemplo de arriba es exactamente ese caso. Un 0 por «nada funcionó» y un 0 por
+«falta un criterio por ejercer» se leen igual en el número y no significan lo
+mismo: la lista de `criteria` es la que lo distingue, y por eso se persiste
+entera.
 
 `meltemi fleet` lee la última corrida por entrada y muestra el nivel
 verificado junto al declarado. Declarado ≠ verificado es información, no
@@ -158,17 +168,62 @@ Windows 11 (26200), x86_64. Ambos CLIs presentes y con sesión iniciada.
 
 ### Dialecto de sesión headless — `claude 2.1.167`
 
+Dos corridas el mismo día: la primera encontró un defecto que ninguna prueba
+podía encontrar, y la segunda —tras la tarea 5.3— es la que vale.
+
+**Lo que la primera corrida (17:22Z) encontró, y por qué era invisible**: el CLI
+no emite el evento inicial hasta recibir su primera entrada, y el adaptador lo
+esperaba *antes* de enviar nada. Resultado: 60 segundos de espera y
+`provider_handshake_failed` en toda sesión. **Nivel verificado: 0**, con los dos
+criterios ejercidos fallando. Los guiones del cable simulado emitían el evento
+inicial *antes* del primer `await-input`, de modo que ninguna prueba de CI podía
+verlo: un fixture solo prueba aquello a lo que se le pidió parecerse. La tarea
+5.3 corrigió las dos cosas —el adaptador lee el evento en el primer turno y
+dicta la identidad de sesión con `--session-id`; los guiones anuncian la sesión
+donde el CLI la anuncia— y el orden quedó clavado con una prueba que corre el
+cable simulado sin entrada y exige silencio.
+
+**La segunda corrida (18:07Z), después de la corrección**, con el mismo
+binario:
+
+- **La sesión abre y el turno completa.** `propose` contra un repositorio
+  fixture temporal devolvió `completed`.
+- `streaming` **aprueba**: los deltas del turno llegan al log de sesión como
+  actualizaciones, no como un bloque tardío.
+- `session` **aprueba**: el log registra el binario efectivo y `2.1.167`, la
+  versión que el propio CLI respondió.
+- `permissions` **aprueba**: el CLI real preguntó por sus herramientas, la
+  pregunta llegó a la bandeja como `permission/request` y volvió decidida. Es
+  el primer ejercicio del passthrough completo —prompt-tool y hook— contra un
+  CLI que no es un fixture.
+- **`cancellation` no se ejerce**, y por eso el **nivel verificado sigue siendo
+  0**: la corrida manual nunca ha ejercido ese criterio, y un nivel se otorga
+  solo cuando todos los suyos están presentes y aprobados. Es un 0 distinto del
+  de la mañana —tres de cuatro criterios aprobando contra el binario real
+  frente a ninguno— y la lista de `criteria` persistida es lo que los
+  distingue. Ejercer la cancelación contra el CLI real gastaría otro turno y
+  sería otra tarea; hasta entonces, el nivel 2 de esta entrada lo verifica CI
+  contra el cable simulado y esta corrida no lo contradice.
+- **Coste**: un turno de opus — 8,8k tokens de entrada, 22,2k de escritura de
+  caché, 139,7k de lectura de caché y 3,8k de salida.
+
+**Lo que el binario dijo de sí mismo**, en las dos corridas:
+
 - **`apiKeySource` es real y vale `"none"` bajo la sesión iniciada.** El
   nombre era provisional desde la tarea 1.3 y queda anclado: la guarda contra
   el modo de clave de API lee un campo que existe.
 - **No hay arreglo `capabilities` en el evento inicial de esta versión.** El
   design D4 lo daba por existente para detección de features; no está. El
-  adaptador ya lo trataba como información y no como requisito, así que no
-  rehúsa por su ausencia — pero la premisa del design era falsa y quedó
-  enmendada.
-- El evento inicial trae además `claude_code_version`, `permissionMode`,
-  `model`, `tools`, `slash_commands`, `agents`, `skills` y `mcp_servers` como
-  objetos `{name, status}`.
+  adaptador lo trataba como información y no como requisito, así que nunca
+  rehusó por su ausencia — y desde 5.3 ya no lo lee en absoluto: un campo que
+  ningún CLI emite no describe nada.
+- El evento inicial trae `claude_code_version`, `permissionMode`, `model`,
+  `tools`, `slash_commands`, `agents`, `skills`, `plugins`, `output_style`,
+  `memory_paths` y `mcp_servers` como objetos `{name, status}`.
+- **`--session-id <uuid>` existe y el CLI lo respeta al pie de la letra**: el
+  archivo de sesión que dejó el CLI lleva por nombre el UUID que el adaptador
+  acuñó. Es lo que permite nombrar la sesión antes de que el CLI hable, y lo
+  que sostiene la reanudación de la tarea 3.5.
 - `--permission-prompt-tool` **existe y el parser lo acepta** (un flag
   inventado falla con `unknown option`; este no), pero **no aparece en
   `claude --help`**. La infradocumentación que el design D5 fijó como riesgo,
@@ -176,8 +231,3 @@ Windows 11 (26200), x86_64. Ambos CLIs presentes y con sesión iniciada.
 - `--bare` sigue siendo opt-in y su propia ayuda dice que la autenticación
   pasa a ser estrictamente `ANTHROPIC_API_KEY`: el flip que D4 teme no ha
   ocurrido en esta versión.
-- **La corrida falló, y con eso hizo su trabajo**: el CLI no emite el evento
-  inicial hasta recibir su primera entrada, y el adaptador lo espera *antes*
-  de enviar nada. Resultado: 60 segundos de espera y
-  `provider_handshake_failed`. **Nivel verificado: 0.** El defecto y su
-  corrección están en la tarea 5.3 de la change `adaptadores-propios-acp`.

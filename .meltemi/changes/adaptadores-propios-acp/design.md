@@ -151,6 +151,45 @@ sesión del adaptador; procedimiento y salidas en `docs/conformidad-manual.md`.
    que se le pidió parecerse. La corrección es la tarea 5.3, y con ella el
    fixture pasa a emitirlo donde el CLI lo emite.
 
+**Enmienda (2026-07-28, tarea 5.3 — la corrección y lo que exigió decidir)**:
+el handshake de este dialecto **ocurre en el primer turno**, después de
+escribir el mensaje del usuario y antes de mapear un solo evento de ese turno;
+la guarda de superficie corre ahí, con la misma conducta de siempre — rehúso
+diagnosticado ante cualquier fuente de credenciales que no sea la sesión
+iniciada, jamás degradación silenciosa. Lo que abrir la sesión ya no necesita
+es que el CLI hable, y eso obligó a una decisión que este design no tenía:
+
+3. **La identidad de la sesión se dicta, no se aprende.** El adaptador acuña un
+   UUID y lo entrega en `--session-id` (existe en 2.1.167 y el CLI lo respeta
+   al pie de la letra: el archivo de sesión que deja lleva ese nombre). Antes
+   la identidad salía del evento inicial, que es precisamente lo que ataba el
+   handshake al `session/new`; dictarla desata los dos y conserva intacta la
+   reanudación de la tarea 3.5, porque el id que el daemon recuerda sigue
+   siendo el del CLI — ahora por construcción y no por haberlo escuchado. Un
+   `--resume` nombra la sesión que continúa y nunca viaja junto a
+   `--session-id`: dos identidades en un lanzamiento son una pregunta que el
+   CLI no debería tener que responder.
+
+4. **`capabilities` deja de leerse.** El punto 1 de la enmienda anterior lo
+   declaró inexistente y el código lo seguía leyendo «por si acaso»; un campo
+   que ningún CLI emite no describe nada, así que sale del tipo del cable, de
+   la superficie y de la procedencia. La mitigación del flip de `--bare`
+   descansa entera sobre `apiKeySource`, que sí existe.
+
+5. **La procedencia se parte en dos actualizaciones, porque se conoce en dos
+   momentos.** Qué binario se lanzó, en qué versión y con qué id — hechos del
+   `session/new`, registrados ahí. Qué credencial, qué modelo y qué modo de
+   permisos anunció el CLI — hechos del primer turno, registrados ahí. Fingir
+   que lo segundo se sabía al lanzar es exactamente el error que esta tarea
+   deshizo, y una sola actualización lo habría reintroducido en el log.
+
+Y una lección de método que la change se lleva puesta: **el orden es parte de
+un cable**. El guión del proveedor simulado ahora anuncia la sesión detrás del
+primer `await-input` —con un marcador `once`, porque el CLI lo dice una vez por
+proceso y no una por turno— y una prueba corre ese cable sin entrada y exige
+silencio. Un fixture cortés en el punto exacto donde el binario no lo es no es
+media prueba: es una prueba de un proveedor que no existe.
+
 ### D5 — Permisos del dialecto headless: prompt-tool + hooks, pérdidas declaradas
 
 Dos canales documentados, en capas:

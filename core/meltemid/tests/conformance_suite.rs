@@ -444,9 +444,14 @@ async fn level_2_criteria(
 
 /// The headless dialect's turn: it streams, then asks about one tool through
 /// the hard gate the adapter installs.
+///
+/// Nothing is emitted before the first input, because that is the wire this
+/// CLI has (task 5.3): the criteria below are only worth counting if what the
+/// adapter is measured against resembles the binary it will meet.
 const HEADLESS_TURN: &str = r#"
-{"type":"system","subtype":"init","session_id":"conf-session","cwd":"/mock/project","model":"mock-sonnet","tools":["Read","Write"],"mcp_servers":[],"permissionMode":"default","apiKeySource":"none","capabilities":["interrupt_receipt_v1"],"slash_commands":[]}
 {"mock":"await-input"}
+{"mock":"once"}
+{"type":"system","subtype":"init","cwd":"/mock/project","session_id":"conf-session","tools":["Read","Write"],"mcp_servers":[],"model":"mock-sonnet","permissionMode":"default","slash_commands":[],"apiKeySource":"none","claude_code_version":"2.0.0-mock"}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Working"}},"session_id":"conf-session"}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" on it."}},"session_id":"conf-session"}
 {"mock":"ask-hook","tool":"Write","toolUseId":"toolu_conf","input":{"file_path":"NOTES.md","content":"scripted"}}
@@ -457,8 +462,9 @@ const HEADLESS_TURN: &str = r#"
 /// forever, ignoring the end of its input — the only stop this surface
 /// documents.
 const HEADLESS_NEVER_STOPS: &str = r#"
-{"type":"system","subtype":"init","session_id":"conf-session","cwd":"/mock/project","model":"mock-sonnet","tools":["Read"],"mcp_servers":[],"permissionMode":"default","apiKeySource":"none","capabilities":["interrupt_receipt_v1"],"slash_commands":[]}
 {"mock":"await-input"}
+{"mock":"once"}
+{"type":"system","subtype":"init","cwd":"/mock/project","session_id":"conf-session","tools":["Read"],"mcp_servers":[],"model":"mock-sonnet","permissionMode":"default","slash_commands":[],"apiKeySource":"none","claude_code_version":"2.0.0-mock"}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Working on it forever."}},"session_id":"conf-session"}
 {"mock":"never-stop"}
 "#;

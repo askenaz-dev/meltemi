@@ -47,6 +47,21 @@ fn events(stdout: &str) -> Vec<serde_json::Value> {
 }
 
 #[test]
+fn the_wire_says_nothing_at_all_until_it_is_given_something_to_do() {
+    // The property that makes this fixture worth having, and the one it did not
+    // have until task 5.3: the real CLI announces no session until it has been
+    // sent a turn — verified against `claude` 2.1.167, which emits not one byte
+    // with its input open and empty. A fixture that spoke first let an adapter
+    // that waited for it pass every test and fail every real session.
+    let (code, stdout, stderr) = run(&[], "");
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert!(
+        stdout.trim().is_empty(),
+        "the wire announced itself to nobody: {stdout}"
+    );
+}
+
+#[test]
 fn the_signed_in_wire_plays_a_whole_turn_for_one_user_message() {
     let (code, stdout, stderr) = run(
         &[],
@@ -59,8 +74,8 @@ fn the_signed_in_wire_plays_a_whole_turn_for_one_user_message() {
     assert_eq!(init["type"], "system");
     assert_eq!(init["subtype"], "init");
     assert!(
-        init["capabilities"].is_array(),
-        "the initial event carries the feature-detection array the handshake reads"
+        init.get("capabilities").is_none(),
+        "the real event carries no feature array, so neither does the fixture: {init}"
     );
     assert_eq!(
         init["apiKeySource"], "none",
@@ -100,17 +115,16 @@ fn each_user_message_replays_the_turn_and_the_preamble_is_emitted_once() {
 
 #[test]
 fn the_api_key_variant_announces_the_surface_that_demands_a_key() {
-    let (code, stdout, stderr) = run(&["--api-key-mode"], "");
+    let (code, stdout, stderr) = run(
+        &["--api-key-mode"],
+        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"do it\"}}\n",
+    );
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let events = events(&stdout);
     assert_eq!(
         events[0]["apiKeySource"], "ANTHROPIC_API_KEY",
-        "the fixture for the guard announces the API-key surface at the handshake"
-    );
-    assert_eq!(
-        events[0]["capabilities"].as_array().map(Vec::len),
-        Some(0),
-        "and offers none of the capabilities the signed-in surface has"
+        "the fixture for the guard announces the API-key surface on the first turn, \
+         which is where this CLI announces anything at all"
     );
 }
 
@@ -152,7 +166,7 @@ fn a_script_from_a_file_replaces_the_embedded_one() {
         std::env::temp_dir().join(format!("meltemi-wire-script-{}.ndjson", std::process::id()));
     std::fs::write(
         &path,
-        "# a wire that says only this\n{\"type\":\"system\",\"subtype\":\"init\",\"capabilities\":[\"custom\"]}\n",
+        "# a wire that says only this\n{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"custom\"}\n",
     )
     .unwrap();
 
@@ -160,7 +174,7 @@ fn a_script_from_a_file_replaces_the_embedded_one() {
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let events = events(&stdout);
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0]["capabilities"][0], "custom");
+    assert_eq!(events[0]["model"], "custom");
     let _ = std::fs::remove_file(&path);
 }
 

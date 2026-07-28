@@ -4,11 +4,17 @@
 //! (adaptadores-propios-acp task 1.3).
 //!
 //! It stands in for the provider CLI running in its documented headless mode:
-//! it emits newline-delimited JSON events — the initial event with its
-//! capability array, token-level deltas, a tool call and its result, and the
-//! final result — and it accepts the same dialect on its input. It is not a
-//! model, it holds no state and it touches no network: it plays a script and
-//! checks that what the adapter sends back is the dialect it claims to speak.
+//! it emits newline-delimited JSON events — the initial event, token-level
+//! deltas, a tool call and its result, and the final result — and it accepts
+//! the same dialect on its input. It is not a model, it holds no state and it
+//! touches no network: it plays a script and checks that what the adapter sends
+//! back is the dialect it claims to speak.
+//!
+//! Like the binary it stands in for, it **says nothing until it is given
+//! something to do**: the initial event sits behind the first input in every
+//! script here (task 5.3). It did not, once, and that politeness let an adapter
+//! that waited for the announcement first pass every test in this repository
+//! and fail every session against the real CLI.
 //!
 //! Scripts, in order of precedence: `--script <path>`, the
 //! `MELTEMI_MOCK_CLAUDE_SCRIPT` environment variable, else the embedded
@@ -16,9 +22,9 @@
 //! surface demanding an API key, so the adapter's refusal can be exercised).
 //!
 //! It also answers `--version` the way the real CLI does — one line, its own
-//! version — because that flag is the only place this wire carries a version at
-//! all: the session's events announce a feature array, not a number, so the
-//! version a session logs is the one the binary answers there.
+//! version — because that is where an adapter asks: the version a session logs
+//! is known before the session opens, which is well before this wire says
+//! anything.
 //!
 //! Input is held to the dialect: a line that is not JSON, or a message of a
 //! type this wire never receives, exits non-zero with a diagnostic. A fixture

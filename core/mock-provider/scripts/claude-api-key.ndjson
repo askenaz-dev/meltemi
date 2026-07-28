@@ -4,8 +4,13 @@
 #
 # This fixture exists so the guard can be exercised: the adapter must refuse
 # with a diagnostic and a remedy, and must never inject a credential to make
-# the session work anyway (task 3.1). Nothing follows the initial event here
-# because nothing should: the adapter is expected to stop at the handshake.
-{"type":"system","subtype":"init","session_id":"mock-claude-session","cwd":"/mock/project","model":"mock-sonnet","tools":["Read","Write","Bash"],"mcp_servers":[],"permissionMode":"default","apiKeySource":"ANTHROPIC_API_KEY","capabilities":[],"slash_commands":[]}
+# the session work anyway (task 3.1).
+#
+# The announcement sits behind the first input because that is where this CLI
+# puts it (task 5.3) — so the guard fires on the first turn, before a single
+# event of that turn is mapped into the session. Nothing follows it here
+# because nothing should: the adapter is expected to stop at the announcement.
 {"mock":"await-input"}
+{"mock":"once"}
+{"type":"system","subtype":"init","cwd":"/mock/project","session_id":"mock-claude-session","tools":["Read","Write","Bash"],"mcp_servers":[],"model":"mock-sonnet","permissionMode":"default","slash_commands":[],"apiKeySource":"ANTHROPIC_API_KEY","claude_code_version":"2.0.0-mock","agents":[],"skills":[],"plugins":[]}
 {"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"mock-claude-session","result":"no credentials available"}
