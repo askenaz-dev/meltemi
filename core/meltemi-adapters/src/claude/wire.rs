@@ -45,6 +45,11 @@ pub const INCLUDE_PARTIAL_MESSAGES: &str = "--include-partial-messages";
 pub const VERBOSE: &str = "--verbose";
 /// Asks the CLI for its own version and nothing else.
 pub const VERSION: &str = "--version";
+/// Hands the CLI a set of MCP servers to run for this session.
+pub const MCP_CONFIG: &str = "--mcp-config";
+/// Names the tool the CLI must ask before running anything its own static rules
+/// did not already decide.
+pub const PERMISSION_PROMPT_TOOL: &str = "--permission-prompt-tool";
 
 /// The flags that put the official CLI in the documented headless session, with
 /// the account the user already signed into.
@@ -125,6 +130,28 @@ pub const SUCCESS: &str = "success";
 /// The turn ran out of the CLI's own turn budget. Not a failure: a limit, and
 /// ACP has a stop reason that says exactly that.
 pub const ERROR_MAX_TURNS: &str = "error_max_turns";
+
+/// The flags that hand the CLI its MCP servers and tell it where to ask.
+///
+/// Separate from [`session_args`] because these two are the session's own —
+/// they carry a path that exists for one session and disappears with it —
+/// while the launch surface is the same for every session this adapter ever
+/// opens.
+#[must_use]
+pub fn permission_args(config: &std::path::Path, prompt_tool: &str) -> Vec<String> {
+    vec![
+        MCP_CONFIG.to_string(),
+        config.display().to_string(),
+        PERMISSION_PROMPT_TOOL.to_string(),
+        prompt_tool.to_string(),
+    ]
+}
+
+/// The MCP configuration document, in the shape the CLI's flag reads.
+#[must_use]
+pub fn mcp_config(servers: serde_json::Map<String, serde_json::Value>) -> serde_json::Value {
+    serde_json::json!({ "mcpServers": servers })
+}
 
 /// The user's turn, in the shape this wire takes it.
 ///

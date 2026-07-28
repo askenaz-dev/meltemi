@@ -22,15 +22,18 @@
 //!   protocol; it is not documented, so nothing here hangs off it (design D7).
 
 pub mod mapping;
+pub mod permission;
+pub mod rendezvous;
+pub mod shim;
 pub mod surface;
 pub mod wire;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    Meta, NewSessionRequest, PromptRequest, SessionId, SessionInfoUpdate, SessionNotification,
-    SessionUpdate, StopReason,
+    Meta, NewSessionRequest, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
+    SessionId, SessionInfoUpdate, SessionNotification, SessionUpdate, StopReason,
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use serde_json::{Value, json};
@@ -46,6 +49,7 @@ use crate::supervisor::{
     launch_refusal, resolve_program, spawn,
 };
 
+use rendezvous::Rendezvous;
 use surface::Surface;
 
 /// What this binary announces over ACP and which CLI it pilots.
@@ -175,6 +179,8 @@ pub struct ClaudeSession {
     control: Mutex<Option<ChildProcess>>,
     /// The turn in flight, and whether it has been asked to stop.
     turn: TurnControl,
+    /// The private channel this session's permission shim asks over.
+    rendezvous: Rendezvous,
     /// Where this session's updates go.
     stream: AcpStream,
     /// How long the provider gets to exit on its own.
@@ -197,7 +203,15 @@ impl ProviderSession for ClaudeSession {
             .await
             .map_err(|error| turn_failed(&format!("the turn could not be sent ({error})")))?;
 
-        match drive_turn(&mut reader, &self.turn, &self.stream).await? {
+        match drive_turn(
+            &mut reader,
+            &self.turn,
+            &self.rendezvous,
+            &self.stream,
+            &self.stream.session_id,
+        )
+        .await?
+        {
             TurnOutcome::Ended(stop) => Ok(stop),
             TurnOutcome::Abandoned => {
                 // The CLI was told the conversation is over and kept working.
@@ -245,6 +259,10 @@ impl ProviderSession for ClaudeSession {
         if let Some(mut control) = self.control.lock().await.take() {
             let _ = supervisor::end(&mut control, policy).await;
         }
+        // The channel goes with the session. A shim still waiting on an answer
+        // reads its absence as "nobody can decide this" and denies, which is the
+        // only thing it may do.
+        self.rendezvous.close();
     }
 }
 
@@ -311,6 +329,72 @@ enum TurnOutcome {
     Abandoned,
 }
 
+/// Everything a session needs in place before the CLI is launched, so that the
+/// CLI has somewhere to ask: the private channel, and the configuration file
+/// that tells it where.
+struct Governed {
+    /// The channel the shim asks over.
+    rendezvous: Rendezvous,
+    /// The MCP configuration the CLI is handed.
+    config: PathBuf,
+}
+
+impl Governed {
+    /// Opens the channel for one session and writes the CLI's configuration
+    /// into it.
+    ///
+    /// # Errors
+    ///
+    /// Refuses when the channel cannot be created or the configuration cannot
+    /// be written. There is no session without it: a CLI launched with nowhere
+    /// to ask would run tools nobody governs, which is the one outcome this
+    /// whole architecture exists to prevent.
+    fn open(session_id: &SessionId) -> Result<Self, Refusal> {
+        let dir = std::env::temp_dir().join(format!(
+            "{}-{}-{}",
+            SPEC.name,
+            std::process::id(),
+            sanitized(session_id.0.as_ref())
+        ));
+        let rendezvous = Rendezvous::open(dir).map_err(|error| ungoverned(&error.to_string()))?;
+
+        let exe = std::env::current_exe()
+            .map_err(|error| ungoverned(&format!("this adapter cannot find itself ({error})")))?;
+        let (name, server) = permission::shim_server(&exe, rendezvous.address());
+        let mut servers = serde_json::Map::new();
+        servers.insert(name, server);
+
+        let config = rendezvous.address().join("mcp.json");
+        if let Err(error) = std::fs::write(&config, wire::mcp_config(servers).to_string()) {
+            rendezvous.close();
+            return Err(ungoverned(&format!(
+                "the CLI's configuration could not be written ({error})"
+            )));
+        }
+        Ok(Self { rendezvous, config })
+    }
+}
+
+/// A session id as a directory name: ids are minted by this adapter and are
+/// already tame, and this keeps them that way whatever a future id looks like.
+fn sanitized(id: &str) -> String {
+    id.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+/// The refusal for a session that could not be governed.
+fn ungoverned(detail: &str) -> Refusal {
+    Refusal::new(
+        "permission_channel_unavailable",
+        SPEC.provider_layer,
+        format!("the session's permission channel could not be opened: {detail}"),
+        "Meltemi opens a private channel per session inside your temporary directory. \
+         Check that it exists and is writable, then open the session again."
+            .to_string(),
+    )
+}
+
 /// Where a turn's updates go.
 ///
 /// The session sends them over ACP; a test collects them. The turn loop is the
@@ -322,6 +406,13 @@ trait TurnStream: Send + Sync {
     fn emit(&self, update: SessionUpdate);
     /// Keeps something on the record without showing it as the agent's words.
     fn note(&self, line: &str);
+    /// Puts a permission request to the proxy and waits for what it decides.
+    ///
+    /// The adapter never decides; it only asks and relays (design D5).
+    fn ask(
+        &self,
+        request: RequestPermissionRequest,
+    ) -> impl Future<Output = permission::Decision> + Send;
 }
 
 /// The real destination: the ACP connection this session was opened on.
@@ -342,6 +433,28 @@ impl TurnStream for AcpStream {
         // kept without dressing it up as something the agent said.
         eprintln!("{}: {line}", SPEC.name);
     }
+
+    async fn ask(&self, request: RequestPermissionRequest) -> permission::Decision {
+        // The daemon's proxy answers this: rules first, the human's tray when no
+        // rule decides, and the constitutional denial when no client is
+        // connected at all. None of that logic is here, and none of it should
+        // be.
+        match self.cx.send_request(request).block_task().await {
+            Ok(response) => match response.outcome {
+                RequestPermissionOutcome::Selected(selected) => {
+                    permission::Decision::Selected(selected.option_id.0.as_ref().to_string())
+                }
+                RequestPermissionOutcome::Cancelled => permission::Decision::Cancelled,
+                // An outcome this adapter does not recognise decides nothing,
+                // and deciding nothing is a denial.
+                _ => permission::Decision::Unavailable,
+            },
+            Err(error) => {
+                self.note(&format!("the permission proxy could not decide: {error}"));
+                permission::Decision::Unavailable
+            }
+        }
+    }
 }
 
 /// Runs one turn: read what the CLI says until it says the turn is over — or
@@ -355,7 +468,9 @@ impl TurnStream for AcpStream {
 async fn drive_turn<R, S>(
     reader: &mut FrameReader<R>,
     turn: &TurnControl,
+    rendezvous: &Rendezvous,
     stream: &S,
+    session_id: &SessionId,
 ) -> Result<TurnOutcome, Refusal>
 where
     R: AsyncRead + Unpin + Send,
@@ -377,6 +492,12 @@ where
                 grace.as_mut().reset(tokio::time::Instant::now() + turn.grace);
             }
             () = &mut grace, if armed => return Ok(TurnOutcome::Abandoned),
+            // The CLI wants to run something and is blocked until it hears
+            // back. While this waits the loop is not reading — which costs
+            // nothing, because the CLI is itself waiting for this very answer.
+            ask = rendezvous.next_ask() => {
+                relay(rendezvous, turn, stream, session_id, &ask).await;
+            }
             // Reading a line is cancellation safe, so losing this branch to
             // another costs nothing: no byte of the session is dropped.
             frame = reader.next_frame() => {
@@ -445,12 +566,28 @@ impl ProviderDialect for ClaudeDialect {
         // will hold.
         let version = announced_version(&self.program, &request.cwd).await?;
 
+        // Before the CLI exists, because the CLI is told where to ask as it is
+        // launched. A session that could not open this channel is a session
+        // whose tool calls nobody would govern, so it does not open at all.
+        let governed = Governed::open(&session_id)?;
+
+        let mut args = wire::session_args();
+        args.extend(wire::permission_args(
+            &governed.config,
+            &permission::prompt_tool_reference(),
+        ));
         let command = ProviderCommand {
             program: self.program.clone(),
-            args: wire::session_args(),
+            args,
             cwd: request.cwd.clone(),
         };
-        let mut provider = spawn(&command, SPEC.provider_layer)?;
+        let mut provider = match spawn(&command, SPEC.provider_layer) {
+            Ok(provider) => provider,
+            Err(refusal) => {
+                governed.rendezvous.close();
+                return Err(refusal);
+            }
+        };
 
         // From here on the process exists, so every refusal has to end it. A
         // session that failed to open and left a CLI running would leak one
@@ -459,6 +596,7 @@ impl ProviderDialect for ClaudeDialect {
             Ok(init) => init,
             Err(refusal) => {
                 let _ = provider.shutdown(self.shutdown).await;
+                governed.rendezvous.close();
                 return Err(refusal);
             }
         };
@@ -466,6 +604,7 @@ impl ProviderDialect for ClaudeDialect {
         let announced = Surface::of(&init);
         if let Err(refusal) = announced.check(SPEC.provider_layer) {
             let _ = provider.shutdown(self.shutdown).await;
+            governed.rendezvous.close();
             return Err(refusal);
         }
         if let Some(note) = announced.note() {
@@ -497,6 +636,7 @@ impl ProviderDialect for ClaudeDialect {
             reader: Mutex::new(reader),
             control: Mutex::new(Some(control)),
             turn: TurnControl::new(INTERRUPT_GRACE),
+            rendezvous: governed.rendezvous,
             stream: AcpStream { session_id, cx },
             shutdown: self.shutdown,
         })
@@ -656,6 +796,49 @@ fn refusal_before_the_session(event: &Value) -> Option<Refusal> {
          and to sign in if that is what it is asking for."
             .to_string(),
     ))
+}
+
+/// Puts one of the CLI's permission questions to the proxy, and answers the
+/// shim with what the proxy said.
+///
+/// A cancellation during the wait still lands: the proxy is free to take as
+/// long as a human takes, and a turn that was told to stop while a question sat
+/// unanswered would otherwise wait for both. The question is then withdrawn
+/// rather than answered, which on this channel means the call does not run.
+async fn relay<S: TurnStream>(
+    rendezvous: &Rendezvous,
+    turn: &TurnControl,
+    stream: &S,
+    session_id: &SessionId,
+    ask: &rendezvous::Ask,
+) {
+    let request = permission::request_for(
+        session_id,
+        &ask.tool,
+        ask.tool_use_id.as_deref(),
+        &ask.input,
+    );
+    let decision = tokio::select! {
+        decision = stream.ask(request) => decision,
+        () = turn.wait_interrupted() => permission::Decision::Cancelled,
+    };
+
+    let payload = permission::payload(&decision, &ask.input);
+    // A refusal the human never sees is a session that quietly did less than it
+    // was asked to. It is shown against the call it is about, with the reason
+    // that produced it.
+    if let Some(reason) = payload
+        .get("message")
+        .and_then(Value::as_str)
+        .filter(|_| payload.get("behavior").and_then(Value::as_str) == Some("deny"))
+    {
+        stream.emit(permission::refusal_update(
+            ask.tool_use_id.as_deref().unwrap_or(&ask.tool),
+            reason,
+        ));
+        stream.note(&format!("`{}` was refused: {reason}", ask.tool));
+    }
+    rendezvous.answer(ask, &payload);
 }
 
 /// The refusal for a turn that did not run.
@@ -891,11 +1074,14 @@ mod tests {
         );
     }
 
-    /// A turn's updates, collected instead of sent.
+    /// A turn's updates, collected instead of sent, and a permission proxy that
+    /// answers whatever the test arranged.
     #[derive(Default)]
     struct Collected {
         updates: std::sync::Mutex<Vec<SessionUpdate>>,
         notes: std::sync::Mutex<Vec<String>>,
+        asked: std::sync::Mutex<Vec<RequestPermissionRequest>>,
+        answers: std::sync::Mutex<Vec<permission::Decision>>,
     }
 
     impl TurnStream for Collected {
@@ -905,6 +1091,17 @@ mod tests {
 
         fn note(&self, line: &str) {
             self.notes.lock().unwrap().push(line.to_string());
+        }
+
+        async fn ask(&self, request: RequestPermissionRequest) -> permission::Decision {
+            self.asked.lock().unwrap().push(request);
+            self.answers
+                .lock()
+                .unwrap()
+                .pop()
+                // Nothing was arranged: the proxy could not be reached, which is
+                // exactly the case that must end in a denial.
+                .unwrap_or(permission::Decision::Unavailable)
         }
     }
 
@@ -941,6 +1138,18 @@ mod tests {
         FrameReader::new(std::io::Cursor::new(lines.as_bytes().to_vec()))
     }
 
+    /// A permission channel of this test's own.
+    fn channel(tag: &str) -> Rendezvous {
+        Rendezvous::open(
+            std::env::temp_dir().join(format!("meltemi-claude-turn-{}-{tag}", std::process::id())),
+        )
+        .expect("the channel opens")
+    }
+
+    fn session() -> SessionId {
+        SessionId::new("s-1")
+    }
+
     #[tokio::test]
     async fn a_turn_streams_what_the_cli_says_and_ends_on_its_result() {
         // Scenario: Eventos de sesión mapeados en streaming
@@ -960,7 +1169,11 @@ mod tests {
         let stream = Collected::default();
         let turn = TurnControl::new(Duration::from_millis(50));
 
-        let outcome = drive_turn(&mut reader, &turn, &stream).await.unwrap();
+        let channel = channel("streams");
+        let outcome = drive_turn(&mut reader, &turn, &channel, &stream, &session())
+            .await
+            .unwrap();
+        channel.close();
         assert_eq!(outcome, TurnOutcome::Ended(StopReason::EndTurn));
         assert_eq!(stream.said(), "Working on it.");
         assert_eq!(stream.tool_calls(), 1);
@@ -976,6 +1189,142 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_permission_question_reaches_the_proxy_mid_turn_and_the_shim_gets_its_answer() {
+        // Scenario: Permiso decidido por el proxy vigente
+        //
+        // The path a tool call actually takes: the CLI asks its permission tool,
+        // the shim relays over the private channel, the turn loop puts the
+        // question to the proxy, and what the proxy decided is what goes back —
+        // while the turn is still running and still streaming.
+        let (mut cli, adapter_side) = tokio::io::duplex(4096);
+        let mut reader = FrameReader::new(adapter_side);
+        let stream = Collected::default();
+        stream
+            .answers
+            .lock()
+            .unwrap()
+            .push(permission::Decision::Selected(
+                permission::ALLOW_ONCE.into(),
+            ));
+        let turn = TurnControl::new(Duration::from_secs(30));
+        let channel = channel("relay");
+        let session = session();
+
+        let asking = tokio::task::spawn_blocking({
+            let dir = channel.address().to_path_buf();
+            move || {
+                rendezvous::ask(
+                    &dir,
+                    "Write",
+                    Some("toolu_1"),
+                    &serde_json::json!({"file_path": "NOTES.md"}),
+                )
+            }
+        });
+
+        let driving = async {
+            let outcome = drive_turn(&mut reader, &turn, &channel, &stream, &session).await;
+            outcome.expect("the turn ran")
+        };
+        let feeding = async {
+            // Wait until the question has been answered before ending the turn:
+            // in life the CLI does exactly this, because it is blocked on the
+            // tool result.
+            let answered = asking.await.expect("the shim finished");
+            tokio::io::AsyncWriteExt::write_all(
+                &mut cli,
+                br#"{"type":"result","subtype":"success","is_error":false,"result":"Done."}"#,
+            )
+            .await
+            .unwrap();
+            tokio::io::AsyncWriteExt::write_all(&mut cli, b"\n")
+                .await
+                .unwrap();
+            answered
+        };
+
+        let (outcome, answered) = tokio::join!(driving, feeding);
+        assert_eq!(outcome, TurnOutcome::Ended(StopReason::EndTurn));
+
+        let decision = answered.expect("a decision came back to the shim");
+        assert_eq!(decision["behavior"], "allow");
+        assert_eq!(
+            decision["updatedInput"]["file_path"], "NOTES.md",
+            "the call runs exactly as it was approved"
+        );
+
+        let asked = stream.asked.lock().unwrap();
+        assert_eq!(asked.len(), 1, "the question was put once");
+        assert_eq!(
+            asked[0].tool_call.tool_call_id.0.as_ref(),
+            "toolu_1",
+            "against the very call the CLI streamed"
+        );
+        drop(asked);
+        channel.close();
+    }
+
+    #[tokio::test]
+    async fn a_proxy_that_cannot_decide_denies_the_call_and_the_session_shows_why() {
+        // Scenario: Interacción no relevable denegada con motivo visible
+        //
+        // No decision — no client, an error, an option nobody offered — is a
+        // denial, and a denial nobody can see is a session that quietly did less
+        // than it was asked to.
+        let (mut cli, adapter_side) = tokio::io::duplex(4096);
+        let mut reader = FrameReader::new(adapter_side);
+        let stream = Collected::default();
+        let turn = TurnControl::new(Duration::from_secs(30));
+        let channel = channel("denied");
+        let session = session();
+
+        let asking = tokio::task::spawn_blocking({
+            let dir = channel.address().to_path_buf();
+            move || rendezvous::ask(&dir, "Bash", Some("toolu_2"), &serde_json::json!({}))
+        });
+
+        let driving = async { drive_turn(&mut reader, &turn, &channel, &stream, &session).await };
+        let feeding = async {
+            let answered = asking.await.expect("the shim finished");
+            tokio::io::AsyncWriteExt::write_all(
+                &mut cli,
+                b"{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}\n",
+            )
+            .await
+            .unwrap();
+            answered
+        };
+        let (outcome, answered) = tokio::join!(driving, feeding);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+
+        let decision = answered.expect("a decision came back");
+        assert_eq!(decision["behavior"], "deny");
+
+        let shown = stream.updates.lock().unwrap();
+        let refusal = shown
+            .iter()
+            .find_map(|update| match update {
+                SessionUpdate::ToolCallUpdate(update)
+                    if update.tool_call_id.0.as_ref() == "toolu_2" =>
+                {
+                    Some(update.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("the refusal is in the session: {shown:?}"));
+        assert_eq!(
+            refusal.fields.status,
+            Some(agent_client_protocol::schema::v1::ToolCallStatus::Failed)
+        );
+        assert!(
+            refusal.fields.content.is_some(),
+            "with the reason that produced it"
+        );
+        drop(shown);
+        channel.close();
+    }
+
+    #[tokio::test]
     async fn a_turn_the_cli_reports_as_failed_is_an_error_and_not_a_finished_turn() {
         let mut reader = saying(concat!(
             r#"{"type":"result","subtype":"error_during_execution","is_error":true,"result":"it broke"}"#,
@@ -984,9 +1333,11 @@ mod tests {
         let stream = Collected::default();
         let turn = TurnControl::new(Duration::from_millis(50));
 
-        let refusal = drive_turn(&mut reader, &turn, &stream)
+        let channel = channel("failed");
+        let refusal = drive_turn(&mut reader, &turn, &channel, &stream, &session())
             .await
             .expect_err("a failed turn is not a stop reason");
+        channel.close();
         assert_eq!(refusal.kind, "provider_turn_failed");
         assert!(refusal.detail.contains("it broke"), "{}", refusal.detail);
     }
@@ -997,9 +1348,11 @@ mod tests {
         let stream = Collected::default();
         let turn = TurnControl::new(Duration::from_millis(50));
 
-        let refusal = drive_turn(&mut reader, &turn, &stream)
+        let channel = channel("gone");
+        let refusal = drive_turn(&mut reader, &turn, &channel, &stream, &session())
             .await
             .expect_err("a turn cannot end well on a CLI that is gone");
+        channel.close();
         assert_eq!(refusal.kind, "provider_gone");
     }
 
@@ -1014,7 +1367,9 @@ mod tests {
         let stream = Collected::default();
         let turn = TurnControl::new(Duration::from_millis(30));
 
-        let driving = drive_turn(&mut reader, &turn, &stream);
+        let channel = channel("abandoned");
+        let session = session();
+        let driving = drive_turn(&mut reader, &turn, &channel, &stream, &session);
         let talking = async {
             loop {
                 tokio::io::AsyncWriteExt::write_all(
@@ -1048,10 +1403,14 @@ mod tests {
         let turn = TurnControl::new(Duration::from_secs(30));
         turn.ask_to_stop();
 
+        let channel = channel("cancelled");
         assert_eq!(
-            drive_turn(&mut reader, &turn, &stream).await.unwrap(),
+            drive_turn(&mut reader, &turn, &channel, &stream, &session())
+                .await
+                .unwrap(),
             TurnOutcome::Ended(StopReason::Cancelled)
         );
+        channel.close();
     }
 
     #[test]

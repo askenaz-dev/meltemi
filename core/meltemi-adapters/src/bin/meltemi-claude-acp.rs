@@ -13,11 +13,34 @@
 //! third-party adapters' (`claude-agent-acp`): two different bridges must never
 //! collide on the PATH, and detection must never be ambiguous about which one
 //! it found (design D2).
+//!
+//! **One binary, two roles.** Run by the daemon, it is the adapter. Run by the
+//! piloted CLI as one of its MCP servers — which is how that CLI asks a third
+//! party for permission — it is the shim of design D5, and it does nothing but
+//! carry questions to the adapter that launched the CLI. Shipping one binary is
+//! the point: the shim can never be a different version from the adapter it
+//! answers to, and the installers carry one file, not two.
+
+use std::path::Path;
 
 use meltemi_adapters::adapter::run;
-use meltemi_adapters::claude::ClaudeDialect;
+use meltemi_adapters::claude::{ClaudeDialect, shim};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(channel) = shim::requested(&args) {
+        // The permission shim needs no runtime: one CLI asks about one tool
+        // call at a time and is blocked until it hears back.
+        let stdin = std::io::stdin();
+        let stdout = std::io::stdout();
+        shim::serve(Path::new(&channel), &mut stdin.lock(), &mut stdout.lock())?;
+        return Ok(());
+    }
+    adapter()?;
+    Ok(())
+}
 
 #[tokio::main]
-async fn main() -> agent_client_protocol::Result<()> {
+async fn adapter() -> agent_client_protocol::Result<()> {
     run(ClaudeDialect::new()).await
 }

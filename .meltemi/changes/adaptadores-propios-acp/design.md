@@ -133,11 +133,37 @@ Dos canales documentados, en capas:
 1. **`--permission-prompt-tool`** apunta a una herramienta de un servidor
    MCP mínimo por stdio que el CLI lanza según el `--mcp-config`
    proyectado. El servidor es el mismo binario `meltemi-claude-acp` en un
-   modo shim, conectado a su proceso padre por un canal privado heredado
-   al lanzar (pipe anónimo); cada petición del CLI se convierte en
-   `session/request_permission` de la sesión ACP del adaptador, que
-   meltemid proxya a la bandeja humana por el flujo vigente. **El daemon
-   no gana transporte alguno** y el shim no abre socket alguno.
+   modo shim, conectado a su proceso padre por un canal privado; cada
+   petición del CLI se convierte en `session/request_permission` de la
+   sesión ACP del adaptador, que meltemid proxya a la bandeja humana por
+   el flujo vigente. **El daemon no gana transporte alguno** y el shim no
+   abre socket alguno.
+
+   **Enmienda (2026-07-27, tarea 3.3)**: este design decía «canal privado
+   heredado al lanzar (pipe anónimo)». No es implementable, y el hecho que
+   lo vence es de arquitectura, no de plataforma: **el shim no es hijo del
+   adaptador**. Lo lanza el CLI pilotado —un runtime que Meltemi no
+   controla— como uno de sus servidores MCP, de modo que el shim es un
+   nieto y ningún descriptor del adaptador sobrevive ese salto; en Windows
+   no sobrevive de ninguna forma. Lo reemplaza un **directorio de
+   rendezvous por sesión**, creado por el adaptador dentro del directorio
+   temporal del usuario (`0700` donde la plataforma tiene modos; en Windows
+   el temporal por usuario ya es exclusivo del usuario por ACL heredada):
+   el shim escribe su pregunta como archivo y espera la respuesta, ambos
+   con escritura atómica por renombrado dentro del mismo directorio. La
+   sustitución conserva **todas** las propiedades por las que el pipe
+   estaba ahí —privado al usuario, sin puerto, sin listener, sin
+   transporte nuevo en el daemon— y su costo es un sondeo de 20 ms, pagado
+   donde nadie puede notarlo: detrás de un humano decidiendo. Que el
+   directorio desaparezca es además la señal de vida del adaptador: un shim
+   que no lo encuentra deniega en el acto en vez de esperar su plazo. Se
+   descartó por escrito la alternativa de un socket local (named pipe en
+   Windows, UDS en el resto): cumpliría igual, pero el estándar de la casa
+   para un endpoint local es ACL explícita de usuario —lo que el daemon
+   hace con `windows-sys`— y eso significaba código inseguro específico de
+   plataforma en un crate cuyo design (D2) declara cero dependencias
+   nuevas; el rendezvous alcanza la misma garantía con la biblioteca
+   estándar.
 2. **Hooks `PreToolUse`** (inyectados vía `--settings`) como compuerta
    dura: deniegan toda llamada no aprobada incluso si el CLI corre en un
    modo permisivo (`bypassPermissions`). El orden de evaluación del

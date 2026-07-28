@@ -289,7 +289,7 @@ fn tool_call(block: &Value) -> SessionUpdate {
     let name = kind(block, "name").unwrap_or("tool");
     SessionUpdate::ToolCall(
         ToolCall::new(id, title_of(block))
-            .kind(tool_kind(name))
+            .kind(kind_of(name))
             .status(ToolCallStatus::InProgress)
             // The arguments, exactly as the provider sent them: the evidence a
             // human decides on, and nothing added to it.
@@ -309,8 +309,17 @@ fn tool_call(block: &Value) -> SessionUpdate {
 /// What a tool call is called in the session: the tool's own name, plus the one
 /// argument that says what it is about when there is one.
 fn title_of(block: &Value) -> String {
-    let name = kind(block, "name").unwrap_or("tool");
-    let input = block.get("input").unwrap_or(&Value::Null);
+    title_for(
+        kind(block, "name").unwrap_or("tool"),
+        block.get("input").unwrap_or(&Value::Null),
+    )
+}
+
+/// The same title, for a caller that has the name and the arguments in hand
+/// rather than a whole block — which is the permission relay, and the reason
+/// the human sees the same words on the question as on the call.
+#[must_use]
+pub fn title_for(name: &str, input: &Value) -> String {
     match ["command", "file_path", "path", "pattern", "url", "prompt"]
         .iter()
         .find_map(|field| input.get(*field).and_then(Value::as_str))
@@ -334,7 +343,8 @@ fn path_in(input: &Value) -> Option<String> {
 /// this table does not know — an MCP tool, or one the CLI grew last week — is
 /// shown as what it is rather than guessed at, because a wrong icon is worse
 /// than no icon.
-fn tool_kind(name: &str) -> ToolKind {
+#[must_use]
+pub fn kind_of(name: &str) -> ToolKind {
     match name {
         "Read" | "NotebookRead" => ToolKind::Read,
         "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => ToolKind::Edit,
