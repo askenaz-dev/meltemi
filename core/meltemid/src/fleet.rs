@@ -685,13 +685,45 @@ pub fn detect_layers(
     layers
 }
 
-/// Composes the honest install state of an entry from its layers, plus the
-/// remedy for the layer that is missing (design D2/D5). `launchable` is the
-/// pilot-point detection that `detected` reports.
-pub fn compose_state(
-    layers: &[FleetLayer],
-    launchable: bool,
-) -> (FleetInstallState, Option<String>, Option<String>) {
+/// The layer whose absence an incomplete state is about — the one every
+/// remedy, in every surface, is written for. Public so a launch refusal asks
+/// the catalog's own question instead of re-deriving the answer and drifting
+/// from it (flota-deteccion-guia design D5).
+#[must_use]
+pub fn missing_layer(layers: &[FleetLayer], launchable: bool) -> Option<&FleetLayer> {
+    let two_layer = layers.len() > 1;
+    let pilot = layers
+        .iter()
+        .find(|layer| layer.kind == FleetLayerKind::Adapter)
+        .or_else(|| {
+            layers
+                .iter()
+                .find(|layer| layer.kind == FleetLayerKind::Cli)
+        });
+    let cli = if two_layer {
+        layers
+            .iter()
+            .find(|layer| layer.kind == FleetLayerKind::Cli)
+    } else {
+        None
+    };
+    match install_state(layers, launchable) {
+        FleetInstallState::Ready => None,
+        FleetInstallState::AdapterMissing => layers
+            .iter()
+            .find(|layer| layer.kind == FleetLayerKind::Adapter),
+        FleetInstallState::CliMissing => cli,
+        _ => layers
+            .iter()
+            .find(|layer| !layer.detected || layer.evidence_only)
+            .or(pilot),
+    }
+}
+
+/// The composed install state of an entry across its layers (design D2).
+/// `launchable` is the pilot-point detection that `detected` reports.
+#[must_use]
+pub fn install_state(layers: &[FleetLayer], launchable: bool) -> FleetInstallState {
     let two_layer = layers.len() > 1;
     let pilot = layers
         .iter()
@@ -713,7 +745,7 @@ pub fn compose_state(
     let cli_found = cli.is_none_or(|layer| layer.detected);
     let evidence_only = layers.iter().any(|layer| layer.evidence_only);
 
-    let state = if launchable && cli_found {
+    if launchable && cli_found {
         FleetInstallState::Ready
     } else if launchable && !cli_found {
         FleetInstallState::CliMissing
@@ -724,39 +756,46 @@ pub fn compose_state(
         FleetInstallState::NotLaunchable
     } else {
         FleetInstallState::NotDetected
-    };
+    }
+}
 
-    let missing = match state {
-        FleetInstallState::Ready => None,
-        FleetInstallState::AdapterMissing => layers
-            .iter()
-            .find(|layer| layer.kind == FleetLayerKind::Adapter),
-        FleetInstallState::CliMissing => cli,
-        _ => layers
-            .iter()
-            .find(|layer| !layer.detected || layer.evidence_only)
-            .or(pilot),
+/// The one-sentence remedy for a layer that is missing or unlaunchable: what it
+/// is, which binary it names, and what the user does about it. A layer that
+/// travels in Meltemi's own installers is sent to reinstall or repair Meltemi
+/// and is never handed somebody else's install command, because there is none
+/// to hand (adaptadores-propios-acp design D8).
+fn remedy_for(layer: &FleetLayer) -> String {
+    let what = match layer.kind {
+        FleetLayerKind::Cli => "the official provider CLI",
+        FleetLayerKind::Adapter => "the ACP adapter",
     };
-    let remedy = missing.map(|layer| {
-        let what = match layer.kind {
-            FleetLayerKind::Cli => "the official provider CLI",
-            FleetLayerKind::Adapter => "the ACP adapter",
-        };
-        match (&layer.install, layer.evidence_only) {
-            (Some(command), false) => {
-                format!("{what} (`{}`) is missing: {command}", layer.bin)
-            }
-            (Some(command), true) => format!(
-                "{what} (`{}`) is only a script shim, which cannot be launched: {command}",
-                layer.bin
-            ),
-            (None, true) => format!(
-                "{what} (`{}`) is only a script shim, which cannot be launched",
-                layer.bin
-            ),
-            (None, false) => format!("{what} (`{}`) was not found on this system", layer.bin),
+    let bin = &layer.bin;
+    let trouble = if layer.evidence_only {
+        "is only a script shim, which cannot be launched"
+    } else if layer.bundled {
+        "travels in Meltemi's own installers and is not beside the daemon"
+    } else {
+        "was not found on this system"
+    };
+    match (&layer.install, layer.bundled) {
+        (Some(command), _) => format!("{what} (`{bin}`) {trouble}: {command}"),
+        (None, true) => {
+            format!("{what} (`{bin}`) {trouble}: reinstall or repair your Meltemi installation")
         }
-    });
+        (None, false) => format!("{what} (`{bin}`) {trouble}"),
+    }
+}
+
+/// Composes the honest install state of an entry from its layers, plus the
+/// remedy for the layer that is missing (design D2/D5). `launchable` is the
+/// pilot-point detection that `detected` reports.
+pub fn compose_state(
+    layers: &[FleetLayer],
+    launchable: bool,
+) -> (FleetInstallState, Option<String>, Option<String>) {
+    let state = install_state(layers, launchable);
+    let missing = missing_layer(layers, launchable);
+    let remedy = missing.map(remedy_for);
     let remedy_command = missing.and_then(|layer| layer.install.clone());
     (state, remedy, remedy_command)
 }

@@ -226,9 +226,11 @@ fn undetected(name: &str) -> String {
 }
 
 /// The refusal to launch an undetected agent, carrying the SAME diagnosis the
-/// fleet view gives: which layer is missing and the exact command that installs
-/// it (flota-deteccion-guia design D5). A generic "not detected" at the moment
-/// the user most needs the answer is what this replaces.
+/// fleet view gives: which layer is missing and what to do about it — the exact
+/// install command for a layer the user installs, and the reinstall path for a
+/// layer that travels in Meltemi's own installers (flota-deteccion-guia design
+/// D5; adaptadores-propios-acp design D8). A generic "not detected" at the
+/// moment the user most needs the answer is what this replaces.
 fn layer_refusal(
     entry: &crate::fleet::CatalogEntry,
     path_var: &OsStr,
@@ -236,15 +238,26 @@ fn layer_refusal(
 ) -> RpcError {
     let layers = crate::fleet::detect_layers(entry, path_var, bundled_dir);
     let (_, remedy, command) = crate::fleet::compose_state(&layers, false);
+    let bundled = crate::fleet::missing_layer(&layers, false).is_some_and(|layer| layer.bundled);
     let detail = match remedy {
         Some(remedy) => format!("agent `{}`: {remedy}", entry.id),
         None => undetected(&entry.name),
     };
-    let hint = match command {
+    let hint = match (command, bundled) {
         // The command travels in the remedy: it is what the user must run.
-        Some(command) => format!("Install the missing layer: `{command}` (see `meltemi fleet`)."),
-        None => "Run `meltemi fleet`, install the agent's official CLI, or set `agent.command`."
+        (Some(command), _) => {
+            format!("Install the missing layer: `{command}` (see `meltemi fleet`).")
+        }
+        // Nobody else publishes this layer, so there is no command to give: the
+        // remedy is Meltemi's own installer, and saying otherwise would send the
+        // user looking for a package that does not exist.
+        (None, true) => "That layer ships with Meltemi: reinstall or repair your Meltemi \
+             installation (see `meltemi fleet`)."
             .to_string(),
+        (None, false) => {
+            "Run `meltemi fleet`, install the agent's official CLI, or set `agent.command`."
+                .to_string()
+        }
     };
     RpcError::application(
         error_codes::AGENT_NOT_DETECTED,

@@ -822,3 +822,99 @@ fn a_third_party_adapter_declared_by_the_user_is_piloted_like_any_other() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// Scenario: Capa empaquetada ausente remite a la instalación de Meltemi
+// Scenario: Rehúso de lanzamiento nombra la capa que falta
+#[test]
+fn a_missing_bundled_layer_sends_the_user_to_meltemis_own_installer() {
+    use meltemi_proto::FleetInstallState;
+    // The provider's CLI is installed; Meltemi's own adapter is nowhere — the
+    // shape of a broken or partial Meltemi installation.
+    let dir = temp("bundled-missing");
+    let catalog = bundled_registry(&dir, "vendor");
+    fake_binary(&dir, "vendor");
+    let path_var = std::ffi::OsString::from(dir.display().to_string());
+    let entry = catalog.entries.iter().find(|e| e.id == "vendor").unwrap();
+
+    // Nothing beside the daemon either: the probe runs and finds nothing.
+    let empty = temp("bundled-missing-beside");
+    let layers = meltemid::fleet::detect_layers(entry, &path_var, Some(&empty));
+    let (state, remedy, command) = meltemid::fleet::compose_state(&layers, false);
+    assert_eq!(state, FleetInstallState::AdapterMissing);
+    let remedy = remedy.expect("an incomplete state always carries its remedy");
+    let lower = remedy.to_lowercase();
+    assert!(
+        lower.contains("meltemi") && lower.contains("reinstall"),
+        "the remedy sends the user to Meltemi's own installation: {remedy}"
+    );
+    assert!(
+        remedy.contains("meltemi-vendor-acp"),
+        "and names the layer that is missing: {remedy}"
+    );
+    assert!(
+        command.is_none(),
+        "a bundled layer offers no install command at all, third-party or not: {command:?}"
+    );
+    for forbidden in ["npm i", "npx", "cargo install", "pip install"] {
+        assert!(
+            !remedy.contains(forbidden),
+            "no third-party install route may appear here: {remedy}"
+        );
+    }
+
+    // The launch refusal says the same thing, in its own remedy field.
+    let error = meltemid::levels::resolve_id_launch(&catalog, "vendor", &path_var, Some(&empty))
+        .expect_err("a missing pilot layer refuses to launch");
+    assert_eq!(error.code, meltemi_proto::error_codes::AGENT_NOT_DETECTED);
+    let data = error.data.as_ref().expect("the refusal carries error data");
+    let detail = data
+        .get("detail")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let hint = data
+        .get("remedy")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    assert!(
+        detail.contains("meltemi-vendor-acp"),
+        "the refusal names the absent layer: {detail}"
+    );
+    assert!(
+        hint.to_lowercase().contains("reinstall") && hint.to_lowercase().contains("meltemi"),
+        "and its remedy is the one for a layer of that type: {hint}"
+    );
+
+    for d in [&dir, &empty] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+// Scenario: Remedio con el comando exacto por capa
+#[test]
+fn every_surface_prints_the_remedy_it_is_given() {
+    // The remedy is composed once, in the daemon, and each surface renders that
+    // same sentence: none of them rewrites it, and none of them owns a second
+    // copy of the rule about what a bundled layer's remedy says.
+    let cli = read("tui/src/run.rs");
+    assert!(
+        cli.contains("remedy: {remedy}"),
+        "the scriptable surface prints the remedy in its human mode"
+    );
+    let tui = read("tui/src/shell/render.rs");
+    assert!(
+        tui.contains("{remedy}"),
+        "the terminal view prints it beside the entry"
+    );
+    let gui = read("desktop/ui/src/lib/views/Fleet.svelte");
+    assert!(
+        gui.contains("{selected.remedy}"),
+        "the desktop detail prints it too"
+    );
+    // And none of them composes one of its own.
+    for (name, source) in [("tui/run.rs", &cli), ("tui/render.rs", &tui)] {
+        assert!(
+            !source.contains("reinstall or repair"),
+            "{name} must render the daemon's remedy, not write its own"
+        );
+    }
+}
