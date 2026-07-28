@@ -163,3 +163,36 @@ fn a_script_from_a_file_replaces_the_embedded_one() {
     assert_eq!(events[0]["capabilities"][0], "custom");
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn the_hook_is_run_through_a_shell_with_its_command_line_intact() {
+    // The adapter writes a hook command with quoted paths, because the paths a
+    // real install uses have spaces in them. This is where that quoting is
+    // tested rather than assumed: the command goes through the same shell a CLI
+    // uses, and what it printed has to come back.
+    let dir = std::env::temp_dir().join(format!("meltemi hook test {}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let settings = dir.join("settings.json");
+    let command = format!("\"{}\" --version", env!("CARGO_BIN_EXE_mock-claude-wire"));
+    std::fs::write(
+        &settings,
+        serde_json::json!({
+            "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [
+                {"type": "command", "command": command}
+            ]}]},
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let handed = mock_provider::claude_permissions::Handed {
+        settings: Some(settings),
+        ..mock_provider::claude_permissions::Handed::default()
+    };
+    let decision = handed.ask_hook("Write", "toolu_1", &serde_json::json!({}));
+    assert!(
+        decision.reason.contains("mock"),
+        "the hook ran and what it said came back: {decision:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

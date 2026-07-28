@@ -22,6 +22,15 @@ pub enum Step {
     Emit(String),
     /// Wait for one line of input before going on.
     AwaitInput,
+    /// Do something only the wire itself knows how to do — ask a permission
+    /// channel, for instance — and emit whatever that produced.
+    ///
+    /// The directive travels as the raw object it was written as, because what
+    /// it means belongs to the binary playing it and not to this player. What
+    /// the player still guarantees is that an unknown one is loud: the handler
+    /// rejects it and the process ends with a diagnostic, rather than a wire
+    /// quietly skipping the step a test was written for.
+    Directive(serde_json::Value),
 }
 
 /// One meaningful line of a script: its 1-based number, its raw text (the
@@ -71,12 +80,7 @@ pub fn parse(source: &str) -> Result<Vec<Step>, String> {
     for line in lines(source)? {
         match line.value.get("mock").and_then(serde_json::Value::as_str) {
             Some("await-input") => steps.push(Step::AwaitInput),
-            Some(other) => {
-                return Err(format!(
-                    "script line {}: unknown directive `{other}`",
-                    line.number
-                ));
-            }
+            Some(_) => steps.push(Step::Directive(line.value)),
             None => steps.push(Step::Emit(line.raw)),
         }
     }
@@ -120,17 +124,19 @@ pub fn load(args: &[String], env_var: &str, embedded: &str) -> Result<Vec<Step>,
 /// `await-input` is emitted once and ends.
 ///
 /// `on_input` sees every input line: a fixture uses it to assert the adapter
-/// speaks the dialect it claims to.
+/// speaks the dialect it claims to. `on_directive` performs a step only the
+/// wire knows how to perform and answers with the lines it produced.
 ///
 /// # Errors
 ///
-/// Returns the I/O error of the underlying streams, or whatever `on_input`
-/// rejected.
+/// Returns the I/O error of the underlying streams, or whatever `on_input` or
+/// `on_directive` rejected.
 pub fn play(
     steps: &[Step],
     input: &mut impl BufRead,
     output: &mut impl Write,
     mut on_input: impl FnMut(&str) -> Result<(), String>,
+    mut on_directive: impl FnMut(&serde_json::Value) -> Result<Vec<String>, String>,
 ) -> Result<(), String> {
     let turn_start = steps
         .iter()
@@ -150,6 +156,12 @@ pub fn play(
                 writeln!(output, "{line}").map_err(|e| format!("cannot write: {e}"))?;
                 // The adapter is waiting on this line, not on a full buffer.
                 output.flush().map_err(|e| format!("cannot flush: {e}"))?;
+            }
+            Step::Directive(directive) => {
+                for line in on_directive(directive)? {
+                    writeln!(output, "{line}").map_err(|e| format!("cannot write: {e}"))?;
+                    output.flush().map_err(|e| format!("cannot flush: {e}"))?;
+                }
             }
             Step::AwaitInput => {
                 let mut line = String::new();
@@ -193,10 +205,16 @@ mod tests {
         let mut input = std::io::Cursor::new("{\"type\":\"user\"}\n{\"type\":\"user\"}\n");
         let mut output = Vec::new();
         let mut seen = Vec::new();
-        play(&steps, &mut input, &mut output, |line| {
-            seen.push(line.to_string());
-            Ok(())
-        })
+        play(
+            &steps,
+            &mut input,
+            &mut output,
+            |line| {
+                seen.push(line.to_string());
+                Ok(())
+            },
+            |directive| Err(format!("no directive expected here: {directive}")),
+        )
         .unwrap();
 
         assert_eq!(
@@ -213,8 +231,23 @@ mod tests {
         // broken fixture must look like a broken fixture.
         let error = parse("{\"ok\":1}\nnot json\n").expect_err("the second line is not JSON");
         assert!(error.contains("line 2"), "{error}");
+    }
 
-        let error = parse("{\"mock\":\"teleport\"}\n").expect_err("unknown directive");
+    #[test]
+    fn a_directive_the_wire_does_not_know_stops_the_wire_instead_of_being_skipped() {
+        // A step a test was written for must never be quietly passed over: the
+        // test would go green having exercised nothing.
+        let steps = parse("{\"mock\":\"teleport\"}\n").expect("directives parse");
+        let mut input = std::io::Cursor::new(Vec::new());
+        let mut output = Vec::new();
+        let error = play(
+            &steps,
+            &mut input,
+            &mut output,
+            |_| Ok(()),
+            |directive| Err(format!("unknown directive: {directive}")),
+        )
+        .expect_err("the wire refuses what it cannot do");
         assert!(error.contains("teleport"), "{error}");
     }
 }

@@ -26,7 +26,8 @@
 
 use std::io::Write;
 
-use mock_provider::script;
+use mock_provider::{claude_permissions, script};
+use serde_json::Value;
 
 /// The signed-in session wire.
 const SIGNED_IN: &str = include_str!("../../scripts/claude-signed-in.ndjson");
@@ -59,9 +60,56 @@ fn main() {
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
 
-    if let Err(error) = script::play(&steps, &mut input, &mut output, check_input) {
+    let handed = claude_permissions::Handed::from_args(&args);
+    if let Err(error) = script::play(&steps, &mut input, &mut output, check_input, |directive| {
+        ask(&handed, directive)
+    }) {
         fail(&error);
     }
+}
+
+/// Runs one permission directive the way the CLI would run that channel, and
+/// answers with the events the CLI would emit for the decision.
+///
+/// Two directives, one per channel, because the provider's documented order
+/// means only one of them decides any given call: the hook first and finally,
+/// the prompt tool only for what the hook did not decide. A test picks the
+/// channel it means to exercise.
+fn ask(handed: &claude_permissions::Handed, directive: &Value) -> Result<Vec<String>, String> {
+    let which = directive
+        .get("mock")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let tool = directive
+        .get("tool")
+        .and_then(Value::as_str)
+        .unwrap_or("Write");
+    let tool_use_id = directive
+        .get("toolUseId")
+        .and_then(Value::as_str)
+        .unwrap_or("toolu_mock_1");
+    let input = directive
+        .get("input")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
+
+    let decision = match which {
+        "ask-hook" => handed.ask_hook(tool, tool_use_id, &input),
+        "ask-prompt-tool" => handed.ask_prompt_tool(tool, tool_use_id, &input),
+        // A wire that will not end its turn and will not take the hint: the
+        // shape a cancellation has to survive. It ignores the end of its input
+        // too, which is the only stop this dialect documents.
+        "never-stop" => loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        },
+        other => return Err(format!("unknown directive `{other}`: {directive}")),
+    };
+    Ok(claude_permissions::tool_events(
+        tool,
+        tool_use_id,
+        &input,
+        &decision,
+    ))
 }
 
 /// Holds the adapter to the input dialect: every line must be JSON, and every
