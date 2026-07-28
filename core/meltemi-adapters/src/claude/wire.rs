@@ -162,6 +162,67 @@ pub fn mcp_config(servers: serde_json::Map<String, serde_json::Value>) -> serde_
     serde_json::json!({ "mcpServers": servers })
 }
 
+/// One MCP server of the session's projection, in the shape the CLI's
+/// configuration takes it.
+///
+/// `None` for a transport this adapter cannot hand over — which it never
+/// silently drops: the caller says so in the session, because a tool the user
+/// declared and never got is exactly the kind of absence that reads as a bug in
+/// the agent.
+#[must_use]
+pub fn server_entry(
+    server: &agent_client_protocol::schema::v1::McpServer,
+) -> Option<(String, serde_json::Value)> {
+    use agent_client_protocol::schema::v1::McpServer;
+    match server {
+        McpServer::Stdio(stdio) => Some((
+            stdio.name.clone(),
+            serde_json::json!({
+                "type": "stdio",
+                "command": stdio.command.display().to_string(),
+                "args": stdio.args,
+                "env": stdio.env.iter()
+                    .map(|variable| (variable.name.clone(), serde_json::Value::from(variable.value.clone())))
+                    .collect::<serde_json::Map<_, _>>(),
+            }),
+        )),
+        McpServer::Http(http) => Some((
+            http.name.clone(),
+            serde_json::json!({
+                "type": "http",
+                "url": http.url,
+                "headers": http.headers.iter()
+                    .map(|header| (header.name.clone(), serde_json::Value::from(header.value.clone())))
+                    .collect::<serde_json::Map<_, _>>(),
+            }),
+        )),
+        McpServer::Sse(sse) => Some((
+            sse.name.clone(),
+            serde_json::json!({
+                "type": "sse",
+                "url": sse.url,
+                "headers": sse.headers.iter()
+                    .map(|header| (header.name.clone(), serde_json::Value::from(header.value.clone())))
+                    .collect::<serde_json::Map<_, _>>(),
+            }),
+        )),
+        _ => None,
+    }
+}
+
+/// Resumes the CLI's own session of this name.
+///
+/// Only `--resume`, never the flag that forks the resumed session into a new
+/// one: the daemon asked for *this* session to continue, and a fork would
+/// quietly answer with a different one whose id nobody holds.
+pub const RESUME: &str = "--resume";
+
+/// The flags that continue a session the CLI kept.
+#[must_use]
+pub fn resume_args(provider_session: &str) -> Vec<String> {
+    vec![RESUME.to_string(), provider_session.to_string()]
+}
+
 /// The user's turn, in the shape this wire takes it.
 ///
 /// The content is a list of blocks rather than a bare string: that is the shape
@@ -268,6 +329,18 @@ mod tests {
             .expect("an initial event that announces nothing still parses");
         assert!(bare.api_key_source.is_none());
         assert!(bare.capabilities.is_empty());
+    }
+
+    #[test]
+    fn a_resume_names_the_session_the_cli_kept_and_never_forks_it() {
+        // Scenario: Reanudación mapeada a la sesión ACP
+        //
+        // The daemon asked for *this* session to continue. Forking would give
+        // it a different one, whose id nobody holds and whose work nobody asked
+        // for.
+        let args = resume_args("abc-123");
+        assert_eq!(args, vec![RESUME.to_string(), "abc-123".to_string()]);
+        assert!(!args.iter().any(|arg| arg.contains("fork")), "{args:?}");
     }
 
     #[test]

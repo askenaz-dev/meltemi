@@ -33,8 +33,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    Meta, NewSessionRequest, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
-    SessionId, SessionInfoUpdate, SessionNotification, SessionUpdate, StopReason,
+    AgentCapabilities, LoadSessionRequest, McpCapabilities, McpServer, Meta, NewSessionRequest,
+    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, SessionId,
+    SessionInfoUpdate, SessionNotification, SessionUpdate, StopReason,
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use serde_json::{Value, json};
@@ -42,7 +43,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio::sync::{Mutex, watch};
 
-use crate::adapter::{AdapterSpec, Dialect, ProviderDialect, ProviderSession};
+use crate::adapter::{AdapterSpec, Dialect, Opened, ProviderDialect, ProviderSession};
 use crate::diagnostic::Refusal;
 use crate::ndjson::{Frame, FrameReader, FrameWriter};
 use crate::supervisor::{
@@ -330,17 +331,21 @@ enum TurnOutcome {
     Abandoned,
 }
 
-/// Everything a session needs in place before the CLI is launched, so that the
-/// CLI has somewhere to ask: the private channel, and the configuration file
-/// that tells it where.
+/// Everything a session needs in place before the CLI is launched: the private
+/// channel, the configuration that tells the CLI where to ask and which tools
+/// it has, and the settings that gate every call it makes.
 struct Governed {
     /// The channel the shim and the gate ask over.
     rendezvous: Rendezvous,
-    /// The MCP configuration the CLI is handed: where to ask.
+    /// The MCP configuration the CLI is handed: where to ask, and the session's
+    /// own projected servers.
     config: PathBuf,
     /// The settings the CLI is handed: the hook that runs before every tool
     /// call, which no mode of the CLI can skip.
     settings: PathBuf,
+    /// Projected servers this adapter could not describe to the CLI, by name.
+    /// Nothing is dropped quietly: the session says so.
+    undelivered: Vec<String>,
 }
 
 impl Governed {
@@ -353,7 +358,7 @@ impl Governed {
     /// be written. There is no session without it: a CLI launched with nowhere
     /// to ask would run tools nobody governs, which is the one outcome this
     /// whole architecture exists to prevent.
-    fn open(session_id: &SessionId) -> Result<Self, Refusal> {
+    fn open(session_id: &SessionId, projected: &[McpServer]) -> Result<Self, Refusal> {
         let dir = std::env::temp_dir().join(format!(
             "{}-{}-{}",
             SPEC.name,
@@ -364,10 +369,27 @@ impl Governed {
 
         let exe = std::env::current_exe()
             .map_err(|error| ungoverned(&format!("this adapter cannot find itself ({error})")))?;
-        let (name, server) = permission::shim_server(&exe, rendezvous.address());
+
+        // The session's own MCP servers first, then the one that governs it:
+        // insertion order decides a name collision, and the permission server
+        // is not a thing a projected server may displace.
         let mut servers = serde_json::Map::new();
+        let mut undelivered = Vec::new();
+        for server in projected {
+            match wire::server_entry(server) {
+                Some((name, entry)) => {
+                    servers.insert(name, entry);
+                }
+                None => undelivered.push(server_name(server)),
+            }
+        }
+        let (name, server) = permission::shim_server(&exe, rendezvous.address());
         servers.insert(name, server);
 
+        // Written inside the session's own private directory, which is where
+        // resolved environment values may live and nowhere else: the daemon
+        // already resolved them, this file is the only copy, and it goes when
+        // the session does. Nothing of it reaches a log.
         let config = rendezvous.address().join("mcp.json");
         let settings = rendezvous.address().join("settings.json");
         let written =
@@ -387,7 +409,18 @@ impl Governed {
             rendezvous,
             config,
             settings,
+            undelivered,
         })
+    }
+}
+
+/// The name of a projected server, whatever its transport.
+fn server_name(server: &McpServer) -> String {
+    match server {
+        McpServer::Stdio(stdio) => stdio.name.clone(),
+        McpServer::Http(http) => http.name.clone(),
+        McpServer::Sse(sse) => sse.name.clone(),
+        _ => "unnamed".to_string(),
     }
 }
 
@@ -571,21 +604,106 @@ impl ProviderDialect for ClaudeDialect {
         SPEC
     }
 
+    /// What this dialect can honestly do, now that it can do it.
+    ///
+    /// MCP over both remote transports, because the CLI's own configuration
+    /// takes them and every byte of that traffic leaves from the CLI, never
+    /// from here. And session load, because the CLI keeps its sessions and this
+    /// dialect names its ACP sessions after them.
+    fn capabilities(&self) -> AgentCapabilities {
+        AgentCapabilities::new()
+            .load_session(true)
+            .mcp_capabilities(McpCapabilities::new().http(true).sse(true))
+    }
+
     async fn open(
         &self,
         session_id: SessionId,
         request: NewSessionRequest,
         cx: ConnectionTo<Client>,
+    ) -> Result<Opened<Self::Session>, Refusal> {
+        self.start(
+            Start {
+                session_id,
+                cwd: request.cwd,
+                mcp_servers: request.mcp_servers,
+                resume: None,
+            },
+            cx,
+        )
+        .await
+    }
+
+    async fn load(
+        &self,
+        request: LoadSessionRequest,
+        cx: ConnectionTo<Client>,
     ) -> Result<Self::Session, Refusal> {
+        // The id the daemon remembers is the CLI's own, because that is what
+        // `open` answered with — so resuming needs nothing remembered on either
+        // side.
+        //
+        // What may be resumed is scoped by the CLI's own rule plus this
+        // launch's working directory: it looks for the session among those of
+        // the directory it runs in, which is the project root or one of its
+        // worktrees, exactly the directory the daemon asked for. A session
+        // belonging somewhere else is not found, and that refusal is the CLI's
+        // to give rather than this adapter's to guess at.
+        let previous = request.session_id.0.as_ref().to_string();
+        let opened = self
+            .start(
+                Start {
+                    session_id: request.session_id,
+                    cwd: request.cwd,
+                    mcp_servers: request.mcp_servers,
+                    resume: Some(previous),
+                },
+                cx,
+            )
+            .await?;
+        Ok(opened.session)
+    }
+}
+
+/// What a session needs to be launched, whether it is new or resumed.
+struct Start {
+    /// The id this session is addressed by until the CLI names its own.
+    session_id: SessionId,
+    /// Where the CLI runs: the project root or one of its worktrees.
+    cwd: PathBuf,
+    /// The MCP servers the daemon projected onto this session.
+    mcp_servers: Vec<McpServer>,
+    /// The CLI session to continue, when this is a resume.
+    resume: Option<String>,
+}
+
+impl ClaudeDialect {
+    /// Launches the CLI for one session and shakes hands with it.
+    ///
+    /// One path for a new session and a resumed one, because the difference
+    /// between them is two arguments: everything that governs a session — the
+    /// channel, the gate, the surface check, the provenance — is the same
+    /// either way, and a second path would be a second place for one of them to
+    /// go missing.
+    ///
+    /// # Errors
+    ///
+    /// Refuses when the CLI cannot be launched, cannot be governed, or
+    /// announces a surface this adapter may not pilot.
+    async fn start(
+        &self,
+        start: Start,
+        cx: ConnectionTo<Client>,
+    ) -> Result<Opened<ClaudeSession>, Refusal> {
         // Asked before anything is piloted: a binary that cannot answer what it
         // is cannot be piloted either, and the answer is what the session log
         // will hold.
-        let version = announced_version(&self.program, &request.cwd).await?;
+        let version = announced_version(&self.program, &start.cwd).await?;
 
         // Before the CLI exists, because the CLI is told where to ask as it is
         // launched. A session that could not open this channel is a session
         // whose tool calls nobody would govern, so it does not open at all.
-        let governed = Governed::open(&session_id)?;
+        let governed = Governed::open(&start.session_id, &start.mcp_servers)?;
 
         let mut args = wire::session_args();
         args.extend(wire::permission_args(
@@ -593,10 +711,13 @@ impl ProviderDialect for ClaudeDialect {
             &permission::prompt_tool_reference(),
             &governed.settings,
         ));
+        if let Some(previous) = &start.resume {
+            args.extend(wire::resume_args(previous));
+        }
         let command = ProviderCommand {
             program: self.program.clone(),
             args,
-            cwd: request.cwd.clone(),
+            cwd: start.cwd.clone(),
         };
         let mut provider = match spawn(&command, SPEC.provider_layer) {
             Ok(provider) => provider,
@@ -627,6 +748,25 @@ impl ProviderDialect for ClaudeDialect {
         if let Some(note) = announced.note() {
             eprintln!("{}: {note}", SPEC.name);
         }
+        for undelivered in &governed.undelivered {
+            // A tool the user declared and never got is exactly the kind of
+            // absence that reads as a bug in the agent. It is said out loud.
+            eprintln!(
+                "{}: the MCP server `{undelivered}` was not handed to the CLI: \
+                 this adapter cannot describe its transport in the CLI's configuration",
+                SPEC.name
+            );
+        }
+
+        // The session answers to the CLI's own id from here on, so that a later
+        // resume can name it without anything having to be remembered anywhere.
+        // When the CLI announces none, the minted id stands, and a resume of
+        // that session is refused by the CLI rather than answered wrongly.
+        let session_id = init
+            .session_id
+            .as_deref()
+            .filter(|_| start.resume.is_none())
+            .map_or_else(|| start.session_id.clone(), SessionId::new);
 
         // The effective binary, the version it turned out to be and the surface
         // it announced, into the session log before anything else this session
@@ -648,14 +788,17 @@ impl ProviderDialect for ClaudeDialect {
         // a stream that must be readable while a cancellation writes, so the
         // halves go their separate ways.
         let (control, writer, reader) = provider.into_parts();
-        Ok(ClaudeSession {
-            writer: Mutex::new(writer),
-            reader: Mutex::new(reader),
-            control: Mutex::new(Some(control)),
-            turn: TurnControl::new(INTERRUPT_GRACE),
-            rendezvous: governed.rendezvous,
-            stream: AcpStream { session_id, cx },
-            shutdown: self.shutdown,
+        Ok(Opened {
+            id: session_id.clone(),
+            session: ClaudeSession {
+                writer: Mutex::new(writer),
+                reader: Mutex::new(reader),
+                control: Mutex::new(Some(control)),
+                turn: TurnControl::new(INTERRUPT_GRACE),
+                rendezvous: governed.rendezvous,
+                stream: AcpStream { session_id, cx },
+                shutdown: self.shutdown,
+            },
         })
     }
 }
@@ -1087,6 +1230,59 @@ mod tests {
         assert_eq!(
             logged["_meta"]["meltemi"]["providerCapabilities"][0],
             "interrupt_receipt_v1"
+        );
+    }
+
+    #[test]
+    fn the_sessions_mcp_projection_is_handed_to_the_cli_beside_the_one_that_governs_it() {
+        // Scenario: Proyección MCP entregada al CLI
+        //
+        // What the user declared reaches the CLI through the channel the CLI
+        // documents for it, and the server that governs the session goes in
+        // last: a projected server may not displace the one every tool call is
+        // decided through, whatever it is called.
+        use agent_client_protocol::schema::v1::{EnvVariable, McpServerHttp, McpServerStdio};
+
+        let projected = vec![
+            McpServer::Stdio({
+                let mut stdio = McpServerStdio::new("fs", "mcp-fs");
+                stdio.args = vec!["--root".into(), ".".into()];
+                stdio.env = vec![EnvVariable::new("TOKEN", "resolved-by-the-daemon")];
+                stdio
+            }),
+            McpServer::Http(McpServerHttp::new("issues", "https://example.invalid/mcp")),
+            // A server calling itself what the permission server is called.
+            McpServer::Stdio(McpServerStdio::new(permission::SERVER, "impostor")),
+        ];
+        let governed = Governed::open(&SessionId::new("s-mcp"), &projected)
+            .expect("the session can be governed");
+        let written: Value = serde_json::from_str(
+            &std::fs::read_to_string(&governed.config)
+                .expect("the CLI's configuration was written"),
+        )
+        .expect("and it is JSON");
+        let servers = &written["mcpServers"];
+
+        assert_eq!(servers["fs"]["type"], "stdio");
+        assert_eq!(servers["fs"]["args"][0], "--root");
+        assert_eq!(
+            servers["fs"]["env"]["TOKEN"], "resolved-by-the-daemon",
+            "the value the daemon resolved travels to the CLI and nowhere else"
+        );
+        assert_eq!(servers["issues"]["type"], "http");
+        assert_eq!(servers["issues"]["url"], "https://example.invalid/mcp");
+        assert!(
+            servers[permission::SERVER]["args"]
+                .as_array()
+                .is_some_and(|args| args.iter().any(|arg| arg == shim::SHIM_ARG)),
+            "the server that governs the session is the one that answers to its name: {servers}"
+        );
+        assert!(governed.undelivered.is_empty());
+
+        governed.rendezvous.close();
+        assert!(
+            !governed.config.exists(),
+            "and the file with the resolved values dies with the session"
         );
     }
 

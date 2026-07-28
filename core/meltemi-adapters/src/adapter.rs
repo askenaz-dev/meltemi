@@ -23,7 +23,8 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, CancelNotification, InitializeRequest, InitializeResponse,
-    NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, SessionId, StopReason,
+    LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse, PromptRequest,
+    PromptResponse, SessionId, StopReason,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Stdio};
 use tokio::sync::Mutex;
@@ -82,6 +83,20 @@ pub trait ProviderSession: Send + Sync + 'static {
     fn shutdown(&self, policy: ShutdownPolicy) -> impl Future<Output = ()> + Send;
 }
 
+/// A session that was opened, and the id it answers to.
+///
+/// The id is the dialect's to choose because resuming is: a CLI that keeps its
+/// own sessions is asked to resume one **by its own id**, so a dialect that can
+/// resume names its ACP sessions after the provider's, and the daemon's later
+/// `session/load` needs no memory anywhere to translate. A dialect that cannot
+/// resume keeps the id it was handed.
+pub struct Opened<S> {
+    /// The id this session answers to from here on.
+    pub id: SessionId,
+    /// The provider side of it.
+    pub session: S,
+}
+
 /// How one adapter binary pilots its provider.
 pub trait ProviderDialect: Send + Sync + 'static {
     /// The provider side of a session in this dialect.
@@ -89,6 +104,15 @@ pub trait ProviderDialect: Send + Sync + 'static {
 
     /// What this binary announces over ACP and which CLI it pilots.
     fn spec(&self) -> AdapterSpec;
+
+    /// What this dialect announces in the ACP handshake.
+    ///
+    /// Announced honestly and never earlier than true: a capability claimed
+    /// here makes the daemon offer something — a resume, a set of MCP servers —
+    /// that the dialect must then actually be able to do.
+    fn capabilities(&self) -> AgentCapabilities {
+        AgentCapabilities::new()
+    }
 
     /// Launches the official CLI for a new ACP session and hands back the
     /// session that pilots it.
@@ -102,7 +126,32 @@ pub trait ProviderDialect: Send + Sync + 'static {
         session_id: SessionId,
         request: NewSessionRequest,
         cx: ConnectionTo<Client>,
-    ) -> impl Future<Output = Result<Self::Session, Refusal>> + Send;
+    ) -> impl Future<Output = Result<Opened<Self::Session>, Refusal>> + Send;
+
+    /// Reopens a session the CLI itself kept, so that a turn continues where
+    /// the last one left off.
+    ///
+    /// # Errors
+    ///
+    /// Refuses when the dialect cannot resume at all — which is the default,
+    /// and which is also why such a dialect must not announce that it can.
+    fn load(
+        &self,
+        request: LoadSessionRequest,
+        cx: ConnectionTo<Client>,
+    ) -> impl Future<Output = Result<Self::Session, Refusal>> + Send {
+        let spec = self.spec();
+        let _ = (request, cx);
+        async move {
+            Err(Refusal::new(
+                "session_load_unsupported",
+                spec.provider_layer,
+                "this adapter cannot reopen a previous session of the piloted CLI".to_string(),
+                "Start a new session; this agent's sessions are not resumable through Meltemi."
+                    .to_string(),
+            ))
+        }
+    }
 }
 
 /// A session the daemon opened on this adapter.
@@ -215,16 +264,6 @@ impl<S: ProviderSession> Sessions<S> {
     }
 }
 
-/// The capabilities this adapter announces.
-///
-/// Announced honestly and no earlier than true: session load stays off until
-/// resume is mapped, and MCP passthrough until the projection is handed to the
-/// CLI. An adapter that announced them now would make the daemon offer a resume
-/// that cannot happen.
-fn capabilities() -> AgentCapabilities {
-    AgentCapabilities::new()
-}
-
 /// Renders an ACP session id as the plain string it serializes as.
 fn session_key(id: &SessionId) -> String {
     id.0.as_ref().to_string()
@@ -241,6 +280,7 @@ pub async fn run<D: ProviderDialect>(dialect: D) -> agent_client_protocol::Resul
     let sessions: Arc<Sessions<D::Session>> = Arc::new(Sessions::default());
     let shutdown = ShutdownPolicy::default();
 
+    let announced = dialect.capabilities();
     let served = Agent
         .builder()
         .name(spec.name)
@@ -248,7 +288,7 @@ pub async fn run<D: ProviderDialect>(dialect: D) -> agent_client_protocol::Resul
             async move |initialize: InitializeRequest, responder, _cx| {
                 responder.respond(
                     InitializeResponse::new(initialize.protocol_version)
-                        .agent_capabilities(capabilities()),
+                        .agent_capabilities(announced.clone()),
                 )
             },
             agent_client_protocol::on_receive_request!(),
@@ -268,10 +308,38 @@ pub async fn run<D: ProviderDialect>(dialect: D) -> agent_client_protocol::Resul
                     cx.spawn({
                         let cx = cx.clone();
                         async move {
-                            match dialect.open(id.clone(), request, cx).await {
-                                Ok(provider) => {
-                                    sessions.register(&id, provider).await;
-                                    responder.respond(NewSessionResponse::new(id))
+                            match dialect.open(id, request, cx).await {
+                                Ok(opened) => {
+                                    // Under the id the dialect chose, which is
+                                    // the provider's own wherever resuming
+                                    // means naming it later.
+                                    sessions.register(&opened.id, opened.session).await;
+                                    responder.respond(NewSessionResponse::new(opened.id))
+                                }
+                                Err(refusal) => responder.respond_with_error(refusal.into()),
+                            }
+                        }
+                    })?;
+                    Ok(())
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let sessions = sessions.clone();
+                let dialect = dialect.clone();
+                async move |request: LoadSessionRequest, responder, cx: ConnectionTo<Client>| {
+                    let sessions = sessions.clone();
+                    let dialect = dialect.clone();
+                    let id = request.session_id.clone();
+                    cx.spawn({
+                        let cx = cx.clone();
+                        async move {
+                            match dialect.load(request, cx).await {
+                                Ok(session) => {
+                                    sessions.register(&id, session).await;
+                                    responder.respond(LoadSessionResponse::new())
                                 }
                                 Err(refusal) => responder.respond_with_error(refusal.into()),
                             }

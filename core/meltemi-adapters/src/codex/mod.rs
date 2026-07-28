@@ -29,7 +29,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::ChildStdin;
 use tokio::sync::{Mutex, mpsc, watch};
 
-use crate::adapter::{AdapterSpec, Dialect, ProviderDialect, ProviderSession};
+use crate::adapter::{AdapterSpec, Dialect, Opened, ProviderDialect, ProviderSession};
 use crate::diagnostic::Refusal;
 use crate::jsonrpc::{Incoming, Peer};
 use crate::ndjson::Frame;
@@ -632,7 +632,7 @@ impl ProviderDialect for CodexDialect {
         session_id: SessionId,
         request: NewSessionRequest,
         cx: ConnectionTo<Client>,
-    ) -> Result<Self::Session, Refusal> {
+    ) -> Result<Opened<Self::Session>, Refusal> {
         let command = ProviderCommand {
             program: self.program.clone(),
             args: vec![wire::SERVER_MODE_ARG.to_string()],
@@ -673,13 +673,18 @@ impl ProviderDialect for CodexDialect {
             SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta())),
         ));
 
-        Ok(CodexSession {
-            peer,
-            incoming: Mutex::new(incoming),
-            control: Mutex::new(Some(control)),
-            turn: TurnControl::new(thread_id, INTERRUPT_GRACE),
-            stream: AcpStream { session_id, cx },
-            shutdown: self.shutdown,
+        // The id it was handed: this dialect keeps no sessions of its own to
+        // resume, so it has no better name to answer to.
+        Ok(Opened {
+            id: session_id.clone(),
+            session: CodexSession {
+                peer,
+                incoming: Mutex::new(incoming),
+                control: Mutex::new(Some(control)),
+                turn: TurnControl::new(thread_id, INTERRUPT_GRACE),
+                stream: AcpStream { session_id, cx },
+                shutdown: self.shutdown,
+            },
         })
     }
 }
