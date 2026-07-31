@@ -5,6 +5,12 @@ Spec-driven development is Meltemi's discipline — and how Meltemi builds itsel
 Nothing is implemented without a reviewed change; the scenarios are the
 definition of "done".
 
+That rule governs *this repository* (constitution §1). For your own work the
+method is an offer, not a gate: a new session is a governed
+[free session](sesion-libre.md) by default, and proposing or exploring is one
+control away in the same composer. The discipline below is what Meltemi makes
+easy to sustain — it is not a toll you pay before starting.
+
 ## A change and its artifacts
 
 A change is a kebab-case directory with four artifacts, in order:
