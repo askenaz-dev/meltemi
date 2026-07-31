@@ -77,6 +77,17 @@
   let wasUnreachable = false;
 
   const session = $derived($sessions.find((s) => s.sessionId === sessionId));
+
+  // Walked in on from the composer, this session is younger than the last
+  // `session/list` the shell asked for, so the header would render an id and
+  // nothing else. Ask once — a plain variable, not state, so a session that
+  // genuinely is not there does not turn into a refresh loop.
+  let askedFor: string | null = null;
+  $effect(() => {
+    if (session || askedFor === sessionId) return;
+    askedFor = sessionId;
+    void refreshSessions().catch(() => {});
+  });
   /** The matching line ids in transcript order: a Set cannot be navigated. */
   const matchList = $derived.by<number[]>(() => {
     const needle = search.trim().toLowerCase();

@@ -14,6 +14,7 @@
   import {
     activeProject,
     fleet,
+    onSessionEvent,
     projects,
     pushNotice,
     refreshFleet,
@@ -112,14 +113,35 @@
     }
     running = true;
     const dispatched = mode;
+    // Every start verb blocks until its turn ends, so waiting for the result to
+    // navigate would leave the user staring at the composer for a whole turn.
+    // The daemon publishes `session_started` to the connection that launched —
+    // no subscription asked for — and it carries the identifier before the
+    // agent's first token (design D3). That is what we walk in on; the request
+    // stays in flight and still reports its outcome from inside the session.
+    let entered = false;
+    const stop = onSessionEvent((message) => {
+      if (message.event.type !== "session_started") return;
+      stop();
+      entered = true;
+      text = "";
+      running = false;
+      void refreshSessions().catch(() => {});
+      onOpenSession(message.sessionId);
+    });
     try {
       await request(METHOD[dispatched], paramsFor(dispatched));
-      pushNotice($t("session.new.launched"), "info");
-      text = "";
+      if (!entered) {
+        // No arrival event reached us: say what happened rather than pretend a
+        // conversation was opened.
+        pushNotice($t("session.new.launched"), "info");
+        text = "";
+      }
     } catch (raw) {
       const e = raw as { message?: string; detail?: string };
       pushNotice(`${$t("common.error")}: ${e?.detail ?? e?.message ?? String(raw)}`, "danger");
     } finally {
+      stop();
       running = false;
       void refreshSessions().catch(() => {});
     }
