@@ -368,3 +368,331 @@ async fn reverting_a_free_session_checkpoint_refuses_and_leaves_the_tree_alone()
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// Scenario: Sesión libre corre gobernada sin change
+// Scenario: El proyecto de una sesión libre queda registrado
+// Scenario: Sin parámetro se usa el agente configurado
+#[tokio::test]
+async fn a_free_session_runs_governed_without_a_change() {
+    let root = fixture("governed", &[]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("governed").await;
+    let peer = init_client(&endpoint).await;
+
+    // No change, no task, no gate, and no `.meltemi/changes/` anywhere.
+    let started = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "read the code and tell me what it does" }),
+        ),
+    )
+    .await
+    .expect("session/start returned")
+    .expect("session/start ok");
+    assert_eq!(started["status"], "completed", "{started:#}");
+    let session_id = started["sessionId"].as_str().expect("a session id");
+    assert!(
+        !root.join(".meltemi").join("changes").exists(),
+        "a free session scaffolds no change"
+    );
+
+    let events = log_events(&peer, &root_str, session_id).await;
+
+    // Which binary ran, and why that one, from the log alone.
+    let resolved = events
+        .iter()
+        .find(|e| e["type"] == "agent_resolved")
+        .unwrap_or_else(|| panic!("the resolution is recorded: {events:#?}"));
+    assert!(
+        resolved["payload"]["binary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("mock-agent"),
+        "the effective binary is named: {resolved:#}"
+    );
+    assert_eq!(
+        resolved["payload"]["source"], "configured",
+        "no agent was named, so the project's configured one ran: {resolved:#}"
+    );
+
+    // The permission the agent asked for went through the proxy, and what
+    // resolved it is on the record.
+    let decided = events
+        .iter()
+        .find(|e| e["type"] == "permission_decided")
+        .unwrap_or_else(|| panic!("the request passed through the proxy: {events:#?}"));
+    assert_eq!(decided["payload"]["decidedBy"], "rule", "{decided:#}");
+
+    // And the project is in the registry without the user doing anything else.
+    let projects = peer
+        .request(methods::PROJECT_LIST, &json!({}))
+        .await
+        .expect("project/list ok");
+    assert!(
+        projects["projects"]
+            .as_array()
+            .expect("projects")
+            .iter()
+            .any(|p| p["root"] == root_str.as_str()),
+        "starting work on a root is pointing Meltemi at it: {projects:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Instrucción de seguimiento se despacha como siguiente turno
+#[tokio::test]
+async fn a_follow_up_instruction_becomes_the_next_turn_of_the_same_session() {
+    // A slow first turn, so the follow-up lands while the session is running:
+    // this is a conversation, and the second thing said must not need a second
+    // session to say it in.
+    let root = fixture("followup", &["--turn-delay-ms", "2500"]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("followup").await;
+    let peer = init_client(&endpoint).await;
+
+    let start = tokio::spawn({
+        let peer = peer.clone();
+        let root = root_str.clone();
+        async move {
+            peer.request(
+                methods::SESSION_START,
+                &json!({ "projectRoot": root, "instruction": "start looking at the build" }),
+            )
+            .await
+        }
+    });
+
+    // Find the live session and direct the follow-up into it.
+    let mut session_id = None;
+    for _ in 0..300 {
+        let list = peer
+            .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+            .await
+            .expect("session/list");
+        if let Some(active) = list["sessions"]
+            .as_array()
+            .and_then(|sessions| sessions.iter().find(|s| s["state"] == "active"))
+        {
+            session_id = Some(active["sessionId"].as_str().unwrap().to_string());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let session_id = session_id.expect("the free session is live and listed");
+
+    let directed = peer
+        .request(
+            methods::SESSION_DIRECT,
+            &json!({
+                "sessionId": session_id,
+                "instruction": "now check the test suite too",
+                "projectRoot": root_str,
+            }),
+        )
+        .await
+        .expect("session/direct ok");
+    assert_eq!(
+        directed["disposition"], "queued",
+        "the turn in flight is not interrupted: {directed:#}"
+    );
+    assert_eq!(directed["queuePosition"], 1);
+
+    let started = tokio::time::timeout(Duration::from_secs(60), start)
+        .await
+        .expect("session/start returned")
+        .expect("join")
+        .expect("session/start ok");
+    assert_eq!(started["status"], "completed", "{started:#}");
+
+    let types: Vec<String> = log_events(&peer, &root_str, &session_id)
+        .await
+        .iter()
+        .map(|e| e["type"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(
+        types.iter().filter(|t| *t == "prompt_sent").count(),
+        2,
+        "the instruction ran as a second turn of the same session: {types:?}"
+    );
+    let queued_at = types.iter().position(|t| t == "instruction_queued");
+    let second_prompt = types
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| *t == "prompt_sent")
+        .nth(1)
+        .map(|(i, _)| i);
+    assert!(
+        queued_at.is_some() && queued_at < second_prompt,
+        "queued before dispatched, so the steering is auditable: {types:?}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: El iniciador recibe el arranque sin pedirlo
+// Scenario: Resultado final honesto para el cliente scriptable
+#[tokio::test]
+async fn the_initiator_hears_the_session_start_before_the_agent_speaks() {
+    let root = fixture("identity", &["--turn-delay-ms", "1200"]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("identity").await;
+
+    // This connection declares interest in nothing at all.
+    let stream = connect(&endpoint).await.expect("connect");
+    let (peer, mut incoming) = Peer::start(stream);
+    peer.request(
+        methods::INITIALIZE,
+        &InitializeParams {
+            protocol_version: PROTOCOL_VERSION,
+            client: PeerInfo {
+                name: "e2e-libre-client".into(),
+                version: "0.0.0".into(),
+            },
+        },
+    )
+    .await
+    .expect("initialize");
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel();
+    let drain = tokio::spawn(async move {
+        while let Some(message) = incoming.recv().await {
+            if let meltemid::rpc::Incoming::Notification { method, params } = message
+                && method == methods::SESSION_EVENT
+            {
+                let _ = events_tx.send(params);
+            }
+        }
+    });
+
+    let start = tokio::spawn({
+        let peer = peer.clone();
+        let root = root_str.clone();
+        async move {
+            peer.request(
+                methods::SESSION_START,
+                &json!({ "projectRoot": root, "instruction": "take a look" }),
+            )
+            .await
+        }
+    });
+
+    let first = tokio::time::timeout(Duration::from_secs(10), events_rx.recv())
+        .await
+        .expect("the start arrives while the turn is still running")
+        .expect("the stream is open");
+    assert_eq!(first["event"]["type"], "session_started", "{first:#}");
+    let announced = first["sessionId"]
+        .as_str()
+        .expect("a session id")
+        .to_string();
+    assert!(
+        !announced.is_empty(),
+        "a surface can navigate into the conversation with this: {first:#}"
+    );
+
+    // The result stays final for the client that listens to nothing: the same
+    // id, how the turn ended, and how many permissions were denied.
+    let started = tokio::time::timeout(Duration::from_secs(60), start)
+        .await
+        .expect("session/start returned")
+        .expect("join")
+        .expect("session/start ok");
+    assert_eq!(started["sessionId"], announced.as_str());
+    assert_eq!(started["status"], "completed", "{started:#}");
+    assert_eq!(started["deniedPermissions"], 0, "{started:#}");
+
+    drain.abort();
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Sin cliente conectado la sesión libre no gana privilegios
+#[tokio::test]
+async fn with_nobody_attending_the_free_session_is_denied_like_any_other() {
+    // No permission rules, so the request escalates to a human; zero grace, so
+    // the constitutional deny fires as soon as the last client is gone.
+    let root = fixture("noclient", &[]);
+    std::fs::remove_file(root.join(".meltemi").join("permissions.toml")).unwrap();
+    let mock = mock_agent_bin().display().to_string().replace('\\', "/");
+    std::fs::write(
+        root.join(".meltemi").join("config.toml"),
+        format!("[agent]\ncommand = ['{mock}']\n\n[permissions]\nno-client-grace = 0\n"),
+    )
+    .unwrap();
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("noclient").await;
+
+    let peer = init_client(&endpoint).await;
+    let _start = tokio::spawn({
+        let peer = peer.clone();
+        let root = root_str.clone();
+        async move {
+            peer.request(
+                methods::SESSION_START,
+                &json!({ "projectRoot": root, "instruction": "write something for me" }),
+            )
+            .await
+        }
+    });
+
+    // Wait until the request is really escalated and waiting for a human.
+    let mut escalated = false;
+    for _ in 0..300 {
+        let probe = init_client(&endpoint).await;
+        let pending = probe
+            .request(methods::PERMISSION_PENDING, &json!({}))
+            .await
+            .expect("pending ok");
+        probe.close();
+        if pending["pending"]
+            .as_array()
+            .is_some_and(|entries| !entries.is_empty())
+        {
+            escalated = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        escalated,
+        "a free session escalates like every other session"
+    );
+
+    // The last client leaves. Nobody is attending, so nothing is granted.
+    peer.close();
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    let reader = init_client(&endpoint).await;
+    let mut events = Vec::new();
+    for _ in 0..300 {
+        let list = reader
+            .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+            .await
+            .expect("session/list ok");
+        if let Some(session) = list["sessions"]
+            .as_array()
+            .and_then(|sessions| sessions.iter().find(|s| s["state"] == "ended"))
+        {
+            let id = session["sessionId"].as_str().unwrap().to_string();
+            events = log_events(&reader, &root_str, &id).await;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        events.iter().any(|e| e["type"] == "permission_decided"
+            && e["payload"]["decidedBy"] == "default_deny"
+            && e["payload"]["denied"] == true),
+        "the constitutional deny is explicit and on the record: {events:#?}"
+    );
+
+    reader.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
