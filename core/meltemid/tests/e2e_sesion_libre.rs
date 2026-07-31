@@ -73,7 +73,22 @@ fn fixture(tag: &str, mock_args: &[&str]) -> PathBuf {
         "[[rule]]\neffect = \"allow\"\n",
     )
     .unwrap();
-    root
+    // Spelled the way the registry will spell it: every root it records is
+    // canonicalized, and a temporary directory is where that diverges from what
+    // we typed — an 8.3 short name on a Windows runner, `/var` reached through a
+    // symlink into `/private/var` on macOS. A developer's temp directory
+    // resolves to itself, which is why only CI would ever see the difference.
+    let resolved = root.canonicalize().unwrap_or_else(|_| root.clone());
+    #[cfg(windows)]
+    {
+        let shown = resolved.to_string_lossy();
+        if let Some(plain) = shown.strip_prefix(r"\\?\")
+            && !plain.starts_with("UNC\\")
+        {
+            return PathBuf::from(plain);
+        }
+    }
+    resolved
 }
 
 async fn spawn_daemon(tag: &str) -> (String, tokio::task::JoinHandle<()>) {

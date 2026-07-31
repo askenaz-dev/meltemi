@@ -30,11 +30,32 @@ fn read(relative: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {relative}: {e}"))
 }
 
+/// A fixture directory, spelled the way the registry will spell it — the
+/// registry canonicalizes every root it records, and a temporary directory is
+/// exactly where that differs from what we typed: a Windows CI runner hands out
+/// the 8.3 short form and macOS reaches `/var` through a symlink into
+/// `/private/var`, while a developer's own temp directory resolves to itself.
 fn temp(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("mel-scen-multi-{}-{tag}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("temp dir");
-    dir
+    dir.canonicalize().map(strip_verbatim).unwrap_or(dir)
+}
+
+/// Windows answers `canonicalize` in the `\\?\` extended-length form, which the
+/// registry strips back off for a plain drive path; a fixture that kept it would
+/// compare unequal for a reason that has nothing to do with the test.
+fn strip_verbatim(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let shown = path.to_string_lossy();
+        if let Some(plain) = shown.strip_prefix(r"\\?\")
+            && !plain.starts_with("UNC\\")
+        {
+            return PathBuf::from(plain);
+        }
+    }
+    path
 }
 
 // ---- the project registry ---------------------------------------------------

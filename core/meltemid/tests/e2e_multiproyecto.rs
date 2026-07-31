@@ -346,7 +346,7 @@ async fn a_project_whose_root_moved_stays_listed_as_absent() {
         .request(methods::PROJECT_LIST, &json!({ "existingOnly": true }))
         .await
         .expect("project/list filtered ok");
-    let wanted = root.display().to_string();
+    let wanted = registry_spelling(&root);
     assert!(
         existing["projects"]
             .as_array()

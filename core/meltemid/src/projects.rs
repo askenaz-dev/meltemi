@@ -455,11 +455,18 @@ pub async fn handle_project_forget(
 mod tests {
     use super::*;
 
+    /// A fixture directory, spelled the way the registry will spell it. The
+    /// canonical form is not cosmetic here: a temporary directory is precisely
+    /// where the two spellings diverge — a Windows CI runner hands out the 8.3
+    /// short form and macOS reaches `/var` through a symlink into `/private/var`
+    /// — while a developer's own temp directory canonicalizes to itself and
+    /// agrees by accident. Resolving once, here, is what lets every assertion
+    /// below compare a stored root against this path and mean it.
     fn temp(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("mel-projects-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
-        dir
+        canonical(&dir)
     }
 
     // Scenario: Alta repetida no duplica el proyecto
