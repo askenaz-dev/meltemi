@@ -122,7 +122,11 @@ fn fixture(tag: &str, subscription: &str) -> PathBuf {
     git(&root, &["config", "core.autocrlf", "false"]);
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-q", "-m", "init"]);
-    root
+    // Resolved here, while the directory still exists: one test deletes its root
+    // and then asks the listing about it, and `canonicalize` cannot answer for a
+    // path that is gone. Handing back the resolved spelling from the start means
+    // the comparison after the deletion still has it.
+    PathBuf::from(registry_spelling(&root))
 }
 
 fn test_endpoint(tag: &str) -> String {
