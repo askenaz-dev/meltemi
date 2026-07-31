@@ -190,8 +190,30 @@ async fn dispatch(peer: &Peer, root: &Path, subscription: &str) {
     .unwrap_or_else(|e| panic!("dispatch under {subscription}: {e}"));
 }
 
+/// The spelling the registry keeps, which is not always the one we asked with:
+/// `project/register` canonicalizes before recording, and a temporary directory
+/// is exactly where that shows. A Windows runner hands out the 8.3 short form
+/// (`C:\Users\RUNNER~1\…`) and macOS reaches `/var` through a symlink into
+/// `/private/var`, so the raw path and the recorded one differ on both — while
+/// a developer's own temp directory has neither and agrees by accident.
+fn registry_spelling(root: &Path) -> String {
+    let Ok(resolved) = root.canonicalize() else {
+        return root.display().to_string();
+    };
+    #[cfg(windows)]
+    {
+        let shown = resolved.to_string_lossy();
+        if let Some(plain) = shown.strip_prefix(r"\\?\")
+            && !plain.starts_with("UNC\\")
+        {
+            return plain.to_string();
+        }
+    }
+    resolved.display().to_string()
+}
+
 fn project_of<'a>(list: &'a Value, root: &Path) -> &'a Value {
-    let wanted = root.display().to_string();
+    let wanted = registry_spelling(root);
     list["projects"]
         .as_array()
         .expect("projects array")
@@ -370,12 +392,13 @@ async fn a_directory_is_registered_and_forgotten_over_the_wire() {
         .request(methods::PROJECT_LIST, &json!({}))
         .await
         .expect("project/list ok");
+    let recorded = registry_spelling(&root);
     assert!(
         !after["projects"]
             .as_array()
             .expect("projects")
             .iter()
-            .any(|project| project["root"] == root_str.as_str()),
+            .any(|project| project["root"] == recorded.as_str()),
         "the listing dropped it: {after:#}"
     );
     // Nothing on disk went with it.
