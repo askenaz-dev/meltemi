@@ -69,6 +69,31 @@ fn project_root() -> Option<String> {
         .map(|root| root.display().to_string())
 }
 
+/// Opens the OS folder picker and answers with the chosen path, or `None` when
+/// the user dismissed it (lanzador-conversacional design D8).
+///
+/// The dialog is chrome of the client and the boundary of constitution §3 runs
+/// right here: the daemon opens no window and enumerates no filesystem — it
+/// receives one path from `project/register` and validates it. The plugin is
+/// initialized in the builder but deliberately NOT exposed to the webview: the
+/// surface reaches it through this command alone, so `capabilities/default.json`
+/// stays at `core:default` and the CSP is untouched.
+#[tauri::command]
+async fn pick_project_folder(app: tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = oneshot::channel();
+    app.dialog().file().pick_folder(move |picked| {
+        let _ = tx.send(picked);
+    });
+    let picked = rx.await.ok().flatten()?;
+    // A dismissed dialog and an unrepresentable path are both "nothing chosen":
+    // the surface asks again, and nothing is sent to the daemon either way.
+    picked
+        .into_path()
+        .ok()
+        .map(|path| path.display().to_string())
+}
+
 /// First-use flag, persisted in the user's data directory (gui-shell
 /// "Onboarding de primer uso"): no account, no network, no telemetry.
 fn onboarding_flag() -> std::path::PathBuf {
@@ -177,6 +202,9 @@ fn close_confirmed(app: tauri::AppHandle) {
 
 pub fn run() {
     tauri::Builder::default()
+        // Initialized for the host, never handed to the webview: the front has
+        // no `dialog:` permission and cannot call the plugin directly.
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let endpoint = meltemi_client::paths::endpoint();
             let (command_tx, command_rx) = mpsc::unbounded_channel();
@@ -225,6 +253,7 @@ pub fn run() {
             daemon_request,
             daemon_notify,
             project_root,
+            pick_project_folder,
             onboarding_seen,
             onboarding_mark_seen,
             request_attention,

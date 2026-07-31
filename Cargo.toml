@@ -55,6 +55,12 @@ sha2 = "=0.11.0"
 # the Rust side owns the daemon connection via meltemi-client.
 tauri = "=2.11.5"
 tauri-build = "=2.6.3"
+# The official Tauri dialog plugin, for the native folder picker of "Open
+# folder…" (lanzador-conversacional design D8). Consumed ONLY by the `desktop`
+# crate and NOT exposed to the webview: the surface reaches it through a bespoke
+# command, so `capabilities/default.json` stays at `core:default` and the daemon
+# gains no dependency and no window of its own.
+tauri-plugin-dialog = "=2.7.2"
 thiserror = "=2.0.18"
 tokio = "=1.52.3"
 toml = "=1.1.2"

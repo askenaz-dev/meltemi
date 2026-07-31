@@ -334,3 +334,30 @@ fn every_state_renders_glyph_plus_word() {
         );
     }
 }
+
+// Scenario: El diálogo vive en el cliente
+#[test]
+fn the_folder_dialog_is_client_chrome_and_grants_the_webview_nothing() {
+    let host = read("desktop/src/lib.rs");
+    // The plugin is initialized for the HOST and reached through one bespoke
+    // command; the webview never calls it directly.
+    assert!(
+        host.contains("tauri_plugin_dialog::init()") && host.contains("pick_project_folder"),
+        "the picker is a command of this process, not a capability of the front"
+    );
+    // Which is what keeps the capability list at the deny-by-default core set:
+    // exposing the plugin would have added a `dialog:` permission here.
+    let capabilities = read("desktop/capabilities/default.json");
+    assert!(
+        !capabilities.contains("dialog:"),
+        "no dialog permission is granted to the webview: {capabilities}"
+    );
+    assert!(capabilities.contains("core:default"));
+    // And the boundary of §3 on the other side: the daemon opens no windows. It
+    // cannot — it does not depend on the shell toolkit at all.
+    let daemon = read("core/meltemid/Cargo.toml");
+    assert!(
+        !daemon.contains("tauri"),
+        "the daemon gains no client dependency for this: {daemon}"
+    );
+}
