@@ -260,7 +260,7 @@ fn render_body(frame: &mut Frame, area: Rect, state: &ShellState, live: &LiveDat
     match state.view() {
         View::Sessions if state.is_drilled() => render_session_detail(frame, inner, live, ctx),
         View::Sessions => render_sessions(frame, inner, state, live, ctx),
-        View::Project => render_project(frame, inner, ctx),
+        View::Project => render_project(frame, inner, live, ctx),
         View::Permissions => render_permissions(frame, inner, live, ctx),
         View::Fleet => render_fleet(frame, inner, live, ctx),
     }
@@ -819,34 +819,69 @@ fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &S
     render_lines(frame, area, lines);
 }
 
-fn render_project(frame: &mut Frame, area: Rect, ctx: &ShellCtx) {
-    if !ctx.project {
-        let text = format!(
-            "{}\n\n{}",
-            ctx.msg(Msg::NoProject),
-            if ctx.lang == Lang::Es {
-                "c iniciar constitución (próximamente)"
-            } else {
-                "c start constitution (coming soon)"
-            }
-        );
-        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
-        return;
+fn render_project(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
+    let mut lines: Vec<Line> = Vec::new();
+    if ctx.project {
+        lines.extend(read_meltemi_entries().into_iter().map(Line::from));
+        lines.push(Line::from(""));
+        lines.push(Line::from(if ctx.lang == Lang::Es {
+            "Enter regenera la proyección de contexto (AGENTS.md, ...)"
+        } else {
+            "Enter regenerates the projected context (AGENTS.md, ...)"
+        }));
+        lines.push(Line::from(if ctx.lang == Lang::Es {
+            "verbos SDD reservados: explore review plan implement verify archive (próximamente)"
+        } else {
+            "reserved SDD verbs: explore review plan implement verify archive (coming soon)"
+        }));
+    } else {
+        // Not a project directory — which says nothing about the registry: the
+        // whole point of registering is to aim the tool at a folder before it
+        // is one.
+        lines.push(Line::from(ctx.msg(Msg::NoProject)));
+        lines.push(Line::from(if ctx.lang == Lang::Es {
+            "c iniciar constitución (próximamente)"
+        } else {
+            "c start constitution (coming soon)"
+        }));
     }
-    let entries = read_meltemi_entries();
-    let mut lines: Vec<Line> = entries.into_iter().map(Line::from).collect();
     lines.push(Line::from(""));
-    lines.push(Line::from(if ctx.lang == Lang::Es {
-        "Enter regenera la proyección de contexto (AGENTS.md, ...)"
-    } else {
-        "Enter regenerates the projected context (AGENTS.md, ...)"
-    }));
-    lines.push(Line::from(if ctx.lang == Lang::Es {
-        "verbos SDD reservados: explore review plan implement verify archive (próximamente)"
-    } else {
-        "reserved SDD verbs: explore review plan implement verify archive (coming soon)"
-    }));
+    lines.extend(project_registry_lines(live, ctx));
     render_lines(frame, area, lines);
+}
+
+/// The project registry as the daemon reports it: the root, whether it is still
+/// on disk, and its counters. Meaning is a word, never a color — a root that
+/// vanished stays listed and says so, because hiding it would be the surface
+/// deciding what the registry holds.
+fn project_registry_lines(live: &LiveData, ctx: &ShellCtx) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::styled(
+        format!(
+            "{} ({})",
+            ctx.msg(Msg::ProjectRegistryTitle),
+            live.projects.len()
+        ),
+        ctx.emphasis(),
+    )];
+    if live.projects.is_empty() {
+        lines.push(Line::from(ctx.msg(Msg::ProjectRegistryEmpty)));
+    }
+    for project in &live.projects {
+        let (glyph, word) = if project.exists {
+            (glyphs::OK, ctx.msg(Msg::ProjectPresent))
+        } else {
+            (glyphs::ERROR, ctx.msg(Msg::ProjectAbsent))
+        };
+        lines.push(Line::from(format!(
+            "  {} {word:<9} {:>3} ses. {:>2} viva(s)  {}",
+            glyph.text(&ctx.present),
+            project.sessions_total,
+            project.active_sessions,
+            project.root
+        )));
+    }
+    lines.push(Line::from(ctx.msg(Msg::ProjectRegistryHint)));
+    lines
 }
 
 fn render_permissions(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
@@ -1054,19 +1089,26 @@ fn render_overlay(
         Overlay::Input { purpose, input } => {
             let (title, hint) = match purpose {
                 InputPurpose::DirectInstruction => (Msg::DirectTitle, Msg::DirectHint),
+                InputPurpose::RegisterProject => (Msg::RegisterTitle, Msg::ProjectPathHint),
+                InputPurpose::ForgetProject => (Msg::ForgetTitle, Msg::ProjectPathHint),
             };
-            let target = match live.selected_session() {
-                Some(row) => format!(
-                    "{} {} — {}",
-                    row.id,
-                    row.agent_label(),
-                    ctx.msg(direction_prospect(Some(row)))
-                ),
-                None => ctx.msg(Msg::DirectNoSession).to_string(),
+            let context = match purpose {
+                InputPurpose::DirectInstruction => match live.selected_session() {
+                    Some(row) => format!(
+                        "{} {} — {}",
+                        row.id,
+                        row.agent_label(),
+                        ctx.msg(direction_prospect(Some(row)))
+                    ),
+                    None => ctx.msg(Msg::DirectNoSession).to_string(),
+                },
+                InputPurpose::RegisterProject => String::new(),
+                // What forgetting does and does not do, before it is done.
+                InputPurpose::ForgetProject => ctx.msg(Msg::ProjectForgotten).to_string(),
             };
             (
                 ctx.msg(title).to_string(),
-                format!("{target}\n\n> {input}\n\n{}", ctx.msg(hint)),
+                format!("{context}\n\n> {input}\n\n{}", ctx.msg(hint)),
             )
         }
         Overlay::Filter { input } => {
@@ -1275,11 +1317,13 @@ mod tests {
                 root: "/repos/alpha".into(),
                 exists: true,
                 sessions_total: 2,
+                active_sessions: 1,
             },
             ProjectRow {
                 root: "/repos/beta".into(),
                 exists: false,
                 sessions_total: 1,
+                active_sessions: 0,
             },
         ]));
         live.apply(Update::Sessions(vec![
@@ -1390,6 +1434,63 @@ mod tests {
         let out = draw(&state, &live, &ctx(default_present()), 100, 24);
         assert!(out.contains("beta"));
         assert!(!out.contains("alpha"), "the scope hides the other project");
+    }
+
+    #[test]
+    fn the_project_view_renders_the_registry_with_presence_and_counters() {
+        // Scenario: Alta y baja de proyecto tecleando la ruta
+        let live = two_project_live();
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(2));
+        let out = draw(&state, &live, &ctx(default_present()), 100, 24);
+        assert!(out.contains("Registro de proyectos"), "{out}");
+        assert!(out.contains("/repos/alpha") && out.contains("/repos/beta"));
+        // A root that vanished stays listed and says so: hiding it would be the
+        // surface deciding what the registry holds.
+        assert!(out.contains("presente") && out.contains("ausente"), "{out}");
+        // And the two verbs that change it are named where the list is.
+        assert!(out.contains("register") && out.contains("forget"), "{out}");
+    }
+
+    #[test]
+    fn the_registry_survives_ascii_and_no_color() {
+        // Scenario: Suscripción legible sin color ni Unicode
+        let live = two_project_live();
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(2));
+        let ascii = Presentation::resolve(&PresentationEnv {
+            ascii_flag: true,
+            no_color: Some("1".into()),
+            ..Default::default()
+        });
+        let out = draw(&state, &live, &ctx(ascii), 100, 24);
+        assert!(
+            out.contains("presente") && out.contains("ausente"),
+            "presence is a word, not a color: {out}"
+        );
+        for forbidden in ['●', '○', '│'] {
+            assert!(
+                !out.contains(forbidden),
+                "ASCII must not contain {forbidden:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_forget_field_says_what_it_will_not_do() {
+        // Scenario: Baja desde la TUI no toca el disco
+        let live = two_project_live();
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::OpenPalette);
+        for c in "projects forget".chars() {
+            state.reduce(crate::shell::keymap::Action::InsertChar(c));
+        }
+        state.reduce(crate::shell::keymap::Action::Submit);
+        let out = draw(&state, &live, &ctx(default_present()), 100, 24);
+        assert!(
+            out.contains("no se borró nada"),
+            "the field states the limit of the verb before it runs: {out}"
+        );
     }
 
     #[test]

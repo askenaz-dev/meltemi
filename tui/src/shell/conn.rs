@@ -57,6 +57,10 @@ pub enum Command {
         project_root: String,
         instruction: String,
     },
+    /// Add a root to the project registry (`project/register`).
+    RegisterProject(String),
+    /// Drop a project from the registry's listing (`project/forget`).
+    ForgetProject(String),
     /// Resolve a pending permission by id (`permission/decide`), optionally
     /// persisting a rule ("allow/deny always").
     DecidePermission {
@@ -231,6 +235,12 @@ async fn serve_connection(
                         let _ = updates.send(Update::Notice(notice));
                     });
                 }
+                Some(Command::RegisterProject(root)) => {
+                    register_project(&peer, updates, lang, root).await;
+                }
+                Some(Command::ForgetProject(root)) => {
+                    forget_project(&peer, updates, lang, root).await;
+                }
                 Some(Command::DecidePermission { request_id, option_id, persist_rule }) => {
                     let params = PermissionDecideParams { request_id, option_id, persist_rule };
                     // The daemon broadcasts permission/changed on resolution;
@@ -301,6 +311,51 @@ async fn refresh_projects(peer: &Peer, updates: &UnboundedSender<Update>) {
         }
         Err(error) => {
             let _ = updates.send(Update::Notice(format!("project/list: {error}")));
+        }
+    }
+}
+
+/// Registers a project root and re-queries the registry, so the view shows the
+/// new entry without the shell being restarted. A refusal — the path does not
+/// exist, or is not a directory — arrives with the daemon's remedy attached.
+async fn register_project(
+    peer: &Peer,
+    updates: &UnboundedSender<Update>,
+    lang: Lang,
+    root: String,
+) {
+    let params = meltemi_proto::ProjectRegisterParams { root };
+    match peer.request(methods::PROJECT_REGISTER, &params).await {
+        Ok(value) => {
+            let registered = value["project"]["root"].as_str().unwrap_or_default();
+            let _ = updates.send(Update::Notice(format!(
+                "{}: {registered}",
+                text(Msg::ProjectRegistered, lang)
+            )));
+            refresh_projects(peer, updates).await;
+        }
+        Err(error) => {
+            let _ = updates.send(Update::Notice(refusal_line(&error)));
+        }
+    }
+}
+
+/// Forgets a project and re-queries the registry. The notice says what was NOT
+/// done, because "forget" is one keystroke away from being read as "delete".
+async fn forget_project(peer: &Peer, updates: &UnboundedSender<Update>, lang: Lang, root: String) {
+    let params = meltemi_proto::ProjectForgetParams { root: root.clone() };
+    match peer.request(methods::PROJECT_FORGET, &params).await {
+        Ok(value) => {
+            let key = if value["forgotten"].as_bool().unwrap_or(false) {
+                Msg::ProjectForgotten
+            } else {
+                Msg::ProjectNotListed
+            };
+            let _ = updates.send(Update::Notice(format!("{root}: {}", text(key, lang))));
+            refresh_projects(peer, updates).await;
+        }
+        Err(error) => {
+            let _ = updates.send(Update::Notice(refusal_line(&error)));
         }
     }
 }
@@ -428,22 +483,28 @@ fn direct_notice(value: &Value, lang: Lang) -> String {
     }
 }
 
-/// A refusal, with the daemon's own diagnosis and remedy behind the surface's
-/// label — the words that tell the user what to do next are the contract's, and
-/// dropping them would leave a dead end where an instruction used to be.
-fn refusal_notice(error: &RpcError, lang: Lang) -> String {
+/// The daemon's own diagnosis with its remedy, kept together. The sentence that
+/// tells the user what to do next is the contract's, and dropping it would leave
+/// a dead end where an action used to be.
+fn refusal_line(error: &RpcError) -> String {
     let detail = error
         .data
         .as_ref()
         .and_then(|data| data["detail"].as_str())
         .unwrap_or(&error.message);
-    let remedy = error
-        .data
-        .as_ref()
-        .and_then(|data| data["remedy"].as_str())
-        .map(|remedy| format!(" — {remedy}"))
-        .unwrap_or_default();
-    format!("{}: {detail}{remedy}", text(Msg::DirectRefused, lang))
+    match error.data.as_ref().and_then(|data| data["remedy"].as_str()) {
+        Some(remedy) => format!("{detail} — {remedy}"),
+        None => detail.to_string(),
+    }
+}
+
+/// A refused direction, behind the surface's own label.
+fn refusal_notice(error: &RpcError, lang: Lang) -> String {
+    format!(
+        "{}: {}",
+        text(Msg::DirectRefused, lang),
+        refusal_line(error)
+    )
 }
 
 fn init_params() -> InitializeParams {

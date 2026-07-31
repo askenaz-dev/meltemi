@@ -179,14 +179,14 @@ pub const ENTRIES: &[Entry] = &[
     },
     Entry {
         name: "projects register",
-        reserved: true,
+        reserved: false,
         methods: &[m::PROJECT_REGISTER],
         desc_es: "dar de alta un proyecto tecleando su ruta",
         desc_en: "register a project by typing its path",
     },
     Entry {
         name: "projects forget",
-        reserved: true,
+        reserved: false,
         methods: &[m::PROJECT_FORGET],
         desc_es: "quitarlo del listado; no borra nada del disco",
         desc_en: "drop it from the listing; nothing on disk is deleted",

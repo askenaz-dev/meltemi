@@ -55,6 +55,17 @@ pub enum Msg {
     DirectWillQueue,
     DirectWillResume,
     DirectNotResumable,
+    RegisterTitle,
+    ForgetTitle,
+    ProjectPathHint,
+    ProjectRegistered,
+    ProjectForgotten,
+    ProjectNotListed,
+    ProjectRegistryTitle,
+    ProjectRegistryEmpty,
+    ProjectRegistryHint,
+    ProjectPresent,
+    ProjectAbsent,
 }
 
 /// The text of a message in a language. Never empty.
@@ -160,6 +171,42 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
             "this session ended and its agent cannot be resumed: there is no send to offer — \
              start a session on the same project"
         }
+        (Msg::RegisterTitle, Lang::Es) => "Dar de alta un proyecto",
+        (Msg::RegisterTitle, Lang::En) => "Register a project",
+        (Msg::ForgetTitle, Lang::Es) => "Dar de baja un proyecto",
+        (Msg::ForgetTitle, Lang::En) => "Forget a project",
+        (Msg::ProjectPathHint, Lang::Es) => {
+            "ruta absoluta, tal cual se escribe | Enter confirma - Esc cancela"
+        }
+        (Msg::ProjectPathHint, Lang::En) => {
+            "absolute path, exactly as typed | Enter confirms - Esc cancels"
+        }
+        (Msg::ProjectRegistered, Lang::Es) => "proyecto dado de alta",
+        (Msg::ProjectRegistered, Lang::En) => "project registered",
+        // The whole point of the wording: forgetting governs the listing, and
+        // nothing else. Sessions, logs and the tree itself stay where they are.
+        (Msg::ProjectForgotten, Lang::Es) => {
+            "fuera del listado; no se borró nada y reaparece al volver a usarlo"
+        }
+        (Msg::ProjectForgotten, Lang::En) => {
+            "dropped from the listing; nothing was deleted and it returns when used again"
+        }
+        (Msg::ProjectNotListed, Lang::Es) => "no estaba en el listado: nada cambió",
+        (Msg::ProjectNotListed, Lang::En) => "it was not in the listing: nothing changed",
+        (Msg::ProjectRegistryTitle, Lang::Es) => "Registro de proyectos",
+        (Msg::ProjectRegistryTitle, Lang::En) => "Project registry",
+        (Msg::ProjectRegistryEmpty, Lang::Es) => "el registro no tiene proyectos todavía",
+        (Msg::ProjectRegistryEmpty, Lang::En) => "the registry holds no project yet",
+        (Msg::ProjectRegistryHint, Lang::Es) => {
+            ": projects register <ruta> da de alta | : projects forget <ruta> da de baja"
+        }
+        (Msg::ProjectRegistryHint, Lang::En) => {
+            ": projects register <path> adds | : projects forget <path> drops"
+        }
+        (Msg::ProjectPresent, Lang::Es) => "presente",
+        (Msg::ProjectPresent, Lang::En) => "present",
+        (Msg::ProjectAbsent, Lang::Es) => "ausente",
+        (Msg::ProjectAbsent, Lang::En) => "missing",
     }
 }
 
@@ -194,6 +241,17 @@ pub const ALL: &[Msg] = &[
     Msg::DirectWillQueue,
     Msg::DirectWillResume,
     Msg::DirectNotResumable,
+    Msg::RegisterTitle,
+    Msg::ForgetTitle,
+    Msg::ProjectPathHint,
+    Msg::ProjectRegistered,
+    Msg::ProjectForgotten,
+    Msg::ProjectNotListed,
+    Msg::ProjectRegistryTitle,
+    Msg::ProjectRegistryEmpty,
+    Msg::ProjectRegistryHint,
+    Msg::ProjectPresent,
+    Msg::ProjectAbsent,
 ];
 
 #[cfg(test)]

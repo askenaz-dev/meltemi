@@ -51,7 +51,7 @@ desktop/ui`).
 
 - [x] 5.4 Cablear `direct` interactivo: brazo en `Action::Submit` de `state.rs`, variante de `Effect`, despacho en `mod.rs` y operación async en `conn.rs`, con un overlay de entrada que **preserve el texto tal cual** (la paleta hace `to_ascii_lowercase` sobre su línea) — gate: `cargo test -p meltemi`
 - [x] 5.5 Estados honestos en la TUI: encolada con posición, reanudación, y diagnóstico con remedio cuando la sesión no admite dirección — gate: `cargo test -p meltemi`
-- [ ] 5.6 Formularios de alta y baja de proyecto en la paleta y render del registro en la vista de proyectos, con la ruta tecleada por un overlay de entrada que la preserva tal cual y que se resuelve **antes** que el brazo `projects <texto>` de `state.rs` (hoy fija el filtro de ámbito, y se tragaría el discriminador); escenarios de shell en el estilo vigente — gate: `cargo test -p meltemi`
+- [x] 5.6 Formularios de alta y baja de proyecto en la paleta y render del registro en la vista de proyectos, con la ruta tecleada por un overlay de entrada que la preserva tal cual y que se resuelve **antes** que el brazo `projects <texto>` de `state.rs` (hoy fija el filtro de ámbito, y se tragaría el discriminador); escenarios de shell en el estilo vigente — gate: `cargo test -p meltemi`
 - [ ] 5.7 Añadir las filas de los tres métodos a `docs/paridad-nucleo.md` — gate: `cargo test -p meltemi` (`the_parity_matrix_documents_every_method`)
 
 ## 6. GUI: home conversacional

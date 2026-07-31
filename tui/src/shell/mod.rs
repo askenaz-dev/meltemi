@@ -161,6 +161,7 @@ fn handle_action(
     }
 
     let was_fleet = state.view() == View::Fleet;
+    let was_project = state.view() == View::Project;
     let was_drilled = state.is_drilled();
     let mut refresh_fleet = false;
     match state.reduce(action) {
@@ -236,6 +237,15 @@ fn handle_action(
                 });
             }
         },
+        // The registry verbs take a path the user typed, and it goes to the
+        // daemon exactly as written: the daemon validates and canonicalizes it,
+        // the shell does not second-guess a path it did not author.
+        Some(Effect::RegisterProject(root)) => {
+            let _ = commands.send(Command::RegisterProject(root));
+        }
+        Some(Effect::ForgetProject(root)) => {
+            let _ = commands.send(Command::ForgetProject(root));
+        }
         Some(Effect::CreateRuleForPermission) => {
             // Approve the request and persist the proposed rule in one gesture.
             if let (Some((request_id, option_id)), Some(rule)) =
@@ -254,6 +264,12 @@ fn handle_action(
     // additionally re-queries it on demand (design D5).
     if refresh_fleet || (!was_fleet && state.view() == View::Fleet) {
         let _ = commands.send(Command::FleetList);
+    }
+    // Entering the Project view asks for the registry, for the same reason the
+    // Fleet view asks for the catalog: a view that renders a list the daemon
+    // owns must not show whatever was last seen and call it the truth.
+    if !was_project && state.view() == View::Project {
+        let _ = commands.send(Command::ProjectList);
     }
 
     // Drilling into a session: a historical one shows its transcript read by

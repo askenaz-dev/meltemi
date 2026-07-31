@@ -52,6 +52,78 @@ async fn connection_actor_reports_connected_and_sessions() {
     daemon.abort();
 }
 
+// Scenario: Alta y baja de proyecto tecleando la ruta
+// Scenario: Baja desde la TUI no toca el disco
+#[tokio::test]
+async fn a_typed_path_registers_and_forgets_without_restarting_the_shell() {
+    let (endpoint, daemon) = spawn_daemon("shell-registry").await;
+
+    let fixture = std::env::temp_dir().join(format!("meltemi-shell-reg-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&fixture);
+    std::fs::create_dir_all(&fixture).unwrap();
+    let path = fixture.display().to_string();
+
+    let (cmd_tx, cmd_rx) = unbounded_channel::<Command>();
+    let (upd_tx, mut upd_rx) = unbounded_channel::<Update>();
+    let actor = tokio::spawn(connection_actor(endpoint.clone(), Lang::Es, cmd_rx, upd_tx));
+
+    cmd_tx
+        .send(Command::RegisterProject(path.clone()))
+        .expect("the actor is listening");
+    // The registry answer arrives on its own: the view updates without the
+    // shell being restarted.
+    let leaf = fixture
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("the fixture has a name")
+        .to_string();
+    let listed = wait_for_projects(&mut upd_rx, |roots| {
+        roots.iter().any(|root| root.ends_with(&leaf))
+    })
+    .await;
+    assert!(!listed.is_empty(), "the registered project is listed");
+    assert!(
+        !fixture.join(".meltemi").exists(),
+        "nothing was created inside the root"
+    );
+
+    cmd_tx
+        .send(Command::ForgetProject(path.clone()))
+        .expect("the actor is listening");
+    let after = wait_for_projects(&mut upd_rx, |roots| roots.is_empty()).await;
+    assert!(after.is_empty(), "forgetting drops it from the listing");
+    // …and the directory it named is exactly where it was.
+    assert!(fixture.is_dir(), "forgetting touches no disk");
+
+    drop(cmd_tx);
+    let _ = tokio::time::timeout(Duration::from_secs(5), actor).await;
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&fixture);
+}
+
+/// Waits for a project listing that satisfies `wanted`, returning its roots.
+async fn wait_for_projects(
+    updates: &mut tokio::sync::mpsc::UnboundedReceiver<Update>,
+    wanted: impl Fn(&[String]) -> bool,
+) -> Vec<String> {
+    let mut seen = Vec::new();
+    let collect = async {
+        while let Some(update) = updates.recv().await {
+            if let Update::Projects(rows) = update {
+                let roots: Vec<String> = rows.into_iter().map(|row| row.root).collect();
+                if wanted(&roots) {
+                    seen = roots;
+                    return;
+                }
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), collect)
+        .await
+        .expect("the registry answered within 10s");
+    seen
+}
+
 // Scenario: Sesión no dirigible lo dice con remedio
 #[tokio::test]
 async fn a_refused_direction_comes_back_with_the_daemons_diagnosis_and_remedy() {

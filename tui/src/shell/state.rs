@@ -60,6 +60,10 @@ pub enum ConfirmAction {
 pub enum InputPurpose {
     /// An instruction aimed at the selected session (`session/direct`).
     DirectInstruction,
+    /// A project root to add to the registry (`project/register`).
+    RegisterProject,
+    /// A project root to drop from the listing (`project/forget`).
+    ForgetProject,
 }
 
 /// An overlay stacked above the views. [`Overlay::Palette`],
@@ -109,6 +113,10 @@ pub enum Effect {
     /// Steer the selected session with this instruction (`session/direct`),
     /// carried exactly as it was typed.
     DirectSession(String),
+    /// Add this root to the project registry (`project/register`), as typed.
+    RegisterProject(String),
+    /// Drop this root from the registry's listing (`project/forget`), as typed.
+    ForgetProject(String),
 }
 
 /// The full navigation state of the shell.
@@ -341,12 +349,24 @@ impl ShellState {
                 // "narrow the scope to these projects", so a verb sharing that
                 // prefix would be read as a filter and the order decides which
                 // wins (design D10).
-                if let Some(argument) = argument_of(&command, &raw, &["direct", "dirigir"]) {
-                    self.overlays.push(Overlay::Input {
-                        purpose: InputPurpose::DirectInstruction,
-                        input: argument,
-                    });
-                    return None;
+                for (verbs, purpose) in [
+                    (&["direct", "dirigir"][..], InputPurpose::DirectInstruction),
+                    (
+                        &["projects register", "proyectos alta"][..],
+                        InputPurpose::RegisterProject,
+                    ),
+                    (
+                        &["projects forget", "proyectos baja"][..],
+                        InputPurpose::ForgetProject,
+                    ),
+                ] {
+                    if let Some(argument) = argument_of(&command, &raw, verbs) {
+                        self.overlays.push(Overlay::Input {
+                            purpose,
+                            input: argument,
+                        });
+                        return None;
+                    }
                 }
 
                 return match command.as_str() {
@@ -435,8 +455,14 @@ impl ShellState {
                     return None;
                 }
                 self.overlays.pop();
+                let value = input.trim().to_string();
                 match purpose {
                     InputPurpose::DirectInstruction => Some(Effect::DirectSession(input)),
+                    // A path is trimmed of the whitespace around it and of
+                    // nothing else: its case and its separators are what the
+                    // filesystem was told to look for.
+                    InputPurpose::RegisterProject => Some(Effect::RegisterProject(value)),
+                    InputPurpose::ForgetProject => Some(Effect::ForgetProject(value)),
                 }
             }
             _ => None,
@@ -822,6 +848,72 @@ mod tests {
             matches!(s.top_overlay(), Some(Overlay::Input { input, .. }) if input == "Arregla el Build"),
             "the argument keeps its capitals: {:?}",
             s.top_overlay()
+        );
+    }
+
+    #[test]
+    fn the_registry_verbs_are_read_before_the_scope_filter_that_shares_their_prefix() {
+        // Scenario: El discriminador de un verbo no se confunde con un filtro
+        // `projects <text>` already means "narrow the scope to these projects",
+        // so `projects register /Repos/Beta` would have been read as a filter
+        // called `register /repos/beta` — an order turned into a filter, in
+        // silence. The verb is resolved first, and its path keeps its case.
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "projects register /Repos/Beta".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert!(
+            press(&mut s, Key::Enter).is_none(),
+            "no effect yet: a field"
+        );
+        assert!(
+            matches!(
+                s.top_overlay(),
+                Some(Overlay::Input { purpose: InputPurpose::RegisterProject, input }) if input == "/Repos/Beta"
+            ),
+            "the path reaches the field with its capitals: {:?}",
+            s.top_overlay()
+        );
+        assert_eq!(
+            s.project_scope(),
+            None,
+            "and the scope filter never saw the line"
+        );
+        assert_eq!(
+            press(&mut s, Key::Enter),
+            Some(Effect::RegisterProject("/Repos/Beta".into()))
+        );
+
+        // The filter arm keeps working for everything that is not a verb.
+        let mut filter = ShellState::new();
+        press(&mut filter, Key::Char(':'));
+        for c in "projects beta".chars() {
+            press(&mut filter, Key::Char(c));
+        }
+        assert_eq!(
+            press(&mut filter, Key::Enter),
+            Some(Effect::RefreshProjects)
+        );
+        assert_eq!(filter.project_scope(), Some("beta"));
+    }
+
+    #[test]
+    fn forgetting_a_project_takes_the_path_as_typed() {
+        // Scenario: Alta y baja de proyecto tecleando la ruta
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "projects forget".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        press(&mut s, Key::Enter);
+        for c in "/Repos/Beta".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(
+            press(&mut s, Key::Enter),
+            Some(Effect::ForgetProject("/Repos/Beta".into())),
+            "a lowercased path names a different directory where case matters"
         );
     }
 

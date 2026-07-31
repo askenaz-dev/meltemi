@@ -85,6 +85,9 @@ pub struct ProjectRow {
     /// False when the root no longer exists on disk; the entry stays listed.
     pub exists: bool,
     pub sessions_total: u32,
+    /// Sessions of this project running right now. Zero is a fact, not an
+    /// omission (multiproyecto-suscripciones).
+    pub active_sessions: u32,
 }
 
 impl From<meltemi_proto::ProjectInfo> for ProjectRow {
@@ -93,6 +96,7 @@ impl From<meltemi_proto::ProjectInfo> for ProjectRow {
             root: p.root,
             exists: p.exists,
             sessions_total: p.sessions_total,
+            active_sessions: p.active_sessions,
         }
     }
 }

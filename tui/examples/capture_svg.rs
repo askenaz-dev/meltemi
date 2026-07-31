@@ -41,11 +41,13 @@ fn main() {
             root: "/fixtures/harbour".into(),
             exists: true,
             sessions_total: 2,
+            active_sessions: 1,
         },
         ProjectRow {
             root: "/fixtures/lighthouse".into(),
             exists: true,
             sessions_total: 1,
+            active_sessions: 0,
         },
     ]));
     live.apply(Update::Sessions(vec![
