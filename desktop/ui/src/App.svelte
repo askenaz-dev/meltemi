@@ -61,6 +61,8 @@
   let switcherOpen = $state(false);
   /** The mode the composer opens on: free unless a caller asked for another. */
   let composerMode: "free" | "propose" | "explore" = $state("free");
+  /** The project the composer opens on, when the caller named one. */
+  let composerProject: string | null = $state(null);
   let onboardingOpen = $state(false);
   /** Pending navigation held by the unsaved-work guard. */
   let guard: { kind: "close" } | { kind: "leave"; go: () => void } | null = $state(null);
@@ -202,13 +204,17 @@
    * action, Ctrl+N, an empty state, the Project view's Propose — comes through
    * here, so there is exactly one place that decides what "start work" means.
    */
-  function openComposer(mode: "free" | "propose" | "explore" = "free") {
+  function openComposer(
+    mode: "free" | "propose" | "explore" = "free",
+    project: string | null = null,
+  ) {
     leaveEditor(() => {
       view = "home";
       detailSession = null;
       reviewOpen = false;
       editorContext = null;
       composerMode = mode;
+      composerProject = project;
       setLastView("home");
     });
   }
@@ -313,6 +319,7 @@
     {view}
     onNavigate={navigate}
     onPickProject={() => (switcherOpen = true)}
+    onNewSessionIn={(root) => openComposer("free", root)}
     onOpenSession={(sessionId) =>
       leaveEditor(() => {
         view = "sessions";
@@ -399,6 +406,7 @@
       {:else if view === "home"}
         <Home
           initialMode={composerMode}
+          initialProject={composerProject}
           onOpenSession={(sessionId) => {
             view = "sessions";
             detailSession = sessionId;

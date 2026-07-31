@@ -74,7 +74,7 @@ desktop/ui`).
 ## 8. GUI: Proyectos en la navegación y diálogo nativo
 
 - [x] 8.1 Sección «Proyectos» persistente en `Sidebar.svelte` con el árbol de proyectos y sus sesiones siempre visible, sin animación de layout bajo el cursor — gates: `npm run check`, `npm run lint:i18n`
-- [ ] 8.2 Acción rápida por proyecto que lleva al compositor con el proyecto prefijado, y conmutación de ámbito desde el nodo — gate: `npm run check`
+- [x] 8.2 Acción rápida por proyecto que lleva al compositor con el proyecto prefijado, y conmutación de ámbito desde el nodo — gate: `npm run check`
 - [ ] 8.3 Añadir `tauri-plugin-dialog` pineada exacta en `[workspace.dependencies]` y al crate `desktop`, inicializarla en el builder, y exponerla **solo** como comando propio `pick_project_folder` en `generate_handler!` — `capabilities/default.json` sigue siendo `["core:default"]` y la CSP no se toca — gates: `cargo deny check`, `cargo test -p meltemi-desktop` (`surface.rs`), `cargo clippy -- -D warnings`
 - [ ] 8.4 «Abrir carpeta…» en el nav y en el chip de proyecto del compositor: el diálogo del cliente devuelve la ruta, la superficie la da de alta por `project/register` antes de lanzar nada — gates: `npm run check`, `npm run lint:i18n`
 - [ ] 8.5 Baja de proyecto desde la superficie con su texto honesto —oculta del listado, no borra nada, reaparece al volver a usarse— y estado ausente con remedio — gates: `npm run check`, `npm run lint:i18n`

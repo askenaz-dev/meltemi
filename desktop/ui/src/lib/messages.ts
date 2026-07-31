@@ -222,6 +222,7 @@ const es = {
   "nav.tree.collapse": "Plegar {project}",
   "nav.tree.expand": "Desplegar {project}",
   "nav.tree.empty": "sin sesiones en este proyecto",
+  "nav.tree.newSession": "Nueva sesión en {project}",
   "nav.tree.live": "{n} en curso",
 
   "projects.title": "Proyectos",
@@ -734,6 +735,7 @@ const en: Record<MessageKey, string> = {
   "nav.tree.collapse": "Collapse {project}",
   "nav.tree.expand": "Expand {project}",
   "nav.tree.empty": "no sessions in this project",
+  "nav.tree.newSession": "New session in {project}",
   "nav.tree.live": "{n} running",
 
   "projects.title": "Projects",

@@ -1566,3 +1566,39 @@ fn the_projects_section_is_permanent_chrome() {
         "the section cannot be displaced by whatever view is open"
     );
 }
+
+// Scenario: Acción rápida por proyecto lleva al compositor
+#[test]
+fn each_project_node_can_start_work_in_it() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        sidebar.contains("onNewSessionIn(group.root)"),
+        "each project node offers to start a session in it"
+    );
+    // Named for the screen reader as well as the eye, and always rendered: a
+    // control revealed on hover is a control the keyboard cannot reach.
+    assert!(
+        sidebar.contains("nav.tree.newSession"),
+        "the quick action says which project it starts work in"
+    );
+    assert!(
+        !sidebar.contains(":hover .quick"),
+        "the quick action must not be hover-revealed"
+    );
+    // Switching the scope stays a separate gesture on the same node.
+    assert!(
+        sidebar.contains("switchProject(group.root)"),
+        "the node still switches the active project"
+    );
+    // And the action lands on the composer with that project already chosen.
+    let app = app();
+    assert!(
+        app.contains("onNewSessionIn={(root) => openComposer(\"free\", root)}"),
+        "the quick action routes to the composer, naming the project"
+    );
+    let home = read("desktop/ui/src/lib/views/Home.svelte");
+    assert!(
+        home.contains("$state(untrack(() => initialProject))"),
+        "the composer opens on the project it was handed"
+    );
+}

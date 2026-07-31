@@ -35,10 +35,13 @@
   let {
     onOpenSession,
     initialMode = "free",
+    initialProject = null,
   }: {
     onOpenSession: (sessionId: string) => void;
     /** The mode the caller asked for: Propose routes here with it chosen. */
     initialMode?: Mode;
+    /** The project the caller named, e.g. the quick action of a nav node. */
+    initialProject?: string | null;
   } = $props();
 
   const METHOD: Record<Mode, string> = {
@@ -71,7 +74,7 @@
    * names another in the chip, and naming another does NOT move the surface's
    * scope: choosing where to work is not the same as going there.
    */
-  let picked: string | null = $state(null);
+  let picked: string | null = $state(untrack(() => initialProject));
   const root = $derived(picked ?? $activeProject ?? "");
 
   /** Agents that can actually be launched: detected, or a declared profile. */

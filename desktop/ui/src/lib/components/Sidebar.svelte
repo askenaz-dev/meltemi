@@ -13,11 +13,14 @@
     onNavigate,
     onPickProject,
     onOpenSession,
+    onNewSessionIn,
   }: {
     view: ViewId;
     onNavigate: (view: ViewId) => void;
     onPickProject: () => void;
     onOpenSession: (sessionId: string) => void;
+    /** Start work in this project: to the composer, with it already chosen. */
+    onNewSessionIn: (root: string) => void;
   } = $props();
 
   /** Collapsed project nodes, by root. The tree opens expanded. */
@@ -190,6 +193,16 @@
               <span class="count">{group.sessions.length}</span>
             {/if}
           </button>
+          <!-- Always rendered, never revealed on hover: a control that appears
+               under the pointer is a control the keyboard cannot reach. -->
+          <button
+            class="quick ghost"
+            aria-label={$t("nav.tree.newSession", { project: group.name })}
+            title={$t("nav.tree.newSession", { project: group.name })}
+            onclick={() => onNewSessionIn(group.root)}
+          >
+            <Icon name="plus" size={12} />
+          </button>
         </div>
 
         {#if open}
@@ -354,10 +367,14 @@
   .groupRow.current {
     background: var(--surface-2);
   }
-  .twisty {
+  .twisty,
+  .quick {
     flex: none;
     padding: 0 2px;
     color: var(--text-faint);
+  }
+  .quick:hover:not(:disabled) {
+    color: var(--accent);
   }
   .groupName {
     display: flex;
