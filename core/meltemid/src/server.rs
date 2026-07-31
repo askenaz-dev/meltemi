@@ -1055,6 +1055,42 @@ async fn handle_checkpoint_revert(params: Value) -> Result<Value, RpcError> {
 
     let params: CheckpointRevertParams = serde_json::from_value(params)
         .map_err(|e| RpcError::invalid_params(format!("checkpoint/revert: {e}")))?;
+
+    // Before anything else, including the confirmation prompt: reverting means
+    // `git reset --hard` plus `git clean -fd` over the tree the record names,
+    // and until the free session existed every recorded tree was a worktree
+    // Meltemi made. A free session's restore point is over the USER's own tree
+    // — uncommitted human work and untracked files included — so this verb, the
+    // CLI's `revert`, the palette entry and the GUI registry entry all point at
+    // a loaded gun. The refusal comes first so no surface can even offer the
+    // control: an unconfirmed call is how a surface asks what would happen, and
+    // the answer is "nothing, and here is why" (lanzador-conversacional D2).
+    if let Some(record) =
+        crate::checkpoints::list(&PathBuf::from(&params.project_root), Some(&params.change))
+            .into_iter()
+            .find(|r| r.task == params.task && r.agent == params.agent)
+        && !crate::worktrees::is_managed(
+            &PathBuf::from(&params.project_root),
+            std::path::Path::new(&record.worktree),
+        )
+    {
+        return Err(RpcError::application(
+            error_codes::WORKTREE_REFUSED,
+            "reversion refused",
+            "worktree_refused",
+            format!(
+                "the checkpoint `{}` was taken over `{}`, which is not a worktree Meltemi \
+                 manages; reverting it would reset that tree and delete its untracked files",
+                record.git_ref, record.worktree
+            ),
+            Some(format!(
+                "Restore what you want from the checkpoint yourself, with git: \
+                 `git restore --source {} -- <path>`.",
+                record.git_ref
+            )),
+        ));
+    }
+
     if !params.confirm {
         // Report the scope so the surface can show what will (and won't) revert
         // before the user confirms.

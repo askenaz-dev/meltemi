@@ -278,3 +278,93 @@ async fn the_restore_point_is_taken_without_moving_anything_of_the_users() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// Scenario: El punto de restauración de una sesión libre no es revertible
+#[tokio::test]
+async fn reverting_a_free_session_checkpoint_refuses_and_leaves_the_tree_alone() {
+    let root = fixture("guard", &[]);
+    with_history(&root);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("guard").await;
+    let peer = init_client(&endpoint).await;
+
+    let started = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "look around" }),
+        ),
+    )
+    .await
+    .expect("session/start returned")
+    .expect("session/start ok");
+    let session_id = started["sessionId"]
+        .as_str()
+        .expect("a session id")
+        .to_string();
+    assert!(started["checkpointRef"].is_string(), "{started:#}");
+
+    // The user works after the restore point was taken: an edit to a tracked
+    // file, and an untracked file `git clean -fd` would delete without asking.
+    std::fs::write(root.join("tracked.txt"), "human work\n").unwrap();
+    git(&root, &["add", "tracked.txt"]);
+    git(&root, &["commit", "-m", "human"]);
+    std::fs::write(root.join("tracked.txt"), "human work, edited\n").unwrap();
+    std::fs::write(root.join("untracked.txt"), "not committed anywhere\n").unwrap();
+
+    // Asking what a reversion would do is already refused: a surface has no
+    // scope report to render a control from.
+    let refused = peer
+        .request(
+            methods::CHECKPOINT_REVERT,
+            &json!({
+                "projectRoot": root_str,
+                "change": "free",
+                "task": session_id,
+                "agent": "mock-agent",
+            }),
+        )
+        .await
+        .expect_err("a free session's restore point is not revertible");
+    assert_eq!(refused.code, meltemi_proto::error_codes::WORKTREE_REFUSED);
+    let data = refused.data.clone().expect("a refusal carries data");
+    assert!(
+        data["remedy"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("git restore"),
+        "the remedy points at git, which is what the ref is for: {refused}"
+    );
+
+    // Confirming does not buy it either — confirmation is for a worktree, and
+    // this is the user's own tree.
+    let confirmed = peer
+        .request(
+            methods::CHECKPOINT_REVERT,
+            &json!({
+                "projectRoot": root_str,
+                "change": "free",
+                "task": session_id,
+                "agent": "mock-agent",
+                "confirm": true,
+            }),
+        )
+        .await
+        .expect_err("confirmation does not unlock the user's tree");
+    assert_eq!(confirmed.code, meltemi_proto::error_codes::WORKTREE_REFUSED);
+
+    // And the tree is exactly as the human left it.
+    assert_eq!(
+        std::fs::read_to_string(root.join("tracked.txt")).unwrap(),
+        "human work, edited\n",
+        "no reset --hard touched the user's edit"
+    );
+    assert!(
+        root.join("untracked.txt").exists(),
+        "no clean -fd deleted the user's untracked file"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
