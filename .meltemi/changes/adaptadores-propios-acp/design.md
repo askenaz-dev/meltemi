@@ -569,3 +569,49 @@ Acotar eso del todo exige (a) o un árbol de procesos que muera entero, que
 es de `sandbox-propio` y ya está anotado ahí. La delta de `own-adapters`
 recoge la regla en el requisito de permisos, con su escenario, y el
 comentario del código dice ahora lo que de verdad pasa.
+
+### D14 — Un nombre del catálogo se resuelve al archivo que la plataforma ejecuta
+
+Añadida el 2026-07-31. No salió de leer el código: salió de correr la
+segunda pierna de D10 contra los CLIs de verdad, que es exactamente la
+clase de defecto para la que esa corrida existe.
+
+`codex` no se pudo lanzar. El catálogo lo daba por presente —y tenía razón,
+está instalado y responde `codex-cli 0.77.0`— y el adaptador rehusaba con
+«`codex` could not be launched (program not found)». Dos subsistemas
+diciendo la verdad y una contradicción en la cara del usuario, sin nada que
+él pudiera hacer al respecto.
+
+La causa es de Windows y es exacta. La instalación documentada de ese CLI es
+`npm i -g`, que deja `codex.cmd`, `codex.ps1` y un script sh sin extensión
+—y ningún `codex.exe`—. `CreateProcess` sólo le añade `.exe` a un nombre
+pelado, de modo que `Command::new("codex")` no encuentra nada; con la ruta
+completa del `.cmd` funciona sin más (comprobado a mano contra este mismo
+binario, no de memoria). El catálogo, en cambio, sondea `.exe`, `.cmd` y
+`.bat` desde `flota-deteccion-guia` D2 — sabía dónde estaba el archivo, y
+el adaptador nunca se enteró porque le pasaban un nombre, no un hallazgo.
+
+**Lo elegido**: el adaptador resuelve el nombre él mismo, en el único punto
+donde ambos dialectos nombran su programa (`supervisor::resolve_program`),
+con el mismo conjunto acotado de extensiones que usa el catálogo y por el
+mismo motivo — un `.ps1` prueba que algo está instalado y no es un blanco
+de lanzamiento. Un nombre que ya dice dónde o qué es se deja intacto, y uno
+al que nada en el `PATH` responde se conserva pelado, para que el rehúso
+siga nombrando el CLI que al usuario le dijeron que instalara y no una ruta
+que jamás existió. Efecto lateral que se queda: `providerBin` en el log de
+sesión pasa a ser el archivo que de verdad se lanzó.
+
+**Lo descartado**: que el daemon le pase al adaptador la ruta que ya
+resolvió su detección. Es menos trabajo y ata el adaptador al daemon: un
+adaptador propio es un agente ACP como cualquier otro y tiene que poder
+encontrar su CLI cuando lo lanza una persona, un editor o una prueba. La
+variable de entorno de escape sigue existiendo para poner otro binario en su
+lugar, y sigue mandando sobre todo lo demás.
+
+**Lo que esto no arregla, dicho aquí**: un CLI que Windows sólo puede lanzar
+a través de `cmd.exe` —eso es un `.cmd`— cuelga un intérprete entre el
+adaptador y el proceso real. El fin de entrada llega igual, porque los
+descriptores se heredan; lo que no es seguro es que matar al intérprete mate
+lo que arrancó. Es el mismo hueco que D13 nombra por el otro lado y termina
+en el mismo sitio: un árbol de procesos que muera entero es de
+`sandbox-propio`.

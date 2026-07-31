@@ -11,7 +11,12 @@ enlazar pila HTTP ni TLS alguna, MUST NOT leer, almacenar ni reenviar
 material de autenticación, y MUST NOT escuchar en puerto alguno. WHEN el
 CLI oficial no se encuentra o no puede lanzarse como subproceso, el
 adaptador MUST rehusar con diagnóstico que nombre la capa ausente y su
-remedio, y MUST NOT degradar a ninguna vía alternativa.
+remedio, y MUST NOT degradar a ninguna vía alternativa. El nombre con que el
+catálogo declara ese CLI SHALL resolverse al archivo que la plataforma
+ejecuta realmente, con el mismo criterio con que el catálogo lo detecta, de
+modo que un CLI que el catálogo reporta presente sea lanzable por el
+adaptador; el binario efectivamente resuelto SHALL constar en el log de
+sesión.
 
 #### Scenario: Adaptador sin pila de red
 - **WHEN** se audita el árbol de dependencias del crate de adaptadores
@@ -27,6 +32,11 @@ remedio, y MUST NOT degradar a ninguna vía alternativa.
 - **IF** el CLI oficial del proveedor no puede lanzarse como subproceso
 - **THEN** el adaptador SHALL rehusar con diagnóstico y remedio que nombren la capa ausente
 - **AND** SHALL NOT intentar ninguna vía alternativa de pilotaje
+
+#### Scenario: CLI que el catálogo encuentra, lanzable por el adaptador
+- **WHEN** el CLI oficial está instalado bajo una forma que el catálogo reconoce como lanzable
+- **THEN** el adaptador SHALL resolver el nombre declarado al archivo que la plataforma ejecuta
+- **AND** un CLI presente para el catálogo SHALL NOT rehusarse como ausente al lanzarlo
 
 ### Requirement: Sesión headless de eventos JSON como sesión ACP
 El adaptador del dialecto de sesión headless SHALL pilotar el CLI oficial

@@ -1505,12 +1505,18 @@ mod tests {
     fn the_environment_override_decides_which_binary_is_launched() {
         // The knob the end-to-end test turns to put a scripted wire where the
         // provider would be. Without it, the registry's binary name stands —
-        // and an empty variable is not an instruction to launch nothing.
-        assert_eq!(resolve_program(None, SPEC.provider_bin), SPEC.provider_bin);
-        assert_eq!(
-            resolve_program(Some("  ".into()), SPEC.provider_bin),
-            SPEC.provider_bin
-        );
+        // and an empty variable is not an instruction to launch nothing. What
+        // the name resolves to is the file the platform will really run, which
+        // on Windows is the `.cmd` an `npm i -g` install drops, so the
+        // assertion is about which binary was named.
+        let named = |value: Option<&str>| {
+            let resolved = resolve_program(value.map(str::to_string), SPEC.provider_bin);
+            std::path::Path::new(&resolved)
+                .file_stem()
+                .is_some_and(|stem| stem.eq_ignore_ascii_case(SPEC.provider_bin))
+        };
+        assert!(named(None), "the registry's name stands");
+        assert!(named(Some("  ")), "and an empty variable changes nothing");
         assert_eq!(
             resolve_program(Some("/tmp/mock-codex-wire".into()), SPEC.provider_bin),
             "/tmp/mock-codex-wire"

@@ -1395,7 +1395,16 @@ mod tests {
 
     #[test]
     fn the_environment_override_decides_which_binary_is_launched() {
-        assert_eq!(resolve_program(None, SPEC.provider_bin), SPEC.provider_bin);
+        // Without an override the registry's name is the one resolved — which
+        // on Windows may be answered by a shim with an extension, so what is
+        // asserted is which binary was named and not how the file is spelled.
+        let default = resolve_program(None, SPEC.provider_bin);
+        assert!(
+            std::path::Path::new(&default)
+                .file_stem()
+                .is_some_and(|stem| stem.eq_ignore_ascii_case(SPEC.provider_bin)),
+            "the registry's name stands when nothing overrides it: {default}"
+        );
         assert_eq!(
             resolve_program(Some("/tmp/mock-claude-wire".into()), SPEC.provider_bin),
             "/tmp/mock-claude-wire"

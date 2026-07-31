@@ -186,8 +186,16 @@ pub async fn end(
     Ok(ShutdownOutcome::Killed)
 }
 
+/// Extensions a launch may target on Windows: the bounded PATHEXT the catalog
+/// already probes for the same binaries (`meltemid::fleet`, design D2 of
+/// `flota-deteccion-guia`) — installers ship `.exe`, npm shims are `.cmd`, some
+/// wrappers `.bat`. A `.ps1` is evidence that something is installed and never a
+/// launch target, which is why it is not here.
+#[cfg(windows)]
+const WINDOWS_EXTS: &[&str] = &["exe", "cmd", "bat"];
+
 /// Which binary to launch: the override when it says something, the registry's
-/// name otherwise.
+/// name otherwise — resolved to the file the platform will actually run.
 ///
 /// Every dialect has the same escape hatch — an environment variable naming a
 /// specific binary — because a CLI can live where the PATH does not reach, and
@@ -197,9 +205,55 @@ pub async fn end(
 /// not an instruction.
 #[must_use]
 pub fn resolve_program(override_value: Option<String>, default_bin: &str) -> String {
-    override_value
+    let named = override_value
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| default_bin.to_string())
+        .unwrap_or_else(|| default_bin.to_string());
+    located(&named, std::env::var_os("PATH").as_deref()).unwrap_or(named)
+}
+
+/// The file a bare name launches on this platform, when the platform has to be
+/// told which one it is.
+///
+/// On Windows it has to be told. `CreateProcess` appends `.exe` to a bare name
+/// and nothing else, while the documented install of more than one provider CLI
+/// is `npm i -g`, which drops a `.cmd` shim and no `.exe` at all: the catalog
+/// then finds the CLI, reports it present, and the launch fails with "program
+/// not found" — a contradiction the user cannot act on. Resolving here, at the
+/// one point both dialects name their program, also puts the file that was
+/// really launched in the session log, since that is where `providerBin` is read
+/// from.
+///
+/// `None` means "nothing to add": the name already says where or what it is, or
+/// nothing on the `PATH` answers to it — in which case the bare name is kept, so
+/// the refusal still names the CLI the user was told to install rather than a
+/// path that does not exist.
+#[cfg(windows)]
+fn located(named: &str, path_var: Option<&std::ffi::OsStr>) -> Option<String> {
+    if named.contains('/')
+        || named.contains('\\')
+        || std::path::Path::new(named).extension().is_some()
+    {
+        return None;
+    }
+    for dir in std::env::split_paths(path_var?) {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        for ext in WINDOWS_EXTS {
+            let candidate = dir.join(format!("{named}.{ext}"));
+            if candidate.is_file() {
+                return Some(candidate.to_string_lossy().into_owned());
+            }
+        }
+    }
+    None
+}
+
+/// Nothing to add elsewhere: `execvp` searches the `PATH` itself, and a file is
+/// executable or it is not — there are no extensions to guess.
+#[cfg(not(windows))]
+fn located(_named: &str, _path_var: Option<&std::ffi::OsStr>) -> Option<String> {
+    None
 }
 
 /// Launches the official CLI as the session's provider process.
@@ -377,5 +431,52 @@ mod tests {
             "the refusal carries a remedy the human can act on: {}",
             refusal.remedy
         );
+    }
+
+    #[test]
+    fn a_name_the_registry_declares_resolves_to_the_file_that_is_really_launched() {
+        // Scenario: CLI que el catálogo encuentra, lanzable por el adaptador
+        //
+        // The defect a real run found, and the only kind of defect a real run
+        // can find: `npm i -g` — the documented install of one of the piloted
+        // CLIs — drops `codex.cmd` and no `codex.exe`, `CreateProcess` appends
+        // only `.exe`, and so the catalog reported the CLI present while every
+        // launch answered "program not found". Two truthful subsystems, one
+        // contradiction, and nothing the user could do about it.
+        let dir = std::env::temp_dir().join(format!("meltemi-resolve-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let shim = dir.join(if cfg!(windows) {
+            "provider-cli.cmd"
+        } else {
+            "provider-cli"
+        });
+        std::fs::write(&shim, "#!/bin/sh\n").unwrap();
+        let path_var = std::env::join_paths([&dir]).unwrap();
+        let on_path = |named: &str| located(named, Some(path_var.as_os_str()));
+
+        if cfg!(windows) {
+            let hit = on_path("provider-cli").expect("the shim on the PATH answers to the name");
+            assert!(
+                hit.to_lowercase().ends_with("provider-cli.cmd"),
+                "and the launch targets the file, not the name: {hit}"
+            );
+        } else {
+            assert_eq!(
+                on_path("provider-cli"),
+                None,
+                "elsewhere `execvp` searches the PATH itself; there is nothing to add"
+            );
+        }
+
+        // Three names that are left exactly as written: one that already says
+        // where it is, one that already says what it is, and one nothing on the
+        // PATH answers to — that last so the refusal keeps naming the CLI the
+        // user was told to install, not a path that never existed.
+        assert_eq!(on_path(&shim.display().to_string()), None);
+        assert_eq!(on_path("provider-cli.exe"), None);
+        assert_eq!(on_path("meltemi-nothing-answers-to-this"), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
