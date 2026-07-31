@@ -2,7 +2,7 @@
 
 ## 1. Expansión que respeta el texto
 
-- [ ] 1.1 Copiar el tramo literal entre referencias como una sola rebanada
+- [x] 1.1 Copiar el tramo literal entre referencias como una sola rebanada
   `&str` en `expand_refs` (`core/meltemid/src/repo_map.rs`) — `find('@')` para
   hallar el próximo `@`, `push_str(&text[i..at])` para empujarlo, sin ninguna
   conversión de byte a `char` (design D1) — y cubrir «Prompt en español

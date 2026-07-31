@@ -116,11 +116,23 @@ pub fn expand_refs(root: &Path, text: &str, limits: ExpandLimits) -> (String, Ve
     let mut i = 0;
 
     while i < bytes.len() {
-        if bytes[i] != b'@' {
-            out.push(bytes[i] as char);
-            i += 1;
-            continue;
-        }
+        // The literal run up to the next `@` is copied as ONE `&str` slice.
+        // Walking it byte by byte was the whole defect: `byte as char` decodes
+        // nothing, it maps each byte to its namesake code point — Latin-1 — so
+        // every multi-byte character left double-encoded. A slice cannot tear a
+        // character in half; `&str` refuses to be cut off a boundary, which
+        // turns what was a silent conversion into an invariant the type checks.
+        //
+        // `i` is always ON a boundary, and every branch below keeps it there:
+        // it starts at 0, lands on an `@` after a literal run, advances 2 over
+        // `@@` and 1 over a lone `@` (all ASCII), and takes the token's `end`,
+        // which the scan advances one whole character at a time.
+        let Some(offset) = text[i..].find('@') else {
+            out.push_str(&text[i..]);
+            break;
+        };
+        out.push_str(&text[i..i + offset]);
+        i += offset;
         // `@@` → literal `@`.
         if bytes.get(i + 1) == Some(&b'@') {
             out.push('@');
@@ -329,11 +341,66 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_in_spanish_travels_character_for_character() {
+        // Scenario: Prompt en español íntegro
+        let dir = temp("utf8");
+        // The exact string the conducted smoke measured over the named pipe: it
+        // went in at 20 characters and the session record held 24, because each
+        // byte of every accent became a character of its own.
+        let prompt = "acción íntegra ñandú";
+        assert_eq!(prompt.chars().count(), 20, "the measured string, unchanged");
+        let (out, exp) = expand_refs(&dir, prompt, ExpandLimits::default());
+        assert_eq!(
+            out.chars().count(),
+            20,
+            "not one character was invented on the way out: {out}"
+        );
+        assert_eq!(out, prompt, "the prompt travels character for character");
+        assert!(exp.is_empty(), "no references, no expansions");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn double_at_is_a_literal() {
+        // Scenario: Arroba doble literal
         let dir = temp("escape");
-        let (out, exp) = expand_refs(&dir, "email me@@example.com", ExpandLimits::default());
-        assert!(out.contains("me@example.com"), "@@ is a literal @: {out}");
+        let (out, exp) = expand_refs(
+            &dir,
+            "escríbeme a ñandú@@correo.eñe",
+            ExpandLimits::default(),
+        );
+        assert_eq!(
+            out, "escríbeme a ñandú@correo.eñe",
+            "`@@` collapses to one literal `@` and the accents around it survive"
+        );
         assert!(exp.is_empty(), "no expansion for a literal");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_reference_glued_to_a_multibyte_character_still_lands() {
+        // Scenario: Referencia pegada a un carácter multibyte
+        let dir = temp("adjacent");
+        std::fs::write(dir.join("lib.rs"), "pub fn x() {}").unwrap();
+        // Deliberately adversarial: `ñ` is glued to the `@` on the left and `»`
+        // to the end of the token on the right, so a byte-walking expansion
+        // tears one of them in half whichever side it gets right.
+        let (out, exp) = expand_refs(&dir, "ñ@lib.rs» ñandú", ExpandLimits::default());
+        assert!(
+            out.starts_with('ñ'),
+            "the character before the `@` survives: {out}"
+        );
+        assert!(
+            out.contains("@lib.rs:") && out.contains("pub fn x()"),
+            "the reference expanded exactly as it would surrounded by ASCII: {out}"
+        );
+        assert!(
+            out.ends_with("» ñandú"),
+            "the characters after the token survive: {out}"
+        );
+        assert_eq!(exp.len(), 1);
+        assert_eq!(exp[0].path, "lib.rs");
+        assert!(!exp[0].not_found);
         std::fs::remove_dir_all(&dir).ok();
     }
 
