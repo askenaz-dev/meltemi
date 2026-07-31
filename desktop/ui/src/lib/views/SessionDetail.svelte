@@ -448,14 +448,24 @@
     outline: 1px solid var(--focus);
     outline-offset: -1px;
   }
+  /* A column whose child count varies: the "gone" notice is conditional and a
+     composer is about to join. A fixed row template cannot express that — with
+     one conditional child absent, auto-placement drops the transcript into an
+     `auto` track and the 1fr track stays empty, so the panel stops filling the
+     window and starts overflowing it instead. This is the same defect the
+     archived `gui-acabado-y-cierre-sdd` found in the shell column, and the same
+     fix: every bar keeps its natural height, the transcript takes the rest. */
   section {
-    display: grid;
-    grid-template-rows: auto auto 1fr;
+    display: flex;
+    flex-direction: column;
     gap: var(--sp-2);
     height: 100%;
     min-height: 0;
     padding: var(--sp-2) var(--sp-4) var(--sp-4);
     position: relative;
+  }
+  section > :not(.transcript) {
+    flex: 0 0 auto;
   }
   header {
     display: flex;
@@ -494,6 +504,7 @@
     font-size: var(--fs-caption);
   }
   .transcript {
+    flex: 1 1 0;
     overflow: auto;
     background: var(--surface);
     border: 1px solid var(--hair);
