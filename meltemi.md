@@ -1,7 +1,7 @@
 # Meltemi — Documento Fundacional
 
 > **"Un rumbo, muchas velas."**
-> Versión 1.4 — enmendada el 26 de julio de 2026 (`enmienda-agent-boss`: el compañero móvil es el puesto remoto del Agent Boss); ratificación de la v1.4 pendiente del mantenedor fundador. Enmiendas previas: v1.3 (`enmienda-edicion-movil`, ratificación pendiente), v1.2 (`formato-artefactos-meltemi`, ratificación pendiente), v1.1 (`enmiendas-fundacionales-v1`). Base v1.0 ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2).
+> Versión 1.5 — enmendada el 31 de julio de 2026 (`lanzador-conversacional`: toda sesión corre gobernada y especificar antes de escribir es el camino más corto, no un peaje previo); ratificación de la v1.5 pendiente del mantenedor fundador, y **gate de archivo** de esa change. Enmiendas previas: v1.4 (`enmienda-agent-boss`: el compañero móvil es el puesto remoto del Agent Boss, ratificación pendiente), v1.3 (`enmienda-edicion-movil`, ratificación pendiente), v1.2 (`formato-artefactos-meltemi`, ratificación pendiente), v1.1 (`enmiendas-fundacionales-v1`). Base v1.0 ratificada el 11 de julio de 2026 por Guillmar Ortiz (`fase-0-fundacion` 1.2).
 > Este documento practica lo que predica: define **qué** se construirá y **por qué**, antes de escribir una sola línea de código.
 
 ---
@@ -39,7 +39,7 @@ Meltemi es y será siempre **gratuito, abierto (Apache 2.0) y de la comunidad**.
 
 ## En síntesis
 
-- **Meltemi es el plano de control spec-driven para el desarrollo agéntico**: un entorno 100% open source (Apache 2.0) donde ninguna línea de código se escribe sin una especificación revisada primero, y donde esa disciplina gobierna a **los agentes de codificación que el usuario ya tiene y ya paga** — los de los grandes laboratorios y los open source por igual.
+- **Meltemi es el plano de control spec-driven para el desarrollo agéntico**: un entorno 100% open source (Apache 2.0) donde toda sesión de agente corre gobernada —permisos, registro auditable y punto de restauración— y donde especificar antes de escribir es el camino más corto y no un peaje previo; esa disciplina gobierna a **los agentes de codificación que el usuario ya tiene y ya paga** — los de los grandes laboratorios y los open source por igual.
 - **No construimos otro agente más; dirigimos a todos.** El MVP orquesta agentes externos a través de **protocolos abiertos** (ACP para pilotar agentes, MCP para herramientas y datos) y de **proyección de contexto** hacia los formatos de instrucciones que los agentes ya leen. Un motor agéntico propio (BYOK) llega en una fase posterior como una vela más — nunca como requisito.
 - **Arquitectura**: un núcleo headless en **Rust** (`meltemid`) que concentra specs, orquestación, protocolos y seguridad; sobre él, dos clientes finos con paridad de núcleo: una **TUI** y una **GUI de escritorio en Tauri**. Arranque instantáneo, huella mínima.
 - **Juego limpio**: Meltemi ejecuta siempre el **binario oficial** de cada agente, con la autenticación que ese agente gestiona. Nunca suplanta tráfico, nunca toca credenciales ajenas, y muestra con transparencia el nivel de integración y de seguridad de cada agente.

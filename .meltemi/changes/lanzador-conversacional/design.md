@@ -324,6 +324,22 @@ La ratificación del mantenedor es gate: sin ella la change no archiva, igual qu
 correr `meltemi project`, porque el bloque proyectado de `AGENTS.md` /
 `CLAUDE.md` / `GEMINI.md` compila el rumbo y quedaría desfasado.
 
+**Enmienda del 2026-07-31 (tarea 9.1), y sus dos añadidos.** Este apartado
+nombró las dos frases y no el protocolo que las rodea, así que la aplicación
+añade lo que el propio documento exige de toda enmienda suya. Primero,
+`meltemi.md` sube a **v1.5** con su nota de enmienda: cada enmienda anterior
+—v1.1 a v1.4— bumpeó la versión y se nombró en la cabecera, y dejar la v1.4
+sobre una tesis reescrita rompería el único registro de ratificaciones
+pendientes que el documento lleva. Segundo, el párrafo enmendado de
+`rumbo/product.md` viaja con una nota de pendiente sobre sí mismo, porque su
+front-matter dice `ratificado: 2026-07-11` y el parser ignora toda clave que no
+conoce: sin la nota en el cuerpo, el archivo afirmaría ratificado un texto que
+no lo está. Y lo que **no** se toca, con su razón: la misma promesa vive en
+`README.md`, `LEEME.md`, `site/index.html` y `site/es/index.html`. Es material
+publicado de cara al mundo; reescribirlo antes de la firma sería anunciar una
+promesa que el mantenedor todavía no ratificó. Queda anotado en el pendiente
+del arquitecto para que se refresque **con** la ratificación, no antes.
+
 ### D6 — `project/register` y `project/forget`: semántica completa
 
 **`project/register {root}` → `{project}`.** Exige que la ruta exista y sea un

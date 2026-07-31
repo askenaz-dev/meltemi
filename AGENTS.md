@@ -4,7 +4,7 @@ La constitución y el rumbo se **proyectan automáticamente** al bloque gestiona
 
 ## Qué es este proyecto
 
-Meltemi: plano de control spec-driven open source (Apache 2.0) que orquesta agentes de codificación externos vía ACP. Daemon headless `meltemid` (Rust) + TUI `meltemi` + GUI Tauri (fase 2). Documento fundacional: `meltemi.md` (v1.3 enmendada; ratificación de v1.2/v1.3 pendiente del mantenedor fundador; base v1.0 y constitución/rumbo ratificados 2026-07-11). La edición de código es *utilitaria al servicio del bucle agéntico*, acotada por la spec de gobernanza `edit-surface`; el compañero móvil (fase 3) está acotado por `mobile-companion`. Backlog maestro: `docs/plan-de-cambios.md`.
+Meltemi: plano de control spec-driven open source (Apache 2.0) que orquesta agentes de codificación externos vía ACP. Daemon headless `meltemid` (Rust) + TUI `meltemi` + GUI Tauri (fase 2). Documento fundacional: `meltemi.md` (v1.5 enmendada; ratificación de v1.2 a v1.5 pendiente del mantenedor fundador, y la de v1.5 es gate de archivo de `lanzador-conversacional`; base v1.0 y constitución/rumbo ratificados 2026-07-11). La edición de código es *utilitaria al servicio del bucle agéntico*, acotada por la spec de gobernanza `edit-surface`; el compañero móvil (fase 3) está acotado por `mobile-companion`. Backlog maestro: `docs/plan-de-cambios.md`.
 
 Workspace Cargo en la raíz: `core/meltemid` (daemon), `core/meltemi-spec` (motor de specs), `core/mock-agent` (agente ACP simulado para e2e), `proto/meltemi-proto` (tipos del contrato), `tui/` (binario `meltemi`: CLI scriptable + TUI). Toolchain pineado en `rust-toolchain.toml` (1.97.0).
 
