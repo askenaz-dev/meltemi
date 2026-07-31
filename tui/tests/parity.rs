@@ -119,6 +119,54 @@ fn the_gui_registry_registers_every_contract_method_and_nothing_else() {
     );
 }
 
+// Naming the agent is part of the free session's parity, and the claim spans
+// two surfaces at once — so it is asserted across both sources rather than
+// anchored to whichever one happens to have a test. Which surfaces? The ones
+// that OFFER to start a free session: the terminal one does it with the CLI
+// verb (its palette announces the method as reserved, so there is no second,
+// interactive entry to check there), and the desktop one does it with the
+// composer's chip.
+// Scenario: La elección de agente es pareja
+#[test]
+fn every_surface_that_starts_a_free_session_can_name_the_agent() {
+    let root = repo_root();
+
+    // Terminal: the generated grammar advertises the flag on the free-session
+    // verb, and a profile is offered by its subscription name next to the agent
+    // it actually runs.
+    let reference = fs::read_to_string(root.join("docs/referencia-cli.md"))
+        .expect("read the generated CLI reference");
+    assert!(
+        reference.contains("session <instruction> [project-root] [--agent <id|profile>]"),
+        "the CLI's free-session verb advertises --agent"
+    );
+    let cli = fs::read_to_string(root.join("tui/src/run.rs")).expect("read the CLI renderer");
+    assert!(
+        cli.contains("(profile → {underlying})"),
+        "the CLI names a profile's underlying agent beside it"
+    );
+
+    // Desktop: the composer sends the chosen entry as the contract's optional
+    // `agent`, and its menu shows the subscription as a pill with the agent
+    // underneath it — never the profile alone, which would hide what runs.
+    let composer = fs::read_to_string(root.join("desktop/ui/src/lib/views/Home.svelte"))
+        .expect("read the composer");
+    assert!(
+        composer.contains("params.agent = agent"),
+        "the composer sends the chosen agent to the contract"
+    );
+    assert!(
+        composer.contains("entry.underlyingAgent ?? entry.displayName"),
+        "the composer labels a profile row with the agent it runs"
+    );
+    assert!(
+        composer.contains(
+            r#"<span class="pill" title={$t("sessions.subscription")}>{entry.profile}</span>"#
+        ),
+        "the composer shows the subscription name as its own pill"
+    );
+}
+
 #[test]
 fn the_parity_matrix_documents_every_method() {
     let source = fs::read_to_string(repo_root().join("docs/paridad-nucleo.md"))
