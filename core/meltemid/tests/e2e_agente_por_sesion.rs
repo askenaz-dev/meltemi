@@ -547,3 +547,70 @@ async fn naming_an_undetected_agent_also_offers_the_ones_that_are_there() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// Scenario: La negativa no filtra material de autenticación
+#[tokio::test]
+async fn the_refusal_payload_carries_no_environment_and_nothing_shaped_like_a_secret() {
+    // The fixture's profile injects an env marker, and the process running this
+    // test has an env of its own. Neither may appear in a refusal: §2 is not a
+    // matter of the payload happening to be small today.
+    let root = fixture_without_a_configured_agent("hygiene");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("hygiene").await;
+    let peer = init_client(&endpoint).await;
+
+    // SAFETY: single-threaded setup before any concurrent env reader here.
+    unsafe {
+        std::env::set_var("MELTEMI_TEST_SECRET", "sk-do-not-leak-me");
+    }
+    let refused = peer
+        .request(
+            methods::PROPOSE,
+            &json!({ "idea": "hygiene", "projectRoot": root_str }),
+        )
+        .await
+        .expect_err("no agent is configured");
+    let payload = serde_json::to_string(&refused.data.clone().expect("data")).expect("serializes");
+
+    assert!(
+        !payload.contains("sk-do-not-leak-me"),
+        "an environment value reached the payload: {payload}"
+    );
+    assert!(
+        !payload.contains("MELTEMI_TEST_SECRET"),
+        "an environment NAME reached the payload: {payload}"
+    );
+    assert!(
+        !payload.contains("work-sub-ctx"),
+        "a profile's auth context reached the payload: {payload}"
+    );
+    for suspicious in ["token", "secret", "password", "api_key", "apiKey", "Bearer"] {
+        assert!(
+            !payload.to_lowercase().contains(&suspicious.to_lowercase()),
+            "something shaped like a credential reached the payload (`{suspicious}`): {payload}"
+        );
+    }
+    // What it DOES carry is the vocabulary a surface can act on.
+    let data = refused.data.clone().expect("data");
+    let candidate = &data["candidates"][0];
+    let keys: Vec<&str> = candidate
+        .as_object()
+        .expect("a candidate is an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    for key in &keys {
+        assert!(
+            ["id", "detected", "installState", "remedy", "remedyCommand"].contains(key),
+            "a candidate must carry ids, detection and remedies only, not `{key}`: {data:#}"
+        );
+    }
+
+    // SAFETY: same reasoning as above.
+    unsafe {
+        std::env::remove_var("MELTEMI_TEST_SECRET");
+    }
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
