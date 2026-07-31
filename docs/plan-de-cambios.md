@@ -129,11 +129,14 @@ revisados uno por uno, deltas plegados a la verdad viva):
 
 Pendientes de Fase 2: `motor-propio-byok` (propuesta redactada, activa) ·
 `pulido-pre-anuncio` (abierta 2026-07-27, en implementación) ·
-`lanzador-conversacional` (abierta 2026-07-27) · `adaptadores-propios-acp`
-(abierta 2026-07-27) · `registro-agentes-en-superficie` ·
-`menu-nativo-aplicacion` · `sandbox-propio` · `hooks-eventos` ·
-`plugins-skills-sdk` · `i18n-superficies` · `metricas-sdd-locales` ·
-`lsp-superficie-revision`.
+`lanzador-conversacional` (abierta 2026-07-27, **implementada y verificada
+106/106; no archiva hasta la ratificación de la enmienda**) ·
+`adaptadores-propios-acp` (abierta 2026-07-27) ·
+`texto-intacto-al-agente` (nueva, del smoke del 2026-07-31: el prompt se
+doble-codifica y el agente recibe acentos rotos) ·
+`registro-agentes-en-superficie` · `menu-nativo-aplicacion` · `sandbox-propio` ·
+`hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` ·
+`metricas-sdd-locales` · `lsp-superficie-revision`.
 
 ### `motor-propio-byok` — propuesta activa desde el 2026-07-25
 
@@ -275,6 +278,59 @@ del daemon sí. Fuera de alcance: `menu-nativo-aplicacion` y
 `registro-agentes-en-superficie` siguen siendo changes propias (registrar
 agentes ≠ seleccionarlos), y el render conversacional del histórico
 archivado más allá del conmutador de log queda para futuro con evidencia.
+
+**Desenlace (2026-07-31) — implementada y verificada; el archivo espera una
+firma.** Los nueve bloques de tareas están cerrados, `meltemi validate` sale
+limpio y `meltemi verify` da **106/106 escenarios, sin una sola marca manual**.
+Lo que quedó decidido y conviene leer aquí, porque son las cosas que la
+propuesta dejó abiertas:
+
+- **Nombres finales de los verbos CLI** (design D9): `meltemi session
+  <instruction> [project-root] [--agent <id|perfil>]` —no `start`, que se leería
+  como arrancar el daemon junto a `stop`— y `meltemi projects register|forget
+  <path>`, colgados del listado en plural porque `project` ya toma una raíz
+  posicional y habría leído `register` como una ruta. `--agent` se parsea una
+  sola vez en `plan` y se entrega al subcomando, de modo que vale en cualquier
+  posición; un subcomando que no arranca sesión la rehúsa con diagnóstico en vez
+  de tragársela.
+- **El guardián de reversión**, que entró en esta change y no en una futura
+  (design D2): `checkpoint/revert` rehúsa todo punto de restauración cuyo árbol
+  no sea un worktree gestionado, con el remedio de `git restore --source`.
+  Escribir el checkpoint de la sesión libre sin ese guardián habría armado un
+  verbo existente contra el árbol del usuario —`reset --hard` más `clean -fd`
+  sobre trabajo humano sin commitear—; ninguna superficie ofrece ya ese control.
+- **La enmienda de la promesa está aplicada y sin ratificar**: `rumbo/product.md`
+  y la tesis de meltemi.md (v1.5) llevan el texto de D5 con su nota de pendiente.
+  **Sin la firma del mantenedor esta change no archiva** — pendiente 1c del
+  arquitecto, donde además está lo que hay que hacer al firmar.
+- **Una enmienda de spec en marcha** (design D12): la vista de aterrizaje de
+  `gui-shell` era «Sesiones» en la verdad viva y estaba fijada por un test; se
+  enmendó el requisito, no la implementación, porque el compositor como llegada
+  es la directiva entera de la change.
+- **Documentación**: `docs/sesion-libre.md` (qué gobierna una sesión sin spec,
+  dónde opera, y por qué el punto de restauración no es una reversión ofrecida)
+  y el smoke visual con 21 medidas en
+  `docs/qa/2026-07-31-lanzador-conversacional-smoke.md`.
+
+**Lo que el smoke encontró y esta change no arregla** (rumbo de estructura: lo
+que surge se anota, no se cuela). Dos merecen decisión antes de archivar:
+
+1. **El texto no ASCII llega corrupto al agente** — `out.push(bytes[i] as char)`
+   en `core/meltemid/src/repo_map.rs:120` convierte cada byte UTF-8 en un code
+   point Latin-1, así que «acción» viaja como «acciÃ³n» en **todo** prompt que
+   pasa por la expansión de `@`. Es anterior a esta change y de gravedad alta:
+   el agente recibe la frase rota, no solo la pantalla. Anotado arriba como
+   `texto-intacto-al-agente`.
+2. **Olvidar un proyecto con sesiones no quita su nodo del árbol**: el daemon lo
+   saca del listado, pero el cliente lo reconstruye como nodo inferido
+   (`desktop/ui/src/lib/tree.ts:81`) y no distingue los inferidos. Esconderlo
+   dejaría sesiones sin casa en el árbol, que es justo lo que el nodo inferido
+   evita: es decisión de producto, no un arreglo obvio.
+
+Los otros tres (posición en la cola tapada por el aviso de permiso, cierre de
+turno como línea neutra tras una tarjeta, y el primer `fleet/list` saliendo antes
+de que el ámbito de proyecto se resuelva) están descritos con su evidencia en el
+informe de QA.
 
 ### `adaptadores-propios-acp` — abierta el 2026-07-27 (directiva del mantenedor)
 
