@@ -730,6 +730,18 @@ fn render_sessions(
     frame.render_widget(Paragraph::new(lines), area);
 }
 
+/// What directing this session would do, in the surface's words — said before
+/// the instruction is written rather than after it is sent. A session that
+/// ended and cannot be resumed has no send to offer, and says that instead.
+pub(crate) fn direction_prospect(row: Option<&SessionRow>) -> Msg {
+    match row {
+        None => Msg::DirectNoSession,
+        Some(row) if !row.is_historical() => Msg::DirectWillQueue,
+        Some(row) if row.resumable => Msg::DirectWillResume,
+        Some(_) => Msg::DirectNotResumable,
+    }
+}
+
 fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
     let header = match live.selected_session() {
         Some(row) => {
@@ -771,9 +783,18 @@ fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &S
         format!("[{follow}] x cancela | Esc atrás")
     };
 
+    // What `: direct` would do to THIS session, before anything is typed: queue
+    // a turn, resume it, or nothing at all. The drill-in is where the user
+    // decides, so it is where the consequence belongs.
+    let prospect = format!(
+        ": direct — {}",
+        ctx.msg(direction_prospect(live.selected_session()))
+    );
+
     let mut lines = vec![
         Line::styled(header, ctx.emphasis()),
         Line::from(subtitle),
+        Line::from(prospect),
         Line::from(""),
     ];
 
@@ -790,7 +811,7 @@ fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &S
         }));
     }
     // Show the tail of the transcript that fits.
-    let capacity = area.height.saturating_sub(3) as usize;
+    let capacity = area.height.saturating_sub(4) as usize;
     let start = source.len().saturating_sub(capacity);
     for line in &source[start..] {
         lines.push(Line::from(line.clone()));
@@ -1035,7 +1056,12 @@ fn render_overlay(
                 InputPurpose::DirectInstruction => (Msg::DirectTitle, Msg::DirectHint),
             };
             let target = match live.selected_session() {
-                Some(row) => format!("{} {}", row.id, row.agent_label()),
+                Some(row) => format!(
+                    "{} {} — {}",
+                    row.id,
+                    row.agent_label(),
+                    ctx.msg(direction_prospect(Some(row)))
+                ),
                 None => ctx.msg(Msg::DirectNoSession).to_string(),
             };
             (
@@ -1364,6 +1390,50 @@ mod tests {
         let out = draw(&state, &live, &ctx(default_present()), 100, 24);
         assert!(out.contains("beta"));
         assert!(!out.contains("alpha"), "the scope hides the other project");
+    }
+
+    #[test]
+    fn the_drill_in_says_what_directing_would_do_before_anything_is_typed() {
+        // Scenario: Instrucción dirigida desde el drill-in
+        // The three states are told apart where the user decides, not after the
+        // instruction has already gone out.
+        let live = two_project_live();
+        let mut drilled = ShellState::new();
+        drilled.reduce(crate::shell::keymap::Action::DrillIn);
+
+        // s1 is live: an instruction becomes its next turn.
+        let out = draw(&drilled, &live, &ctx(default_present()), 100, 24);
+        assert!(out.contains("encolar"), "a live session queues it: {out}");
+
+        // s2 ended and is resumable: directing resumes it.
+        let mut resumable = live.clone();
+        resumable.selected = 1;
+        let out = draw(&drilled, &resumable, &ctx(default_present()), 100, 24);
+        assert!(out.contains("reanudar"), "a resumable one resumes: {out}");
+
+        // s3 ended and cannot be resumed: there is no send to offer, and the
+        // view says so with what to do instead.
+        let mut finished = live.clone();
+        finished.selected = 2;
+        let out = draw(&drilled, &finished, &ctx(default_present()), 100, 24);
+        assert!(
+            out.contains("no admite reanuda"),
+            "a spent session says so: {out}"
+        );
+    }
+
+    #[test]
+    fn the_instruction_field_names_the_session_and_its_prospect() {
+        let live = two_project_live();
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::OpenPalette);
+        for c in "direct".chars() {
+            state.reduce(crate::shell::keymap::Action::InsertChar(c));
+        }
+        state.reduce(crate::shell::keymap::Action::Submit);
+        let out = draw(&state, &live, &ctx(default_present()), 100, 24);
+        assert!(out.contains("s1"), "the field names its target: {out}");
+        assert!(out.contains("encolar"), "and what will become of it: {out}");
     }
 
     #[test]

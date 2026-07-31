@@ -52,6 +52,9 @@ pub enum Msg {
     DirectQueued,
     DirectResumed,
     DirectRefused,
+    DirectWillQueue,
+    DirectWillResume,
+    DirectNotResumable,
 }
 
 /// The text of a message in a language. Never empty.
@@ -144,6 +147,19 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         (Msg::DirectResumed, Lang::En) => "session resumed with the instruction",
         (Msg::DirectRefused, Lang::Es) => "la sesión no admite la instrucción",
         (Msg::DirectRefused, Lang::En) => "the session does not accept the instruction",
+        // What directing will do, said before the instruction is written.
+        (Msg::DirectWillQueue, Lang::Es) => "se encolará como siguiente turno de esta sesión",
+        (Msg::DirectWillQueue, Lang::En) => "it will be queued as this session's next turn",
+        (Msg::DirectWillResume, Lang::Es) => "reanudará esta sesión con la instrucción",
+        (Msg::DirectWillResume, Lang::En) => "it will resume this session with the instruction",
+        (Msg::DirectNotResumable, Lang::Es) => {
+            "esta sesión terminó y su agente no admite reanudación: no hay envío que ofrecer — \
+             arranca una sesión sobre el mismo proyecto"
+        }
+        (Msg::DirectNotResumable, Lang::En) => {
+            "this session ended and its agent cannot be resumed: there is no send to offer — \
+             start a session on the same project"
+        }
     }
 }
 
@@ -175,6 +191,9 @@ pub const ALL: &[Msg] = &[
     Msg::DirectQueued,
     Msg::DirectResumed,
     Msg::DirectRefused,
+    Msg::DirectWillQueue,
+    Msg::DirectWillResume,
+    Msg::DirectNotResumable,
 ];
 
 #[cfg(test)]

@@ -214,9 +214,20 @@ fn handle_action(
             }
         }
         Some(Effect::DirectSession(instruction)) => match live.selected_session() {
-            // The instruction belongs to the session on screen, and it is the
-            // daemon that decides whether it queues or resumes — the shell does
-            // not guess from the row's state and then report its guess.
+            // Nothing to aim at: say so. Dropping the text would be the silent
+            // no-op the tui-shell delta forbids.
+            None => live
+                .notices
+                .push(messages::text(messages::Msg::DirectNoSession, lang).to_string()),
+            // A session that ended and cannot be resumed has nowhere to put an
+            // instruction. The field already said so; sending anyway would only
+            // trade a stated fact for a round trip that fails.
+            Some(row) if !row.accepts_instruction() => live
+                .notices
+                .push(messages::text(messages::Msg::DirectNotResumable, lang).to_string()),
+            // The instruction belongs to the session on screen. Whether it
+            // queues or resumes is the daemon's call — the shell states the
+            // prospect beforehand and reports what actually happened after.
             Some(row) => {
                 let _ = commands.send(Command::Direct {
                     session_id: row.id.clone(),
@@ -224,11 +235,6 @@ fn handle_action(
                     instruction,
                 });
             }
-            // Nothing to aim at: say so. Dropping the text would be the silent
-            // no-op the tui-shell delta forbids.
-            None => live
-                .notices
-                .push(messages::text(messages::Msg::DirectNoSession, lang).to_string()),
         },
         Some(Effect::CreateRuleForPermission) => {
             // Approve the request and persist the proposed rule in one gesture.
@@ -332,15 +338,7 @@ mod tests {
         assert!(state.is_drilled());
         while rx.try_recv().is_ok() {}
 
-        handle_action(&mut state, &mut live, Action::OpenPalette, Lang::Es, &tx);
-        for c in "direct".chars() {
-            handle_action(&mut state, &mut live, Action::InsertChar(c), Lang::Es, &tx);
-        }
-        handle_action(&mut state, &mut live, Action::Submit, Lang::Es, &tx);
-        for c in "Arregla el Build".chars() {
-            handle_action(&mut state, &mut live, Action::InsertChar(c), Lang::Es, &tx);
-        }
-        handle_action(&mut state, &mut live, Action::Submit, Lang::Es, &tx);
+        direct_from_palette(&mut state, &mut live, &tx, "Arregla el Build");
 
         match rx.try_recv() {
             Ok(Command::Direct {
@@ -357,20 +355,74 @@ mod tests {
     }
 
     #[test]
+    fn a_spent_session_is_told_apart_instead_of_being_sent_to() {
+        // Scenario: Instrucción dirigida desde el drill-in
+        // Ended and not resumable: there is nowhere for the instruction to go,
+        // and the shell says that rather than spending a round trip to be told.
+        let (tx, mut rx) = unbounded_channel::<Command>();
+        let mut state = ShellState::new();
+        let mut live = LiveData::new();
+        live.apply(Update::Sessions(vec![SessionRow {
+            id: "s-old".into(),
+            agent: "mock".into(),
+            state: SessionState::Ended,
+            project_root: "/repo".into(),
+            resumable: false,
+            agent_id: None,
+            profile: None,
+        }]));
+
+        direct_from_palette(&mut state, &mut live, &tx, "algo");
+        assert!(rx.try_recv().is_err(), "nothing goes out");
+        assert!(
+            live.notices
+                .last()
+                .is_some_and(|notice| notice.contains("no admite reanuda")),
+            "the shell says why, and what to do instead: {:?}",
+            live.notices
+        );
+
+        // The same session, resumable, does go out: the distinction is the
+        // agent's ability to resume, not the fact that it ended.
+        live.apply(Update::Sessions(vec![SessionRow {
+            id: "s-old".into(),
+            agent: "mock".into(),
+            state: SessionState::Ended,
+            project_root: "/repo".into(),
+            resumable: true,
+            agent_id: None,
+            profile: None,
+        }]));
+        direct_from_palette(&mut state, &mut live, &tx, "algo");
+        assert!(matches!(rx.try_recv(), Ok(Command::Direct { .. })));
+    }
+
+    /// Drives the palette exactly as a user would: open, type the verb, submit,
+    /// type the instruction, submit.
+    fn direct_from_palette(
+        state: &mut ShellState,
+        live: &mut LiveData,
+        tx: &UnboundedSender<Command>,
+        instruction: &str,
+    ) {
+        handle_action(state, live, Action::OpenPalette, Lang::Es, tx);
+        for c in "direct".chars() {
+            handle_action(state, live, Action::InsertChar(c), Lang::Es, tx);
+        }
+        handle_action(state, live, Action::Submit, Lang::Es, tx);
+        for c in instruction.chars() {
+            handle_action(state, live, Action::InsertChar(c), Lang::Es, tx);
+        }
+        handle_action(state, live, Action::Submit, Lang::Es, tx);
+    }
+
+    #[test]
     fn directing_with_nothing_selected_says_so_instead_of_dropping_the_text() {
         let (tx, mut rx) = unbounded_channel::<Command>();
         let mut state = ShellState::new();
         let mut live = LiveData::new(); // no sessions at all
 
-        handle_action(&mut state, &mut live, Action::OpenPalette, Lang::Es, &tx);
-        for c in "direct".chars() {
-            handle_action(&mut state, &mut live, Action::InsertChar(c), Lang::Es, &tx);
-        }
-        handle_action(&mut state, &mut live, Action::Submit, Lang::Es, &tx);
-        for c in "algo".chars() {
-            handle_action(&mut state, &mut live, Action::InsertChar(c), Lang::Es, &tx);
-        }
-        handle_action(&mut state, &mut live, Action::Submit, Lang::Es, &tx);
+        direct_from_palette(&mut state, &mut live, &tx, "algo");
 
         assert!(
             rx.try_recv().is_err(),

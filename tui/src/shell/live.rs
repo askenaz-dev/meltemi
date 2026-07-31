@@ -51,6 +51,17 @@ impl SessionRow {
     pub fn is_historical(&self) -> bool {
         matches!(self.state, SessionState::Ended | SessionState::Interrupted)
     }
+
+    /// Whether an instruction has anywhere to go: a live session queues it as
+    /// its next turn, an ended-but-resumable one is resumed with it, and an
+    /// ended session whose agent cannot be resumed can do neither. Knowing this
+    /// before the field is filled is what keeps the shell from offering a send
+    /// it cannot serve. A live session that drives its own turn loop still
+    /// refuses — only the daemon knows that, and it says so with a remedy.
+    #[must_use]
+    pub fn accepts_instruction(&self) -> bool {
+        !self.is_historical() || self.resumable
+    }
 }
 
 impl From<SessionInfo> for SessionRow {
