@@ -7,11 +7,15 @@ La guía de agentes SHALL explicar que la capa adaptador de las entradas con
 adaptador propio viaja en los instaladores de Meltemi — sin comando de
 instalación de terceros — y qué hacer cuando falta: reinstalar o reparar la
 instalación de Meltemi. La guía SHALL documentar además la receta para
-seguir usando un adaptador de terceros por configuración del usuario, con
-su estatus y su nota legal vigentes, presentada como vía disponible y no
-recomendada. La guía MUST NOT presentar la ruta propia como bendecida por
-proveedor alguno: el estatus y la nota del registro se muestran tal cual,
-y toda actualización de postura MUST citar fuente.
+seguir usando un adaptador de terceros por configuración del usuario,
+presentada como vía disponible y no recomendada, y SHALL decir que el
+estatus y la nota legal que Meltemi muestra describen la vía que Meltemi
+distribuye y no esa otra, remitiendo al lector a la licencia del adaptador y
+a los términos del proveedor, que son los que sí la gobiernan. La guía MUST
+NOT prestar a una vía de terceros el estatus ni la nota de la entrada. La
+guía MUST NOT presentar la ruta propia como bendecida por proveedor alguno:
+el estatus y la nota del registro se muestran tal cual, y toda actualización
+de postura MUST citar fuente.
 
 #### Scenario: La capa empaquetada explicada sin comando de terceros
 - **WHEN** el lector consulta la sección de una entrada con adaptador propio
@@ -21,7 +25,7 @@ y toda actualización de postura MUST citar fuente.
 #### Scenario: Receta de adaptador de terceros por configuración
 - **WHEN** el lector busca cómo usar un adaptador de terceros en lugar del propio
 - **THEN** la guía SHALL mostrar la declaración por configuración del usuario con un ejemplo válido
-- **AND** SHALL presentar esa vía junto a su estatus y nota legal, sin recomendarla
+- **AND** SHALL decir que el estatus y la nota del registro no cubren esa vía y remitir a los términos que sí la gobiernan, sin recomendarla
 
 #### Scenario: Sin bendición inventada
 - **WHEN** corre la verificación de coherencia entre registro y guía

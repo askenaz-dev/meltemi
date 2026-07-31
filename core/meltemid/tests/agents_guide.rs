@@ -274,6 +274,14 @@ fn the_third_party_route_is_documented_as_available_and_not_recommended() {
         flat_recipe.to_lowercase().contains("terms"),
         "and point the reader at the terms that govern it: {flat_recipe}"
     );
+    // The status and the note Meltemi shows describe the path Meltemi ships.
+    // Lending them to somebody else's adapter would be the invented blessing
+    // this same delta forbids one requirement further down, so the guide has to
+    // say out loud that they do not cover it.
+    assert!(
+        flat_recipe.contains("no note to show you about it"),
+        "and refuse to lend it the entry's own note: {flat_recipe}"
+    );
     assert!(
         !flat_recipe.to_lowercase().contains("we recommend")
             && !flat_recipe.to_lowercase().contains("recommended route"),
