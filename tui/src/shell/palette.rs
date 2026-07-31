@@ -66,6 +66,13 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "go to Sessions (active and historical)",
     },
     Entry {
+        name: "session",
+        reserved: true,
+        methods: &[m::SESSION_START],
+        desc_es: "sesión libre sobre el proyecto: sin change, sin spec, sin gate",
+        desc_en: "a free session on the project: no change, no spec, no gate",
+    },
+    Entry {
         name: "permissions",
         reserved: false,
         methods: &[m::PERMISSION_PENDING, m::PERMISSION_DECIDE],
@@ -169,6 +176,20 @@ pub const ENTRIES: &[Entry] = &[
         methods: &[m::PROJECT_LIST],
         desc_es: "proyectos conocidos; `projects <texto>` acota el ambito",
         desc_en: "known projects; `projects <text>` narrows the scope",
+    },
+    Entry {
+        name: "projects register",
+        reserved: true,
+        methods: &[m::PROJECT_REGISTER],
+        desc_es: "dar de alta un proyecto tecleando su ruta",
+        desc_en: "register a project by typing its path",
+    },
+    Entry {
+        name: "projects forget",
+        reserved: true,
+        methods: &[m::PROJECT_FORGET],
+        desc_es: "quitarlo del listado; no borra nada del disco",
+        desc_en: "drop it from the listing; nothing on disk is deleted",
     },
     Entry {
         name: "usage",
@@ -334,6 +355,28 @@ mod tests {
     fn fleet_is_registered_as_an_operational_command() {
         // Obligación viva de tui-shell: todo método nuevo se registra.
         assert!(ENTRIES.iter().any(|e| e.name == "fleet" && !e.reserved));
+    }
+
+    #[test]
+    fn the_free_session_and_registry_verbs_have_their_own_entries() {
+        // Obligación viva de tui-shell: todo método nuevo se registra, y cada
+        // uno en su propia entrada — `projects` conmuta el ámbito, que es otra
+        // cosa que dar de alta o de baja un proyecto.
+        for (name, method) in [
+            ("session", m::SESSION_START),
+            ("projects register", m::PROJECT_REGISTER),
+            ("projects forget", m::PROJECT_FORGET),
+        ] {
+            let entry = ENTRIES
+                .iter()
+                .find(|entry| entry.name == name)
+                .unwrap_or_else(|| panic!("`{name}` has a home in the palette"));
+            assert_eq!(entry.methods, [method], "`{name}` declares its own method");
+        }
+        // The singular verb starts one session; the plural one lists them. Both
+        // are typeable and the filter reaches both.
+        let names: Vec<&str> = matches("session").iter().map(|e| e.name).collect();
+        assert!(names.contains(&"session") && names.contains(&"sessions"));
     }
 
     #[test]
