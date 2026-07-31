@@ -493,6 +493,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data);
     }
 
+    /// The entries of a directory, sorted: enough to see whether anything was
+    /// created inside a root that was only supposed to be pointed at.
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .expect("read dir")
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
     /// A daemon state whose data directory is `data`, for the handlers that need
     /// one. Nothing else about it is exercised here.
     fn state_over(data: &Path) -> std::sync::Arc<crate::server::DaemonState> {
@@ -600,5 +612,258 @@ mod tests {
         assert_eq!(before, after, "reads must not append");
         let _ = std::fs::remove_dir_all(&data);
         let _ = std::fs::remove_dir_all(&project);
+    }
+
+    // Scenario: Alta de un directorio que nunca corrió una sesión
+    // Scenario: Un alta explícita estrena el proyecto sin correr nada
+    // Scenario: El alta no toca el disco del usuario
+    #[tokio::test]
+    async fn registering_a_directory_lists_it_without_touching_it() {
+        let data = temp("register-fresh");
+        let project = temp("repo-fresh");
+        // A plain directory: no `.meltemi/`, no session, nothing ever run here.
+        std::fs::write(project.join("README.md"), "hello\n").expect("write");
+        let before = entries(&project);
+
+        let state = state_over(&data);
+        let registered = handle_project_register(
+            serde_json::json!({ "root": project.display().to_string() }),
+            &state,
+        )
+        .await
+        .expect("project/register ok");
+
+        assert_eq!(
+            registered["project"]["sessionsTotal"], 0,
+            "nothing ran to get it here: {registered:#}"
+        );
+        assert_eq!(registered["project"]["exists"], true);
+        assert!(
+            list(&data).iter().any(|record| record.project_key
+                == registered["project"]["projectKey"].as_str().unwrap()),
+            "the registry lists it"
+        );
+
+        // The root is exactly as it was: registering is aiming the tool at a
+        // folder, not initializing one.
+        assert_eq!(
+            entries(&project),
+            before,
+            "the daemon wrote inside the root"
+        );
+        assert!(!project.join(".meltemi").exists());
+
+        let _ = std::fs::remove_dir_all(&data);
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    // Scenario: Alta repetida no duplica ni pierde la primera vez
+    #[tokio::test]
+    async fn a_repeated_registration_folds_to_one_entry_and_keeps_the_first_sighting() {
+        let data = temp("register-twice");
+        let project = temp("repo-twice");
+        let nested = project.join("inner");
+        std::fs::create_dir_all(&nested).expect("nested");
+
+        // Seed a sighting from long ago, so "keeps the first" is an assertion
+        // about a real date rather than about two calls in the same second.
+        let key = crate::paths::project_key(&project);
+        append_line(
+            &data,
+            &serde_json::to_string(&ProjectRecord {
+                v: RECORD_VERSION,
+                project_key: key.clone(),
+                root: project.display().to_string(),
+                first_seen_at: "2020-01-01T00:00:00Z".into(),
+                last_seen_at: "2020-01-01T00:00:00Z".into(),
+            })
+            .expect("record"),
+        );
+
+        let state = state_over(&data);
+        // The same folder, spelled the long way round.
+        let equivalent = nested.join("..");
+        let registered = handle_project_register(
+            serde_json::json!({ "root": equivalent.display().to_string() }),
+            &state,
+        )
+        .await
+        .expect("project/register ok");
+
+        let records = list(&data);
+        assert_eq!(records.len(), 1, "two spellings, one project: {records:#?}");
+        assert_eq!(
+            records[0].first_seen_at, "2020-01-01T00:00:00Z",
+            "the first sighting is the earliest the registry ever held"
+        );
+        assert!(
+            records[0].last_seen_at > records[0].first_seen_at,
+            "and the last moved"
+        );
+        assert_eq!(
+            records[0].root,
+            canonical(&project).display().to_string(),
+            "the listing shows the canonical root, not the spelling last typed"
+        );
+        assert_eq!(registered["project"]["projectKey"], key.as_str());
+
+        let _ = std::fs::remove_dir_all(&data);
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    // Scenario: Ruta inexistente rehusada con remedio
+    #[tokio::test]
+    async fn registering_a_path_that_is_not_a_directory_is_refused_with_a_remedy() {
+        let data = temp("register-invalid");
+        let project = temp("repo-invalid");
+        let file = project.join("a-file.txt");
+        std::fs::write(&file, "not a directory\n").expect("write");
+        let state = state_over(&data);
+
+        for candidate in [project.join("nowhere"), file] {
+            let refused = handle_project_register(
+                serde_json::json!({ "root": candidate.display().to_string() }),
+                &state,
+            )
+            .await
+            .expect_err("only an existing directory can be registered");
+            assert_eq!(
+                refused.code,
+                meltemi_proto::error_codes::PROJECT_ROOT_INVALID
+            );
+            let data_field = refused.data.clone().expect("a refusal carries data");
+            assert!(
+                !data_field["remedy"].as_str().unwrap_or_default().is_empty(),
+                "with something to do about it: {refused}"
+            );
+        }
+        assert!(list(&data).is_empty(), "the registry is unchanged");
+
+        let _ = std::fs::remove_dir_all(&data);
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    // Scenario: Olvidar oculta del listado y conserva todo lo demás
+    // Scenario: Un proyecto olvidado reaparece al volver a usarse
+    #[tokio::test]
+    async fn forgetting_hides_the_row_and_using_it_again_brings_it_back() {
+        let data = temp("forget-hide");
+        let project = temp("repo-hide");
+        record_a_session(&data, &project);
+        touch(&data, &project);
+        let first_seen = list(&data)[0].first_seen_at.clone();
+        let key = list(&data)[0].project_key.clone();
+
+        let state = state_over(&data);
+        let forgotten = handle_project_forget(
+            serde_json::json!({ "root": project.display().to_string() }),
+            &state,
+        )
+        .await
+        .expect("project/forget ok");
+        assert_eq!(forgotten["forgotten"], true);
+        assert!(list(&data).is_empty(), "gone from the listing");
+
+        // Everything else survives: the session records are untouched, the root
+        // is untouched, and forgetting twice is not an error.
+        assert_eq!(
+            crate::session_index::records_for_project(&data, &key).len(),
+            1,
+            "its sessions still list"
+        );
+        assert!(project.is_dir(), "nothing on disk was deleted");
+        let again = handle_project_forget(
+            serde_json::json!({ "root": project.display().to_string() }),
+            &state,
+        )
+        .await
+        .expect("project/forget ok");
+        assert_eq!(
+            again["forgotten"], false,
+            "it was not listed to begin with, which is a state and not an error"
+        );
+
+        // Using it again brings it back, with the day it was first seen.
+        touch(&data, &project);
+        let records = list(&data);
+        assert_eq!(records.len(), 1, "a later line wins the fold");
+        assert_eq!(
+            records[0].first_seen_at, first_seen,
+            "forgetting hid a row; it did not erase a history"
+        );
+
+        let _ = std::fs::remove_dir_all(&data);
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    // Scenario: Olvidar una raíz que ya no existe en disco
+    #[tokio::test]
+    async fn a_root_that_vanished_is_still_forgettable() {
+        let data = temp("forget-gone");
+        let project = temp("repo-gone");
+        touch(&data, &project);
+        let listed = list(&data)[0].root.clone();
+        std::fs::remove_dir_all(&project).expect("the directory disappears");
+        assert!(!project.exists());
+
+        // A path that cannot be canonicalized is precisely the one worth
+        // forgetting, so the match falls back to comparing the registered roots
+        // as text — trailing separator and all.
+        let state = state_over(&data);
+        let forgotten = handle_project_forget(
+            serde_json::json!({ "root": format!("{listed}{}", std::path::MAIN_SEPARATOR) }),
+            &state,
+        )
+        .await
+        .expect("project/forget ok");
+        assert_eq!(
+            forgotten["forgotten"], true,
+            "an absent root is forgettable"
+        );
+        assert!(list(&data).is_empty());
+
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[tokio::test]
+    async fn a_corrupt_line_hides_neither_a_project_nor_a_tombstone() {
+        let data = temp("forget-corrupt");
+        let kept = temp("repo-kept");
+        let dropped = temp("repo-dropped");
+        touch(&data, &kept);
+        touch(&data, &dropped);
+        assert!(forget(&data, &dropped));
+        append_line(&data, "{ this is not json");
+        append_line(&data, "FORGOTTEN ");
+
+        let records = list(&data);
+        assert_eq!(
+            records.len(),
+            1,
+            "the readable lines still fold: {records:#?}"
+        );
+        assert_eq!(records[0].root, kept.display().to_string());
+
+        // A garbage tail does not resurrect what a tombstone dropped, and an
+        // empty tombstone forgets nobody.
+        let state = state_over(&data);
+        let listed = handle_project_list(serde_json::Value::Null, &state)
+            .await
+            .expect("project/list ok");
+        assert_eq!(listed["projects"].as_array().map(Vec::len), Some(1));
+
+        // And reading changed nothing on disk.
+        let before = std::fs::read_to_string(index_path(&data)).expect("index");
+        let _ = handle_project_list(serde_json::Value::Null, &state).await;
+        let _ = list(&data);
+        assert_eq!(
+            std::fs::read_to_string(index_path(&data)).expect("index"),
+            before,
+            "a listing must never write"
+        );
+
+        let _ = std::fs::remove_dir_all(&data);
+        let _ = std::fs::remove_dir_all(&kept);
+        let _ = std::fs::remove_dir_all(&dropped);
     }
 }
