@@ -2,6 +2,33 @@
 
 ## MODIFIED Requirements
 
+### Requirement: Paridad de vistas y modelo de navegación
+La GUI SHALL presentar las cuatro vistas de primer nivel (Sesiones, Proyecto,
+Permisos, Flota) con drill-in de detalle y breadcrumb, con la misma semántica
+de estados que la TUI: una sesión que pasa a `ended` durante la ejecución MUST
+permanecer temporalmente accesible en la lista, y los estados vacíos (sin
+daemon, sin sesiones, sin proyecto, sin agentes) MUST enseñar el siguiente paso
+en vez de una pantalla muda, manteniendo Sesiones, Permisos y Flota usables sin
+proyecto `.meltemi/`. La **vista de aterrizaje** SHALL ser el compositor
+conversacional y no una de esas cuatro: se llega a Meltemi para empezar a
+trabajar, no para mirar una tabla. El compositor SHALL ser además una vista
+recordada como cualquier otra, de modo que la promesa vigente de restaurar la
+última vista al abrir se siga cumpliendo sin excepción para él.
+
+#### Scenario: Aterrizaje con daemon y sesiones
+- **WHEN** se abre la GUI con el daemon accesible y al menos una sesión
+- **THEN** el compositor conversacional SHALL ser la vista de aterrizaje
+- **AND** el chrome SHALL mostrar estado del daemon, ámbito de proyecto y el indicador de permisos
+
+#### Scenario: Sesión finalizada sigue accesible
+- **WHEN** una sesión pasa a `ended` mientras el usuario está en otra vista
+- **THEN** la lista de Sesiones SHALL retenerla temporalmente marcada como finalizada
+
+#### Scenario: Solo Proyecto queda vacío sin `.meltemi/`
+- **WHEN** el directorio de trabajo no es un proyecto `.meltemi/`
+- **THEN** la vista Proyecto SHALL mostrar el vacío con la acción de inicializar
+- **AND** Sesiones, Permisos y Flota SHALL seguir plenamente operativas
+
 ### Requirement: La sesión como acción primaria; proponer como herramienta
 La superficie SHALL exponer "Nueva sesión" como acción primaria del chrome —a un
 clic y con atajo— llevando al **compositor conversacional**, no a un lanzador

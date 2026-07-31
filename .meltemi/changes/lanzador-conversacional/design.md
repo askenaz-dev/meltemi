@@ -571,6 +571,36 @@ comportamiento para todo lo demás.
   banner; un cuarto hijo añadido sin tocar la plantilla cae en la pista `1fr` y
   se come el panel. La plantilla se reescribe con el compositor, no después.
 
+### D12 — La vista de aterrizaje cambia, y la spec que decía lo contrario se enmienda con ella (2026-07-31, tarea 6.2)
+
+Este design dio por hecho que «home conversacional como vista de llegada» no
+chocaba con nada. Choca, y el choque estaba escrito y además **probado**:
+`gui-shell` promete en su verdad viva «WHEN se abre la GUI con el daemon
+accesible y al menos una sesión THEN la vista Sesiones SHALL ser la vista de
+aterrizaje», y `desktop/tests/scenarios_shell.rs` lo fija leyendo literalmente
+`let view: ViewId = $state("sessions")` de `App.svelte`. El delta original de
+esta change no tocaba ese requisito, de modo que implementar la llegada
+conversacional dejaba la suite en rojo contra una promesa vigente — el gate
+haciendo exactamente su trabajo.
+
+Se enmienda el requisito, no la implementación, porque la contradicción se
+resuelve arriba: `conversational-session` pide el compositor como vista de
+llegada en su requisito y en su escenario «Llegar y escribir», y esa es la
+directiva entera de la change. Aterrizar en la tabla de Sesiones y ofrecer el
+compositor a un clic sería cumplir la letra de lo viejo vaciando lo nuevo.
+
+Dos precisiones que la enmienda hace explícitas. Primera: **el escenario
+conserva su nombre**. Renombrarlo habría sido más limpio de leer y peor de
+hecho, porque `tui-shell` tiene un escenario con ese mismo nombre plano y el
+test del escritorio lo estaba enlazando de rebote; renombrar el de la GUI
+dejaba el de la TUI sin ancla sin que nadie lo notara. La colisión es previa a
+esta change y queda anotada, no ampliada. Segunda: **el compositor es una vista
+recordada como cualquier otra**, de modo que «persistir … y última vista …
+restaurándolos al abrir» sigue siendo cierto: un perfil nuevo aterriza en el
+compositor, quien estaba leyendo un transcript vuelve al transcript, y como
+todos los puntos de entrada rutean al compositor y navegar lo registra, el
+compositor pasa a ser lo que la app abre por uso y no por imposición.
+
 ## Risks / Trade-offs
 
 - **`session` junto a `sessions`.** Adyacentes en la ayuda generada y en la

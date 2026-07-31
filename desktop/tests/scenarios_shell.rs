@@ -41,7 +41,7 @@ fn main_region(app: &str) -> &str {
 // Scenario: Tres zonas presentes
 // Scenario: Aterrizaje con daemon y sesiones
 #[test]
-fn the_shell_has_three_zones_and_lands_on_sessions() {
+fn the_shell_has_three_zones_and_lands_on_the_composer() {
     let app = app();
     // Sidebar, top bar and status bar are mounted once, OUTSIDE the routed view,
     // so no view can remove or displace them.
@@ -57,8 +57,14 @@ fn the_shell_has_three_zones_and_lands_on_sessions() {
         );
     }
     assert!(
-        app.contains("let view: ViewId = $state(\"sessions\")"),
-        "a first run lands on Sessions"
+        app.contains("let view: ViewId = $state(\"home\")"),
+        "a first run lands on the conversational composer"
+    );
+    // And the composer is remembered like any other view, so restoring the last
+    // view on open keeps holding rather than being excepted for the landing.
+    assert!(
+        app.contains("[\"home\", ...KEYED_VIEWS,"),
+        "the composer is restorable, not a view the shell forgets"
     );
     // The chrome carries the three signals the scenario names.
     let status = read("desktop/ui/src/lib/components/StatusBar.svelte");
