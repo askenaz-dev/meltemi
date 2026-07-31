@@ -157,6 +157,36 @@ pub fn resolve_fleet_agent(
     })
 }
 
+/// Resolves the agent of a session whose caller MAY have named one
+/// (lanzador-conversacional): with a name it is [`resolve_fleet_agent`]; with
+/// none it is exactly the project-configured agent the verb used before the
+/// parameter existed, described in the same vocabulary so the resolution can be
+/// recorded either way. An empty name is refused rather than treated as absent:
+/// a name that resolves to nothing in silence is the very failure the fleet's
+/// resolution order exists to prevent, and the contract refuses it too.
+pub fn resolve_session_agent(
+    config: &Config,
+    name: Option<&str>,
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> Result<ResolvedAgent, RpcError> {
+    match name {
+        Some(name) if name.trim().is_empty() => Err(RpcError::invalid_params(
+            "the agent name is empty; name a launch profile or a catalog id, or omit it",
+        )),
+        Some(name) => resolve_fleet_agent(config, name, path_var, bundled_dir),
+        None => Ok(ResolvedAgent {
+            launch: resolve_launch(config, path_var, bundled_dir)?,
+            env: Vec::new(),
+            source: meltemi_proto::FleetResolutionSource::Configured,
+            profile: None,
+            // The configured agent names an id unless the project pins a bare
+            // argv, same as the fallback arm of `resolve_fleet_agent`.
+            agent_id: config.agent_id.clone(),
+        }),
+    }
+}
+
 /// Resolves the launch for a specific catalog id (the level 1–4 match). Shared
 /// by [`resolve_launch`] and [`resolve_fleet_agent`]; propagates 2001 on an
 /// undetected binary, never degrading to another agent.

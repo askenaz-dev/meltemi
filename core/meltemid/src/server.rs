@@ -310,6 +310,9 @@ async fn dispatch_request(
         methods::SESSION_LIST => handle_session_list(params, state).await,
         methods::SESSION_LOG => handle_session_log(params, state).await,
         methods::SESSION_DIRECT => handle_session_direct(params, state, peer).await,
+        methods::SESSION_START => {
+            crate::free_session::handle_session_start(params, state, peer).await
+        }
         methods::REPO_MAP => handle_repo_map(params).await,
         methods::SDD_EXPLORE => crate::sdd_flow::handle_explore(params, state, peer).await,
         methods::SDD_CONSTITUTION => {

@@ -20,6 +20,7 @@ pub mod context;
 pub mod edits;
 pub mod events;
 pub mod fleet;
+pub mod free_session;
 pub mod git;
 pub mod implement;
 pub mod levels;
