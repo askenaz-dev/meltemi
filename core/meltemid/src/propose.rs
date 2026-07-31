@@ -78,32 +78,41 @@ pub async fn handle_propose(
     std::fs::write(&proposal_path, scaffold(&change_name, &params.idea))
         .map_err(RpcError::internal)?;
 
-    // The agent must be configured before a session can run: a literal
-    // command, or a fleet catalog id resolved by level (D4). Resolution only
-    // detects; on failure (2000/2001) nothing is launched. `propose` is the
-    // interactive SDD flow, so it needs an ACP-capable level (1 or 2); level 3
-    // (headless) and level 4 (artifacts) are exercised by the conformance
-    // suite, not piloted here.
+    // The agent must be resolved before a session can run: the one the request
+    // named — a launch profile or a catalog id, in the fleet's own order — or,
+    // when it named none, the project's configured agent exactly as before that
+    // parameter existed. Resolution only detects; on failure (2000/2001) nothing
+    // is launched. `propose` is the interactive SDD flow, so it needs an
+    // ACP-capable level (1 or 2); level 3 (headless) and level 4 (artifacts) are
+    // exercised by the conformance suite, not piloted here.
     let config = Config::load(&state.config_dir, Some(&project_root));
+    for diagnostic in &config.fleet_diagnostics {
+        tracing::warn!(diagnostic = %diagnostic, "fleet profile hygiene");
+    }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let bundled = crate::fleet::bundled_dir();
-    let (agent_command, level) =
-        match crate::levels::resolve_launch(&config, &path_var, bundled.as_deref())? {
-            crate::levels::Launch::Acp { argv, level } => (argv, level),
-            crate::levels::Launch::Headless { level, .. }
-            | crate::levels::Launch::Artifacts { level } => {
-                return Err(RpcError::application(
-                    error_codes::AGENT_COMMAND_NOT_CONFIGURED,
-                    "level not pilotable by propose",
-                    "level_not_pilotable",
-                    format!(
-                        "the configured agent is level {level}; `propose` needs an ACP-capable \
+    let resolved = crate::levels::resolve_session_agent(
+        &config,
+        params.agent.as_deref(),
+        &path_var,
+        bundled.as_deref(),
+    )?;
+    let (agent_command, level) = match &resolved.launch {
+        crate::levels::Launch::Acp { argv, level } => (argv.clone(), *level),
+        crate::levels::Launch::Headless { level, .. }
+        | crate::levels::Launch::Artifacts { level } => {
+            return Err(RpcError::application(
+                error_codes::AGENT_COMMAND_NOT_CONFIGURED,
+                "level not pilotable by propose",
+                "level_not_pilotable",
+                format!(
+                    "the resolved agent is level {level}; `propose` needs an ACP-capable \
                      agent (level 1 or 2)"
-                    ),
-                    Some("Select a level 1/2 agent for interactive proposals.".into()),
-                ));
-            }
-        };
+                ),
+                Some("Select a level 1/2 agent for interactive proposals.".into()),
+            ));
+        }
+    };
 
     // Open the session and its log.
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -152,9 +161,10 @@ pub async fn handle_propose(
             agent_session_id: None,
             supports_load: false,
             resumed_from: None,
-            // The SDD flow runs the project-configured agent, never a profile.
-            agent_id: config.agent_id.clone(),
-            profile: None,
+            // Whatever the resolution named: the configured agent when the
+            // request named none, and the profile when it named one.
+            agent_id: resolved.agent_id.clone(),
+            profile: resolved.profile.clone(),
         },
     );
 
@@ -208,8 +218,9 @@ pub async fn handle_propose(
         // `propose` always opens a fresh session; resume is a separate flow.
         load_session_id: None,
         mcp_servers: config.mcp_servers.clone(),
-        // `propose` uses the configured agent (no per-session selection).
-        env: Vec::new(),
+        // The profile's auth context, when a profile resolved it. Values are
+        // never logged (§2).
+        env: resolved.env.clone(),
         // Directable: directed instructions run as follow-up turns.
         instruction_queue,
         edit_scope: Some(edit_scope.handle()),
@@ -231,8 +242,8 @@ pub async fn handle_propose(
         level,
         started_at: &started_at,
         resumed_from: None,
-        agent_id: config.agent_id.clone(),
-        profile: None,
+        agent_id: resolved.agent_id.clone(),
+        profile: resolved.profile.clone(),
     };
     let result = match outcome {
         Ok(session_outcome) => {

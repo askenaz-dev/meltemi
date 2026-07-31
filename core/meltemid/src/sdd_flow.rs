@@ -47,7 +47,15 @@ pub async fn handle_explore(
     );
     // Deny-all rules: any write the agent attempts is refused (explore never
     // writes; the deliberation lives only in the session log).
-    run_turn(state, peer, &project_root, prompt, RuleSet::deny_all()).await?;
+    run_turn(
+        state,
+        peer,
+        &project_root,
+        prompt,
+        RuleSet::deny_all(),
+        params.agent.as_deref(),
+    )
+    .await?;
     let after = tree_fingerprint(&project_root);
     if before != after {
         return Err(RpcError::internal(
@@ -89,7 +97,20 @@ pub async fn handle_constitution(
         draft.display(),
         params.topic
     );
-    run_turn(state, peer, &project_root, prompt, allow_meltemi_writes()).await?;
+    // `sdd/constitution` shares `SddExploreParams`, so it accepts an `agent` on
+    // the wire from the moment `explore` did. The daemon deliberately does
+    // nothing with it here: this change wires the selector into `explore` and
+    // `propose` only, and honouring it silently in a third verb would be a
+    // capability nobody specified.
+    run_turn(
+        state,
+        peer,
+        &project_root,
+        prompt,
+        allow_meltemi_writes(),
+        None,
+    )
+    .await?;
 
     // A single-gate cycle under the synthetic change name "constitution".
     let change_dir = meltemi.join("changes").join("constitution");
@@ -177,7 +198,15 @@ pub async fn handle_plan(
          TASKS_PATH: {}\n",
         tasks.display()
     );
-    run_turn(state, peer, &project_root, prompt, allow_meltemi_writes()).await?;
+    run_turn(
+        state,
+        peer,
+        &project_root,
+        prompt,
+        allow_meltemi_writes(),
+        None,
+    )
+    .await?;
 
     let mut cycle = CycleState::load(&change_dir)
         .unwrap_or_else(|| CycleState::new(&params.change_name, Mode::SpecFull, false));
@@ -368,7 +397,15 @@ async fn author_artifact(
         artifact_str(artifact),
         target.display(),
     );
-    run_turn(state, peer, project_root, prompt, allow_meltemi_writes()).await?;
+    run_turn(
+        state,
+        peer,
+        project_root,
+        prompt,
+        allow_meltemi_writes(),
+        None,
+    )
+    .await?;
     Ok(())
 }
 
@@ -421,27 +458,34 @@ async fn run_turn(
     project_root: &Path,
     prompt: String,
     rules: RuleSet,
+    agent: Option<&str>,
 ) -> Result<(), RpcError> {
     let config = Config::load(&state.config_dir, Some(project_root));
     // An invalid `[permissions]` value kept its default; say so (espera-humana).
     for diagnostic in &config.permission_diagnostics {
         tracing::warn!(diagnostic, "permissions config");
     }
+    for diagnostic in &config.fleet_diagnostics {
+        tracing::warn!(diagnostic = %diagnostic, "fleet profile hygiene");
+    }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let bundled = crate::fleet::bundled_dir();
-    let (agent_command, level) =
-        match crate::levels::resolve_launch(&config, &path_var, bundled.as_deref())? {
-            crate::levels::Launch::Acp { argv, level } => (argv, level),
-            _ => {
-                return Err(RpcError::application(
-                    error_codes::AGENT_COMMAND_NOT_CONFIGURED,
-                    "level not pilotable",
-                    "level_not_pilotable",
-                    "SDD authoring needs an ACP-capable agent (level 1 or 2)",
-                    None,
-                ));
-            }
-        };
+    // The agent the verb named, in the fleet's own order; with none named this
+    // is the project's configured agent, byte for byte the previous behaviour.
+    let resolved =
+        crate::levels::resolve_session_agent(&config, agent, &path_var, bundled.as_deref())?;
+    let (agent_command, level) = match &resolved.launch {
+        crate::levels::Launch::Acp { argv, level } => (argv.clone(), *level),
+        _ => {
+            return Err(RpcError::application(
+                error_codes::AGENT_COMMAND_NOT_CONFIGURED,
+                "level not pilotable",
+                "level_not_pilotable",
+                "SDD authoring needs an ACP-capable agent (level 1 or 2)",
+                None,
+            ));
+        }
+    };
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
@@ -482,9 +526,8 @@ async fn run_turn(
             agent_session_id: None,
             supports_load: false,
             resumed_from: None,
-            // Authoring runs the project-configured agent, never a profile.
-            agent_id: config.agent_id.clone(),
-            profile: None,
+            agent_id: resolved.agent_id.clone(),
+            profile: resolved.profile.clone(),
         },
     );
 
@@ -506,7 +549,9 @@ async fn run_turn(
         pending: state.pending.clone(),
         load_session_id: None,
         mcp_servers: config.mcp_servers.clone(),
-        env: Vec::new(),
+        // The profile's auth context, when a profile resolved it (§2: never
+        // logged).
+        env: resolved.env.clone(),
         // Authoring turns (`explore`/`plan`/`constitution`) are single-turn and
         // not directable.
         instruction_queue: None,
@@ -530,8 +575,8 @@ async fn run_turn(
         level,
         started_at: &started_at,
         resumed_from: None,
-        agent_id: config.agent_id.clone(),
-        profile: None,
+        agent_id: resolved.agent_id.clone(),
+        profile: resolved.profile.clone(),
     };
     match outcome {
         Ok(session_outcome) => {
