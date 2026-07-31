@@ -696,3 +696,88 @@ async fn with_nobody_attending_the_free_session_is_denied_like_any_other() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// Scenario: Raíz sin git arranca y lo declara
+#[tokio::test]
+async fn a_root_that_is_not_a_repository_starts_and_declares_it() {
+    let root = fixture("nogit", &[]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("nogit").await;
+    let peer = init_client(&endpoint).await;
+
+    let started = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "have a look around" }),
+        ),
+    )
+    .await
+    .expect("session/start returned")
+    .expect("a folder without git is still a place to work");
+    assert_eq!(
+        started["status"], "completed",
+        "the session ran: no restore point is not a refusal: {started:#}"
+    );
+    assert!(started["checkpointRef"].is_null(), "{started:#}");
+    assert_eq!(started["checkpointUnavailable"], "not_a_git_repo");
+    assert!(
+        started["checkpointRemedy"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("git init"),
+        "the remedy for a folder that is not a repository: {started:#}"
+    );
+
+    // Nothing was left behind pretending to be a restore point.
+    assert!(
+        !root.join(".meltemi").join("checkpoints").exists(),
+        "no checkpoint machinery is created where it cannot work"
+    );
+    assert!(!root.join(".meltemi").join("worktrees").exists());
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Repositorio sin historia arranca y da el remedio que corresponde
+#[tokio::test]
+async fn a_repository_with_no_history_starts_and_gets_the_other_remedy() {
+    let root = fixture("nohistory", &[]);
+    git(&root, &["init"]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("nohistory").await;
+    let peer = init_client(&endpoint).await;
+
+    let started = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "have a look around" }),
+        ),
+    )
+    .await
+    .expect("session/start returned")
+    .expect("a repository with nothing in it is still a place to work");
+    assert_eq!(started["status"], "completed", "{started:#}");
+    assert!(started["checkpointRef"].is_null(), "{started:#}");
+    assert_eq!(started["checkpointUnavailable"], "no_history");
+
+    let remedy = started["checkpointRemedy"].as_str().unwrap_or_default();
+    assert!(
+        remedy.contains("first commit"),
+        "the remedy is the first commit: {started:#}"
+    );
+    assert!(
+        !remedy.contains("git init"),
+        "a repository that already exists must never be told to initialize \
+         itself: {started:#}"
+    );
+
+    assert!(!root.join(".meltemi").join("worktrees").exists());
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
