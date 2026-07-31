@@ -322,6 +322,14 @@ const es = {
   "fleet.underlyingLabel": "Sobre",
   "fleet.remedy.hint": "Meltemi dirige el binario oficial que ya tienes: instálalo o declara uno propio en la configuración del proyecto.",
 
+  "conv.placeholder": "Escribe la siguiente instrucción para esta sesión…",
+  "conv.queued":
+    "encolada en la posición {n}: el turno en curso sigue intacto y se despachará al terminar",
+  "conv.waiting": "la sesión espera tu decisión sobre {tool}",
+  "conv.refused": "esta sesión no admite instrucciones",
+  "conv.resumeHint": "la sesión terminó: enviar la reanuda como sesión nueva enlazada",
+  "conv.closed": "sesión terminada y no reanudable: su registro se sigue leyendo",
+
   "transcript.match": "{n} de {total}",
   "transcript.next": "Coincidencia siguiente (Enter)",
   "transcript.prev": "Coincidencia anterior (Shift+Enter)",
@@ -819,6 +827,14 @@ const en: Record<MessageKey, string> = {
   "fleet.id": "Id",
   "fleet.underlyingLabel": "Over",
   "fleet.remedy.hint": "Meltemi drives the official binary you already have: install it, or declare a custom one in the project configuration.",
+
+  "conv.placeholder": "Write the next instruction for this session…",
+  "conv.queued":
+    "queued at position {n}: the running turn continues untouched and it is dispatched when that turn ends",
+  "conv.waiting": "the session is waiting for your decision on {tool}",
+  "conv.refused": "this session does not take instructions",
+  "conv.resumeHint": "the session ended: sending resumes it as a new linked session",
+  "conv.closed": "session ended and not resumable: its log is still readable",
 
   "transcript.match": "{n} of {total}",
   "transcript.next": "Next match (Enter)",

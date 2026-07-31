@@ -385,10 +385,7 @@
         <SessionDetail
           sessionId={detailSession}
           onBack={() => (detailSession = null)}
-          onDirect={(id) => {
-            launcherSession = id;
-            launcherOpen = true;
-          }}
+          onOpenSession={(id) => (detailSession = id)}
         />
       {:else if view === "home"}
         <Home

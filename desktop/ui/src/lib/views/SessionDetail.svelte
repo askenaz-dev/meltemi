@@ -7,6 +7,7 @@
   import { binaryName } from "../agents";
   import {
     onSessionEvent,
+    pending,
     pushNotice,
     refreshSessions,
     sessions,
@@ -20,11 +21,12 @@
   let {
     sessionId,
     onBack,
-    onDirect,
+    onOpenSession,
   }: {
     sessionId: string;
     onBack: () => void;
-    onDirect: (sessionId: string) => void;
+    /** Resuming makes a NEW session; the conversation follows it there. */
+    onOpenSession: (sessionId: string) => void;
   } = $props();
 
   interface Line {
@@ -286,6 +288,99 @@
       ?.scrollIntoView({ block: "nearest", behavior: "auto" });
   }
 
+  // ---- the persistent composer -------------------------------------------
+
+  const LIVE = ["active", "starting", "waiting_permission"];
+
+  let draft = $state("");
+  let sending = $state(false);
+  /** The daemon's own diagnosis when it refused to take direction. */
+  let refused: { detail: string; remedy: string | null } | null = $state(null);
+  /** What became of the last instruction, in the daemon's terms, never ours. */
+  let outcome: { queuePosition: number } | null = $state(null);
+  let field: HTMLTextAreaElement | undefined = $state();
+
+  /** The permission this session is stopped on, when it is stopped on one. */
+  const waitingOn = $derived($pending.find((item) => item.sessionId === sessionId));
+
+  /**
+   * Whether the surface may offer to send at all. A refusal the daemon already
+   * gave outranks everything: a session that answered `session_not_directable`
+   * will answer it again, and re-offering the button would be the surface
+   * arguing with the daemon.
+   */
+  const canSend = $derived.by(() => {
+    if (refused) return false;
+    if (!session) return false;
+    if (LIVE.includes(session.state)) return true;
+    return session.resumable;
+  });
+
+  /** A terminated-but-resumable session is resumed, not sent to. */
+  const resumes = $derived(
+    session !== undefined && !LIVE.includes(session.state) && session.resumable,
+  );
+
+  // Arriving at a conversation puts the caret where the next instruction goes —
+  // once per session, so a state change mid-read never steals the focus back.
+  let focusedFor: string | null = null;
+  $effect(() => {
+    if (!field || focusedFor === sessionId) return;
+    focusedFor = sessionId;
+    field.focus();
+  });
+
+  async function direct() {
+    const instruction = draft.trim();
+    if (!instruction || sending || !canSend || !session) return;
+    sending = true;
+    outcome = null;
+    // A resume starts a NEW session, and it runs a whole turn before the call
+    // answers. Its `session_started` reaches this connection first (design D3),
+    // so the conversation follows the resumed session instead of waiting.
+    const stop = onSessionEvent((message) => {
+      if (message.event.type !== "session_started") return;
+      stop();
+      draft = "";
+      sending = false;
+      void refreshSessions().catch(() => {});
+      onOpenSession(message.sessionId);
+    });
+    try {
+      const result = await request<{
+        disposition: string;
+        sessionId: string;
+        queuePosition?: number;
+      }>("session/direct", {
+        projectRoot: session.projectRoot,
+        sessionId,
+        instruction,
+      });
+      draft = "";
+      if (result.disposition === "queued") {
+        // Queued is NOT attended: say so with its position and let the
+        // transcript show it arrive.
+        outcome = { queuePosition: result.queuePosition ?? 0 };
+      }
+    } catch (raw) {
+      const e = raw as { message?: string; detail?: string | null; remedy?: string | null };
+      const detail = e?.detail ?? e?.message ?? String(raw);
+      refused = { detail, remedy: e?.remedy ?? null };
+    } finally {
+      stop();
+      sending = false;
+      void refreshSessions().catch(() => {});
+    }
+  }
+
+  function onDraftKeydown(event: KeyboardEvent) {
+    event.stopPropagation();
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      void direct();
+    }
+  }
+
   function cancelSession() {
     confirmCancel = false;
     void invoke("daemon_notify", { method: "session/cancel", params: { sessionId } });
@@ -372,13 +467,10 @@
         <Icon name="copy" size={14} />
         {$t("transcript.copyAll")}
       </button>
-      {#if session && (session.state === "active" || session.state === "starting" || session.state === "waiting_permission")}
-        <button class="ghost" onclick={() => onDirect(sessionId)}>{$t("sessions.direct")}</button>
+      {#if session && LIVE.includes(session.state)}
         <button class="ghost destructive" onclick={() => (confirmCancel = true)}>
           {$t("sessions.cancelShort")}
         </button>
-      {:else if session?.resumable}
-        <button class="ghost" onclick={() => onDirect(sessionId)}>{$t("sessions.resume")}</button>
       {/if}
       <button class="ghost" onclick={onBack}>{$t("common.back")}</button>
     </div>
@@ -426,6 +518,56 @@
     {#if lines.length === 0}
       <p class="faint empty">{$t("transcript.empty")}</p>
     {/if}
+  </div>
+
+  <!-- The persistent composer: the conversation is where the next instruction
+       is written, not a round trip through a modal. -->
+  <div class="composer">
+    {#if canSend}
+      <textarea
+        bind:this={field}
+        bind:value={draft}
+        onkeydown={onDraftKeydown}
+        rows="2"
+        spellcheck="false"
+        aria-label={$t("conv.placeholder")}
+        placeholder={$t("conv.placeholder")}
+      ></textarea>
+    {/if}
+
+    <div class="composerRow">
+      <span class="state" aria-live="polite">
+        {#if refused}
+          <span class="refusedText">{$t("conv.refused")} — {refused.detail}</span>
+          {#if refused.remedy}
+            <span class="remedy">{$t("common.remedy")}: {refused.remedy}</span>
+          {/if}
+        {:else if waitingOn}
+          <span class="waiting">{$t("conv.waiting", { tool: waitingOn.tool })}</span>
+        {:else if outcome}
+          <span class="queued">{$t("conv.queued", { n: String(outcome.queuePosition) })}</span>
+        {:else if resumes}
+          <span class="faint">{$t("conv.resumeHint")}</span>
+        {:else if !canSend}
+          <span class="faint">{$t("conv.closed")}</span>
+        {/if}
+      </span>
+
+      {#if canSend}
+        <button
+          class="primary"
+          disabled={sending || draft.trim() === ""}
+          title={$t("home.sendHint")}
+          onclick={() => void direct()}
+        >
+          {sending
+            ? $t("common.loading")
+            : resumes
+              ? $t("sessions.resume")
+              : $t("home.send")}
+        </button>
+      {/if}
+    </div>
   </div>
 
   {#if !atBottom && newLines > 0}
@@ -573,6 +715,57 @@
   .danger {
     margin: 0;
     color: var(--danger);
+  }
+  .composer {
+    display: grid;
+    gap: var(--sp-1);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-panel);
+    padding: var(--sp-2);
+  }
+  .composer:focus-within {
+    border-color: var(--accent);
+  }
+  .composer textarea {
+    border: 0;
+    background: transparent;
+    resize: none;
+    padding: var(--sp-1) var(--sp-2);
+    font-family: var(--font-ui);
+    font-size: var(--fs-body);
+  }
+  .composer textarea:focus-visible {
+    outline: none;
+  }
+  .composerRow {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-height: 26px;
+  }
+  .state {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    font-size: var(--fs-caption);
+  }
+  .queued {
+    color: var(--info);
+  }
+  .waiting {
+    color: var(--warn);
+  }
+  .refusedText {
+    color: var(--danger);
+  }
+  .remedy {
+    color: var(--info);
+  }
+  .composerRow .primary {
+    font-size: var(--fs-dense);
   }
   .empty {
     margin: var(--sp-3);

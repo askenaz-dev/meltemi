@@ -65,7 +65,7 @@ desktop/ui`).
 ## 7. GUI: vista de conversación
 
 - [x] 7.1 Reescribir la plantilla de filas de `SessionDetail.svelte` antes de añadir nada: hoy es `grid-template-rows: auto auto 1fr` con dos hijos en flujo, y un cuarto hijo caería en la pista `1fr` comiéndose el panel — gate: `npm run check`
-- [ ] 7.2 Compositor persistente que envía por `session/direct` con la sesión fijada, con sus estados honestos: encolada con posición, reanudar cuando terminó y es reanudable, diagnóstico y remedio cuando no admite dirección, y cancelar como control aparte — gates: `npm run check`, `npm run lint:i18n`
+- [x] 7.2 Compositor persistente que envía por `session/direct` con la sesión fijada, con sus estados honestos: encolada con posición, reanudar cuando terminó y es reanudable, diagnóstico y remedio cuando no admite dirección, y cancelar como control aparte — gates: `npm run check`, `npm run lint:i18n`
 - [ ] 7.3 Implementar el plegado de burbujas según D4, incluidas las tres formas de `agent_update` (ACP nivel 1, línea mapeada de nivel 3, cadena cruda), con el pensamiento plegado y separado de la prosa — gate: `npm run check`
 - [ ] 7.4 Conmutador a log de operador con el invariante verificable: el conteo de eventos del log iguala al de eventos recibidos, y conmutar no pierde posición ni descarta nada; los eventos no clasificables se renderizan en su lugar como línea neutra — gate: `npm run check`
 - [ ] 7.5 Tarjetas de permiso en línea, decididas por los métodos vigentes, no accionables cuando la petición ya no está pendiente; la bandeja sigue siendo la vista completa — gates: `npm run check`, `npm run lint:i18n`
