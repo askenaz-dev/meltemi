@@ -1487,3 +1487,54 @@ fn an_inline_permission_card_decides_the_same_queue_or_decides_nothing() {
         "the tray still renders the whole queue on its own"
     );
 }
+
+#[test]
+fn every_declared_event_type_has_a_glyph_and_a_tone() {
+    // The map covered 19 of the contract's 20 types, and the gap was invisible
+    // because an unmapped type falls back to the neutral style — correct
+    // behaviour that also hides the omission. Derived from the contract rather
+    // than counted by hand, so the next variant cannot slip in unstyled.
+    let proto = read("proto/meltemi-proto/src/lib.rs");
+    let body = proto
+        .split("pub enum SessionEventKind {")
+        .nth(1)
+        .expect("the contract declares its session events")
+        .split("\n}")
+        .next()
+        .expect("the enum closes");
+    let variants: Vec<String> = body
+        .lines()
+        // `SessionCancelled {},` carries no field and closes on its own line.
+        .filter_map(|line| {
+            let name = line.strip_prefix("    ")?.trim_end_matches(',');
+            name.strip_suffix(" {").or_else(|| name.strip_suffix(" {}"))
+        })
+        .filter(|name| name.chars().next().is_some_and(char::is_uppercase))
+        .map(|name| {
+            let mut snake = String::new();
+            for (index, character) in name.char_indices() {
+                if character.is_uppercase() && index > 0 {
+                    snake.push('_');
+                }
+                snake.extend(character.to_lowercase());
+            }
+            snake
+        })
+        .collect();
+    assert!(variants.len() >= 20, "the enum was parsed: {variants:?}");
+
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    let style = detail
+        .split("const EVENT_STYLE")
+        .nth(1)
+        .expect("the transcript styles its events")
+        .split("};")
+        .next()
+        .expect("the map closes");
+    for variant in &variants {
+        assert!(
+            style.contains(&format!("{variant}: {{")),
+            "event type `{variant}` has no glyph and tone"
+        );
+    }
+}

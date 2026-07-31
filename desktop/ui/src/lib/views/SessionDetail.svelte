@@ -61,6 +61,7 @@
     task_started: { glyph: "▸", tone: "accent" },
     task_committed: { glyph: "■", tone: "ok" },
     instruction_queued: { glyph: "▸", tone: "info" },
+    usage_reported: { glyph: "∑", tone: "info" },
     human_edit: { glyph: "✎", tone: "info" },
     session_cancelled: { glyph: "▲", tone: "danger" },
     session_ended: { glyph: "■", tone: "faint" },
