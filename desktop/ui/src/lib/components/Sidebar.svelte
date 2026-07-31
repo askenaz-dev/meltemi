@@ -151,7 +151,17 @@
     {/each}
   </nav>
 
+  <!-- The projects section is permanent chrome, not something a modal reveals:
+       it is where the shell says what it knows about, and it stays put. -->
+  <div class="section">
+    <span class="sectionTitle">{$t("projects.title")}</span>
+    <span class="count">{tree.length}</span>
+  </div>
+
   <div class="tree" role="tree" aria-label={$t("nav.tree")}>
+    {#if tree.length === 0}
+      <p class="hint empty">{$t("projects.empty")}</p>
+    {/if}
     {#each tree as group (group.root)}
       {@const open = !collapsed.has(group.root)}
       {@const current = group.root === $activeProject}
@@ -304,15 +314,36 @@
     border-radius: 3px;
     padding: 0 4px;
   }
+  .section {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-2);
+    border-top: 1px solid var(--hair);
+    padding: var(--sp-2) var(--sp-2) 0;
+    margin-bottom: calc(-1 * var(--sp-2));
+  }
+  .sectionTitle {
+    font-size: var(--fs-caption);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+  }
   .tree {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    border-top: 1px solid var(--hair);
     padding-top: var(--sp-2);
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+  /* The hard rule that the tree never animates its layout is enforced by
+     absence, not by a suppressing declaration: `scenarios_multiproyecto.rs`
+     forbids the animation keywords in this file outright, which is stricter
+     than any override could be — there is nothing here to override. */
+  .empty {
+    margin: 0;
   }
   .groupRow {
     display: flex;

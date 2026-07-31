@@ -1538,3 +1538,31 @@ fn every_declared_event_type_has_a_glyph_and_a_tone() {
         );
     }
 }
+
+// ---- projects in the navigation ----------------------------------------------
+
+// Scenario: La sección de proyectos está siempre visible
+#[test]
+fn the_projects_section_is_permanent_chrome() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    // A titled section in the sidebar itself, not something a modal reveals.
+    assert!(
+        sidebar.contains("class=\"sectionTitle\"") && sidebar.contains("projects.title"),
+        "the projects section is named where it lives"
+    );
+    assert!(
+        sidebar.contains("role=\"tree\""),
+        "and it renders the tree of known projects"
+    );
+    // With no projects it says so rather than rendering an unexplained gap.
+    assert!(
+        sidebar.contains("projects.empty"),
+        "an empty registry is stated, not left blank"
+    );
+    // The shell mounts it once, outside the routed view, so no view can hide it.
+    let app = app();
+    assert!(
+        !main_region(&app).contains("<Sidebar"),
+        "the section cannot be displaced by whatever view is open"
+    );
+}
