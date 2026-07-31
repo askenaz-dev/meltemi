@@ -6,6 +6,7 @@
   import {
     activeProject,
     allSessions,
+    forgetProject,
     pending,
     pickAndRegisterProject,
     projects,
@@ -15,6 +16,7 @@
   } from "../stores";
   import { agentLabelOf, groupSessions, projectName as leafOf } from "../tree";
   import Avatar from "./Avatar.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
 
   let {
@@ -34,6 +36,8 @@
 
   /** Collapsed project nodes, by root. The tree opens expanded. */
   let collapsed = $state(new Set<string>());
+  /** The node whose forget is awaiting confirmation. */
+  let forgetTarget: { root: string; name: string } | null = $state(null);
 
   // Project -> Sessions, aggregated in the client from the global session list
   // joined with the project registry (design D7).
@@ -74,6 +78,22 @@
         e?.remedy ? `${detail} — ${e.remedy}` : `${$t("common.error")}: ${detail}`,
         "danger",
       );
+    }
+  }
+
+  /**
+   * Forgetting is a listing decision, so the confirmation says exactly that and
+   * nothing stronger: no file, no session and no log is touched, and the
+   * project returns the moment it is used again.
+   */
+  async function forget(root: string, name: string) {
+    forgetTarget = null;
+    try {
+      await forgetProject(root);
+      pushNotice($t("projects.forgotten", { project: name }), "info");
+    } catch (raw) {
+      const e = raw as { message?: string; detail?: string | null };
+      pushNotice(`${$t("common.error")}: ${e?.detail ?? e?.message ?? String(raw)}`, "danger");
     }
   }
 
@@ -237,7 +257,21 @@
           >
             <Icon name="plus" size={12} />
           </button>
+          <button
+            class="quick ghost"
+            aria-label={$t("projects.forget.action", { project: group.name })}
+            title={$t("projects.forget.action", { project: group.name })}
+            onclick={() => (forgetTarget = group)}
+          >
+            <Icon name="close" size={12} />
+          </button>
         </div>
+
+        {#if !group.exists}
+          <!-- A root that vanished keeps its node: the registry is the daemon's
+               and a surface that hides rows decides what it holds. -->
+          <p class="hint remedy">{$t("projects.absent.remedy")}</p>
+        {/if}
 
         {#if open}
           <ul role="group">
@@ -283,6 +317,16 @@
     </button>
   </div>
 </aside>
+
+{#if forgetTarget}
+  <ConfirmDialog
+    title={$t("projects.forget.title", { project: forgetTarget.name })}
+    message={$t("projects.forget.warning")}
+    confirmLabel={$t("projects.forget")}
+    onConfirm={() => forgetTarget && void forget(forgetTarget.root, forgetTarget.name)}
+    onCancel={() => (forgetTarget = null)}
+  />
+{/if}
 
 <style>
   aside {
@@ -398,6 +442,11 @@
      than any override could be — there is nothing here to override. */
   .empty {
     margin: 0;
+  }
+  .remedy {
+    color: var(--text-muted);
+    white-space: normal;
+    padding-left: 22px;
   }
   .groupRow {
     display: flex;

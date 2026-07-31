@@ -238,6 +238,12 @@ const es = {
   "projects.open": "Abrir carpeta…",
   "projects.open.hint": "la da de alta antes de lanzar nada",
   "projects.opened": "proyecto dado de alta: {project}",
+  "projects.forget": "Olvidar",
+  "projects.forget.action": "Olvidar {project} (solo del listado)",
+  "projects.forget.title": "Olvidar {project}",
+  "projects.forget.warning":
+    "Olvidar solo lo quita de este listado. No borra nada del disco: la carpeta queda intacta, sus sesiones se siguen listando, sus registros se siguen leyendo y la contabilidad local las sigue contando. Reaparecerá en cuanto se vuelva a usar o a dar de alta.",
+  "projects.forgotten": "olvidado del listado: {project}",
   "projects.inferred": "fuera del registro",
 
   "home.title": "¿En qué trabajamos?",
@@ -754,6 +760,12 @@ const en: Record<MessageKey, string> = {
   "projects.open": "Open folder…",
   "projects.open.hint": "registered before anything is launched",
   "projects.opened": "project registered: {project}",
+  "projects.forget": "Forget",
+  "projects.forget.action": "Forget {project} (from the listing only)",
+  "projects.forget.title": "Forget {project}",
+  "projects.forget.warning":
+    "Forgetting only drops it from this listing. Nothing on disk is deleted: the folder is untouched, its sessions keep listing, its logs keep reading and the local accounting keeps counting them. It comes back the moment it is used or registered again.",
+  "projects.forgotten": "dropped from the listing: {project}",
   "projects.inferred": "outside the registry",
 
   "home.title": "What are we working on?",

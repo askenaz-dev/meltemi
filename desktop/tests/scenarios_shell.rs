@@ -1646,3 +1646,33 @@ fn opening_a_folder_registers_it_by_contract_before_anything_runs() {
         );
     }
 }
+
+// Scenario: Proyecto ausente en disco marcado en el árbol
+#[test]
+fn forgetting_says_what_it_does_not_do_and_an_absent_root_keeps_its_node() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    // Forget is offered per node and confirmed with text about a LISTING.
+    assert!(
+        sidebar.contains("forgetProject(root)") && sidebar.contains("projects.forget.warning"),
+        "forgetting goes through the contract method, behind its own confirmation"
+    );
+    // An absent root keeps its node, its mark and its next step.
+    assert!(
+        sidebar.contains("{#if !group.exists}") && sidebar.contains("projects.absent.remedy"),
+        "a vanished root is marked and given its remedy instead of disappearing"
+    );
+    // The words matter more than the wiring here: the warning must not read as
+    // a deletion, in either language.
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    for promise in [
+        "No borra nada del disco",
+        "Nothing on disk is deleted",
+        "Reaparecerá en cuanto se vuelva a usar",
+        "It comes back the moment it is used",
+    ] {
+        assert!(
+            catalog.contains(promise),
+            "the confirmation states: {promise}"
+        );
+    }
+}
