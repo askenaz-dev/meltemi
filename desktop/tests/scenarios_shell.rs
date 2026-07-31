@@ -531,8 +531,7 @@ fn a_new_session_is_the_primary_action_and_propose_is_one_key_away() {
     );
     // Both go through the one door, and it opens the composer.
     assert!(
-        app.contains("onNewSession={() => openComposer()}")
-            && app.contains("view = \"home\";"),
+        app.contains("onNewSession={() => openComposer()}") && app.contains("view = \"home\";"),
         "the primary action and its key open the conversational composer"
     );
     // Free is what a new session is, before anything is chosen.
@@ -1371,5 +1370,39 @@ fn empty_state_actions_keep_their_natural_height() {
     assert!(
         rule.contains("flex-wrap: wrap"),
         "the row wraps, so the alignment rule must cover the wrapped case: {rule}"
+    );
+}
+
+// ---- the conversational reading ----------------------------------------------
+
+// Scenario: Un turno se pliega de prompt a cierre
+// Scenario: El pensamiento no se mezcla con la respuesta
+// Scenario: Evento no clasificable cae a la vista, no al olvido
+#[test]
+fn the_conversation_is_a_fold_over_the_log_that_drops_nothing() {
+    // The fold is a pure module precisely so its grammar can be executed rather
+    // than inspected: the cases below run in CI (`npm test --prefix
+    // desktop/ui`), and this test links them to the scenarios they prove.
+    let tests = read("desktop/ui/tests/conversation.test.ts");
+    for case in [
+        "Un turno se pliega de prompt a cierre",
+        "El pensamiento no se mezcla con la respuesta",
+        "Evento no clasificable cae a la vista, no al olvido",
+        "Las tres formas de actualizacion del agente se leen como prosa",
+    ] {
+        assert!(
+            tests.contains(case),
+            "the fold has an executed case for: {case}"
+        );
+    }
+    // And the drill-in renders that fold rather than a second source of truth.
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    assert!(
+        detail.contains("fold(") && detail.contains("from \"../conversation\""),
+        "the conversation view reads the fold, not its own parse of the events"
+    );
+    assert!(
+        detail.contains("reading === \"conversation\"") && detail.contains("conv.reading.log"),
+        "the operator log stays one switch away"
     );
 }

@@ -13,6 +13,7 @@
     sessions,
   } from "../stores";
   import { agentLabelOf } from "../tree";
+  import { fold } from "../conversation";
   import Avatar from "../components/Avatar.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Icon from "../components/Icon.svelte";
@@ -36,6 +37,8 @@
     text: string;
     /** The full payload, revealed on expand. */
     full: string;
+    /** The event's payload as received, which the fold reads (design D4). */
+    payload?: unknown;
     cut?: boolean;
   }
 
@@ -63,6 +66,12 @@
   };
 
   let lines: Line[] = $state([]);
+  /**
+   * Which reading is on screen. The log is the truth and the conversation is a
+   * view of it (design D4), so the switch is always here and neither reading
+   * ever drops an event.
+   */
+  let reading: "conversation" | "log" = $state("conversation");
   let showTimestamps = $state(true);
   let expanded: Record<number, boolean> = $state({});
   let search = $state("");
@@ -79,6 +88,15 @@
   let wasUnreachable = false;
 
   const session = $derived($sessions.find((s) => s.sessionId === sessionId));
+
+  /** The conversational reading of exactly the events the log holds. */
+  const conversation = $derived(
+    fold(
+      lines
+        .filter((line) => !line.cut)
+        .map((line) => ({ id: line.id, ts: line.ts, type: line.kind, payload: line.payload })),
+    ),
+  );
 
   // Walked in on from the composer, this session is younger than the last
   // `session/list` the shell asked for, so the header would render an id and
@@ -173,6 +191,7 @@
               kind: event.type ?? "event",
               text: short,
               full: full || raw,
+              payload: event.payload,
             };
           } catch {
             return { id: index + 1, ts: "", kind: "raw", text: raw, full: raw };
@@ -210,12 +229,14 @@
     onSessionEvent((message) => {
       if (message.sessionId !== sessionId) return;
       wasStreaming = true;
-      const { short, full } = payloadText((message.event as { payload?: unknown }).payload);
+      const payload = (message.event as { payload?: unknown }).payload;
+      const { short, full } = payloadText(payload);
       append({
         ts: new Date().toISOString(),
         kind: message.event.type,
         text: short,
         full,
+        payload,
       });
     }),
   );
@@ -458,6 +479,14 @@
       {/if}
       <button
         class="ghost"
+        aria-pressed={reading === "log"}
+        title={$t("conv.reading.hint")}
+        onclick={() => (reading = reading === "log" ? "conversation" : "log")}
+      >
+        {reading === "log" ? $t("conv.reading.log") : $t("conv.reading.conversation")}
+      </button>
+      <button
+        class="ghost"
         aria-pressed={showTimestamps}
         onclick={() => (showTimestamps = !showTimestamps)}
       >
@@ -480,8 +509,95 @@
     <p class="danger" role="alert">{$t("sessions.detail.goneAfterReconnect")}</p>
   {/if}
 
-  <div class="transcript" bind:this={scroller} onscroll={onScroll} role="log" aria-live="polite">
-    {#each lines as line (line.id)}
+  <div
+    class="transcript"
+    class:log={reading === "log"}
+    bind:this={scroller}
+    onscroll={onScroll}
+    role="log"
+    aria-live="polite"
+  >
+    {#if reading === "conversation"}
+      {#each conversation as item (item.id)}
+        {#if item.kind === "human"}
+          <div class="turn human">
+            <span class="who">{$t("conv.you")}</span>
+            <div class="bubble" class:pending={item.pending}>
+              <p class="prose">{item.text}</p>
+              {#if item.pending}
+                <span class="pill info">{$t("conv.pendingTurn")}</span>
+              {/if}
+            </div>
+          </div>
+        {:else if item.kind === "agent"}
+          <div class="turn agent">
+            <span class="who">{session ? agentLabelOf(session) : $t("conv.agent")}</span>
+            <div class="bubble">
+              {#each item.parts as part, index (index)}
+                {#if part.kind === "text"}
+                  <p class="prose">{part.text}</p>
+                {:else if part.kind === "thought"}
+                  <details class="thought">
+                    <summary>{$t("conv.thought")}</summary>
+                    <p class="prose">{part.text}</p>
+                  </details>
+                {:else if part.kind === "tool"}
+                  <span class="pill tool">
+                    {part.title || part.toolCallId}{part.status ? ` · ${part.status}` : ""}
+                  </span>
+                {:else}
+                  <ul class="plan">
+                    {#each part.entries as entry, at (at)}
+                      <li>{entry}</li>
+                    {/each}
+                  </ul>
+                {/if}
+              {/each}
+              {#if item.parts.length === 0}
+                <p class="prose faint">{$t("conv.noOutput")}</p>
+              {/if}
+            </div>
+            {#if item.closed}
+              <span class="stop">
+                {$t("conv.turnEnded", { reason: item.stopReason ?? $t("conv.stop.unknown") })}
+              </span>
+            {/if}
+          </div>
+        {:else if item.kind === "permission"}
+          <div class="card" class:resolved={item.decided !== null}>
+            <span class="cardHead">
+              <span aria-hidden="true">●</span>
+              {$t("permissions.title")}
+            </span>
+            <p class="prose">{item.title}</p>
+            {#if item.decided}
+              <p class="cardMeta">
+                {$t("conv.decidedBy", { by: item.decided.by })}
+                {#if item.decided.denied !== null}
+                  · {item.decided.denied ? $t("conv.denied") : $t("conv.allowed")}
+                {/if}
+                {#if item.decided.rule}
+                  · {item.decided.rule}
+                {/if}
+              </p>
+            {:else}
+              <p class="cardMeta">{$t("conv.permissionOpen")}</p>
+            {/if}
+          </div>
+        {:else}
+          {@const style = EVENT_STYLE[item.type] ?? { glyph: "·", tone: "faint" }}
+          <div class="sysLine tone-{style.tone}">
+            <span class="glyph" aria-hidden="true">{style.glyph}</span>
+            <span class="kind">{item.type}</span>
+            <span class="text">{item.text}</span>
+          </div>
+        {/if}
+      {/each}
+      {#if conversation.length === 0}
+        <p class="faint empty">{$t("transcript.empty")}</p>
+      {/if}
+    {:else}
+      {#each lines as line (line.id)}
       {@const style = EVENT_STYLE[line.kind] ?? { glyph: "·", tone: "faint" }}
       <div
         class="line tone-{style.tone}"
@@ -514,9 +630,10 @@
           <Icon name="copy" size={11} />
         </button>
       </div>
-    {/each}
-    {#if lines.length === 0}
-      <p class="faint empty">{$t("transcript.empty")}</p>
+      {/each}
+      {#if lines.length === 0}
+        <p class="faint empty">{$t("transcript.empty")}</p>
+      {/if}
     {/if}
   </div>
 
@@ -652,9 +769,109 @@
     border: 1px solid var(--hair);
     border-radius: var(--radius-panel);
     padding: var(--sp-2) 0;
-    font-family: var(--font-mono);
     font-size: var(--fs-dense);
     min-height: 0;
+  }
+  /* The operator log is monospaced because it is data; the conversation is
+     prose and is read in the UI face. */
+  .transcript.log {
+    font-family: var(--font-mono);
+  }
+  .turn {
+    display: grid;
+    gap: 2px;
+    padding: var(--sp-1) var(--sp-3);
+  }
+  .turn .who {
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
+  }
+  .bubble {
+    display: grid;
+    gap: var(--sp-1);
+    justify-items: start;
+    border-radius: var(--radius-panel);
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--surface-2);
+    max-width: 72ch;
+  }
+  .turn.human {
+    justify-items: end;
+  }
+  .turn.human .bubble {
+    background: var(--tint-info);
+    color: var(--text);
+  }
+  /* A queued instruction has NOT been attended: it reads as an outline, and it
+     says so in words beside the shape. */
+  .bubble.pending {
+    background: transparent;
+    border: 1px dashed var(--border);
+  }
+  .prose {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .thought {
+    width: 100%;
+    color: var(--text-muted);
+    font-size: var(--fs-caption);
+  }
+  .thought summary {
+    cursor: pointer;
+    color: var(--text-faint);
+  }
+  .pill.tool {
+    font-family: var(--font-mono);
+  }
+  .plan {
+    margin: 0;
+    padding-left: var(--sp-4);
+    color: var(--text-muted);
+  }
+  .stop {
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
+  }
+  .card {
+    margin: var(--sp-1) var(--sp-3);
+    display: grid;
+    gap: var(--sp-1);
+    border: 1px solid var(--warn);
+    border-radius: var(--radius-panel);
+    padding: var(--sp-2) var(--sp-3);
+    /* Hard rule: a permission never animates its layout. */
+    transition: none !important;
+  }
+  .card.resolved {
+    border-color: var(--hair);
+  }
+  .cardHead {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    font-size: var(--fs-caption);
+    color: var(--warn);
+  }
+  .card.resolved .cardHead {
+    color: var(--text-faint);
+  }
+  .cardMeta {
+    margin: 0;
+    font-size: var(--fs-caption);
+    color: var(--text-muted);
+  }
+  .sysLine {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: baseline;
+    padding: 1px var(--sp-3);
+    font-family: var(--font-mono);
+    font-size: var(--fs-caption);
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .line {
     display: flex;
