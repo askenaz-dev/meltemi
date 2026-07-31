@@ -1453,3 +1453,37 @@ fn switching_readings_keeps_every_event_and_the_reader_s_place() {
         "the switch restores the offset, and following the tail keeps following it"
     );
 }
+
+// Scenario: Decidir un permiso sin salir de la conversación
+// Scenario: Tarjeta ya resuelta no es accionable
+// Scenario: La bandeja sigue siendo la vista completa
+#[test]
+fn an_inline_permission_card_decides_the_same_queue_or_decides_nothing() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    // The same method the tray calls: another view of one queue, not a second.
+    assert!(
+        detail.contains("\"permission/decide\"")
+            && detail.contains("requestId: waitingOn.requestId"),
+        "the card resolves the proxy's own request, by its id"
+    );
+    // The request id lives in the queue, not in the log event, so a card is
+    // actionable only WHILE the queue still holds a request for this session.
+    assert!(
+        detail.contains("if (!waitingOn || waitingOn.expired) return null;"),
+        "an expired or absent request leaves no live card"
+    );
+    assert!(
+        detail.contains("{:else}") && detail.contains("conv.permissionStale"),
+        "a card that no longer decides says so instead of keeping its buttons"
+    );
+    // And the tray keeps listing it: the card never removes anything from it.
+    assert!(
+        detail.contains("conv.alsoInTray"),
+        "the live card names the tray as the complete view"
+    );
+    let tray = read("desktop/ui/src/lib/views/Permissions.svelte");
+    assert!(
+        tray.contains("refreshPending") && tray.contains("$pending"),
+        "the tray still renders the whole queue on its own"
+    );
+}

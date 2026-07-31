@@ -10,6 +10,7 @@
     onSessionEvent,
     pending,
     pushNotice,
+    refreshPending,
     refreshSessions,
     sessions,
   } from "../stores";
@@ -352,6 +353,35 @@
   const waitingOn = $derived($pending.find((item) => item.sessionId === sessionId));
 
   /**
+   * Which card, if any, may still be acted on. The log's
+   * `permission_requested` carries no request id — the proxy's queue owns
+   * those — so the live card is the last undecided one WHILE the queue holds a
+   * request for this session. Everything else renders resolved: a button that
+   * decides nothing is a simulation of control.
+   */
+  const liveCard = $derived.by<number | null>(() => {
+    if (!waitingOn || waitingOn.expired) return null;
+    const open = conversation.filter(
+      (item) => item.kind === "permission" && item.decided === null,
+    );
+    return open.length > 0 ? open[open.length - 1].id : null;
+  });
+
+  async function decide(optionId: string) {
+    if (!waitingOn) return;
+    try {
+      // The very method the tray uses: the conversation is another view of the
+      // same queue, never a second queue.
+      await request("permission/decide", { requestId: waitingOn.requestId, optionId });
+      pushNotice($t("permissions.decided"), "info");
+    } catch (raw) {
+      const e = raw as { message?: string; detail?: string | null };
+      pushNotice(`${$t("common.error")}: ${e?.detail ?? e?.message ?? String(raw)}`, "danger");
+    }
+    await refreshPending().catch(() => {});
+  }
+
+  /**
    * Whether the surface may offer to send at all. A refusal the daemon already
    * gave outranks everything: a session that answered `session_not_directable`
    * will answer it again, and re-offering the button would be the surface
@@ -594,12 +624,13 @@
             {/if}
           </div>
         {:else if item.kind === "permission"}
-          <div class="card" class:resolved={item.decided !== null}>
+          {@const live = item.id === liveCard}
+          <div class="card" class:resolved={item.decided !== null || !live}>
             <span class="cardHead">
               <span aria-hidden="true">●</span>
               {$t("permissions.title")}
             </span>
-            <p class="prose">{item.title}</p>
+            <p class="prose">{item.title || (live && waitingOn ? waitingOn.summary : "")}</p>
             {#if item.decided}
               <p class="cardMeta">
                 {$t("conv.decidedBy", { by: item.decided.by })}
@@ -610,8 +641,17 @@
                   · {item.decided.rule}
                 {/if}
               </p>
+            {:else if live && waitingOn}
+              <div class="cardOptions">
+                {#each waitingOn.options as option (option.optionId)}
+                  <button onclick={() => void decide(option.optionId)}>{option.name}</button>
+                {/each}
+              </div>
+              <p class="cardMeta">{$t("conv.alsoInTray")}</p>
             {:else}
-              <p class="cardMeta">{$t("conv.permissionOpen")}</p>
+              <!-- Decided elsewhere, expired, or denied for want of a client:
+                   the card says so and offers nothing that no longer decides. -->
+              <p class="cardMeta">{$t("conv.permissionStale")}</p>
             {/if}
           </div>
         {:else}
@@ -891,6 +931,16 @@
     margin: 0;
     font-size: var(--fs-caption);
     color: var(--text-muted);
+  }
+  .cardOptions {
+    display: flex;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    /* Hard rule: the options never move under the cursor. */
+    transition: none !important;
+  }
+  .cardOptions button {
+    font-size: var(--fs-dense);
   }
   .sysLine {
     display: flex;

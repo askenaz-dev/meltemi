@@ -333,6 +333,8 @@ const es = {
   "conv.reading.log": "Log de operador",
   "conv.reading.hint": "el log es la verdad; la conversación es una lectura de él",
   "conv.events": "{n} eventos",
+  "conv.alsoInTray": "la bandeja de permisos la sigue listando",
+  "conv.permissionStale": "esta petición ya no está pendiente",
 
   "transcript.match": "{n} de {total}",
   "transcript.next": "Coincidencia siguiente (Enter)",
@@ -843,6 +845,8 @@ const en: Record<MessageKey, string> = {
   "conv.reading.log": "Operator log",
   "conv.reading.hint": "the log is the truth; the conversation is a reading of it",
   "conv.events": "{n} events",
+  "conv.alsoInTray": "the permission tray still lists it",
+  "conv.permissionStale": "this request is no longer pending",
 
   "transcript.match": "{n} of {total}",
   "transcript.next": "Next match (Enter)",
