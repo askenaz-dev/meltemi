@@ -398,6 +398,7 @@ const es = {
   "palette.m.sdd.review-decide": "decidir un ítem de la revisión",
   "palette.m.session.cancel": "cancelar una sesión activa (notificación)",
   "palette.m.session.direct": "dirigir una instrucción a una sesión existente",
+  "palette.m.session.start": "arrancar una sesión libre gobernada, sin change ni gate",
   "palette.m.permission.pending": "cola de permisos pendientes",
   "palette.m.permission.decide": "resolver un permiso pendiente por id",
   "palette.m.worktree.assign": "crear worktrees aislados por agente para tareas",
@@ -417,6 +418,8 @@ const es = {
   "palette.m.sdd.archive": "plegar los deltas verificados en la verdad viva",
   "palette.m.sdd.implement": "desplegar al agente sobre tasks.md, tarea a tarea",
   "palette.m.project.list": "listar los proyectos usados con Meltemi",
+  "palette.m.project.register": "dar de alta un directorio como proyecto (valida la ruta)",
+  "palette.m.project.forget": "quitar un proyecto del listado; no borra nada del disco",
   "palette.m.analytics.usage": "contabilidad local de consumo (solo lo medido)",
 
   "nav.analytics": "Consumo",
@@ -871,6 +874,7 @@ const en: Record<MessageKey, string> = {
   "palette.m.sdd.review-decide": "decide one review checklist item",
   "palette.m.session.cancel": "cancel an active session (notification)",
   "palette.m.session.direct": "direct an instruction to an existing session",
+  "palette.m.session.start": "start a governed free session, with no change and no gate",
   "palette.m.permission.pending": "the pending permission queue",
   "palette.m.permission.decide": "resolve a pending permission by id",
   "palette.m.worktree.assign": "create isolated per-agent worktrees for tasks",
@@ -890,6 +894,8 @@ const en: Record<MessageKey, string> = {
   "palette.m.sdd.archive": "fold verified deltas into the living truth",
   "palette.m.sdd.implement": "deploy the agent over tasks.md, task by task",
   "palette.m.project.list": "list the projects used with Meltemi",
+  "palette.m.project.register": "register a directory as a project (the path is validated)",
+  "palette.m.project.forget": "drop a project from the listing; nothing on disk is deleted",
   "palette.m.analytics.usage": "local usage accounting (measured only)",
 
   "nav.analytics": "Usage",

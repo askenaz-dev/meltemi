@@ -292,6 +292,27 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
       }
     ]
   },
+  "session/start": {
+    "schema": "session-start.schema.json",
+    "def": "params",
+    "fields": [
+      {
+        "name": "projectRoot",
+        "kind": "string",
+        "required": true
+      },
+      {
+        "name": "instruction",
+        "kind": "string",
+        "required": true
+      },
+      {
+        "name": "agent",
+        "kind": "string",
+        "required": false
+      }
+    ]
+  },
   "worktree/assign": {
     "schema": "worktree.schema.json",
     "def": "assignParams",
@@ -768,6 +789,28 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
         "name": "existingOnly",
         "kind": "boolean",
         "required": false
+      }
+    ]
+  },
+  "project/register": {
+    "schema": "project-registry.schema.json",
+    "def": "projectRegisterParams",
+    "fields": [
+      {
+        "name": "root",
+        "kind": "string",
+        "required": true
+      }
+    ]
+  },
+  "project/forget": {
+    "schema": "project-registry.schema.json",
+    "def": "projectForgetParams",
+    "fields": [
+      {
+        "name": "root",
+        "kind": "string",
+        "required": true
       }
     ]
   },

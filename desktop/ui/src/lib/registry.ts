@@ -62,7 +62,7 @@ const R = (
 ): RegistryEntry => ({ method, descKey, kind: "request", ...extra });
 
 /**
- * One entry per client-invocable contract method (39 today; `initialize` is
+ * One entry per client-invocable contract method (46 today; `initialize` is
  * the connection handshake and lives in the bridge). Daemon-initiated traffic
  * (session/event, permission/request, permission/timeout, permission/changed)
  * arrives through the `daemon:incoming` event, not through here.
@@ -134,6 +134,10 @@ export const REGISTRY: RegistryEntry[] = [
   }),
   R("session/direct", "palette.m.session.direct", {
     template: { projectRoot: "", sessionId: "", instruction: "" },
+    injectRoot: "projectRoot",
+  }),
+  R("session/start", "palette.m.session.start", {
+    template: { projectRoot: "", instruction: "" },
     injectRoot: "projectRoot",
   }),
   R("permission/pending", "palette.m.permission.pending", {
@@ -217,6 +221,12 @@ export const REGISTRY: RegistryEntry[] = [
   }),
   R("project/list", "palette.m.project.list", {
     view: "sessions",
+  }),
+  R("project/register", "palette.m.project.register", {
+    template: { root: "" },
+  }),
+  R("project/forget", "palette.m.project.forget", {
+    template: { root: "" },
   }),
   R("change/list", "palette.m.change.list", {
     template: { projectRoot: "" },
