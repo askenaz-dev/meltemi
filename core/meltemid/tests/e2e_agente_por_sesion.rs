@@ -614,3 +614,92 @@ async fn the_refusal_payload_carries_no_environment_and_nothing_shaped_like_a_se
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// Scenario: Sesión libre con agente nombrado
+#[tokio::test]
+async fn a_free_session_runs_the_agent_it_was_told_to() {
+    let root = fixture("free-named");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("free-named").await;
+    let peer = init_client(&endpoint).await;
+
+    let started = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({
+                "projectRoot": root_str,
+                "instruction": "look at this with the work subscription",
+                "agent": "work-sub",
+            }),
+        ),
+    )
+    .await
+    .expect("session/start returned")
+    .expect("session/start ok");
+    assert_eq!(started["status"], "completed", "{started:#}");
+    assert!(
+        started["agentCommand"]
+            .as_array()
+            .and_then(|argv| argv.first())
+            .and_then(|program| program.as_str())
+            .unwrap_or_default()
+            .contains("mock-agent"),
+        "the result names the binary that ran: {started:#}"
+    );
+
+    // The resolution and its source are on the record, so a rebuild from the log
+    // recovers which agent worked and under which subscription.
+    let events = only_session_events(&peer, &root_str).await;
+    let resolved = events
+        .iter()
+        .find(|event| event["type"] == "agent_resolved")
+        .unwrap_or_else(|| panic!("the free session says who ran it: {events:#?}"));
+    assert_eq!(resolved["payload"]["source"], "profile", "{resolved:#}");
+    assert_eq!(resolved["payload"]["profile"], "work-sub");
+    assert_eq!(resolved["payload"]["agentId"], "provider-a");
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Sesión libre con agente no detectado rehúsa sin degradar
+#[tokio::test]
+async fn a_free_session_naming_an_undetected_agent_refuses_and_starts_nothing() {
+    let root = fixture("free-absent");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("free-absent").await;
+    let peer = init_client(&endpoint).await;
+
+    let refused = peer
+        .request(
+            methods::SESSION_START,
+            &json!({
+                "projectRoot": root_str,
+                "instruction": "anything at all",
+                "agent": "provider-absent",
+            }),
+        )
+        .await
+        .expect_err("an agent that is not on this machine cannot work here");
+    assert_eq!(refused.code, meltemi_proto::error_codes::AGENT_NOT_DETECTED);
+    let data = refused.data.clone().expect("a refusal carries data");
+    assert!(!data["remedy"].as_str().unwrap_or_default().is_empty());
+
+    // The configured agent is perfectly usable and was NOT used: a free session
+    // is the easiest place for a silent provider swap to hide, and it does not.
+    let sessions = peer
+        .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .expect("session/list ok");
+    assert_eq!(
+        sessions["sessions"].as_array().map(Vec::len),
+        Some(0),
+        "nothing ran in its place: {sessions:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
