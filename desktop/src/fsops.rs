@@ -26,6 +26,7 @@ fn refused(detail: impl Into<String>) -> BridgeError {
         kind: "fs_refused".into(),
         detail: Some(detail.into()),
         remedy: None,
+        candidates: None,
     }
 }
 

@@ -248,6 +248,9 @@ const es = {
   "home.recent": "Continuar",
   "home.agent.default": "el del proyecto",
   "home.agent.default.hint": "resuelve el agente configurado",
+  "home.agent.unresolved": "sin resolver",
+  "home.agent.refused":
+    "El daemon no pudo resolver un agente. Estos son los que ve en este sistema:",
   "home.mode.free.hint": "sesión gobernada, sin change ni spec",
   "home.mode.propose.hint": "andamia la propuesta y delega al agente",
   "home.mode.explore.hint": "deliberar sin escribir código",
@@ -743,6 +746,9 @@ const en: Record<MessageKey, string> = {
   "home.recent": "Continue",
   "home.agent.default": "the project's",
   "home.agent.default.hint": "resolves the configured agent",
+  "home.agent.unresolved": "unresolved",
+  "home.agent.refused":
+    "The daemon could not resolve an agent. These are the ones it sees on this system:",
   "home.mode.free.hint": "a governed session, with no change and no spec",
   "home.mode.propose.hint": "scaffolds the proposal and delegates to the agent",
   "home.mode.explore.hint": "deliberate without writing code",

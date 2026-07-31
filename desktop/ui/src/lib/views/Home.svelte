@@ -9,7 +9,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { request } from "../daemon";
+  import { request, type AgentCandidate, type DaemonError } from "../daemon";
   import { t } from "../i18n";
   import {
     activeProject,
@@ -52,6 +52,14 @@
   let text = $state("");
   let running = $state(false);
   let box: HTMLTextAreaElement | undefined = $state();
+  /**
+   * A refused agent resolution, with the fleet candidates the daemon attached.
+   * It is NOT a banner: the refusal moves into the agent chip, which is the
+   * control that fixes it, and the chip opens itself so the remedy is where the
+   * user is already looking.
+   */
+  let refusal: { remedy: string | null; candidates: AgentCandidate[] } | null = $state(null);
+  let agentMenuOpen = $state(false);
 
   const root = $derived($activeProject ?? "");
 
@@ -63,8 +71,48 @@
   const chosen = $derived(launchable.find((entry) => entry.id === agent));
 
   const agentLabel = $derived(
-    chosen ? (chosen.displayName ?? chosen.id) : $t("home.agent.default"),
+    refusal
+      ? $t("home.agent.unresolved")
+      : chosen
+        ? (chosen.displayName ?? chosen.id)
+        : $t("home.agent.default"),
   );
+
+  /** One row of the agent menu, whichever list it came from. */
+  interface AgentOption {
+    id: string;
+    name: string;
+    profile: string | null;
+    avatar: string;
+    detected: boolean;
+    installState: string;
+    remedy: string | null;
+  }
+
+  /** What the agent menu offers: the refusal's candidates once there is one. */
+  const offered = $derived.by<AgentOption[]>(() => {
+    const refused = refusal;
+    if (refused) {
+      return refused.candidates.map((candidate) => ({
+        id: candidate.id,
+        name: candidate.id,
+        profile: null,
+        avatar: candidate.id,
+        detected: candidate.detected,
+        installState: candidate.installState,
+        remedy: candidate.remedy ?? null,
+      }));
+    }
+    return launchable.map((entry) => ({
+      id: entry.id,
+      name: entry.underlyingAgent ?? entry.displayName,
+      profile: entry.source === "profile" ? entry.displayName : null,
+      avatar: entry.underlyingAgent ?? entry.id,
+      detected: true,
+      installState: entry.installState ?? "ready",
+      remedy: null,
+    }));
+  });
 
   /** The most recent sessions of this project: a conversation to walk back into. */
   const recent = $derived($sessions.slice(0, 4));
@@ -138,8 +186,15 @@
         text = "";
       }
     } catch (raw) {
-      const e = raw as { message?: string; detail?: string };
-      pushNotice(`${$t("common.error")}: ${e?.detail ?? e?.message ?? String(raw)}`, "danger");
+      const e = raw as Partial<DaemonError>;
+      if (e?.candidates) {
+        // The daemon refused to resolve an agent and said which ones it can
+        // see. That is a choice, not a lament: it goes into the chip.
+        refusal = { remedy: e.remedy ?? null, candidates: e.candidates };
+        agentMenuOpen = true;
+      } else {
+        pushNotice(`${$t("common.error")}: ${e?.detail ?? e?.message ?? String(raw)}`, "danger");
+      }
     } finally {
       stop();
       running = false;
@@ -198,9 +253,15 @@
           {/snippet}
         </Chip>
 
-        <Chip label={$t("session.new.agent")} value={agentLabel} title={chosen?.id ?? ""}>
+        <Chip
+          bind:open={agentMenuOpen}
+          label={$t("session.new.agent")}
+          value={agentLabel}
+          title={chosen?.id ?? ""}
+          tone={refusal ? "warn" : "plain"}
+        >
           {#snippet lead()}
-            {#if chosen}
+            {#if chosen && !refusal}
               <Avatar
                 id={chosen.underlyingAgent ?? chosen.id}
                 name={chosen.underlyingAgent ?? chosen.displayName}
@@ -209,37 +270,51 @@
             {/if}
           {/snippet}
           {#snippet menu(close)}
-            <button
-              class="item"
-              aria-current={agent === "" ? "true" : undefined}
-              onclick={() => {
-                agent = "";
-                close();
-              }}
-            >
-              <span class="itemName">{$t("home.agent.default")}</span>
-              <span class="itemMeta">{$t("home.agent.default.hint")}</span>
-            </button>
-            {#if launchable.length === 0}
-              <p class="none">{$t("session.new.noAgents")}</p>
-            {/if}
-            {#each launchable as entry (entry.id)}
+            {#if refusal}
+              <p class="refused">{$t("home.agent.refused")}</p>
+              {#if refusal.remedy}
+                <p class="none">{refusal.remedy}</p>
+              {/if}
+            {:else}
               <button
                 class="item"
-                aria-current={agent === entry.id ? "true" : undefined}
+                aria-current={agent === "" ? "true" : undefined}
                 onclick={() => {
-                  agent = entry.id;
+                  agent = "";
                   close();
                 }}
               >
-                <Avatar
-                  id={entry.underlyingAgent ?? entry.id}
-                  name={entry.underlyingAgent ?? entry.displayName}
-                  size={18}
-                />
-                <span class="itemName">{entry.underlyingAgent ?? entry.displayName}</span>
-                {#if entry.source === "profile"}
-                  <span class="pill" title={$t("sessions.subscription")}>{entry.displayName}</span>
+                <span class="itemName">{$t("home.agent.default")}</span>
+                <span class="itemMeta">{$t("home.agent.default.hint")}</span>
+              </button>
+            {/if}
+            {#if offered.length === 0}
+              <p class="none">{$t("session.new.noAgents")}</p>
+              <p class="none">{$t("fleet.remedy.hint")}</p>
+            {/if}
+            {#each offered as entry (entry.id)}
+              <button
+                class="item"
+                disabled={!entry.detected}
+                aria-current={agent === entry.id ? "true" : undefined}
+                onclick={() => {
+                  agent = entry.id;
+                  refusal = null;
+                  close();
+                }}
+              >
+                <Avatar id={entry.avatar} name={entry.name} size={18} />
+                <span class="itemName">{entry.name}</span>
+                {#if entry.profile}
+                  <span class="pill" title={$t("sessions.subscription")}>{entry.profile}</span>
+                {/if}
+                {#if !entry.detected}
+                  <span class="pill warn">
+                    {$t(("fleet.state." + entry.installState) as never)}
+                  </span>
+                {/if}
+                {#if entry.remedy && !entry.detected}
+                  <span class="itemMeta">{entry.remedy}</span>
                 {/if}
               </button>
             {/each}
@@ -430,6 +505,12 @@
     margin: 0;
     padding: var(--sp-2);
     color: var(--text-faint);
+    font-size: var(--fs-caption);
+  }
+  .refused {
+    margin: 0;
+    padding: var(--sp-2) var(--sp-2) 0;
+    color: var(--warn);
     font-size: var(--fs-caption);
   }
   .recent {

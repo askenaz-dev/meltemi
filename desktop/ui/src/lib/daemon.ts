@@ -18,6 +18,19 @@ export type ConnState =
     }
   | { state: "unreachable"; detail: string; endpoint: string };
 
+/**
+ * One fleet agent offered as a way out of a resolution refusal (2000/2001).
+ * Same vocabulary `fleet/list` publishes, computed by the same detection path,
+ * so this list and the Fleet view cannot disagree.
+ */
+export interface AgentCandidate {
+  id: string;
+  detected: boolean;
+  installState: string;
+  remedy?: string;
+  remedyCommand?: string;
+}
+
 /** The bridge's structured error: contract `ErrorData` or local unreachable. */
 export interface DaemonError {
   code: number | null;
@@ -25,6 +38,8 @@ export interface DaemonError {
   kind: string;
   detail: string | null;
   remedy: string | null;
+  /** Present when the refusal was about resolving an agent. */
+  candidates?: AgentCandidate[];
 }
 
 export interface IncomingMessage {

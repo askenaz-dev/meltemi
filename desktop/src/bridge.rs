@@ -74,6 +74,16 @@ pub struct BridgeError {
     pub kind: String,
     pub detail: Option<String>,
     pub remedy: Option<String>,
+    /// The fleet candidates a resolution refusal carries (2000/2001). Passed
+    /// through so the surface can offer a choice instead of transcribing the
+    /// lament; ids, detection and remedies only — the daemon never puts
+    /// anything shaped like a secret in here (constitution §2).
+    ///
+    /// Boxed on purpose: this payload exists for one class of refusal, and an
+    /// inline vector puts every `Result<_, BridgeError>` in the crate over
+    /// clippy's large-error threshold to carry it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidates: Option<Box<Vec<meltemi_proto::AgentCandidate>>>,
 }
 
 impl BridgeError {
@@ -84,6 +94,7 @@ impl BridgeError {
             kind: "unreachable".into(),
             detail: Some(detail.into()),
             remedy: None,
+            candidates: None,
         }
     }
 }
@@ -98,11 +109,19 @@ impl From<RpcError> for BridgeError {
                 .and_then(Value::as_str)
                 .map(str::to_string)
         };
+        // A payload that does not parse as candidates is simply absent: the
+        // surface then shows the prose, which is what it did before.
+        let candidates = error
+            .data
+            .as_ref()
+            .and_then(|d| d.get("candidates"))
+            .and_then(|value| serde_json::from_value(value.clone()).ok());
         Self {
             code: Some(error.code),
             kind: get("kind").unwrap_or_else(|| "contract".into()),
             detail: get("detail"),
             remedy: get("remedy"),
+            candidates,
             message: error.message,
         }
     }

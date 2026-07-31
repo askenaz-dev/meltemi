@@ -17,6 +17,7 @@
     tone = "plain",
     menu,
     lead,
+    open = $bindable(false),
   }: {
     /** What this chip selects, always visible: the chip is not a mystery icon. */
     label: string;
@@ -29,9 +30,10 @@
     menu: Snippet<[() => void]>;
     /** Optional glyph rendered before the label (an avatar, for instance). */
     lead?: Snippet;
+    /** Bindable, so a chip can be opened by whatever needs the user to look. */
+    open?: boolean;
   } = $props();
 
-  let open = $state(false);
   let host: HTMLDivElement | undefined = $state();
 
   function close(): void {

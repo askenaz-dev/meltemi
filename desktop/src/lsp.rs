@@ -50,6 +50,7 @@ fn refused(detail: impl Into<String>) -> BridgeError {
         kind: "lsp".into(),
         detail: Some(detail.into()),
         remedy: None,
+        candidates: None,
     }
 }
 
