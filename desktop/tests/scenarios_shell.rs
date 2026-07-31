@@ -1682,3 +1682,146 @@ fn forgetting_says_what_it_does_not_do_and_an_absent_root_keeps_its_node() {
         );
     }
 }
+
+// ---- the conversational home -------------------------------------------------
+
+// Scenario: Llegar y escribir
+// Scenario: El método está a un gesto en el mismo compositor
+// Scenario: El compositor no inventa contrato
+#[test]
+fn the_composer_arrives_focused_with_its_context_and_names_its_method() {
+    let home = read("desktop/ui/src/lib/views/Home.svelte");
+    // The three chips the scenario names, inside the composer.
+    for chip in ["nav.project", "session.new.agent", "session.new.mode"] {
+        assert!(home.contains(chip), "the composer shows its {chip} chip");
+    }
+    assert!(
+        home.contains("initialMode = \"free\""),
+        "and free is what is already selected"
+    );
+    // The caret is in the field on arrival: the user arrived to write.
+    assert!(
+        home.contains("box?.focus();"),
+        "the composer takes the focus when it appears"
+    );
+    // The method each mode dispatches is declared before sending, not after.
+    assert!(
+        home.contains("<code>{METHOD[mode]}</code>"),
+        "the method is on screen beside the send button"
+    );
+
+    // And it is never a method the parity matrix does not carry: read the map
+    // out of the source rather than trusting a list written here.
+    let map = home
+        .split("const METHOD: Record<Mode, string> = {")
+        .nth(1)
+        .expect("the composer declares one method per mode")
+        .split("};")
+        .next()
+        .expect("the map closes");
+    let matrix = read("docs/paridad-nucleo.md");
+    let mut modes = 0;
+    for line in map.lines() {
+        let Some((_, value)) = line.split_once(": \"") else {
+            continue;
+        };
+        let method = value.split('"').next().expect("a method name");
+        modes += 1;
+        assert!(
+            matrix.contains(&format!("`{method}`")),
+            "the composer dispatches `{method}`, which the parity matrix does not carry"
+        );
+    }
+    assert_eq!(modes, 3, "free, propose and explore: {map}");
+}
+
+// Scenario: Enviar navega hacia adentro
+// Scenario: Los puntos de entrada vigentes rutean al compositor
+#[test]
+fn sending_walks_in_and_every_entry_point_arrives_at_the_composer() {
+    let home = read("desktop/ui/src/lib/views/Home.svelte");
+    let send = home
+        .split("async function send()")
+        .nth(1)
+        .expect("the composer sends")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        send.contains("message.event.type !== \"session_started\"")
+            && send.contains("onOpenSession(message.sessionId)"),
+        "the surface navigates on the session's own arrival event: {send}"
+    );
+    // And it does NOT settle for announcing a launch when it walked in.
+    assert!(
+        send.contains("if (!entered) {"),
+        "the \"launched\" notice is only for the case where nothing was entered"
+    );
+
+    let app = app();
+    // One door, and every entry point goes through it.
+    assert_eq!(
+        app.matches("openComposer(").count(),
+        6,
+        "the definition plus its five call sites: the shortcut, the chrome's \
+         primary action, the empty state of Sessions, the Project view's \
+         Propose, and a project node of the nav"
+    );
+    for entry in [
+        "openComposer();\n      return;",              // the shortcut
+        "onNewSession={() => openComposer()}",         // the chrome
+        "onPropose={() => openComposer(\"propose\")}", // the Project view
+        "onNewSessionIn={(root) => openComposer(\"free\", root)}", // a nav node
+    ] {
+        assert!(app.contains(entry), "an entry point is missing: {entry}");
+    }
+    // And no modal launcher survives to compete with it.
+    assert!(
+        !app.contains("<NewSession"),
+        "the modal launcher is retired, not merely bypassed"
+    );
+}
+
+// Scenario: Instrucción encolada se declara encolada
+// Scenario: Sesión terminada ofrece reanudar, no enviar
+// Scenario: Enviar no interrumpe
+#[test]
+fn the_conversation_composer_states_what_the_daemon_answered() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    // Queued is queued, with the position the daemon gave.
+    assert!(
+        detail.contains("result.disposition === \"queued\"")
+            && detail.contains("queuePosition: result.queuePosition"),
+        "a queued instruction is reported as queued, with its place in the queue"
+    );
+    assert!(
+        detail.contains("conv.queued"),
+        "and it is stated in the composer, not implied by silence"
+    );
+    // A terminated but resumable session offers Resume in place of Send.
+    assert!(
+        detail.contains("!LIVE.includes(session.state) && session.resumable")
+            && detail.contains("? $t(\"sessions.resume\")"),
+        "the button says resume when resuming is what would happen"
+    );
+    assert!(
+        detail.contains("if (refused) return false;"),
+        "a session that refused direction stops being offered a send"
+    );
+    // Sending never cancels: cancelling is its own control, behind confirmation.
+    let send = detail
+        .split("async function direct()")
+        .nth(1)
+        .expect("the composer directs")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        !send.contains("session/cancel"),
+        "sending must not touch the running turn: {send}"
+    );
+    assert!(
+        detail.contains("confirmCancel = true") && detail.contains("<ConfirmDialog"),
+        "cancelling stays a separate, explicit control"
+    );
+}
