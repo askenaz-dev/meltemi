@@ -39,7 +39,7 @@ desktop/ui`).
 ## 4. Daemon: agente aditivo y error de resolución estructurado
 
 - [x] 4.1 Aceptar el parámetro `agent` en `propose` y `sdd/explore`, resolviéndolo por `resolve_fleet_agent` en vez de `resolve_launch`, con el comportamiento sin parámetro idéntico al vigente — gate: `cargo test -p meltemid`
-- [ ] 4.2 Apendar `AgentResolved` en `propose`, en los turnos de autoría de `sdd_flow` y en el arranque libre, para que una reconstrucción desde el log recupere agente y perfil (hoy solo lo escriben dispatch e implement) — gate: `cargo test -p meltemid`
+- [x] 4.2 Apendar `AgentResolved` en `propose`, en los turnos de autoría de `sdd_flow` y en el arranque libre, para que una reconstrucción desde el log recupere agente y perfil (hoy solo lo escriben dispatch e implement) — gate: `cargo test -p meltemid`
 - [ ] 4.3 Sustituir la prosa cruda de `levels.rs` por el error estructurado: 2000 y 2001 con `candidates` derivados de `fleet::detect_layers` + `fleet::compose_state`, un solo camino de detección compartido con `fleet/list` — gate: `cargo test -p meltemid`
 - [ ] 4.4 Test de higiene §2: ningún valor de entorno, ruta de credencial ni cadena con forma de secreto aparece jamás en el payload del error — gate: `cargo test -p meltemid`
 

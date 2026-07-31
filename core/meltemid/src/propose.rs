@@ -131,6 +131,18 @@ pub async fn handle_propose(
         agent_command: agent_command.clone(),
         project_root: project_root.display().to_string(),
     });
+    // Which binary ran and why that one, in the log itself: a reconstruction
+    // from the log alone must recover the agent and the subscription. Only
+    // `worktree/dispatch` and `sdd/implement` wrote this event before, so every
+    // proposal and every authoring turn was mute about who wrote it
+    // (lanzador-conversacional 4.2).
+    let _ = log.append(SessionEventKind::AgentResolved {
+        binary: agent_command.first().cloned().unwrap_or_default(),
+        source: resolved.source,
+        profile: resolved.profile.clone(),
+        agent_id: resolved.agent_id.clone(),
+        level,
+    });
     let log = Arc::new(Mutex::new(log));
     // Opt the session into remote direction (control-remoto-asistido): it becomes
     // a directable target and gains the queue the multi-turn loop drains.

@@ -319,3 +319,106 @@ async fn explore_with_an_undetected_agent_refuses_instead_of_deliberating() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The events of the one session recorded for `root`.
+async fn only_session_events(peer: &Peer, root: &str) -> Vec<serde_json::Value> {
+    let list = peer
+        .request(methods::SESSION_LIST, &json!({ "projectRoot": root }))
+        .await
+        .expect("session/list ok");
+    let sessions = list["sessions"].as_array().expect("sessions");
+    assert_eq!(sessions.len(), 1, "one session ran: {list:#}");
+    let log = peer
+        .request(
+            methods::SESSION_LOG,
+            &json!({ "projectRoot": root, "sessionId": sessions[0]["sessionId"] }),
+        )
+        .await
+        .expect("session/log ok");
+    log["lines"]
+        .as_array()
+        .expect("lines")
+        .iter()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line.as_str().unwrap()).ok())
+        .collect()
+}
+
+#[tokio::test]
+async fn the_log_of_a_proposal_and_of_a_deliberation_name_the_agent_that_ran() {
+    // A reconstruction from the log alone must recover which agent ran and
+    // under which subscription. Before this, only dispatch and implement wrote
+    // that down: every proposal and every authoring turn was anonymous.
+    let root = fixture("resolved");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("resolved").await;
+    let peer = init_client(&endpoint).await;
+
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::PROPOSE,
+            &json!({ "idea": "logged resolution", "projectRoot": root_str, "agent": "work-sub" }),
+        ),
+    )
+    .await
+    .expect("propose returned")
+    .expect("propose ok");
+
+    let events = only_session_events(&peer, &root_str).await;
+    let resolved = events
+        .iter()
+        .find(|event| event["type"] == "agent_resolved")
+        .unwrap_or_else(|| panic!("the proposal says who wrote it: {events:#?}"));
+    assert_eq!(resolved["payload"]["source"], "profile", "{resolved:#}");
+    assert_eq!(resolved["payload"]["profile"], "work-sub");
+    assert_eq!(resolved["payload"]["agentId"], "provider-a");
+    assert!(
+        resolved["payload"]["binary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("mock-agent"),
+        "{resolved:#}"
+    );
+    // §2: the profile's name is recorded, its auth context never is.
+    assert!(
+        !serde_json::to_string(resolved)
+            .unwrap()
+            .contains("work-sub-ctx"),
+        "the env overlay must never reach the log: {resolved:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn a_deliberation_records_its_resolution_too() {
+    let root = fixture("resolved-explore");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("resolved-explore").await;
+    let peer = init_client(&endpoint).await;
+
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SDD_EXPLORE,
+            &json!({ "projectRoot": root_str, "topic": "anything", "agent": "work-sub" }),
+        ),
+    )
+    .await
+    .expect("sdd/explore returned")
+    .expect("sdd/explore ok");
+
+    let events = only_session_events(&peer, &root_str).await;
+    let resolved = events
+        .iter()
+        .find(|event| event["type"] == "agent_resolved")
+        .unwrap_or_else(|| panic!("the deliberation says who deliberated: {events:#?}"));
+    assert_eq!(resolved["payload"]["source"], "profile", "{resolved:#}");
+    assert_eq!(resolved["payload"]["profile"], "work-sub");
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
