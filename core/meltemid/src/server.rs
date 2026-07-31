@@ -349,6 +349,8 @@ async fn dispatch_request(
         methods::SPEC_SHOW => crate::navigate::handle_spec_show(params).await,
         methods::SDD_VALIDATE => crate::navigate::handle_sdd_validate(params).await,
         methods::PROJECT_LIST => crate::projects::handle_project_list(params, state).await,
+        methods::PROJECT_REGISTER => crate::projects::handle_project_register(params, state).await,
+        methods::PROJECT_FORGET => crate::projects::handle_project_forget(params, state).await,
         methods::ANALYTICS_USAGE => crate::analytics::handle_analytics_usage(params, state),
         other => Err(RpcError::method_not_found(other)),
     }

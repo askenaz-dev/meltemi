@@ -337,3 +337,51 @@ async fn a_project_whose_root_moved_stays_listed_as_absent() {
     peer.close();
     daemon.abort();
 }
+
+#[tokio::test]
+async fn a_directory_is_registered_and_forgotten_over_the_wire() {
+    // The two verbs, reachable as verbs: a folder that never ran anything enters
+    // the registry by contract and leaves the listing the same way.
+    let root = std::env::temp_dir().join(format!("meltemi-e2e-multi-plain-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let root_str = root.display().to_string();
+
+    let (endpoint, daemon) = spawn_daemon("registry").await;
+    let peer = init_client(&endpoint).await;
+
+    let registered = peer
+        .request(methods::PROJECT_REGISTER, &json!({ "root": root_str }))
+        .await
+        .expect("project/register ok");
+    assert_eq!(registered["project"]["sessionsTotal"], 0, "{registered:#}");
+    let listed = peer
+        .request(methods::PROJECT_LIST, &json!({}))
+        .await
+        .expect("project/list ok");
+    assert_eq!(project_of(&listed, &root)["exists"], true);
+
+    let forgotten = peer
+        .request(methods::PROJECT_FORGET, &json!({ "root": root_str }))
+        .await
+        .expect("project/forget ok");
+    assert_eq!(forgotten["forgotten"], true, "{forgotten:#}");
+    let after = peer
+        .request(methods::PROJECT_LIST, &json!({}))
+        .await
+        .expect("project/list ok");
+    assert!(
+        !after["projects"]
+            .as_array()
+            .expect("projects")
+            .iter()
+            .any(|project| project["root"] == root_str.as_str()),
+        "the listing dropped it: {after:#}"
+    );
+    // Nothing on disk went with it.
+    assert!(root.is_dir());
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -12,6 +12,18 @@
 //! the session records themselves — they remain the source of truth — so the
 //! file only adds recency and the memory of a project whose history was
 //! emptied. Nothing is ever discovered by walking the disk (D3).
+//!
+//! Two verbs put the user in charge of the list (lanzador-conversacional D6).
+//! `project/register` adds a directory the client hands over — validated,
+//! canonicalized, idempotent — so a folder can be pointed at before anything has
+//! ever run in it; it requires no `.meltemi/`, creates nothing inside the root
+//! and reads nothing outside it. `project/forget` appends a forget line, and
+//! **rules over the listing and nothing else**: it deletes no file, ends no
+//! session, hides no session log and removes nothing from the analytics, and the
+//! project reappears the moment it is used or registered again. It is not a
+//! promise of permanence either — a registry that has to be rebuilt from the
+//! session records comes back whole, tombstones included in what is lost,
+//! because those records outrank this file by design.
 
 use std::collections::BTreeMap;
 use std::io::Write;
