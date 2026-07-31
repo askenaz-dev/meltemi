@@ -24,7 +24,6 @@
   import StatusBar from "./lib/components/StatusBar.svelte";
   import Notices from "./lib/components/Notices.svelte";
   import Palette from "./lib/components/Palette.svelte";
-  import NewSession from "./lib/components/NewSession.svelte";
   import ProjectSwitcher from "./lib/components/ProjectSwitcher.svelte";
   import Onboarding from "./lib/components/Onboarding.svelte";
   import ConfirmDialog from "./lib/components/ConfirmDialog.svelte";
@@ -60,10 +59,8 @@
 
   let paletteOpen = $state(false);
   let switcherOpen = $state(false);
-  let launcherOpen = $state(false);
-  let launcherSession: string | null = $state(null);
-  /** The mode the launcher opens on, when the caller asked for a specific one. */
-  let launcherMode: "propose" | null = $state(null);
+  /** The mode the composer opens on: free unless a caller asked for another. */
+  let composerMode: "free" | "propose" | "explore" = $state("free");
   let onboardingOpen = $state(false);
   /** Pending navigation held by the unsaved-work guard. */
   let guard: { kind: "close" } | { kind: "leave"; go: () => void } | null = $state(null);
@@ -80,7 +77,7 @@
   });
 
   const overlayOpen = $derived(
-    paletteOpen || launcherOpen || onboardingOpen || switcherOpen || guard !== null,
+    paletteOpen || onboardingOpen || switcherOpen || guard !== null,
   );
 
   /**
@@ -200,6 +197,22 @@
     });
   }
 
+  /**
+   * The one way into the composer. Every entry point — the chrome's primary
+   * action, Ctrl+N, an empty state, the Project view's Propose — comes through
+   * here, so there is exactly one place that decides what "start work" means.
+   */
+  function openComposer(mode: "free" | "propose" | "explore" = "free") {
+    leaveEditor(() => {
+      view = "home";
+      detailSession = null;
+      reviewOpen = false;
+      editorContext = null;
+      composerMode = mode;
+      setLastView("home");
+    });
+  }
+
   /** Focuses the first pending request of the tray, once it has rendered. */
   function focusPendingRequest() {
     setTimeout(() => {
@@ -245,8 +258,7 @@
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
       event.preventDefault();
-      launcherSession = null;
-      launcherOpen = true;
+      openComposer();
       return;
     }
     if (event.key === "a") {
@@ -340,10 +352,7 @@
       title={viewTitle}
       trail={breadcrumb}
       onOpenPalette={() => (paletteOpen = true)}
-      onNewSession={() => {
-        launcherSession = null;
-        launcherOpen = true;
-      }}
+      onNewSession={() => openComposer()}
       onOpenPermissions={() => navigate("permissions")}
       urgent={topSignal === "permission"}
     >
@@ -389,6 +398,7 @@
         />
       {:else if view === "home"}
         <Home
+          initialMode={composerMode}
           onOpenSession={(sessionId) => {
             view = "sessions";
             detailSession = sessionId;
@@ -398,24 +408,13 @@
         <Sessions
           onOpen={(sessionId) => (detailSession = sessionId)}
           onNavigate={navigate}
-          onNewSession={() => {
-            launcherSession = null;
-            launcherOpen = true;
-          }}
-          onDirect={(id) => {
-            launcherSession = id;
-            launcherOpen = true;
-          }}
+          onNewSession={() => openComposer()}
         />
       {:else if view === "project"}
         <Project
           onOpenEditor={() => openProjectEditor()}
           onOpenReview={() => (reviewOpen = true)}
-          onPropose={() => {
-            launcherSession = null;
-            launcherMode = "propose";
-            launcherOpen = true;
-          }}
+          onPropose={() => openComposer("propose")}
         />
       {:else if view === "permissions"}
         <Permissions />
@@ -434,17 +433,6 @@
 
 {#if paletteOpen}
   <Palette onClose={() => (paletteOpen = false)} onNavigate={navigate} />
-{/if}
-
-{#if launcherOpen}
-  <NewSession
-    initialSession={launcherSession}
-    initialMode={launcherMode}
-    onClose={() => {
-      launcherOpen = false;
-      launcherMode = null;
-    }}
-  />
 {/if}
 
 {#if onboardingOpen}

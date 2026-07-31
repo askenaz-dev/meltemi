@@ -529,11 +529,23 @@ fn a_new_session_is_the_primary_action_and_propose_is_one_key_away() {
         app.contains("event.key.toLowerCase() === \"n\""),
         "and a key does the same"
     );
-    // Propose is a tool inside the launcher, not the centre of the shell.
-    let launcher = read("desktop/ui/src/lib/components/NewSession.svelte");
+    // Both go through the one door, and it opens the composer.
     assert!(
-        launcher.contains("{ id: \"propose\", method: \"propose\" }"),
-        "propose is one mode of the launcher"
+        app.contains("onNewSession={() => openComposer()}")
+            && app.contains("view = \"home\";"),
+        "the primary action and its key open the conversational composer"
+    );
+    // Free is what a new session is, before anything is chosen.
+    let home = read("desktop/ui/src/lib/views/Home.svelte");
+    assert!(
+        home.contains("initialMode = \"free\""),
+        "the composer preselects the free mode"
+    );
+    // Propose is a mode of that same composer, reached from the Project view
+    // rather than from the chrome: a tool, not the centre of the shell.
+    assert!(
+        app.contains("onPropose={() => openComposer(\"propose\")}"),
+        "proposing routes to the composer with its mode already chosen"
     );
     assert!(
         !top.contains("propose"),
@@ -1123,7 +1135,6 @@ fn every_action_of_the_shell_is_reachable_from_the_keyboard() {
     // Overlays trap Escape themselves, so the shell never swallows their keys.
     for overlay in [
         "desktop/ui/src/lib/components/Palette.svelte",
-        "desktop/ui/src/lib/components/NewSession.svelte",
         "desktop/ui/src/lib/components/Onboarding.svelte",
         "desktop/ui/src/lib/components/ProjectSwitcher.svelte",
         "desktop/ui/src/lib/components/ConfirmDialog.svelte",

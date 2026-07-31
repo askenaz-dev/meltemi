@@ -22,12 +22,10 @@
     onOpen,
     onNavigate,
     onNewSession,
-    onDirect,
   }: {
     onOpen: (sessionId: string) => void;
     onNavigate: (view: ViewId) => void;
     onNewSession: () => void;
-    onDirect: (sessionId: string) => void;
   } = $props();
 
   type SortKey = "started" | "agent" | "state";
@@ -254,8 +252,11 @@
                 </time>
               </td>
               <td class="right actions">
+                <!-- Directing and resuming both happen in the conversation now:
+                     the button opens it, where the composer is already focused
+                     and already knows which of the two this session allows. -->
                 {#if isLive(session)}
-                  <button class="ghost" onclick={() => onDirect(session.sessionId)}>
+                  <button class="ghost" onclick={() => onOpen(session.sessionId)}>
                     {$t("sessions.direct")}
                   </button>
                   <button
@@ -265,7 +266,7 @@
                     {$t("sessions.cancelShort")}
                   </button>
                 {:else if session.resumable}
-                  <button class="ghost" onclick={() => onDirect(session.sessionId)}>
+                  <button class="ghost" onclick={() => onOpen(session.sessionId)}>
                     {$t("sessions.resume")}
                   </button>
                 {/if}

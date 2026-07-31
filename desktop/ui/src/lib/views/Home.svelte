@@ -7,7 +7,7 @@
   each mode dispatches is written next to the send button before anything runs.
 -->
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { get } from "svelte/store";
   import { request, type AgentCandidate, type DaemonError } from "../daemon";
   import { t } from "../i18n";
@@ -29,14 +29,17 @@
   import Icon from "../components/Icon.svelte";
   import StatusBadge from "../components/StatusBadge.svelte";
 
-  let {
-    onOpenSession,
-  }: {
-    onOpenSession: (sessionId: string) => void;
-  } = $props();
-
   /** The three modes of the composer. Free is the default; the rest are offers. */
   type Mode = "free" | "propose" | "explore";
+
+  let {
+    onOpenSession,
+    initialMode = "free",
+  }: {
+    onOpenSession: (sessionId: string) => void;
+    /** The mode the caller asked for: Propose routes here with it chosen. */
+    initialMode?: Mode;
+  } = $props();
 
   const METHOD: Record<Mode, string> = {
     free: "session/start",
@@ -46,7 +49,9 @@
 
   const MODES: Mode[] = ["free", "propose", "explore"];
 
-  let mode: Mode = $state("free");
+  // Read once: after arriving, the mode belongs to the user's chip, not to
+  // whoever opened the composer.
+  let mode: Mode = $state(untrack(() => initialMode));
   /** The chosen fleet entry id, or "" for the project's configured agent. */
   let agent = $state("");
   let text = $state("");
