@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/session-start.schema.json",
+  "title": "session/start",
+  "description": "Method `session/start` (client -> daemon): begin a governed free session on a project root with an instruction — no change, no task, no specification, no gate. Nothing about the government is relaxed for lacking a specification: the agent is resolved from the fleet and the resolution recorded, every permission request goes through the same deny-by-default proxy (denied outright when no client is attending), the JSONL log is append-only, the project is registered, and the session's events are published to its stream. The session is directable while it lives, so the next instruction is dispatched as the next turn of the same agent session. It runs on the project root like every other human-attended path and creates no worktree; in exchange the daemon takes a restore point before the first turn and declares it — or declares why there is none. The connection that starts the session receives `session_started` with its id before the agent's first token, so a surface can navigate into the conversation without awaiting the turn; the result stays final for the scriptable client that listens to nothing.",
+  "$defs": {
+    "turnStatus": {
+      "type": "string",
+      "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"],
+      "description": "Final status of the agent turn, mapped from the ACP stop reason (end_turn -> completed)."
+    },
+    "checkpointUnavailable": {
+      "type": "string",
+      "enum": ["not_a_git_repo", "no_history"],
+      "description": "Why no restore point was taken. The two causes are reported apart because their remedies are not interchangeable. not_a_git_repo: the root is not a git repository at all, and the remedy is to initialize one. no_history: it is a git repository with nothing committed yet, so there is no history to snapshot, and the remedy is the first commit — never initializing a repository that already exists. The session starts in both cases: the daemon refuses no start over this, and simulates no restore point it did not take."
+    },
+    "params": {
+      "type": "object",
+      "required": ["projectRoot", "instruction"],
+      "properties": {
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path to the root of the repository the session works in. It is registered as a project by the start itself; the user need do nothing else."
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The first instruction, verbatim: it becomes the session's first prompt. `@` references in it are expanded and recorded like any other prompt's."
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The fleet agent to run: a launch profile name or a catalog id, resolved in the fleet's order (profile, catalog id, then the project's configured agent). A name that resolves to an undetected binary refuses with a remedy; nothing degrades to another provider. Absent uses the project's configured agent."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["sessionId", "agentCommand", "status", "deniedPermissions"],
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The Meltemi identifier of the session that was started."
+        },
+        "agentCommand": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "The official agent binary and arguments (program first), so which binary ran is never ambiguous."
+        },
+        "status": { "$ref": "#/$defs/turnStatus" },
+        "deniedPermissions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many of the agent's permission requests were denied during the turn (by rule, by the human, or by timeout/default). Greater than zero means the work may be incomplete."
+        },
+        "checkpointRef": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The restore point taken before the first turn, as a git ref under refs/meltemi/checkpoints/. Taking it moves no branch of the user's and alters no index of theirs. It is a listable entry and a ref to come back to with git, not a reversion the daemon offers: reverting it is refused, because that tree is the user's own and holds uncommitted human work."
+        },
+        "checkpointUnavailable": { "$ref": "#/$defs/checkpointUnavailable" },
+        "checkpointRemedy": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The English remedy matching that cause, for surfaces that show prose rather than translate a state. Present only alongside checkpointUnavailable."
+        }
+      }
+    }
+  }
+}

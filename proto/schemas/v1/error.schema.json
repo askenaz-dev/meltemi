@@ -20,6 +20,42 @@
         "remedy": {
           "type": "string",
           "description": "Actionable English suggestion for how to fix it."
+        },
+        "candidates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/agentCandidate" },
+          "description": "The fleet agents detected on this system, carried by a refusal to resolve one (2000/2001) so a surface can offer a choice instead of transcribing a lament. Absent means the error has nothing to do with resolving an agent; an empty array means the fleet was consulted and nothing was found — which is an answer, not an omission."
+        }
+      }
+    },
+    "agentCandidate": {
+      "type": "object",
+      "required": ["id", "detected", "installState"],
+      "description": "One agent offered as a way out of a resolution refusal, in the vocabulary fleet/list publishes and computed by the same detection path, so the error and the Fleet view cannot disagree. Ids, detection, state and remedies only: never an environment value, a credential path or anything shaped like a secret (fair play §2).",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable catalog identifier, the same one agent.id selects."
+        },
+        "detected": {
+          "type": "boolean",
+          "description": "Whether this agent's pilot point was found on this system."
+        },
+        "installState": {
+          "type": "string",
+          "enum": ["ready", "adapter_missing", "cli_missing", "not_detected", "not_launchable"],
+          "description": "The composed install state across the entry's layers, identical to the one fleet/list reports for it."
+        },
+        "remedy": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Which layer is missing and what to do about it, in one sentence."
+        },
+        "remedyCommand": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The exact command that installs the missing layer. Data, never run."
         }
       }
     },
@@ -51,11 +87,11 @@
         },
         "2000": {
           "kind": "agent_command_not_configured",
-          "description": "Neither agent.command nor agent.id is configured. remedy points to the user or project config file."
+          "description": "Neither agent.command nor agent.id is configured. remedy points to the user or project config file, and data.candidates carries the agents detected on this system so a surface can offer a choice rather than transcribe the sentence."
         },
         "2001": {
           "kind": "agent_not_detected",
-          "description": "The selected agent is not present on this system: the configured catalog id is unknown, or its binary was not detected. detail names the missing id or command; remedy explains how to configure or install it. Nothing is launched."
+          "description": "The selected agent is not present on this system: the configured catalog id is unknown, or its binary was not detected. detail names the missing id or command; remedy explains how to configure or install it, and data.candidates carries the detected agents with their install state. Nothing is launched and nothing degrades to another provider."
         },
         "2002": {
           "kind": "agent_spawn_failed",

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/project-registry.schema.json",
+  "title": "project/register · project/forget",
+  "description": "Explicit entry into and exit from the project registry. `project/register` takes a path the client hands over — validated, canonicalized and idempotent — so a folder can be pointed at before anything has ever run in it; it requires no `.meltemi/`, creates nothing on disk and walks nothing: registering is aiming the tool at a directory, never a discovery. The folder-picking dialog, where one exists, is chrome of the client; the daemon opens no window. `project/forget` drops a project from this listing and from nothing else — it appends a forget line to the same append-only registry the last-wins fold resolves, and never deletes a file, a session, a session log or an analytics record. Forgetting rules over the listing and is not a promise of permanence: where the registry has to be rebuilt from the session records (missing or corrupt), the project reappears, because the session records are the source of truth. So does a project that is simply used or registered again.",
+  "$defs": {
+    "projectInfo": {
+      "type": "object",
+      "required": [
+        "projectKey",
+        "root",
+        "exists",
+        "firstSeenAt",
+        "lastSeenAt",
+        "sessionsTotal",
+        "resumableSessions"
+      ],
+      "properties": {
+        "projectKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "firstSeenAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lastSeenAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sessionsTotal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "activeSessions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sessions of this project running right now. Zero is a fact: the project is listed regardless."
+        },
+        "resumableSessions": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "projectRegisterParams": {
+      "type": "object",
+      "required": ["root"],
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The directory to register. It must exist and be a directory, or the call is refused with a remedy and the registry is left unchanged. It is canonicalized before it is stored, so two equivalent spellings of the same folder are one entry and the listing shows the canonical form rather than whichever was typed last."
+        }
+      }
+    },
+    "projectRegisterResult": {
+      "type": "object",
+      "required": ["project"],
+      "properties": {
+        "project": {
+          "$ref": "#/$defs/projectInfo",
+          "description": "The project as the registry now holds it, in the very shape project/list reports. A repeated registration is idempotent: it keeps the first time seen and updates the last."
+        }
+      }
+    },
+    "projectForgetParams": {
+      "type": "object",
+      "required": ["root"],
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The project root to forget. It need not exist on disk — a root that vanished is precisely the one worth forgetting, so demanding a canonicalizable path would make it unforgettable."
+        }
+      }
+    },
+    "projectForgetResult": {
+      "type": "object",
+      "required": ["forgotten"],
+      "properties": {
+        "forgotten": {
+          "type": "boolean",
+          "description": "Whether the registry was listing that root and no longer does; false says it was not listed to begin with. Nothing on disk is deleted either way, and its sessions keep listing, its logs keep reading and the analytics keep counting them."
+        }
+      }
+    }
+  }
+}
