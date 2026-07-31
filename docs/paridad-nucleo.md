@@ -27,7 +27,8 @@ future change — never a silent omission.
 | `session/log` | — | `sessions` (drill-in) | registry + session drill-in |
 | `session/watch` | — | `sessions` (drill-in) | registry + session drill-in (live stream) |
 | `session/cancel` | — | `cancel` (`x`) | registry + session drill-in |
-| `session/direct` | `direct` | `direct` | registry |
+| `session/direct` | `direct` | `direct` (drill-in, entrada de instrucción) | registry |
+| `session/start` | `session` | `session` | registry |
 | `repo/map` | — | `map` | registry |
 | `sdd/constitution` | `constitution` | `constitution` | registry |
 | `sdd/explore` | `explore` | `explore` | registry |
@@ -42,6 +43,8 @@ future change — never a silent omission.
 | `sdd/implement` | `implement` | `implement` | registry |
 | `sdd/validate` | `validate` | `validate` | registry |
 | `project/list` | `projects` | `projects` | registry + project switcher |
+| `project/register` | `projects register <path>` | `projects register` (ruta tecleada) | registry |
+| `project/forget` | `projects forget <path>` | `projects forget` (ruta tecleada) | registry |
 | `analytics/usage` | `usage` | `usage` | registry + Usage view |
 | `change/list` | `changes` | `changes` | registry + Project view |
 | `change/show` | `show` | `show` | registry |
