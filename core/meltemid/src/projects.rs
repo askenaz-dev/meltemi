@@ -61,6 +61,11 @@ pub fn touch(data_dir: &Path, root: &Path) {
 /// idempotent, and a project that had been forgotten reappears — a later line
 /// wins the fold, which is the whole mechanism.
 fn record_seen(data_dir: &Path, root: &Path) -> ProjectRecord {
+    // Canonicalized here rather than at each caller, because the promise is
+    // about the registry and not about one verb: whichever door a project comes
+    // in by, the row it leaves behind spells the root the same way. `canonical`
+    // is idempotent, so the callers that already resolved a path pay nothing.
+    let root = &canonical(root);
     let key = crate::paths::project_key(root);
     let now = crate::clock::now_rfc3339();
     // Looked up in the FOLD rather than the listing: a forgotten project keeps
@@ -423,7 +428,7 @@ pub async fn handle_project_register(
             Some("Pass the absolute path to an existing directory.".into()),
         ));
     }
-    let record = record_seen(&state.data_dir, &canonical(&root));
+    let record = record_seen(&state.data_dir, &root);
     let live = live_sessions(state).await;
     let project = to_info(&state.data_dir, record, &live);
     serde_json::to_value(ProjectRegisterResult { project }).map_err(crate::rpc::RpcError::internal)
