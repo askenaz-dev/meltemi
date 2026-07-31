@@ -3,7 +3,16 @@
   import { t } from "../i18n";
   import type { IconName } from "../icons";
   import type { ViewId } from "../registry";
-  import { activeProject, allSessions, pending, projects, sessions, switchProject } from "../stores";
+  import {
+    activeProject,
+    allSessions,
+    pending,
+    pickAndRegisterProject,
+    projects,
+    pushNotice,
+    sessions,
+    switchProject,
+  } from "../stores";
   import { agentLabelOf, groupSessions, projectName as leafOf } from "../tree";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
@@ -43,6 +52,28 @@
         return "▲";
       default:
         return "■";
+    }
+  }
+
+  /**
+   * "Open folder…": the client's dialog, then the contract's `project/register`
+   * BEFORE anything else happens. Opening a folder from the nav also means
+   * going there, so the scope follows — unlike the composer's chip, which only
+   * aims a launch.
+   */
+  async function openFolder() {
+    try {
+      const root = await pickAndRegisterProject();
+      if (!root) return; // dismissed: nothing chosen, nothing said
+      switchProject(root);
+      pushNotice($t("projects.opened", { project: leafOf(root) }), "info");
+    } catch (raw) {
+      const e = raw as { message?: string; detail?: string | null; remedy?: string | null };
+      const detail = e?.detail ?? e?.message ?? String(raw);
+      pushNotice(
+        e?.remedy ? `${detail} — ${e.remedy}` : `${$t("common.error")}: ${detail}`,
+        "danger",
+      );
     }
   }
 
@@ -158,7 +189,10 @@
        it is where the shell says what it knows about, and it stays put. -->
   <div class="section">
     <span class="sectionTitle">{$t("projects.title")}</span>
-    <span class="count">{tree.length}</span>
+    <button class="ghost open" onclick={() => void openFolder()}>
+      <Icon name="plus" size={12} />
+      {$t("projects.open")}
+    </button>
   </div>
 
   <div class="tree" role="tree" aria-label={$t("nav.tree")}>
@@ -341,6 +375,13 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--text-faint);
+  }
+  .open {
+    /* Deliberately tighter than the skin's --sp-2 (design D1). */
+    gap: 4px;
+    padding: 0 4px;
+    font-size: var(--fs-caption);
+    color: var(--accent);
   }
   .tree {
     flex: 1;

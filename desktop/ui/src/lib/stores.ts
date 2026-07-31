@@ -219,6 +219,41 @@ export async function refreshProjects(): Promise<void> {
   projects.set(result.projects);
 }
 
+/**
+ * Registers a directory as a project and answers with the root the daemon
+ * stored — its CANONICAL form, which is what the registry lists and what a
+ * later forget has to match. Returning the typed path instead would show one
+ * spelling and hold another.
+ */
+export async function registerProject(root: string): Promise<string> {
+  const result = await request<{ project: ProjectInfo }>("project/register", { root });
+  await refreshProjects().catch(() => {});
+  return result.project.root;
+}
+
+/**
+ * Opens the client's own folder picker and registers what was chosen. The
+ * dialog is chrome of this client (design D8): the daemon receives the path and
+ * validates it, and never participates in showing the window. A dismissed
+ * dialog answers null and nothing is sent anywhere.
+ */
+export async function pickAndRegisterProject(): Promise<string | null> {
+  const picked = await invoke<string | null>("pick_project_folder");
+  if (!picked) return null;
+  return registerProject(picked);
+}
+
+/**
+ * Drops a project from the REGISTRY LISTING. Nothing on disk is touched, its
+ * sessions keep listing and its logs keep reading, and it comes back the moment
+ * it is used or registered again.
+ */
+export async function forgetProject(root: string): Promise<boolean> {
+  const result = await request<{ forgotten: boolean }>("project/forget", { root });
+  await refreshProjects().catch(() => {});
+  return result.forgotten;
+}
+
 export async function refreshPending(): Promise<void> {
   const result = await request<{ pending: PendingPermission[] }>("permission/pending");
   pending.set(result.pending);

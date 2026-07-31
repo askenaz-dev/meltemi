@@ -235,6 +235,9 @@ const es = {
   "projects.resumable": "{n} reanudable(s)",
   "projects.lastSeen": "último uso",
   "projects.empty": "todavía no hay proyectos: la lista se llena con el uso real",
+  "projects.open": "Abrir carpeta…",
+  "projects.open.hint": "la da de alta antes de lanzar nada",
+  "projects.opened": "proyecto dado de alta: {project}",
   "projects.inferred": "fuera del registro",
 
   "home.title": "¿En qué trabajamos?",
@@ -748,6 +751,9 @@ const en: Record<MessageKey, string> = {
   "projects.resumable": "{n} resumable",
   "projects.lastSeen": "last used",
   "projects.empty": "no projects yet: the list fills up with real use",
+  "projects.open": "Open folder…",
+  "projects.open.hint": "registered before anything is launched",
+  "projects.opened": "project registered: {project}",
   "projects.inferred": "outside the registry",
 
   "home.title": "What are we working on?",

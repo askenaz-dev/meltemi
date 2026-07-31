@@ -16,6 +16,7 @@
     allSessions,
     fleet,
     onSessionEvent,
+    pickAndRegisterProject,
     projects,
     pushNotice,
     refreshFleet,
@@ -153,6 +154,27 @@
     box.style.height = `${Math.min(box.scrollHeight, 320)}px`;
   }
 
+  /**
+   * "Open folder…" from the chip: the client's dialog, then `project/register`
+   * BEFORE anything is launched — a folder becomes a project by the contract's
+   * own method, not as a side effect of running something in it. Choosing it
+   * here aims the composer without moving the surface's scope.
+   */
+  async function openFolder() {
+    try {
+      const root = await pickAndRegisterProject();
+      if (!root) return; // dismissed: nothing chosen, nothing said
+      picked = root;
+    } catch (raw) {
+      const e = raw as { message?: string; detail?: string | null; remedy?: string | null };
+      const detail = e?.detail ?? e?.message ?? String(raw);
+      pushNotice(
+        e?.remedy ? `${detail} — ${e.remedy}` : `${$t("common.error")}: ${detail}`,
+        "danger",
+      );
+    }
+  }
+
   function paramsFor(mode: Mode): Record<string, unknown> {
     const instruction = text.trim();
     const params: Record<string, unknown> =
@@ -245,6 +267,17 @@
       <div class="chips">
         <Chip label={$t("nav.project")} value={root ? projectName(root) : $t("nav.noProject")} title={root} tone={root ? "plain" : "warn"}>
           {#snippet menu(close)}
+            <button
+              class="item"
+              onclick={() => {
+                close();
+                void openFolder();
+              }}
+            >
+              <Icon name="plus" size={14} />
+              <span class="itemName">{$t("projects.open")}</span>
+              <span class="itemMeta">{$t("projects.open.hint")}</span>
+            </button>
             {#if $projects.length === 0}
               <p class="none">{$t("projects.empty")}</p>
             {/if}

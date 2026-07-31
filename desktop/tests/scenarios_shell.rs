@@ -1602,3 +1602,47 @@ fn each_project_node_can_start_work_in_it() {
         "the composer opens on the project it was handed"
     );
 }
+
+// Scenario: Abrir una carpeta la registra antes de lanzar
+#[test]
+fn opening_a_folder_registers_it_by_contract_before_anything_runs() {
+    let stores = read("desktop/ui/src/lib/stores.ts");
+    let pick = stores
+        .split("export async function pickAndRegisterProject")
+        .nth(1)
+        .expect("the surface has one place that opens and registers")
+        .split("\n}")
+        .next()
+        .expect("body");
+    assert!(
+        pick.contains("pick_project_folder") && pick.contains("registerProject(picked)"),
+        "the dialog's answer goes straight to the registry: {pick}"
+    );
+    assert!(
+        pick.contains("if (!picked) return null;"),
+        "a dismissed dialog sends nothing to the daemon: {pick}"
+    );
+    let register = stores
+        .split("export async function registerProject")
+        .nth(1)
+        .expect("registerProject exists")
+        .split("\n}")
+        .next()
+        .expect("body");
+    assert!(
+        register.contains("\"project/register\"") && register.contains("result.project.root"),
+        "it registers by the contract method and keeps the CANONICAL root: {register}"
+    );
+
+    // Both doors the requirement names: the nav and the composer's chip.
+    for (file, surface) in [
+        ("desktop/ui/src/lib/components/Sidebar.svelte", "the nav"),
+        ("desktop/ui/src/lib/views/Home.svelte", "the composer"),
+    ] {
+        let source = read(file);
+        assert!(
+            source.contains("projects.open") && source.contains("pickAndRegisterProject()"),
+            "{surface} offers to open a folder through that one path"
+        );
+    }
+}
