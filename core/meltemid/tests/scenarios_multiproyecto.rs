@@ -367,54 +367,53 @@ fn without_an_active_project_the_global_views_still_answer() {
 
 // Scenario: Lanzar en otro proyecto sin conmutar antes
 #[test]
-fn the_launcher_targets_a_project_without_switching_the_scope() {
-    let launcher = read("desktop/ui/src/lib/components/NewSession.svelte");
+fn the_composer_targets_a_project_without_switching_the_scope() {
+    // The modal launcher is gone; the composer is where a launch is aimed.
+    let composer = read("desktop/ui/src/lib/views/Home.svelte");
     assert!(
-        launcher.contains("let root = $state(untrack(() => get(activeProject)) ?? \"\")"),
-        "the launcher starts from the active project but owns its own target"
+        composer.contains("const root = $derived(picked ?? $activeProject ?? \"\")"),
+        "the composer follows the active project until the user names another"
     );
     assert!(
-        launcher.contains("<select bind:value={root}"),
-        "the target project is selectable in the launcher"
+        composer.contains("picked = project.root;"),
+        "the target project is selectable in the composer"
     );
     assert!(
-        !launcher.contains("switchProject("),
+        !composer.contains("switchProject("),
         "launching elsewhere must not move the surface's scope"
     );
-    // Every launch path sends the selected root, not the store's.
-    for method in [
-        "propose",
-        "sdd/explore",
-        "worktree/dispatch",
-        "session/direct",
-    ] {
-        let call = launcher
-            .split(&format!("await request(\"{method}\""))
-            .nth(1)
-            .unwrap_or_else(|| panic!("the launcher calls {method}"));
-        let args = call.split(");").next().expect("arguments");
-        assert!(
-            args.contains("projectRoot: root"),
-            "{method} must be launched against the selected project: {args}"
-        );
-    }
+    // Every mode sends the composer's own root, not the store's.
+    let params = composer
+        .split("function paramsFor")
+        .nth(1)
+        .expect("the composer builds its params in one place")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    assert_eq!(
+        params.matches("projectRoot: root").count(),
+        3,
+        "all three modes launch against the selected project: {params}"
+    );
 }
 
 // Scenario: Suscripción elegible por nombre en el lanzador
 #[test]
-fn the_launcher_offers_subscriptions_by_name() {
-    let launcher = read("desktop/ui/src/lib/components/NewSession.svelte");
+fn the_composer_offers_subscriptions_by_name() {
+    let composer = read("desktop/ui/src/lib/views/Home.svelte");
     assert!(
-        launcher.contains("entry.detected || entry.source === \"profile\""),
+        composer.contains("entry.detected || entry.source === \"profile\""),
         "launch profiles are offered alongside detected agents"
     );
     assert!(
-        launcher.contains("{entry.displayName}</span>")
-            || launcher.contains("title={$t(\"sessions.subscription\")}>{entry.displayName}"),
+        composer.contains("title={$t(\"sessions.subscription\")}>{entry.profile}"),
         "a profile is shown by its subscription name"
     );
     assert!(
-        launcher.contains("entry.underlyingAgent ?? entry.id"),
+        composer.contains("entry.underlyingAgent ?? entry.id"),
         "the avatar keys off the underlying agent, so identity survives the profile"
     );
 }

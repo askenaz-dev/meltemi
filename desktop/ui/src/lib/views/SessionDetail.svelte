@@ -7,12 +7,12 @@
   import { absoluteTime, clockTime, durationLabel } from "../time";
   import { binaryName } from "../agents";
   import {
+    allSessions,
     onSessionEvent,
     pending,
     pushNotice,
     refreshPending,
     refreshSessions,
-    sessions,
   } from "../stores";
   import { agentLabelOf } from "../tree";
   import { fold } from "../conversation";
@@ -90,7 +90,11 @@
   let wasStreaming = false;
   let wasUnreachable = false;
 
-  const session = $derived($sessions.find((s) => s.sessionId === sessionId));
+  // Looked up in EVERY session, not in the project-scoped list: the sidebar
+  // tree offers sessions of every known project, and the composer can launch on
+  // a project without moving the scope — either way the drill-in would have
+  // rendered a bare id for a session the shell was holding all along.
+  const session = $derived($allSessions.find((s) => s.sessionId === sessionId));
 
   /**
    * The events actually received. The "cut" marker the surface injects when the

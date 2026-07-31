@@ -13,6 +13,7 @@
   import { t } from "../i18n";
   import {
     activeProject,
+    allSessions,
     fleet,
     onSessionEvent,
     projects,
@@ -20,8 +21,7 @@
     refreshFleet,
     refreshProjects,
     refreshSessions,
-    sessions,
-    switchProject,
+    scopedTo,
   } from "../stores";
   import { agentLabelOf, projectName } from "../tree";
   import Avatar from "../components/Avatar.svelte";
@@ -66,7 +66,13 @@
   let refusal: { remedy: string | null; candidates: AgentCandidate[] } | null = $state(null);
   let agentMenuOpen = $state(false);
 
-  const root = $derived($activeProject ?? "");
+  /**
+   * The project this launch targets. It follows the active one until the user
+   * names another in the chip, and naming another does NOT move the surface's
+   * scope: choosing where to work is not the same as going there.
+   */
+  let picked: string | null = $state(null);
+  const root = $derived(picked ?? $activeProject ?? "");
 
   /** Agents that can actually be launched: detected, or a declared profile. */
   const launchable = $derived(
@@ -120,7 +126,7 @@
   });
 
   /** The most recent sessions of this project: a conversation to walk back into. */
-  const recent = $derived($sessions.slice(0, 4));
+  const recent = $derived(root ? scopedTo(root, $allSessions).slice(0, 4) : []);
 
   const ready = $derived(text.trim() !== "" && root !== "" && !running);
 
@@ -244,7 +250,7 @@
                 class="item"
                 aria-current={project.root === root ? "true" : undefined}
                 onclick={() => {
-                  switchProject(project.root);
+                  picked = project.root;
                   close();
                 }}
               >
