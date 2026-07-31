@@ -57,7 +57,7 @@ desktop/ui`).
 ## 6. GUI: home conversacional
 
 - [x] 6.1 Registrar los tres métodos en `desktop/ui/src/lib/registry.ts` con el helper literal `R("...")` y sus claves `palette.m.*` en **ambos** catálogos de `messages.ts`, una clave por línea; regenerar `method-forms.ts` y comprobar en la cabecera generada que ningún método degradó a JSON crudo — gates: `npm run check`, `npm run check:forms`, `cargo test -p meltemi` (`parity.rs`)
-- [ ] 6.2 Construir el compositor conversacional como vista de llegada: chips de proyecto, agente/perfil y modo, con modo libre por defecto y el método declarado de forma visible antes de enviar — gates: `npm run check`, `npm run lint:i18n`
+- [x] 6.2 Construir el compositor conversacional como vista de llegada: chips de proyecto, agente/perfil y modo, con modo libre por defecto y el método declarado de forma visible antes de enviar — gates: `npm run check`, `npm run lint:i18n`
 - [ ] 6.3 Enviar navega hacia adentro: consumir el `session_started` del stream para obtener el identificador y enrutar a la conversación sin esperar al fin del turno — gate: `npm run check`
 - [ ] 6.4 Rutear al compositor todos los puntos de entrada vigentes (acción primaria del chrome, atajo, estados vacíos de Sesiones y Proyecto, «Propose» de la vista Proyecto) y retirar `NewSession.svelte` con su estado en `App.svelte` — gates: `npm run check`, `npm run build`
 - [ ] 6.5 Presentar el error de resolución estructurado como elección de agente entre los candidatos detectados, en vez de transcribir el diagnóstico — gates: `npm run check`, `npm run lint:i18n`

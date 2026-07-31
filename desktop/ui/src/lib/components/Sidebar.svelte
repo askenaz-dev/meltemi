@@ -50,6 +50,9 @@
   }
 
   const ITEMS: { id: ViewId; icon: IconName; key?: string }[] = [
+    // The composer sits first and unnumbered: it is where work starts, and the
+    // numbered keys belong to the five first-level views they always did.
+    { id: "home", icon: "plus" },
     { id: "sessions", icon: "sessions", key: "1" },
     { id: "project", icon: "project", key: "2" },
     { id: "permissions", icon: "permissions", key: "3" },

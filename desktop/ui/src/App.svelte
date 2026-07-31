@@ -29,6 +29,7 @@
   import Onboarding from "./lib/components/Onboarding.svelte";
   import ConfirmDialog from "./lib/components/ConfirmDialog.svelte";
   import Icon from "./lib/components/Icon.svelte";
+  import Home from "./lib/views/Home.svelte";
   import Sessions from "./lib/views/Sessions.svelte";
   import SessionDetail from "./lib/views/SessionDetail.svelte";
   import Project from "./lib/views/Project.svelte";
@@ -41,7 +42,13 @@
 
   const KEYED_VIEWS: ViewId[] = ["sessions", "project", "permissions", "fleet", "analytics"];
 
-  let view: ViewId = $state("sessions");
+  /**
+   * The arrival view is the composer (lanzador-conversacional). It is also a
+   * remembered view like any other, so the living promise that the last view is
+   * restored on open keeps holding: a fresh profile lands on the composer, and
+   * anyone who was reading a transcript comes back to where they were.
+   */
+  let view: ViewId = $state("home");
   let detailSession: string | null = $state(null);
   let reviewOpen = $state(false);
   let editorContext: {
@@ -108,7 +115,7 @@
       const state = await loadUiState();
       if (state.locale) setLocale(state.locale);
       await initProjectScope(state.activeProject);
-      if (state.lastView && [...KEYED_VIEWS, "editor", "settings"].includes(state.lastView)) {
+      if (state.lastView && ["home", ...KEYED_VIEWS, "editor", "settings"].includes(state.lastView)) {
         view = state.lastView as ViewId;
       }
       const seen = await invoke<boolean>("onboarding_seen");
@@ -381,6 +388,13 @@
           onDirect={(id) => {
             launcherSession = id;
             launcherOpen = true;
+          }}
+        />
+      {:else if view === "home"}
+        <Home
+          onOpenSession={(sessionId) => {
+            view = "sessions";
+            detailSession = sessionId;
           }}
         />
       {:else if view === "sessions"}

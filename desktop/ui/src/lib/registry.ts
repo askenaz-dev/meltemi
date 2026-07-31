@@ -9,6 +9,8 @@
 import type { MessageKey } from "./messages";
 
 export type ViewId =
+  /** The conversational home: the composer that starts the work. */
+  | "home"
   | "sessions"
   | "project"
   | "permissions"
@@ -139,6 +141,7 @@ export const REGISTRY: RegistryEntry[] = [
   R("session/start", "palette.m.session.start", {
     template: { projectRoot: "", instruction: "" },
     injectRoot: "projectRoot",
+    view: "home",
   }),
   R("permission/pending", "palette.m.permission.pending", {
     view: "permissions",
