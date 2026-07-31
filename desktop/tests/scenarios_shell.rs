@@ -1406,3 +1406,50 @@ fn the_conversation_is_a_fold_over_the_log_that_drops_nothing() {
         "the operator log stays one switch away"
     );
 }
+
+// Scenario: El conmutador no pierde nada
+// Scenario: Conmutar entre conversación y log de operador
+#[test]
+fn switching_readings_keeps_every_event_and_the_reader_s_place() {
+    // The invariant is a property of the fold, and it is executed: each item
+    // carries the ids of the events it accounts for, and the union of those is
+    // exactly the events handed in — so the two readings cannot show different
+    // sets, whatever the grammar does with them.
+    let tests = read("desktop/ui/tests/conversation.test.ts");
+    for case in [
+        "El conmutador no pierde nada",
+        "Conmutar entre conversación y log de operador",
+    ] {
+        assert!(
+            tests.contains(case),
+            "the switch invariant has an executed case for: {case}"
+        );
+    }
+    let fold = read("desktop/ui/src/lib/conversation.ts");
+    assert!(
+        fold.contains("eventIds"),
+        "every item declares which events it accounts for"
+    );
+
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    // The count is on screen in both readings, so the user can check it rather
+    // than take the design note's word for it.
+    assert!(
+        detail.contains("conv.events") && detail.contains("events.length"),
+        "the event count is rendered, and it counts received events"
+    );
+    // The injected "cut" marker is NOT a received event and must not inflate it.
+    assert!(
+        detail.contains("lines.filter((line) => !line.cut)"),
+        "the connection-cut marker is excluded from the count and from the fold"
+    );
+    // Switching is a change of lens, not a reload: the reader's offset survives.
+    let switcher = detail
+        .split("async function switchReading")
+        .nth(1)
+        .expect("the switch is a function, not an inline toggle");
+    assert!(
+        switcher.contains("scrollTop") && switcher.contains("wasAtBottom"),
+        "the switch restores the offset, and following the tail keeps following it"
+    );
+}

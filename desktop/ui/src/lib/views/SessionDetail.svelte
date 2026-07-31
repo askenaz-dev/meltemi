@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import { tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { conn, request } from "../daemon";
   import { locale, t } from "../i18n";
@@ -89,12 +90,22 @@
 
   const session = $derived($sessions.find((s) => s.sessionId === sessionId));
 
+  /**
+   * The events actually received. The "cut" marker the surface injects when the
+   * daemon drops is NOT one of them, so it is excluded from both the fold and
+   * the count the invariant is about.
+   */
+  const events = $derived(lines.filter((line) => !line.cut));
+
   /** The conversational reading of exactly the events the log holds. */
   const conversation = $derived(
     fold(
-      lines
-        .filter((line) => !line.cut)
-        .map((line) => ({ id: line.id, ts: line.ts, type: line.kind, payload: line.payload })),
+      events.map((line) => ({
+        id: line.id,
+        ts: line.ts,
+        type: line.kind,
+        payload: line.payload,
+      })),
     ),
   );
 
@@ -263,6 +274,22 @@
       scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 8;
     atBottom = nearBottom;
     if (nearBottom) newLines = 0;
+  }
+
+  /**
+   * Switches reading without losing where the user was. Following the tail
+   * keeps following it; a reader parked in the middle comes back to the same
+   * offset rather than to the top, because a switch is a change of lens and not
+   * a reload.
+   */
+  async function switchReading() {
+    const wasAtBottom = atBottom;
+    const offset = scroller?.scrollTop ?? 0;
+    reading = reading === "log" ? "conversation" : "log";
+    await tick();
+    if (!scroller) return;
+    if (wasAtBottom) scroller.scrollTo({ top: scroller.scrollHeight });
+    else scroller.scrollTop = offset;
   }
 
   function jumpDown() {
@@ -481,10 +508,13 @@
         class="ghost"
         aria-pressed={reading === "log"}
         title={$t("conv.reading.hint")}
-        onclick={() => (reading = reading === "log" ? "conversation" : "log")}
+        onclick={() => void switchReading()}
       >
         {reading === "log" ? $t("conv.reading.log") : $t("conv.reading.conversation")}
       </button>
+      <!-- The same number in both readings, on screen: the invariant is not a
+           claim in a design note, it is something the user can count. -->
+      <span class="faint count">{$t("conv.events", { n: String(events.length) })}</span>
       <button
         class="ghost"
         aria-pressed={showTimestamps}

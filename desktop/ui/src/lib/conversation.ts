@@ -34,7 +34,16 @@ export interface AgentPlan {
 
 export type AgentPart = AgentText | AgentThought | AgentTool | AgentPlan;
 
-export interface HumanTurn {
+/**
+ * Every item carries the ids of the events it accounts for, so "the reading
+ * omits nothing" is a property that can be checked rather than promised: the
+ * union of these is exactly the set of events handed in, each exactly once.
+ */
+interface Accounted {
+  eventIds: number[];
+}
+
+export interface HumanTurn extends Accounted {
   kind: "human";
   id: number;
   ts: string;
@@ -43,7 +52,7 @@ export interface HumanTurn {
   pending: boolean;
 }
 
-export interface AgentTurn {
+export interface AgentTurn extends Accounted {
   kind: "agent";
   id: number;
   ts: string;
@@ -53,7 +62,7 @@ export interface AgentTurn {
   closed: boolean;
 }
 
-export interface PermissionCard {
+export interface PermissionCard extends Accounted {
   kind: "permission";
   id: number;
   ts: string;
@@ -64,7 +73,7 @@ export interface PermissionCard {
   decided: { by: string; denied: boolean | null; rule: string | null } | null;
 }
 
-export interface SystemLine {
+export interface SystemLine extends Accounted {
   kind: "system";
   id: number;
   ts: string;
@@ -160,6 +169,7 @@ export function fold(events: FoldEvent[]): ConversationItem[] {
       ts: event.ts,
       type: event.type,
       text: flatten(event.payload),
+      eventIds: [event.id],
     });
   };
 
@@ -174,6 +184,7 @@ export function fold(events: FoldEvent[]): ConversationItem[] {
         ts: event.ts,
         text: str(payload.instruction) ?? "",
         pending: true,
+        eventIds: [event.id],
       });
       continue;
     }
@@ -189,9 +200,17 @@ export function fold(events: FoldEvent[]): ConversationItem[] {
       ) as HumanTurn | undefined;
       if (queued) {
         queued.pending = false;
+        queued.eventIds.push(event.id);
         continue;
       }
-      items.push({ kind: "human", id: event.id, ts: event.ts, text, pending: false });
+      items.push({
+        kind: "human",
+        id: event.id,
+        ts: event.ts,
+        text,
+        pending: false,
+        eventIds: [event.id],
+      });
       continue;
     }
 
@@ -202,9 +221,18 @@ export function fold(events: FoldEvent[]): ConversationItem[] {
         continue;
       }
       if (!open) {
-        open = { kind: "agent", id: event.id, ts: event.ts, parts: [], stopReason: null, closed: false };
+        open = {
+          kind: "agent",
+          id: event.id,
+          ts: event.ts,
+          parts: [],
+          stopReason: null,
+          closed: false,
+          eventIds: [],
+        };
         items.push(open);
       }
+      open.eventIds.push(event.id);
       if (part.kind === "tool") {
         // Updated in place by id: one tool call is one chip, not a stream of them.
         const existing = open.parts.find(
@@ -243,6 +271,7 @@ export function fold(events: FoldEvent[]): ConversationItem[] {
         title: str(toolCall.title) ?? str(toolCall.kind) ?? str(toolCall.toolCallId) ?? "",
         options,
         decided: null,
+        eventIds: [event.id],
       });
       continue;
     }
@@ -261,6 +290,7 @@ export function fold(events: FoldEvent[]): ConversationItem[] {
       };
       if (card) {
         card.decided = decided;
+        card.eventIds.push(event.id);
         continue;
       }
       // A decision with no request in view still has to be seen.
@@ -272,6 +302,7 @@ export function fold(events: FoldEvent[]): ConversationItem[] {
       if (event.type === "turn_completed" && open) {
         open.stopReason = str(payload.stopReason);
         open.closed = true;
+        open.eventIds.push(event.id);
         open = null;
         continue;
       }

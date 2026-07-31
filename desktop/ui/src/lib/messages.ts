@@ -332,6 +332,7 @@ const es = {
   "conv.reading.conversation": "Conversación",
   "conv.reading.log": "Log de operador",
   "conv.reading.hint": "el log es la verdad; la conversación es una lectura de él",
+  "conv.events": "{n} eventos",
 
   "transcript.match": "{n} de {total}",
   "transcript.next": "Coincidencia siguiente (Enter)",
@@ -841,6 +842,7 @@ const en: Record<MessageKey, string> = {
   "conv.reading.conversation": "Conversation",
   "conv.reading.log": "Operator log",
   "conv.reading.hint": "the log is the truth; the conversation is a reading of it",
+  "conv.events": "{n} events",
 
   "transcript.match": "{n} of {total}",
   "transcript.next": "Next match (Enter)",

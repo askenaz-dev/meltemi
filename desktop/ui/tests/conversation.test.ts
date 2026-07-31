@@ -154,3 +154,43 @@ test("Una peticion de permiso se pliega a tarjeta y su decision la resuelve", ()
   assert.equal(card.title, "write src/main.rs");
   assert.deepEqual(card.decided, { by: "client", denied: false, rule: null });
 });
+
+test("El conmutador no pierde nada", () => {
+  // The property the switch rests on: the conversation accounts for EVERY event
+  // handed in, exactly once. The operator log renders them one to one, so if
+  // this holds the two readings show the same set and the counter is the same
+  // number in both.
+  const feed = [
+    event("session_started", { sessionId: "s1" }),
+    event("agent_resolved", { binary: "mock-agent" }),
+    event("prompt_sent", { text: "hola" }),
+    event("agent_update", {
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hey" } },
+    }),
+    event("permission_requested", { request: { toolCall: { title: "rm -rf" }, options: [] } }),
+    event("permission_decided", { outcome: {}, decidedBy: "timeout", denied: true }),
+    event("usage_reported", { source: "official" }),
+    event("turn_completed", { stopReason: "completed" }),
+    event("session_ended", {}),
+  ];
+
+  const accounted = fold(feed).flatMap((item) => item.eventIds);
+  assert.equal(accounted.length, feed.length, "every event is accounted for exactly once");
+  assert.deepEqual(
+    [...accounted].sort((a, b) => a - b),
+    feed.map((one) => one.id),
+    "and they are the very events handed in, none invented",
+  );
+});
+
+test("Conmutar entre conversación y log de operador", () => {
+  // Ordering is the other half of "nothing is lost": the reading is in arrival
+  // order, so switching lenses never reorders the session's history.
+  const feed = [
+    event("prompt_sent", { text: "uno" }),
+    event("mystery_event", { detail: "?" }),
+    event("prompt_sent", { text: "dos" }),
+  ];
+  const ids = fold(feed).flatMap((item) => item.eventIds);
+  assert.deepEqual(ids, feed.map((one) => one.id));
+});
