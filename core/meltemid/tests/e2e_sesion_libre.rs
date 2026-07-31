@@ -666,24 +666,28 @@ async fn with_nobody_attending_the_free_session_is_denied_like_any_other() {
 
     // The last client leaves. Nobody is attending, so nothing is granted.
     peer.close();
-    tokio::time::sleep(Duration::from_millis(400)).await;
 
-    let reader = init_client(&endpoint).await;
+    // Every poll from here opens a connection and closes it again, because a
+    // reader held open IS a client: the deny waits for the registry to be empty,
+    // and a watcher sitting on the socket would keep it from ever being so.
     let mut events = Vec::new();
     for _ in 0..300 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let reader = init_client(&endpoint).await;
         let list = reader
             .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
             .await
             .expect("session/list ok");
-        if let Some(session) = list["sessions"]
+        let ended = list["sessions"]
             .as_array()
             .and_then(|sessions| sessions.iter().find(|s| s["state"] == "ended"))
-        {
-            let id = session["sessionId"].as_str().unwrap().to_string();
+            .map(|session| session["sessionId"].as_str().unwrap().to_string());
+        if let Some(id) = ended {
             events = log_events(&reader, &root_str, &id).await;
+            reader.close();
             break;
         }
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        reader.close();
     }
     assert!(
         events.iter().any(|e| e["type"] == "permission_decided"
@@ -692,7 +696,6 @@ async fn with_nobody_attending_the_free_session_is_denied_like_any_other() {
         "the constitutional deny is explicit and on the record: {events:#?}"
     );
 
-    reader.close();
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
