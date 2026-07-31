@@ -451,7 +451,8 @@ async fn run_turn(
     crate::projects::touch(&state.data_dir, project_root);
     let project_key = crate::paths::project_key(project_root);
     let mut log = SessionLog::create(&state.data_dir, &project_key, &session_id)
-        .map_err(RpcError::internal)?;
+        .map_err(RpcError::internal)?
+        .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(SessionEventKind::SessionStarted {
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
@@ -501,7 +502,6 @@ async fn run_turn(
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
-        events: state.events.clone(),
         rules: Arc::new(rules),
         pending: state.pending.clone(),
         load_session_id: None,

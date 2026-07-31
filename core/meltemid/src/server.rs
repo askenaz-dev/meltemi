@@ -703,7 +703,8 @@ async fn handle_worktree_dispatch(
     crate::projects::touch(&state.data_dir, &root);
     let mut log =
         crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)
-            .map_err(RpcError::internal)?;
+            .map_err(RpcError::internal)?
+            .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(SessionEventKind::SessionStarted {
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
@@ -762,7 +763,6 @@ async fn handle_worktree_dispatch(
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
-        events: state.events.clone(),
         rules,
         pending: state.pending.clone(),
         load_session_id: None,
@@ -1544,7 +1544,8 @@ async fn handle_sdd_implement(
     crate::projects::touch(&state.data_dir, &root);
     let mut log =
         crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)
-            .map_err(RpcError::internal)?;
+            .map_err(RpcError::internal)?
+            .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(SessionEventKind::SessionStarted {
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
@@ -1648,7 +1649,6 @@ async fn handle_sdd_implement(
             no_client_grace: config.no_client_grace(),
             clients: state.clients.clone(),
             sessions: state.sessions.clone(),
-            events: state.events.clone(),
             rules: rules.clone(),
             pending: state.pending.clone(),
             load_session_id: None,
@@ -1934,7 +1934,8 @@ async fn resume_with_instruction(
         .await;
     let mut log =
         crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)
-            .map_err(RpcError::internal)?;
+            .map_err(RpcError::internal)?
+            .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(meltemi_proto::SessionEventKind::SessionStarted {
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
@@ -1995,7 +1996,6 @@ async fn resume_with_instruction(
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
-        events: state.events.clone(),
         rules,
         pending: state.pending.clone(),
         // The heart of resume: load the agent's prior session instead of a new

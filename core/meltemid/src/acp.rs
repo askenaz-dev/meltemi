@@ -39,7 +39,7 @@ use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo};
 use meltemi_proto::{
     PermissionDecidedBy, PermissionOption, PermissionOptionKind, PermissionOutcome,
     PermissionRequestParams, PermissionRequestResult, PermissionTimeoutParams, SessionEventKind,
-    SessionEventParams, TurnStatus, methods,
+    TurnStatus, methods,
 };
 
 use crate::config::WaitPolicy;
@@ -79,9 +79,6 @@ pub struct SessionParams {
     /// The session registry, so an escalated request declares the session
     /// blocked on a human decision (sesion-esperando).
     pub sessions: crate::session::SessionRegistry,
-    /// The hub every session event is published to, so any connection that
-    /// watches this session receives it (eventos-para-tardios).
-    pub events: crate::events::EventHub,
     /// The permission rules evaluated before escalation (proxy-permisos D1).
     pub rules: Arc<RuleSet>,
     /// The daemon's shared pending-permission queue (D2).
@@ -137,7 +134,6 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         no_client_grace,
         clients,
         sessions,
-        events,
         rules,
         pending,
         load_session_id,
@@ -176,7 +172,6 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         no_client_grace,
         clients: clients.clone(),
         sessions: sessions.clone(),
-        events: events.clone(),
     };
     let perm = HandlerState {
         peer: peer.clone(),
@@ -190,7 +185,6 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         no_client_grace,
         clients,
         sessions,
-        events,
     };
 
     let result = Client
@@ -367,29 +361,18 @@ struct HandlerState {
     clients: crate::clients::ClientRegistry,
     /// The session registry, to declare the session blocked while it waits.
     sessions: crate::session::SessionRegistry,
-    /// Where session events are published for every interested connection.
-    events: crate::events::EventHub,
 }
 
-/// Logs an agent update and forwards it to the Meltemi client (4.3).
+/// Logs an agent update, which is what forwards it to every interested
+/// connection (4.3). The publication used to live here, and that is exactly why
+/// a live client saw the agent's prose but never the prompt that opened the turn
+/// nor the completion that closed it: those are written elsewhere. It now
+/// belongs to the log itself (lanzador-conversacional D3), so this appends and
+/// nothing more — publishing here as well would deliver every update twice.
 async fn forward_update(state: &HandlerState, notification: SessionNotification) {
     let update = serde_json::to_value(&notification.update).unwrap_or(Value::Null);
-    let event = {
-        let mut log = state.log.lock().await;
-        log.append(SessionEventKind::AgentUpdate { update }).ok()
-    };
-    if let Some(event) = event {
-        // Published, not written against this one connection: the hub reaches
-        // the originating connection AND any other that watches this session,
-        // through a single delivery path (eventos-para-tardios D1).
-        state.events.publish(
-            state.peer.connection_id(),
-            SessionEventParams {
-                session_id: state.session_id.clone(),
-                event,
-            },
-        );
-    }
+    let mut log = state.log.lock().await;
+    let _ = log.append(SessionEventKind::AgentUpdate { update });
 }
 
 /// Decides a permission request: consult the rules first (allow/deny without

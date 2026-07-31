@@ -115,7 +115,8 @@ pub async fn handle_propose(
     // The project registry is fed by real use only (multiproyecto D3).
     crate::projects::touch(&state.data_dir, &project_root);
     let mut log = SessionLog::create(&state.data_dir, &project_key, &session_id)
-        .map_err(RpcError::internal)?;
+        .map_err(RpcError::internal)?
+        .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(SessionEventKind::SessionStarted {
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
@@ -202,7 +203,6 @@ pub async fn handle_propose(
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
-        events: state.events.clone(),
         rules,
         pending: state.pending.clone(),
         // `propose` always opens a fresh session; resume is a separate flow.

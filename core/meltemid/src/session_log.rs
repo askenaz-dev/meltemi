@@ -7,19 +7,41 @@
 //! `<data_dir>/projects/<project_key>/sessions/<session_id>.jsonl`.
 //! The log is inspectable after the session ends and is the audit trail the
 //! `acp-session` spec requires (every permission request with its decision).
+//!
+//! Writing IS publishing (lanzador-conversacional D3). A log that opts into a
+//! stream hands each event it persists to the session-event hub, so the live
+//! stream carries the same set the file does — the prompt that opened a turn and
+//! the completion that closed it included, without which no client can delimit a
+//! turn. Publishing here rather than at one of the twenty-odd call sites is what
+//! makes "each event exactly once" a property of the code instead of a habit:
+//! there is one place that publishes, and it is the place that writes.
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-use meltemi_proto::{SESSION_EVENT_VERSION, SessionEvent, SessionEventKind};
+use meltemi_proto::{SESSION_EVENT_VERSION, SessionEvent, SessionEventKind, SessionEventParams};
 
 use crate::clock::now_rfc3339;
+use crate::events::EventHub;
+
+/// Where a log's events are published, and on whose behalf.
+struct Stream {
+    events: EventHub,
+    /// The connection that started this session; the hub seals every event with
+    /// it, so the initiator receives its own session without declaring interest
+    /// and any other connection receives it only while watching.
+    origin: u64,
+    session_id: String,
+}
 
 /// A per-session append-only event writer.
 pub struct SessionLog {
     writer: BufWriter<File>,
     path: PathBuf,
+    /// Present when the session publishes to the hub. Absent for the logs that
+    /// tests and tooling open on their own, which have no connection to name.
+    stream: Option<Stream>,
 }
 
 impl SessionLog {
@@ -32,11 +54,28 @@ impl SessionLog {
         Ok(Self {
             writer: BufWriter::new(file),
             path,
+            stream: None,
         })
     }
 
+    /// Publishes every event this log persists to `events`, on behalf of the
+    /// connection `origin` that started the session. Called by the handlers as
+    /// they open a session, so nothing downstream has to remember to publish.
+    #[must_use]
+    pub fn streaming(mut self, events: EventHub, origin: u64, session_id: &str) -> Self {
+        self.stream = Some(Stream {
+            events,
+            origin,
+            session_id: session_id.to_string(),
+        });
+        self
+    }
+
     /// Appends an event, stamping it with the current time and the envelope
-    /// version, and flushes so the record survives a crash.
+    /// version, and flushes so the record survives a crash. Then publishes it,
+    /// in that order and never the other: the log is the truth and the stream is
+    /// a reading of it, so an event that failed to persist is never announced as
+    /// though it had.
     pub fn append(&mut self, kind: SessionEventKind) -> std::io::Result<SessionEvent> {
         let event = SessionEvent {
             v: SESSION_EVENT_VERSION,
@@ -47,6 +86,15 @@ impl SessionLog {
         self.writer.write_all(line.as_bytes())?;
         self.writer.write_all(b"\n")?;
         self.writer.flush()?;
+        if let Some(stream) = &self.stream {
+            stream.events.publish(
+                stream.origin,
+                SessionEventParams {
+                    session_id: stream.session_id.clone(),
+                    event: event.clone(),
+                },
+            );
+        }
         Ok(event)
     }
 
