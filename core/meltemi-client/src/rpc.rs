@@ -63,6 +63,7 @@ impl RpcError {
             kind: kind.into(),
             detail: detail.into(),
             remedy,
+            candidates: None,
         };
         Self {
             code,

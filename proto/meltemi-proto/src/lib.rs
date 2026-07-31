@@ -226,6 +226,34 @@ pub struct ErrorData {
     /// Actionable English suggestion for how to fix it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remedy: Option<String>,
+    /// The fleet agents detected on this system, when the error is a refusal
+    /// to resolve one (2000/2001). A surface can then offer a choice instead of
+    /// transcribing a lament (lanzador-conversacional D7). An empty list is
+    /// itself an answer — the fleet was consulted and nothing was found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidates: Option<Vec<AgentCandidate>>,
+}
+
+/// One agent offered as a way out of a resolution refusal. It carries the very
+/// vocabulary `fleet/list` publishes, computed by the same detection path, so
+/// the error and the Fleet view cannot disagree. Ids, detection and remedies
+/// only: never an environment value, a credential path or anything shaped like
+/// a secret (constitution §2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCandidate {
+    /// Stable catalog identifier, the same one `agent.id` selects.
+    pub id: String,
+    /// Whether this agent's pilot point was found on this system.
+    pub detected: bool,
+    /// The composed install state across its layers.
+    pub install_state: FleetInstallState,
+    /// Which layer is missing and what to do about it, in one sentence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remedy: Option<String>,
+    /// The exact command that installs the missing layer. Data, never run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remedy_command: Option<String>,
 }
 
 /// Identification of one side of the connection.

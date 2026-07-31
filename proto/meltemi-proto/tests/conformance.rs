@@ -1856,6 +1856,7 @@ fn error_data_conforms() {
             kind: "agent_not_detected".into(),
             detail: "The agent `acme-agent` is not detected on this system.".into(),
             remedy: Some("Set agent.command in your meltemi config.".into()),
+            candidates: None,
         },
     );
     assert_conforms(
@@ -1865,6 +1866,7 @@ fn error_data_conforms() {
             kind: "not_initialized".into(),
             detail: "Call initialize first.".into(),
             remedy: None,
+            candidates: None,
         },
     );
 }
