@@ -15,7 +15,7 @@ desktop/ui`).
 - [x] 1.3 Añadir `candidates: Option<Vec<AgentCandidate>>` a `ErrorData` (`skip_serializing_if`), con `AgentCandidate {id, detected, installState, remedy?, remedyCommand?}` reusando el vocabulario de `FleetAgent` — gate: `cargo test -p meltemi-proto`
 - [x] 1.4 Escribir `proto/schemas/v1/session-start.schema.json` y `proto/schemas/v1/project-registry.schema.json` (este último con `title` que reclame los dos métodos y `$defs` nombrados `projectRegisterParams`/`projectForgetParams`, porque el atajo `params` solo aplica a esquemas de un método), y declarar `candidates` en `$defs.errorData` de `error.schema.json` sin añadirlo a `required` — gate: `cargo test -p meltemi-proto`
 - [x] 1.5 Añadir los casos de conformidad en `proto/meltemi-proto/tests/conformance.rs` para los tres métodos, el `agent` aditivo y el error con candidatos, con sus negativos (`assert_rejected`) — gate: `cargo test -p meltemi-proto`
-- [ ] 1.6 Añadir el constructor hermano de `RpcError::application` en `core/meltemi-client/src/rpc.rs` que acepta candidatos, dejando la firma existente intacta para no mover ningún sitio de llamada — gate: `cargo clippy -- -D warnings`, `cargo test --workspace`
+- [x] 1.6 Añadir el constructor hermano de `RpcError::application` en `core/meltemi-client/src/rpc.rs` que acepta candidatos, dejando la firma existente intacta para no mover ningún sitio de llamada — gate: `cargo clippy -- -D warnings`, `cargo test --workspace`
 
 ## 2. Daemon: arranque de sesión libre
 

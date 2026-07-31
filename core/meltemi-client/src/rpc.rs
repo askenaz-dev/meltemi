@@ -72,6 +72,33 @@ impl RpcError {
         }
     }
 
+    /// Application error whose payload also carries the fleet agents detected
+    /// on this system, so a surface can offer a choice instead of transcribing
+    /// the diagnosis (lanzador-conversacional D7). The candidates are always
+    /// serialized, empty list included: an empty list says the fleet was
+    /// consulted and nothing was found, which a surface must be able to tell
+    /// apart from an error that has nothing to do with resolving an agent.
+    pub fn application_with_candidates(
+        code: i64,
+        message: impl Into<String>,
+        kind: impl Into<String>,
+        detail: impl Into<String>,
+        remedy: Option<String>,
+        candidates: Vec<meltemi_proto::AgentCandidate>,
+    ) -> Self {
+        let data = meltemi_proto::ErrorData {
+            kind: kind.into(),
+            detail: detail.into(),
+            remedy,
+            candidates: Some(candidates),
+        };
+        Self {
+            code,
+            message: message.into(),
+            data: Some(serde_json::to_value(data).expect("ErrorData serializes")),
+        }
+    }
+
     pub fn method_not_found(method: &str) -> Self {
         Self::new(
             codes::METHOD_NOT_FOUND,
@@ -368,6 +395,49 @@ mod tests {
         let mut line = String::new();
         reader.read_line(&mut line).await.expect("read line");
         serde_json::from_str(&line).expect("valid JSON out")
+    }
+
+    #[test]
+    fn only_the_candidates_constructor_carries_candidates() {
+        let plain = RpcError::application(2000, "no agent configured", "k", "d", None);
+        let data = plain.data.expect("application errors carry data");
+        assert!(
+            data.get("candidates").is_none(),
+            "an error unrelated to resolving an agent must not offer a choice"
+        );
+
+        let none_found = RpcError::application_with_candidates(
+            2000,
+            "no agent configured",
+            "agent_command_not_configured",
+            "no agent is configured and none was detected",
+            Some("Install one of the supported CLIs.".into()),
+            vec![],
+        );
+        let data = none_found.data.expect("application errors carry data");
+        assert_eq!(
+            data["candidates"],
+            json!([]),
+            "an empty fleet is an answer, and must not read as an absent field"
+        );
+
+        let found = RpcError::application_with_candidates(
+            2001,
+            "agent not detected",
+            "agent_not_detected",
+            "the named agent is not detected",
+            None,
+            vec![meltemi_proto::AgentCandidate {
+                id: "mock-agent".into(),
+                detected: true,
+                install_state: meltemi_proto::FleetInstallState::Ready,
+                remedy: None,
+                remedy_command: None,
+            }],
+        );
+        let data = found.data.expect("application errors carry data");
+        assert_eq!(data["candidates"][0]["id"], "mock-agent");
+        assert_eq!(data["candidates"][0]["installState"], "ready");
     }
 
     #[tokio::test]
