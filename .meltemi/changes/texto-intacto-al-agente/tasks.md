@@ -18,7 +18,7 @@
 
 ## 2. Verificación
 
-- [ ] 2.1 Gates locales — `cargo fmt --all --check`, `cargo clippy --workspace
+- [x] 2.1 Gates locales — `cargo fmt --all --check`, `cargo clippy --workspace
   --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check` y
   `meltemi validate texto-intacto-al-agente` limpio — y `meltemi verify
   texto-intacto-al-agente` con los cinco escenarios enlazados a sus tests
