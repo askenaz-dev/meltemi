@@ -25,7 +25,8 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 use meltemi_proto::{
-    SessionEventKind, SessionStartParams, SessionStartResult, SessionState, error_codes,
+    CheckpointUnavailable, SessionEventKind, SessionStartParams, SessionStartResult, SessionState,
+    error_codes,
 };
 
 use crate::acp::{self, SessionParams};
@@ -191,37 +192,52 @@ pub async fn handle_session_start(
     // (`GIT_INDEX_FILE`), so it touches neither the user's index nor any branch
     // of theirs — it writes one technical ref under `refs/meltemi/checkpoints/`
     // and one registry line (design D2).
+    // Whichever way it goes, the session starts: refusing to work because a
+    // folder has no history would be a worse trade than the one being made.
     let agent_label = agent_label(&resolved, &agent_command);
-    let checkpoint = crate::checkpoints::create(
-        &project_root,
-        &project_root,
-        FREE_CHANGE,
-        &session_id,
-        &agent_label,
-    );
-    let checkpoint_ref = match &checkpoint {
-        Ok(record) => {
-            append(
-                &log,
-                SessionEventKind::CheckpointCreated {
-                    git_ref: record.git_ref.clone(),
-                    change: record.change.clone(),
-                    task: record.task.clone(),
-                    agent: record.agent.clone(),
-                },
-            )
-            .await;
-            Some(record.git_ref.clone())
-        }
-        Err(error) => {
-            // The session starts regardless: promising a restore point and not
-            // creating one would be worse than not promising it, and refusing
-            // the start over it would be worse still. Task 2.4 gives the two
-            // nameable causes their remedy.
-            tracing::warn!(error = %error, "no restore point for the free session");
-            None
-        }
-    };
+    let (checkpoint_ref, checkpoint_unavailable, checkpoint_remedy) =
+        match missing_restore_point(&project_root) {
+            // A cause the contract can name, asked BEFORE creating anything:
+            // `checkpoints::create` would make `.meltemi/checkpoints/` on its
+            // way to failing, and leaving that behind in a folder that is not
+            // even a repository is litter, not a restore point.
+            Some((cause, remedy)) => {
+                tracing::info!(
+                    root = %project_root.display(),
+                    "free session starts without a restore point: {remedy}"
+                );
+                (None, Some(cause), Some(remedy))
+            }
+            None => match crate::checkpoints::create(
+                &project_root,
+                &project_root,
+                FREE_CHANGE,
+                &session_id,
+                &agent_label,
+            ) {
+                Ok(record) => {
+                    append(
+                        &log,
+                        SessionEventKind::CheckpointCreated {
+                            git_ref: record.git_ref.clone(),
+                            change: record.change.clone(),
+                            task: record.task.clone(),
+                            agent: record.agent.clone(),
+                        },
+                    )
+                    .await;
+                    (Some(record.git_ref), None, None)
+                }
+                // A repository with history whose snapshot still failed: the
+                // contract has exactly two causes and neither fits, so nothing
+                // is claimed. Inventing a third — or handing out a remedy that
+                // does not apply — is what the closed enum exists to prevent.
+                Err(error) => {
+                    tracing::warn!(error = %error, "the free session's restore point failed");
+                    (None, None, None)
+                }
+            },
+        };
 
     // `@` references in the instruction are expanded against the repo and the
     // expansion audited, exactly as `propose` does with an idea.
@@ -290,8 +306,8 @@ pub async fn handle_session_start(
                 status: fin.status,
                 denied_permissions: fin.denied_permissions,
                 checkpoint_ref,
-                checkpoint_unavailable: None,
-                checkpoint_remedy: None,
+                checkpoint_unavailable,
+                checkpoint_remedy,
             };
             Ok(serde_json::to_value(result).expect("SessionStartResult serializes"))
         }
@@ -314,6 +330,31 @@ async fn append(log: &Arc<Mutex<SessionLog>>, kind: SessionEventKind) {
     let _ = log.append(kind);
 }
 
+/// Why this root cannot be snapshotted, when it cannot — and what to do about
+/// it. The two causes are told apart because their remedies do not substitute
+/// for each other: telling somebody to initialize a repository they already have
+/// is worse than saying nothing (design D2).
+///
+/// `checkpoints::create` seeds its scratch index with `read-tree HEAD` and looks
+/// for the parent with `rev-parse HEAD`, so a repository with no commit fails
+/// exactly as a non-repository does — from the outside the two are one error
+/// string, and the remedies are opposites.
+fn missing_restore_point(root: &std::path::Path) -> Option<(CheckpointUnavailable, String)> {
+    if !crate::git::is_repo(root) {
+        return Some((
+            CheckpointUnavailable::NotAGitRepo,
+            "Run `git init` in this directory to get restore points.".to_string(),
+        ));
+    }
+    if crate::git::head_rev(root).is_none() {
+        return Some((
+            CheckpointUnavailable::NoHistory,
+            "Make the first commit in this repository to get restore points.".to_string(),
+        ));
+    }
+    None
+}
+
 /// The agent slot of the restore point's triple: the catalog id the resolution
 /// named, or — when the project pins a bare `agent.command` and there is no id —
 /// the program's own file name, so the ref still says which binary took it.
@@ -330,4 +371,79 @@ fn agent_label(resolved: &ResolvedAgent, agent_command: &[String]) -> String {
             )
         })
         .unwrap_or_else(|| "agent".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("mel-free-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    fn git(cwd: &std::path::Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .expect("git runs");
+        assert!(out.status.success(), "git {args:?} failed");
+    }
+
+    #[test]
+    fn the_two_causes_of_no_restore_point_take_opposite_remedies() {
+        // Not a repository at all: initialize one.
+        let plain = temp("plain");
+        let (cause, remedy) = missing_restore_point(&plain).expect("no repository, no snapshot");
+        assert_eq!(cause, CheckpointUnavailable::NotAGitRepo);
+        assert!(remedy.contains("git init"), "{remedy}");
+
+        // A repository with nothing committed: the first commit, and never
+        // `git init` over a repository that already exists.
+        let fresh = temp("fresh");
+        git(&fresh, &["init"]);
+        let (cause, remedy) = missing_restore_point(&fresh).expect("no history, no snapshot");
+        assert_eq!(cause, CheckpointUnavailable::NoHistory);
+        assert!(remedy.contains("first commit"), "{remedy}");
+        assert!(
+            !remedy.contains("git init"),
+            "a repository that exists must never be told to initialize itself: {remedy}"
+        );
+
+        // With one commit there is something to snapshot, so there is no cause.
+        git(&fresh, &["config", "user.email", "unit@meltemi.test"]);
+        git(&fresh, &["config", "user.name", "Meltemi Unit"]);
+        std::fs::write(fresh.join("a.txt"), "a\n").expect("write");
+        git(&fresh, &["add", "-A"]);
+        git(&fresh, &["commit", "-m", "first"]);
+        assert!(missing_restore_point(&fresh).is_none());
+
+        let _ = std::fs::remove_dir_all(&plain);
+        let _ = std::fs::remove_dir_all(&fresh);
+    }
+
+    #[test]
+    fn the_agent_slot_names_the_binary_when_no_catalog_id_did() {
+        let resolved = ResolvedAgent {
+            launch: crate::levels::Launch::Acp {
+                argv: vec!["/opt/bin/mock-agent".into()],
+                level: 1,
+            },
+            env: Vec::new(),
+            source: meltemi_proto::FleetResolutionSource::Configured,
+            profile: None,
+            agent_id: None,
+        };
+        let argv = vec!["/opt/bin/mock-agent".to_string(), "--acp".to_string()];
+        assert_eq!(agent_label(&resolved, &argv), "mock-agent");
+
+        let named = ResolvedAgent {
+            agent_id: Some("claude-code".into()),
+            ..resolved
+        };
+        assert_eq!(agent_label(&named, &argv), "claude-code");
+    }
 }
