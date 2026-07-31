@@ -132,7 +132,7 @@ Pendientes de Fase 2: `motor-propio-byok` (propuesta redactada, activa) ·
 `lanzador-conversacional` (abierta 2026-07-27, **implementada y verificada
 106/106; no archiva hasta la ratificación de la enmienda**) ·
 `adaptadores-propios-acp` (abierta 2026-07-27) ·
-`texto-intacto-al-agente` (nueva, del smoke del 2026-07-31: el prompt se
+`texto-intacto-al-agente` (abierta 2026-07-31, vía rápida: el prompt se
 doble-codifica y el agente recibe acentos rotos) ·
 `registro-agentes-en-superficie` · `menu-nativo-aplicacion` · `sandbox-propio` ·
 `hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` ·
@@ -382,6 +382,37 @@ quiero ACP de terceros… construimos los propios»), los adaptadores propios
 pasan a ser la capa por defecto del registro, empaquetados `bundled` en los
 instaladores; los de terceros siguen alcanzables por configuración del
 usuario, pero dejan de ser la vía recomendada.
+
+### `texto-intacto-al-agente` — abierta el 2026-07-31, vía rápida
+
+El primero de los cinco hallazgos del smoke conducido del 2026-07-31, y el
+único de gravedad alta: **el prompt llega al agente con los acentos rotos**.
+`out.push(bytes[i] as char)` en `expand_refs`
+(`core/meltemid/src/repo_map.rs`) recorre el prompt como bytes y convierte
+cada byte UTF-8 en su code point Latin-1 homónimo, así que «acción íntegra
+ñandú» entra con 20 caracteres y el registro de la sesión guarda 24. No es un
+defecto de pintado: lo corrompido es el prompt, y alcanza a **todo** camino de
+prompt del daemon —`free_session.rs` y `propose.rs` pasan ambos por la misma
+función—, lo que en un proyecto que se escribe en español significa casi toda
+frase enviada. Es anterior a `lanzador-conversacional`; esa change solo lo hizo
+visible, porque el compositor volvió al usuario lector de su propia frase.
+
+La corrección copia el tramo literal entre referencias como una sola rebanada
+`&str` en vez de empujar byte a byte, conservando los índices de byte que la
+lógica del token necesita para rebanar (design D1). De la misma raíz cuelga el
+defecto hermano que la change arregla en el mismo aliento: `is_ref_char` solo
+admitía `is_ascii_alphanumeric`, así que un archivo acentuado —ordinario en
+esta máquina— **no se podía referenciar** y `@informé.md` diagnosticaba «no
+encontrado» sobre un `informe` que el usuario nunca escribió; el token pasa a
+`char` con `is_alphanumeric`, que admite cualquier alfabeto y sigue dejando
+que la puntuación española («¿», «—», «…») lo cierre en vez de tragársela
+(design D2). Deltas ADDED-only sobre `repo-context`: dos requisitos que
+escriben lo que hasta hoy era conducta accidental — el texto no referenciado
+viaja intacto (con `@@` literal, que tampoco estaba en la verdad viva) y las
+rutas fuera de ASCII se referencian como cualquier otra. Cero dependencias
+nuevas y ningún movimiento del contrato `proto/`. El barrido de `as char` se
+hizo y queda escrito (design D5): un único sitio en código propio, el que esta
+change arregla.
 
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 
