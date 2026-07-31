@@ -351,6 +351,19 @@ mod tests {
         assert!(ENTRIES.iter().any(|e| e.name == "archive" && e.reserved));
     }
 
+    // Scenario: El verbo deja de anunciarse como reservado
+    #[test]
+    fn the_direction_verb_is_no_longer_announced_as_reserved() {
+        // The mark means "announced, not wired". `direct` is wired now, and a
+        // verb that keeps the mark after it works is lying in the other
+        // direction — the palette would tell the user not to bother.
+        let entry = ENTRIES
+            .iter()
+            .find(|entry| entry.name == "direct")
+            .expect("the direction verb is in the palette");
+        assert!(!entry.reserved, "it is operative, and says so");
+    }
+
     #[test]
     fn fleet_is_registered_as_an_operational_command() {
         // Obligación viva de tui-shell: todo método nuevo se registra.

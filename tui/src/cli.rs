@@ -1366,8 +1366,14 @@ mod tests {
         assert!(p.json);
     }
 
+    // Scenario: Los subcomandos locales no tocan el daemon
     #[test]
     fn help_and_version_flags_and_subcommands() {
+        // They resolve to actions that are answered in `dispatch` itself:
+        // `Action::Help` and `Action::Version` never reach `run::execute`, which
+        // is the only thing in this binary that opens a connection. The
+        // guarantee is structural, which is why it is asserted here rather than
+        // by watching a socket that was never dialed.
         for h in [&["help"][..], &["--help"][..], &["-h"][..]] {
             assert_eq!(plan(&args(h), false).action, Action::Help);
         }

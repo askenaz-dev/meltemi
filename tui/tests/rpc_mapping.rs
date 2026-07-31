@@ -15,10 +15,15 @@ use meltemi::run::execute;
 
 use common::spawn_daemon;
 
+// Scenario: initialize precede a todo método RPC
 #[tokio::test]
 async fn status_maps_to_the_status_method() {
     // Scenario: status consulta el estado del daemon.
     // Scenario: Éxito termina en cero
+    // The handshake is proven by the answer, not by inspection: the daemon
+    // refuses every method on a connection that has not initialized
+    // (`server.rs`, `not_initialized`), so a successful `status` could not have
+    // skipped it.
     let (endpoint, handle) = spawn_daemon("status").await;
 
     let outcome = execute(Command::Status, &endpoint)

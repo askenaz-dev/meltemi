@@ -54,6 +54,7 @@ async fn connection_actor_reports_connected_and_sessions() {
 
 // Scenario: Alta y baja de proyecto tecleando la ruta
 // Scenario: Baja desde la TUI no toca el disco
+// Scenario: Alta sin diálogo nativo en la superficie de terminal
 #[tokio::test]
 async fn a_typed_path_registers_and_forgets_without_restarting_the_shell() {
     let (endpoint, daemon) = spawn_daemon("shell-registry").await;
