@@ -139,11 +139,16 @@ pub fn expand_refs(root: &Path, text: &str, limits: ExpandLimits) -> (String, Ve
             i += 2;
             continue;
         }
-        // Read the reference token (path chars).
+        // Read the reference token (path chars), one whole character at a
+        // time: a filename may carry any alphabet, and stepping by `len_utf8()`
+        // is what leaves `end` on a boundary for the slice below (D2).
         let start = i + 1;
         let mut end = start;
-        while end < bytes.len() && is_ref_char(bytes[end]) {
-            end += 1;
+        for (offset, ch) in text[start..].char_indices() {
+            if !is_ref_char(ch) {
+                break;
+            }
+            end = start + offset + ch.len_utf8();
         }
         if end == start {
             out.push('@');
@@ -159,9 +164,15 @@ pub fn expand_refs(root: &Path, text: &str, limits: ExpandLimits) -> (String, Ve
     (out, expansions)
 }
 
-/// Whether a byte can be part of an `@` reference (path-ish, no whitespace).
-fn is_ref_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || matches!(b, b'/' | b'.' | b'-' | b'_')
+/// Whether a character can be part of an `@` reference (path-ish, no
+/// whitespace). Letters and digits of ANY alphabet, so a file named with
+/// accents or eñes is referenced like any other; over ASCII this is a strict
+/// widening, since `is_alphanumeric` and `is_ascii_alphanumeric` agree there.
+/// Non-ASCII PUNCTUATION («¿», «—», «…») is not alphanumeric, so it closes the
+/// token instead of being swallowed by it — which is why the test is Unicode
+/// classification and not "any byte above ASCII" (D2).
+fn is_ref_char(ch: char) -> bool {
+    ch.is_alphanumeric() || matches!(ch, '/' | '.' | '-' | '_')
 }
 
 /// Expands one reference, drawing from `budget`.
@@ -426,6 +437,52 @@ mod tests {
         let (out, exp) = expand_refs(&dir, "@big.txt", limits);
         assert!(out.contains("[truncated]"), "truncation is visible: {out}");
         assert!(exp[0].truncated);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_reference_to_a_path_outside_ascii_resolves() {
+        // Scenario: Ruta con carácter no ASCII resuelta
+        let dir = temp("acentos");
+        std::fs::create_dir_all(dir.join("señales")).unwrap();
+        std::fs::write(dir.join("señales").join("informé.md"), "# año\n").unwrap();
+        let (out, exp) = expand_refs(&dir, "mirá @señales/informé.md", ExpandLimits::default());
+        assert!(
+            out.contains("@señales/informé.md:"),
+            "identified by the path exactly as written: {out}"
+        );
+        assert!(out.contains("# año"), "the content was injected: {out}");
+        assert_eq!(exp.len(), 1);
+        assert_eq!(
+            exp[0].path, "señales/informé.md",
+            "the audit records the path the user wrote"
+        );
+        assert!(
+            !exp[0].not_found,
+            "an accented filename resolves like any other, instead of being \
+             reported missing under a name nobody typed"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn non_ascii_punctuation_closes_the_token() {
+        // Scenario: Puntuación no ASCII cierra el token
+        let dir = temp("puntuacion");
+        std::fs::write(dir.join("lib.rs"), "pub fn x() {}").unwrap();
+        // Spanish prose is full of punctuation outside ASCII. Widening the
+        // token to "any byte above ASCII" would have swallowed `¿ves` whole.
+        let (out, exp) = expand_refs(&dir, "@lib.rs¿ves? —sí…", ExpandLimits::default());
+        assert_eq!(exp.len(), 1);
+        assert_eq!(
+            exp[0].path, "lib.rs",
+            "the token ended before the punctuation"
+        );
+        assert!(!exp[0].not_found);
+        assert!(
+            out.ends_with("¿ves? —sí…"),
+            "the punctuation travelled as prose: {out}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

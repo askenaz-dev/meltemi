@@ -11,7 +11,7 @@
   («acción íntegra ñandú», 20 caracteres) como caso de regresión con nombre
   propio (design D3)
 
-- [ ] 1.2 Pasar `is_ref_char` de `u8` a `char` con `is_alphanumeric()` y
+- [x] 1.2 Pasar `is_ref_char` de `u8` a `char` con `is_alphanumeric()` y
   escanear el token con `char_indices` acumulando `len_utf8()` (design D2), y
   cubrir «Ruta con carácter no ASCII resuelta» y «Puntuación no ASCII cierra
   el token» en el módulo de tests
