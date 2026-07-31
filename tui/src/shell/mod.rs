@@ -55,7 +55,12 @@ pub async fn run(endpoint: &str) -> io::Result<()> {
     // The connection actor keeps a live, reconnecting connection.
     let (cmd_tx, cmd_rx) = unbounded_channel::<Command>();
     let (upd_tx, mut upd_rx) = unbounded_channel();
-    tokio::spawn(connection_actor(endpoint.to_string(), cmd_rx, upd_tx));
+    tokio::spawn(connection_actor(
+        endpoint.to_string(),
+        ctx.lang,
+        cmd_rx,
+        upd_tx,
+    ));
 
     let mut guard = TerminalGuard::enter()?;
 
@@ -83,7 +88,7 @@ pub async fn run(endpoint: &str) -> io::Result<()> {
                     && let Some(mapped) = map_key(key)
                 {
                     let action = keymap::resolve(mapped, state.input_mode());
-                    if handle_action(&mut state, &mut live, action, &cmd_tx) {
+                    if handle_action(&mut state, &mut live, action, ctx.lang, &cmd_tx) {
                         break;
                     }
                 }
@@ -104,6 +109,7 @@ fn handle_action(
     state: &mut ShellState,
     live: &mut LiveData,
     action: Action,
+    lang: Lang,
     commands: &UnboundedSender<Command>,
 ) -> bool {
     // Tray selection is a live concern, handled in the Permissions view with
@@ -207,6 +213,23 @@ fn handle_action(
                 });
             }
         }
+        Some(Effect::DirectSession(instruction)) => match live.selected_session() {
+            // The instruction belongs to the session on screen, and it is the
+            // daemon that decides whether it queues or resumes — the shell does
+            // not guess from the row's state and then report its guess.
+            Some(row) => {
+                let _ = commands.send(Command::Direct {
+                    session_id: row.id.clone(),
+                    project_root: row.project_root.clone(),
+                    instruction,
+                });
+            }
+            // Nothing to aim at: say so. Dropping the text would be the silent
+            // no-op the tui-shell delta forbids.
+            None => live
+                .notices
+                .push(messages::text(messages::Msg::DirectNoSession, lang).to_string()),
+        },
         Some(Effect::CreateRuleForPermission) => {
             // Approve the request and persist the proposed rule in one gesture.
             if let (Some((request_id, option_id)), Some(rule)) =
@@ -284,6 +307,83 @@ fn map_key(key: KeyEvent) -> Option<Key> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::live::{SessionRow, Update};
+    use meltemi_proto::SessionState;
+
+    // Scenario: Instrucción dirigida desde el drill-in
+    #[test]
+    fn a_directed_instruction_reaches_the_session_on_screen() {
+        let (tx, mut rx) = unbounded_channel::<Command>();
+        let mut state = ShellState::new();
+        let mut live = LiveData::new();
+        live.apply(Update::Sessions(vec![SessionRow {
+            id: "s-1".into(),
+            agent: "mock".into(),
+            state: SessionState::Active,
+            project_root: "/repo".into(),
+            resumable: false,
+            agent_id: None,
+            profile: None,
+        }]));
+
+        // Drill into it and direct it from there: the instruction carries the
+        // open session's id and its project, not a scope the user last typed.
+        handle_action(&mut state, &mut live, Action::DrillIn, Lang::Es, &tx);
+        assert!(state.is_drilled());
+        while rx.try_recv().is_ok() {}
+
+        handle_action(&mut state, &mut live, Action::OpenPalette, Lang::Es, &tx);
+        for c in "direct".chars() {
+            handle_action(&mut state, &mut live, Action::InsertChar(c), Lang::Es, &tx);
+        }
+        handle_action(&mut state, &mut live, Action::Submit, Lang::Es, &tx);
+        for c in "Arregla el Build".chars() {
+            handle_action(&mut state, &mut live, Action::InsertChar(c), Lang::Es, &tx);
+        }
+        handle_action(&mut state, &mut live, Action::Submit, Lang::Es, &tx);
+
+        match rx.try_recv() {
+            Ok(Command::Direct {
+                session_id,
+                project_root,
+                instruction,
+            }) => {
+                assert_eq!(session_id, "s-1");
+                assert_eq!(project_root, "/repo");
+                assert_eq!(instruction, "Arregla el Build");
+            }
+            other => panic!("the instruction must reach `session/direct`, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn directing_with_nothing_selected_says_so_instead_of_dropping_the_text() {
+        let (tx, mut rx) = unbounded_channel::<Command>();
+        let mut state = ShellState::new();
+        let mut live = LiveData::new(); // no sessions at all
+
+        handle_action(&mut state, &mut live, Action::OpenPalette, Lang::Es, &tx);
+        for c in "direct".chars() {
+            handle_action(&mut state, &mut live, Action::InsertChar(c), Lang::Es, &tx);
+        }
+        handle_action(&mut state, &mut live, Action::Submit, Lang::Es, &tx);
+        for c in "algo".chars() {
+            handle_action(&mut state, &mut live, Action::InsertChar(c), Lang::Es, &tx);
+        }
+        handle_action(&mut state, &mut live, Action::Submit, Lang::Es, &tx);
+
+        assert!(
+            rx.try_recv().is_err(),
+            "nothing is sent to a session that is not there"
+        );
+        assert!(
+            live.notices
+                .last()
+                .is_some_and(|notice| notice.contains("sesión")),
+            "the shell says why nothing happened: {:?}",
+            live.notices
+        );
+    }
 
     #[test]
     fn entering_the_fleet_view_requests_the_catalog_once() {
@@ -296,6 +396,7 @@ mod tests {
             &mut state,
             &mut live,
             Action::SwitchView(4),
+            Lang::Es,
             &tx
         ));
         assert!(
@@ -307,12 +408,13 @@ mod tests {
             &mut state,
             &mut live,
             Action::SwitchView(4),
+            Lang::Es,
             &tx
         ));
         assert!(rx.try_recv().is_err());
         // Leaving and coming back re-queries (fresh detection per entry).
-        handle_action(&mut state, &mut live, Action::SwitchView(1), &tx);
-        handle_action(&mut state, &mut live, Action::SwitchView(4), &tx);
+        handle_action(&mut state, &mut live, Action::SwitchView(1), Lang::Es, &tx);
+        handle_action(&mut state, &mut live, Action::SwitchView(4), Lang::Es, &tx);
         assert!(matches!(rx.try_recv(), Ok(Command::FleetList)));
     }
 }

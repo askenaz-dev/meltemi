@@ -46,6 +46,12 @@ pub enum Msg {
     OnboardingBody,
     DisconnectBanner,
     SizeFloor,
+    DirectTitle,
+    DirectHint,
+    DirectNoSession,
+    DirectQueued,
+    DirectResumed,
+    DirectRefused,
 }
 
 /// The text of a message in a language. Never empty.
@@ -116,6 +122,28 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         }
         (Msg::SizeFloor, Lang::Es) => "terminal demasiado pequena; se requiere 80x24",
         (Msg::SizeFloor, Lang::En) => "terminal too small; 80x24 required",
+        (Msg::DirectTitle, Lang::Es) => "Dirigir la sesión",
+        (Msg::DirectTitle, Lang::En) => "Direct the session",
+        (Msg::DirectHint, Lang::Es) => {
+            "el texto viaja tal cual se escribe | Enter envía - Esc cancela"
+        }
+        (Msg::DirectHint, Lang::En) => {
+            "the text travels exactly as typed | Enter sends - Esc cancels"
+        }
+        (Msg::DirectNoSession, Lang::Es) => {
+            "ninguna sesión seleccionada: elige una en Sesiones y vuelve a dirigir"
+        }
+        (Msg::DirectNoSession, Lang::En) => {
+            "no session selected: pick one in Sessions and direct it again"
+        }
+        // The turn in flight is not interrupted: the instruction waits its turn,
+        // and the position says how long the queue is.
+        (Msg::DirectQueued, Lang::Es) => "encolada, sin interrumpir el turno en curso: turno",
+        (Msg::DirectQueued, Lang::En) => "queued without interrupting the turn in flight: turn",
+        (Msg::DirectResumed, Lang::Es) => "sesión reanudada con la instrucción",
+        (Msg::DirectResumed, Lang::En) => "session resumed with the instruction",
+        (Msg::DirectRefused, Lang::Es) => "la sesión no admite la instrucción",
+        (Msg::DirectRefused, Lang::En) => "the session does not accept the instruction",
     }
 }
 
@@ -141,6 +169,12 @@ pub const ALL: &[Msg] = &[
     Msg::OnboardingBody,
     Msg::DisconnectBanner,
     Msg::SizeFloor,
+    Msg::DirectTitle,
+    Msg::DirectHint,
+    Msg::DirectNoSession,
+    Msg::DirectQueued,
+    Msg::DirectResumed,
+    Msg::DirectRefused,
 ];
 
 #[cfg(test)]

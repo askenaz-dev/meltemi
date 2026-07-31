@@ -18,11 +18,13 @@ use meltemi_client::rpc::{Incoming, Peer, RpcError};
 use meltemi_proto::{
     ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
     PROTOCOL_VERSION, PeerInfo, PermissionChangedParams, PermissionDecideParams,
-    PermissionPendingResult, PermissionRule, SessionCancelParams, SessionListParams,
-    SessionListResult, SessionLogParams, SessionLogResult, StatusResult, methods,
+    PermissionPendingResult, PermissionRule, SessionCancelParams, SessionDirectParams,
+    SessionListParams, SessionListResult, SessionLogParams, SessionLogResult, StatusResult,
+    methods,
 };
 
 use crate::shell::live::{FleetRow, FleetSnapshot, ProjectRow, SessionRow, Update};
+use crate::shell::messages::{Lang, Msg, text};
 use crate::shell::render::ConnState;
 
 /// A command from the UI to the connection actor.
@@ -48,6 +50,13 @@ pub enum Command {
         session_id: String,
         project_root: String,
     },
+    /// Steer a session with an instruction (`session/direct`): queued as the
+    /// next turn of a live session, or resumed when it has ended and can be.
+    Direct {
+        session_id: String,
+        project_root: String,
+        instruction: String,
+    },
     /// Resolve a pending permission by id (`permission/decide`), optionally
     /// persisting a rule ("allow/deny always").
     DecidePermission {
@@ -61,9 +70,12 @@ const MIN_BACKOFF: Duration = Duration::from_millis(200);
 const MAX_BACKOFF: Duration = Duration::from_secs(5);
 const REFRESH_EVERY: Duration = Duration::from_secs(2);
 
-/// Runs the connection actor until the UI drops its command sender.
+/// Runs the connection actor until the UI drops its command sender. `lang` is
+/// carried because some answers are reported as notices and the words are the
+/// surface's, never the daemon's (constitution §11).
 pub async fn connection_actor(
     endpoint: String,
+    lang: Lang,
     mut commands: UnboundedReceiver<Command>,
     updates: UnboundedSender<Update>,
 ) {
@@ -87,7 +99,7 @@ pub async fn connection_actor(
 
         // A dropped UI sender ends the actor entirely; a dropped connection just
         // reconnects.
-        match serve_connection(stream, &mut commands, &updates).await {
+        match serve_connection(stream, lang, &mut commands, &updates).await {
             ConnExit::UiGone => return,
             ConnExit::Disconnected => continue,
         }
@@ -103,6 +115,7 @@ enum ConnExit {
 
 async fn serve_connection(
     stream: meltemi_client::transport::Stream,
+    lang: Lang,
     commands: &mut UnboundedReceiver<Command>,
     updates: &UnboundedSender<Update>,
 ) -> ConnExit {
@@ -196,6 +209,27 @@ async fn serve_connection(
                 }
                 Some(Command::FetchSessionLog { session_id, project_root }) => {
                     fetch_session_log(&peer, updates, &session_id, &project_root).await;
+                }
+                Some(Command::Direct { session_id, project_root, instruction }) => {
+                    // Not awaited here, and the reason is the resume branch:
+                    // directing an ended session runs a whole turn before it
+                    // answers, and this loop is what keeps the shell breathing —
+                    // status, events, the permission tray. A cloned peer answers
+                    // on its own task and reports back as a notice.
+                    let peer = peer.clone();
+                    let updates = updates.clone();
+                    tokio::spawn(async move {
+                        let params = SessionDirectParams {
+                            session_id,
+                            instruction,
+                            project_root: Some(project_root),
+                        };
+                        let notice = match peer.request(methods::SESSION_DIRECT, &params).await {
+                            Ok(value) => direct_notice(&value, lang),
+                            Err(error) => refusal_notice(&error, lang),
+                        };
+                        let _ = updates.send(Update::Notice(notice));
+                    });
                 }
                 Some(Command::DecidePermission { request_id, option_id, persist_rule }) => {
                     let params = PermissionDecideParams { request_id, option_id, persist_rule };
@@ -369,6 +403,49 @@ async fn refresh_pending(peer: &Peer, updates: &UnboundedSender<Update>) {
     }
 }
 
+/// What became of a directed instruction, in the surface's own words. Both
+/// dispositions are told apart out loud: a queued instruction has NOT been
+/// attended yet, and saying otherwise would be the shell inventing progress.
+fn direct_notice(value: &Value, lang: Lang) -> String {
+    use meltemi_proto::{DirectDisposition, SessionDirectResult};
+    let Ok(result) = serde_json::from_value::<SessionDirectResult>(value.clone()) else {
+        return format!("session/direct: {value}");
+    };
+    match result.disposition {
+        DirectDisposition::Queued => format!(
+            "{} #{} — {}",
+            text(Msg::DirectQueued, lang),
+            result.queue_position.unwrap_or(0),
+            result.session_id
+        ),
+        DirectDisposition::Resumed => {
+            let mut notice = format!("{} — {}", text(Msg::DirectResumed, lang), result.session_id);
+            if result.denied_permissions > 0 {
+                notice.push_str(&format!(" ({} denegado/s)", result.denied_permissions));
+            }
+            notice
+        }
+    }
+}
+
+/// A refusal, with the daemon's own diagnosis and remedy behind the surface's
+/// label — the words that tell the user what to do next are the contract's, and
+/// dropping them would leave a dead end where an instruction used to be.
+fn refusal_notice(error: &RpcError, lang: Lang) -> String {
+    let detail = error
+        .data
+        .as_ref()
+        .and_then(|data| data["detail"].as_str())
+        .unwrap_or(&error.message);
+    let remedy = error
+        .data
+        .as_ref()
+        .and_then(|data| data["remedy"].as_str())
+        .map(|remedy| format!(" — {remedy}"))
+        .unwrap_or_default();
+    format!("{}: {detail}{remedy}", text(Msg::DirectRefused, lang))
+}
+
 fn init_params() -> InitializeParams {
     InitializeParams {
         protocol_version: PROTOCOL_VERSION,
@@ -400,4 +477,67 @@ fn permission_notice(params: &Value) -> String {
         .and_then(Value::as_str)
         .unwrap_or("?");
     format!("[{session}] permiso solicitado — aprobación interactiva llega en la bandeja (#9)")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use meltemi_proto::{DirectDisposition, SessionDirectResult, TurnStatus};
+
+    // Scenario: Instrucción dirigida desde el drill-in
+    #[test]
+    fn a_queued_instruction_is_reported_queued_with_its_position() {
+        let queued = serde_json::to_value(SessionDirectResult {
+            disposition: DirectDisposition::Queued,
+            session_id: "s-1".into(),
+            resumed_from: None,
+            queue_position: Some(2),
+            status: None,
+            denied_permissions: 0,
+        })
+        .expect("serializes");
+        let notice = direct_notice(&queued, Lang::Es);
+        assert!(
+            notice.contains("encolada") && notice.contains("#2") && notice.contains("s-1"),
+            "queued says queued, with its position: {notice}"
+        );
+        // The turn in flight was not interrupted and the instruction has not
+        // been attended: the notice must not suggest either.
+        assert!(
+            !notice.contains("enviada") && !notice.contains("atendida"),
+            "a queued instruction is not an attended one: {notice}"
+        );
+
+        let resumed = serde_json::to_value(SessionDirectResult {
+            disposition: DirectDisposition::Resumed,
+            session_id: "s-2".into(),
+            resumed_from: Some("s-1".into()),
+            queue_position: None,
+            status: Some(TurnStatus::Completed),
+            denied_permissions: 0,
+        })
+        .expect("serializes");
+        let notice = direct_notice(&resumed, Lang::En);
+        assert!(
+            notice.contains("resumed") && notice.contains("s-2"),
+            "a resume says so, and names the session that continues: {notice}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_keeps_the_daemons_diagnosis_and_its_remedy() {
+        let error = RpcError::application(
+            meltemi_proto::error_codes::SESSION_NOT_FOUND,
+            "session not directable",
+            "session_not_found",
+            "no session `s-9` is active or resumable",
+            Some("List sessions with `meltemi sessions`.".into()),
+        );
+        let notice = refusal_notice(&error, Lang::Es);
+        assert!(notice.contains("no admite"), "{notice}");
+        assert!(
+            notice.contains("s-9") && notice.contains("meltemi sessions"),
+            "the diagnosis and the remedy are the daemon's, and both survive: {notice}"
+        );
+    }
 }

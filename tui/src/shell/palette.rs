@@ -295,10 +295,10 @@ pub const ENTRIES: &[Entry] = &[
     },
     Entry {
         name: "direct",
-        reserved: true,
+        reserved: false,
         methods: &[m::SESSION_DIRECT],
-        desc_es: "dirigir una instrucción a una sesión existente",
-        desc_en: "direct an instruction to an existing session",
+        desc_es: "dirigir una instrucción a la sesión seleccionada",
+        desc_en: "direct an instruction to the selected session",
     },
     Entry {
         name: "map",

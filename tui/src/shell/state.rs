@@ -52,12 +52,28 @@ pub enum ConfirmAction {
     CreateRule,
 }
 
-/// An overlay stacked above the views. [`Overlay::Palette`] and
-/// [`Overlay::Filter`] capture text.
+/// What a free-text input overlay does with the text on Enter. The palette
+/// line cannot carry these values itself: it is lowercased before it is
+/// matched, and an instruction without its capitals is a different instruction
+/// (design D10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputPurpose {
+    /// An instruction aimed at the selected session (`session/direct`).
+    DirectInstruction,
+}
+
+/// An overlay stacked above the views. [`Overlay::Palette`],
+/// [`Overlay::Filter`] and [`Overlay::Input`] capture text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Overlay {
     Help,
     Palette {
+        input: String,
+    },
+    /// A free-text field for a verb that takes an argument. Unlike the palette
+    /// line, what is typed here reaches the daemon **verbatim**.
+    Input {
+        purpose: InputPurpose,
         input: String,
     },
     /// The list filter of the focused view (`/`): narrows rows while it is
@@ -73,7 +89,7 @@ pub enum Overlay {
 }
 
 /// A side effect the event loop must perform after a transition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     Quit,
     CancelActiveSession,
@@ -90,6 +106,9 @@ pub enum Effect {
     CreateRuleForPermission,
     /// Re-query the known-project registry (`project/list`).
     RefreshProjects,
+    /// Steer the selected session with this instruction (`session/direct`),
+    /// carried exactly as it was typed.
+    DirectSession(String),
 }
 
 /// The full navigation state of the shell.
@@ -144,7 +163,9 @@ impl ShellState {
     #[must_use]
     pub fn input_mode(&self) -> InputMode {
         match self.overlays.last() {
-            Some(Overlay::Palette { .. } | Overlay::Filter { .. }) => InputMode::TextInput,
+            Some(Overlay::Palette { .. } | Overlay::Filter { .. } | Overlay::Input { .. }) => {
+                InputMode::TextInput
+            }
             _ => InputMode::Navigation,
         }
     }
@@ -176,6 +197,7 @@ impl ShellState {
             Some(Overlay::Confirm { .. }) => self.reduce_confirm(action),
             Some(Overlay::Palette { .. }) => self.reduce_palette(action),
             Some(Overlay::Filter { .. }) => self.reduce_filter(action),
+            Some(Overlay::Input { .. }) => self.reduce_input(action),
             // Help and onboarding are passive overlays: Back closes them.
             Some(Overlay::Help | Overlay::Onboarding) => self.reduce_passive(action),
             None => self.reduce_navigation(action),
@@ -304,11 +326,29 @@ impl ShellState {
             Action::Submit => {
                 // Execute a known command; unknown input just closes the palette.
                 // The palette is the core-parity catch-all (design D7).
-                let command = match self.overlays.last() {
-                    Some(Overlay::Palette { input }) => input.trim().to_ascii_lowercase(),
+                let raw = match self.overlays.last() {
+                    Some(Overlay::Palette { input }) => input.trim().to_string(),
                     _ => String::new(),
                 };
+                let command = raw.to_ascii_lowercase();
                 self.overlays.pop();
+
+                // Verbs that take free text are resolved FIRST, and they open
+                // their own field. Two reasons, both of them traps: the line
+                // above is lowercased, so an instruction typed here would lose
+                // its capitals and a path would name a different file on the two
+                // platforms that care; and `projects <text>` already means
+                // "narrow the scope to these projects", so a verb sharing that
+                // prefix would be read as a filter and the order decides which
+                // wins (design D10).
+                if let Some(argument) = argument_of(&command, &raw, &["direct", "dirigir"]) {
+                    self.overlays.push(Overlay::Input {
+                        purpose: InputPurpose::DirectInstruction,
+                        input: argument,
+                    });
+                    return None;
+                }
+
                 return match command.as_str() {
                     "shutdown" | "apagar" => {
                         self.overlays.push(Overlay::Confirm {
@@ -363,6 +403,46 @@ impl ShellState {
         None
     }
 
+    /// A free-text field: the text is captured as typed, submitted on Enter and
+    /// abandoned on Esc. Nothing here normalizes case or separators — that is
+    /// the entire reason this overlay exists rather than the palette line.
+    fn reduce_input(&mut self, action: Action) -> Option<Effect> {
+        match action {
+            Action::InsertChar(c) => {
+                if let Some(Overlay::Input { input, .. }) = self.overlays.last_mut() {
+                    input.push(c);
+                }
+                None
+            }
+            Action::DeleteBack => {
+                if let Some(Overlay::Input { input, .. }) = self.overlays.last_mut() {
+                    input.pop();
+                }
+                None
+            }
+            Action::Back => {
+                self.overlays.pop();
+                None
+            }
+            Action::Submit => {
+                let Some(Overlay::Input { purpose, input }) = self.overlays.last().cloned() else {
+                    return None;
+                };
+                // An empty field submits nothing and stays open: there is no
+                // instruction to send, and closing on Enter would look exactly
+                // like having sent one.
+                if input.trim().is_empty() {
+                    return None;
+                }
+                self.overlays.pop();
+                match purpose {
+                    InputPurpose::DirectInstruction => Some(Effect::DirectSession(input)),
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// The list filter: live while open, committed on Enter, reverted on Esc.
     fn reduce_filter(&mut self, action: Action) -> Option<Effect> {
         match action {
@@ -398,6 +478,27 @@ impl ShellState {
         }
         None
     }
+}
+
+/// The argument written after one of `verbs` on the palette line, **as typed**.
+///
+/// The line is lowercased to match a verb, which is right for a verb and wrong
+/// for everything after it, so the argument is sliced out of the raw line at the
+/// same offset — the verbs are ASCII, so the two strings agree byte for byte up
+/// to that point. Returns `None` when the line is not one of these verbs, and
+/// `Some("")` when the verb was typed with nothing after it.
+fn argument_of(command: &str, raw: &str, verbs: &[&str]) -> Option<String> {
+    for verb in verbs {
+        if command == *verb {
+            return Some(String::new());
+        }
+        if let Some(rest) = command.strip_prefix(verb)
+            && rest.starts_with(' ')
+        {
+            return Some(raw[verb.len()..].trim().to_string());
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -643,6 +744,85 @@ mod tests {
         press(&mut s, Key::Char('2')); // Project view
         press(&mut s, Key::Char('/'));
         assert!(s.top_overlay().is_none(), "no filter is announced falsely");
+    }
+
+    #[test]
+    fn the_direction_verb_opens_its_field_and_sends_the_text_untouched() {
+        // Scenario: El verbo de dirección deja de estar reservado y queda cableado
+        // Scenario: El texto libre llega intacto al daemon
+        // Scenario: El texto de la instrucción no se altera
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "direct".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        // Activating it produces its field. It used to fall through to `_ =>
+        // None`, which closed the overlay and did nothing at all.
+        assert!(press(&mut s, Key::Enter).is_none());
+        assert!(
+            matches!(
+                s.top_overlay(),
+                Some(Overlay::Input {
+                    purpose: InputPurpose::DirectInstruction,
+                    ..
+                })
+            ),
+            "the verb opens its instruction field, never a silent close: {:?}",
+            s.top_overlay()
+        );
+        assert_eq!(s.input_mode(), InputMode::TextInput);
+
+        // Capitals, digits and punctuation are text here — the palette line
+        // would have lowercased every one of them.
+        for c in "Arregla el Build 2 ahora".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(
+            s.view(),
+            View::Sessions,
+            "typing 2 did not switch views: this field takes text"
+        );
+        assert_eq!(
+            press(&mut s, Key::Enter),
+            Some(Effect::DirectSession("Arregla el Build 2 ahora".into())),
+            "the instruction leaves exactly as it was typed"
+        );
+        assert!(s.top_overlay().is_none());
+    }
+
+    #[test]
+    fn the_instruction_field_holds_on_empty_and_abandons_on_esc() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "dirigir".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        press(&mut s, Key::Enter);
+        // Enter on an empty field sends nothing and keeps the field: closing it
+        // would look exactly like having sent something.
+        assert!(press(&mut s, Key::Enter).is_none());
+        assert!(matches!(s.top_overlay(), Some(Overlay::Input { .. })));
+        // Esc abandons it.
+        press(&mut s, Key::Esc);
+        assert!(s.top_overlay().is_none());
+    }
+
+    #[test]
+    fn an_instruction_typed_on_the_palette_line_seeds_the_field_with_its_case() {
+        // The line is lowercased before it is matched, so anything written
+        // after the verb is taken from the raw line instead — otherwise typing
+        // the instruction in one go would silently change it.
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "direct Arregla el Build".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        press(&mut s, Key::Enter);
+        assert!(
+            matches!(s.top_overlay(), Some(Overlay::Input { input, .. }) if input == "Arregla el Build"),
+            "the argument keeps its capitals: {:?}",
+            s.top_overlay()
+        );
     }
 
     #[test]

@@ -20,7 +20,7 @@ use crate::shell::glyphs::{self, Glyph};
 use crate::shell::live::{LiveData, ProjectRow, SessionRow};
 use crate::shell::messages::{Lang, Msg, text};
 use crate::shell::present::Presentation;
-use crate::shell::state::{ConfirmAction, Overlay, ShellState, View};
+use crate::shell::state::{ConfirmAction, InputPurpose, Overlay, ShellState, View};
 
 /// ASCII twin of the box-drawing border set, used when Unicode is off.
 const ASCII_BORDER: border::Set = border::Set {
@@ -1027,6 +1027,22 @@ fn render_overlay(
             body.push_str(&format!("\n{}", ctx.msg(Msg::HintExitField)));
             (ctx.msg(Msg::PaletteTitle).to_string(), body)
         }
+        // A free-text field, shown with the session it will act on: what is
+        // typed here reaches the daemon verbatim, so the field says whose turn
+        // it will become rather than making the user remember.
+        Overlay::Input { purpose, input } => {
+            let (title, hint) = match purpose {
+                InputPurpose::DirectInstruction => (Msg::DirectTitle, Msg::DirectHint),
+            };
+            let target = match live.selected_session() {
+                Some(row) => format!("{} {}", row.id, row.agent_label()),
+                None => ctx.msg(Msg::DirectNoSession).to_string(),
+            };
+            (
+                ctx.msg(title).to_string(),
+                format!("{target}\n\n> {input}\n\n{}", ctx.msg(hint)),
+            )
+        }
         Overlay::Filter { input } => {
             let title = if ctx.lang == Lang::Es {
                 "Filtrar sesiones"
@@ -1080,6 +1096,7 @@ fn render_overlay(
         Overlay::Onboarding => (72, 72),
         Overlay::Palette { .. } => (72, 90),
         Overlay::Help => (60, 50),
+        Overlay::Input { .. } => (72, 40),
         _ => (60, 30),
     };
     let popup = centered(area, pct_w, pct_h);
