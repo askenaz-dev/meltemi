@@ -30,10 +30,19 @@ use meltemi_proto::{
 
 use crate::acp::{self, SessionParams};
 use crate::config::Config;
+use crate::levels::ResolvedAgent;
 use crate::paths;
 use crate::rpc::{Peer, RpcError};
 use crate::server::DaemonState;
 use crate::session_log::SessionLog;
+
+/// The change name reserved for the restore point of a free session. A free
+/// session has no change, so its checkpoint triple is `(free, <session-id>,
+/// <agent>)`: synthetic, and declared as such. The cost is one pseudo-change in
+/// `checkpoint/list`, which filters by change and therefore keeps it apart; the
+/// competitor model is untouched, because there is no branch, no worktree and
+/// nobody to compete with (design D2, Risks).
+const FREE_CHANGE: &str = "free";
 
 /// Handles `session/start` end to end: the recipe of `propose` without the
 /// scaffolding, closing through the shared finalizer so a completed free
@@ -177,6 +186,43 @@ pub async fn handle_session_start(
         tracing::warn!(diagnostic, "permission rule skipped");
     }
 
+    // What is offered in place of isolation: a restore point, taken before the
+    // first turn. `checkpoints::create` snapshots into a scratch index
+    // (`GIT_INDEX_FILE`), so it touches neither the user's index nor any branch
+    // of theirs — it writes one technical ref under `refs/meltemi/checkpoints/`
+    // and one registry line (design D2).
+    let agent_label = agent_label(&resolved, &agent_command);
+    let checkpoint = crate::checkpoints::create(
+        &project_root,
+        &project_root,
+        FREE_CHANGE,
+        &session_id,
+        &agent_label,
+    );
+    let checkpoint_ref = match &checkpoint {
+        Ok(record) => {
+            append(
+                &log,
+                SessionEventKind::CheckpointCreated {
+                    git_ref: record.git_ref.clone(),
+                    change: record.change.clone(),
+                    task: record.task.clone(),
+                    agent: record.agent.clone(),
+                },
+            )
+            .await;
+            Some(record.git_ref.clone())
+        }
+        Err(error) => {
+            // The session starts regardless: promising a restore point and not
+            // creating one would be worse than not promising it, and refusing
+            // the start over it would be worse still. Task 2.4 gives the two
+            // nameable causes their remedy.
+            tracing::warn!(error = %error, "no restore point for the free session");
+            None
+        }
+    };
+
     // `@` references in the instruction are expanded against the repo and the
     // expansion audited, exactly as `propose` does with an idea.
     let (prompt, expansions) = crate::repo_map::expand_refs(
@@ -243,7 +289,7 @@ pub async fn handle_session_start(
                 agent_command,
                 status: fin.status,
                 denied_permissions: fin.denied_permissions,
-                checkpoint_ref: None,
+                checkpoint_ref,
                 checkpoint_unavailable: None,
                 checkpoint_remedy: None,
             };
@@ -266,4 +312,22 @@ pub async fn handle_session_start(
 async fn append(log: &Arc<Mutex<SessionLog>>, kind: SessionEventKind) {
     let mut log = log.lock().await;
     let _ = log.append(kind);
+}
+
+/// The agent slot of the restore point's triple: the catalog id the resolution
+/// named, or — when the project pins a bare `agent.command` and there is no id —
+/// the program's own file name, so the ref still says which binary took it.
+fn agent_label(resolved: &ResolvedAgent, agent_command: &[String]) -> String {
+    if let Some(id) = &resolved.agent_id {
+        return id.clone();
+    }
+    agent_command
+        .first()
+        .map(|program| {
+            std::path::Path::new(program).file_stem().map_or_else(
+                || program.clone(),
+                |stem| stem.to_string_lossy().into_owned(),
+            )
+        })
+        .unwrap_or_else(|| "agent".to_string())
 }

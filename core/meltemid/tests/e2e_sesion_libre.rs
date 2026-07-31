@@ -104,6 +104,48 @@ async fn init_client(endpoint: &str) -> Peer {
     peer
 }
 
+/// Runs `git <args>` in `cwd`, returning trimmed stdout.
+fn git(cwd: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .expect("git runs");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Turns a fixture into a git repository with one commit, so there is history
+/// to snapshot.
+fn with_history(root: &std::path::Path) {
+    git(root, &["init"]);
+    git(root, &["config", "user.email", "e2e@meltemi.test"]);
+    git(root, &["config", "user.name", "Meltemi E2E"]);
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-m", "fixture"]);
+}
+
+/// The session log's events, decoded.
+async fn log_events(peer: &Peer, root: &str, session_id: &str) -> Vec<serde_json::Value> {
+    let log = peer
+        .request(
+            methods::SESSION_LOG,
+            &json!({ "projectRoot": root, "sessionId": session_id }),
+        )
+        .await
+        .expect("session/log");
+    log["lines"]
+        .as_array()
+        .expect("lines")
+        .iter()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l.as_str().unwrap()).ok())
+        .collect()
+}
+
 // Scenario: Sesión libre completada no lista como interrumpida
 #[tokio::test]
 async fn a_completed_free_session_is_ended_not_interrupted() {
@@ -144,6 +186,92 @@ async fn a_completed_free_session_is_ended_not_interrupted() {
     assert!(
         sessions.iter().all(|s| s["state"] != "interrupted"),
         "nothing here was interrupted: {list:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Punto de restauración creado al arrancar
+// Scenario: La sesión libre no crea worktrees ni competidores
+#[tokio::test]
+async fn the_restore_point_is_taken_without_moving_anything_of_the_users() {
+    let root = fixture("checkpoint", &[]);
+    with_history(&root);
+    // Something staged and not committed: the sharpest way to see whether the
+    // user's own index survived the snapshot.
+    std::fs::write(root.join("staged.txt"), "work in progress\n").unwrap();
+    git(&root, &["add", "staged.txt"]);
+    let head_before = git(&root, &["rev-parse", "HEAD"]);
+    let branch_before = git(&root, &["symbolic-ref", "HEAD"]);
+    let staged_before = git(&root, &["diff", "--cached", "--name-only"]);
+
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("checkpoint").await;
+    let peer = init_client(&endpoint).await;
+
+    let started = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "look around" }),
+        ),
+    )
+    .await
+    .expect("session/start returned")
+    .expect("session/start ok");
+
+    let git_ref = started["checkpointRef"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a repository with history gets a restore point: {started:#}"));
+    let session_id = started["sessionId"].as_str().expect("a session id");
+    assert_eq!(
+        git_ref,
+        format!("refs/meltemi/checkpoints/free/{session_id}-mock-agent"),
+        "the reserved triple, slugged: {started:#}"
+    );
+    assert!(
+        started["checkpointUnavailable"].is_null() && started["checkpointRemedy"].is_null(),
+        "a restore point that exists needs no excuse: {started:#}"
+    );
+    // The ref really resolves to a commit.
+    assert!(!git(&root, &["rev-parse", git_ref]).is_empty());
+
+    // Nothing of the user's moved: not HEAD, not the branch it points at, not
+    // the index they had staged.
+    assert_eq!(git(&root, &["rev-parse", "HEAD"]), head_before);
+    assert_eq!(git(&root, &["symbolic-ref", "HEAD"]), branch_before);
+    assert_eq!(
+        git(&root, &["diff", "--cached", "--name-only"]),
+        staged_before,
+        "the snapshot used a scratch index; the user's staging area is theirs"
+    );
+
+    // The conversation carries it: the restore point is part of the session's
+    // own transcript, not a fact hidden in a side file.
+    let events = log_events(&peer, &root_str, session_id).await;
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "checkpoint_created" && e["payload"]["gitRef"] == git_ref),
+        "the restore point is recorded in the session log: {events:#?}"
+    );
+
+    // And no isolation was invented behind the user's back: a free session runs
+    // on the root, so it creates no worktree and nobody competes with it.
+    let worktrees = peer
+        .request(methods::WORKTREE_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .expect("worktree/list ok");
+    assert_eq!(
+        worktrees["worktrees"].as_array().map(Vec::len),
+        Some(0),
+        "the free session made no worktree: {worktrees:#}"
+    );
+    assert!(
+        !root.join(".meltemi").join("worktrees").exists(),
+        "no worktree tree was created for the pseudo-change"
     );
 
     peer.close();
