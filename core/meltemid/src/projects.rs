@@ -95,13 +95,19 @@ fn append_line(data_dir: &Path, line: &str) {
 /// delete, so it tombstones (design D6).
 const FORGOTTEN: &str = "FORGOTTEN ";
 
-/// The folded registry: what is listed, and what the registry has ever known.
+/// The folded registry: what is listed, what the registry has ever known, and
+/// whether anything at all was readable.
 struct Fold {
     /// Folded records that no later line forgot, most recently seen first.
     visible: Vec<ProjectRecord>,
     /// Every folded record, forgotten ones included: forgetting hides a row, it
     /// does not erase what the registry knew about it.
     all: BTreeMap<String, ProjectRecord>,
+    /// Whether ANY line of the file parsed — as a record or as a tombstone.
+    /// This is the distinction the rebuild hangs on: an empty listing because
+    /// everything was forgotten is an answer, and an empty listing because there
+    /// is nothing to read is a missing file (design D6).
+    readable: bool,
 }
 
 /// Folds the append-only registry last-wins by project key. Unparsable lines are
@@ -111,6 +117,7 @@ fn fold(data_dir: &Path) -> Fold {
         return Fold {
             visible: Vec::new(),
             all: BTreeMap::new(),
+            readable: false,
         };
     };
     // The append order IS the recency order, and the timestamps have one-second
@@ -119,10 +126,12 @@ fn fold(data_dir: &Path) -> Fold {
     let mut order: BTreeMap<String, usize> = BTreeMap::new();
     let mut folded: BTreeMap<String, ProjectRecord> = BTreeMap::new();
     let mut forgotten: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut readable = false;
     for (position, line) in text.lines().enumerate() {
         if let Some(key) = line.strip_prefix(FORGOTTEN) {
             let key = key.trim();
             if !key.is_empty() {
+                readable = true;
                 forgotten.insert(key.to_string());
             }
             continue;
@@ -130,6 +139,7 @@ fn fold(data_dir: &Path) -> Fold {
         let Ok(record) = serde_json::from_str::<ProjectRecord>(line) else {
             continue;
         };
+        readable = true;
         // A record after a tombstone un-forgets the project: last line wins, and
         // that is exactly how a forgotten project reappears when it is used or
         // registered again.
@@ -167,6 +177,7 @@ fn fold(data_dir: &Path) -> Fold {
     Fold {
         visible,
         all: folded,
+        readable,
     }
 }
 
@@ -273,10 +284,16 @@ pub async fn handle_project_list(
             .map_err(|e| crate::rpc::RpcError::invalid_params(format!("project/list: {e}")))?
     };
 
-    let mut records = list(&state.data_dir);
-    if records.is_empty() {
-        records = rebuild_from_sessions(&state.data_dir);
-    }
+    let folded = fold(&state.data_dir);
+    // The rebuild fires for a registry that cannot be READ, never for one that
+    // reads as empty. With tombstones those stopped being the same thing: a user
+    // who forgot every project would otherwise watch them all march back on the
+    // next listing, and the forget would be a no-op wearing a result (D6).
+    let records = if folded.readable {
+        folded.visible
+    } else {
+        rebuild_from_sessions(&state.data_dir)
+    };
 
     let live = live_sessions(state).await;
     let mut projects = Vec::with_capacity(records.len());
@@ -474,6 +491,87 @@ mod tests {
         let data = temp("absent");
         assert!(list(&data).is_empty());
         let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// A daemon state whose data directory is `data`, for the handlers that need
+    /// one. Nothing else about it is exercised here.
+    fn state_over(data: &Path) -> std::sync::Arc<crate::server::DaemonState> {
+        let (shutdown, _rx) = tokio::sync::mpsc::channel(1);
+        crate::server::DaemonState::new(data.to_path_buf(), data.join("config"), shutdown)
+    }
+
+    /// Writes one session record for `root`, so the rebuild has something to
+    /// rebuild FROM — without it this test would pass for the wrong reason.
+    fn record_a_session(data: &Path, root: &Path) {
+        let key = crate::paths::project_key(root);
+        crate::session_index::append(
+            data,
+            &key,
+            &crate::session_index::SessionRecord {
+                session_id: "sess-forgotten".into(),
+                agent_command: vec!["mock-agent".into()],
+                project_root: root.display().to_string(),
+                level: 1,
+                started_at: "2026-07-31T10:00:00Z".into(),
+                ended_at: Some("2026-07-31T10:01:00Z".into()),
+                final_status: Some(meltemi_proto::TurnStatus::Completed),
+                agent_session_id: None,
+                supports_load: false,
+                resumed_from: None,
+                agent_id: None,
+                profile: None,
+            },
+        )
+        .expect("session record");
+    }
+
+    // Scenario: Todo olvidado no dispara la reconstrucción
+    #[tokio::test]
+    async fn forgetting_everything_leaves_an_empty_listing_rather_than_a_rebuild() {
+        let data = temp("all-forgotten");
+        let project = temp("repo-forgotten");
+        record_a_session(&data, &project);
+        touch(&data, &project);
+        assert_eq!(list(&data).len(), 1);
+
+        assert!(forget(&data, &project), "the project was listed");
+        assert!(list(&data).is_empty(), "and now it is not");
+
+        // The rebuild reads the session records, which still describe this
+        // project — and would hand it straight back if the empty listing were
+        // read as an unreadable registry.
+        assert_eq!(
+            rebuild_from_sessions(&data).len(),
+            1,
+            "the session records still know it: that is the trap"
+        );
+        let state = state_over(&data);
+        let listed = handle_project_list(serde_json::Value::Null, &state)
+            .await
+            .expect("project/list ok");
+        assert_eq!(
+            listed["projects"].as_array().map(Vec::len),
+            Some(0),
+            "a forget that the next listing undoes is not a forget: {listed:#}"
+        );
+
+        // And the rebuild still fires where it is meant to: no registry file at
+        // all is a different thing from a registry that says "nothing".
+        let fresh = temp("no-registry");
+        record_a_session(&fresh, &project);
+        let state = state_over(&fresh);
+        let rebuilt = handle_project_list(serde_json::Value::Null, &state)
+            .await
+            .expect("project/list ok");
+        assert_eq!(
+            rebuilt["projects"].as_array().map(Vec::len),
+            Some(1),
+            "a missing registry is still rebuilt from the session records: {rebuilt:#}"
+        );
+
+        let _ = std::fs::remove_dir_all(&data);
+        let _ = std::fs::remove_dir_all(&fresh);
+        let _ = std::fs::remove_dir_all(&project);
     }
 
     // Scenario: Ningún proyecto aparece sin haberse usado
