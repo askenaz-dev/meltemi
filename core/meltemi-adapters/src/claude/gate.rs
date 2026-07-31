@@ -164,11 +164,13 @@ mod tests {
 
     #[test]
     fn a_call_nobody_can_decide_is_denied_and_the_reason_travels_with_it() {
-        // Scenario: Compuerta dura sobre modo permisivo del CLI
+        // Scenario: Permiso decidido por el proxy vigente
         //
         // The channel points nowhere: no decision is possible. A gate that let
         // the call through here would be no gate at all, and the CLI would be
-        // running tools in the one situation where nobody is watching.
+        // running tools in the one situation where nobody is watching. What is
+        // pinned is that the decision is the proxy's or it is a denial —
+        // never this process's own.
         let answer = answering(
             Path::new("meltemi-no-such-channel"),
             r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}"#,
@@ -190,7 +192,7 @@ mod tests {
 
     #[tokio::test]
     async fn what_the_proxy_allowed_is_what_the_gate_allows() {
-        // Scenario: Compuerta dura sobre modo permisivo del CLI
+        // Scenario: Permiso decidido por el proxy vigente
         //
         // The other half: a decision does come back, and the gate carries it
         // rather than inventing one. The answer is composed in the vocabulary
@@ -236,6 +238,15 @@ mod tests {
         // A gate with a list of tools would be a gate with a list of ways past
         // it. The matcher is everything, and the quoting survives the paths
         // Windows actually installs into.
+        //
+        // This is the half of that scenario Meltemi owns: the gate is installed
+        // in front of everything, unconditionally, and nothing in the launch
+        // reads the mode the CLI announces. The other half — that a CLI in
+        // `bypassPermissions` really runs its `PreToolUse` hook and really obeys
+        // a denial — is the provider's, documented by them and observable only
+        // against their binary; the change's `.verify.jsonl` records exactly
+        // that, and `e2e_adaptadores_claude_bypass` pins the whole chain
+        // against a wire that announces the permissive mode.
         let settings = settings(
             Path::new(r"C:\Program Files\Meltemi\meltemi-claude-acp.exe"),
             Path::new(r"C:\Users\a b\AppData\Local\Temp\channel"),

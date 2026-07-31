@@ -182,8 +182,12 @@ async fn session_events(peer: &Peer, root: &str) -> Vec<Value> {
 #[tokio::test]
 async fn both_permission_channels_reach_the_human_and_the_turn_streams() {
     // Scenarios: Eventos de sesión mapeados en streaming; Permiso decidido por
-    // el proxy vigente; Compuerta dura sobre modo permisivo del CLI; Versión
-    // efectiva registrada en el log
+    // el proxy vigente; Versión efectiva registrada en el log
+    //
+    // Not the hard gate over a permissive mode: this wire announces the default
+    // mode, so what it shows is the gate deciding, never the gate surviving a
+    // mode that would otherwise skip the asking. That is
+    // `e2e_adaptadores_claude_bypass`.
     //
     // One turn, all the way down and twice back up. The daemon launches the
     // real adapter; the adapter launches the scripted wire with a hook and an
@@ -334,7 +338,7 @@ async fn both_permission_channels_reach_the_human_and_the_turn_streams() {
 
 #[tokio::test]
 async fn a_rule_decides_the_gates_question_without_ever_asking_a_human() {
-    // Scenario: Compuerta dura sobre modo permisivo del CLI
+    // Scenario: Permiso decidido por el proxy vigente
     //
     // The same chain with a rule in place: the proxy resolves it, the client is
     // never asked, and neither the gate nor the adapter decides anything on its
