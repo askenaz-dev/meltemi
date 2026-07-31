@@ -52,6 +52,13 @@ pub mod methods {
     pub const SDD_REVIEW: &str = "sdd/review";
     /// Request: decide one review checklist item (approve/comment/reject).
     pub const SDD_REVIEW_DECIDE: &str = "sdd/review-decide";
+    /// Request (client -> daemon): start a governed free session on a project
+    /// root with an instruction — no change, no task, no spec gate. The door
+    /// the method's verbs never had: `session/direct` steers a session that
+    /// already exists, `propose` and `sdd/*` are verbs of the method, and
+    /// `worktree/dispatch` demands a change and a task. The government is the
+    /// same as any other session's (lanzador-conversacional D1).
+    pub const SESSION_START: &str = "session/start";
     /// Notification (client -> daemon): cancel an active session.
     pub const SESSION_CANCEL: &str = "session/cancel";
     /// Request (client -> daemon): direct an instruction to an existing session
@@ -136,6 +143,16 @@ pub mod methods {
     /// (multiproyecto-suscripciones). Read-only; nothing is discovered by
     /// walking the disk.
     pub const PROJECT_LIST: &str = "project/list";
+    /// Request: add a project root to the registry explicitly — the path the
+    /// client hands over, validated and canonicalized. An explicit entry, never
+    /// a discovery: the daemon opens no window and walks no disk
+    /// (lanzador-conversacional D6).
+    pub const PROJECT_REGISTER: &str = "project/register";
+    /// Request: drop a project from the registry's listing, and from nothing
+    /// else. Appends a forget line to the same append-only registry that the
+    /// last-wins fold resolves; no file, no session and no log is ever touched
+    /// (lanzador-conversacional D6).
+    pub const PROJECT_FORGET: &str = "project/forget";
 
     /// Request: local usage accounting, aggregated by the daemon over the
     /// session records it already keeps (analitica-consumo-local). Reads local
@@ -693,6 +710,48 @@ pub struct ProjectListResult {
     pub projects: Vec<ProjectInfo>,
 }
 
+/// Params of `project/register`: point Meltemi at a directory explicitly,
+/// before anything has ever run in it (lanzador-conversacional D6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRegisterParams {
+    /// The directory to register. It must exist and be a directory; the daemon
+    /// canonicalizes it before storing, creates nothing inside it, and does not
+    /// require it to hold `.meltemi/` — registering is aiming the tool at a
+    /// folder, not initializing it as a project.
+    pub root: String,
+}
+
+/// Result of `project/register`: the registered project in the very shape
+/// `project/list` reports, so a surface can show the row without asking again.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRegisterResult {
+    /// The project as the registry now holds it, with its canonical root.
+    pub project: ProjectInfo,
+}
+
+/// Params of `project/forget`: drop a project from the registry's listing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectForgetParams {
+    /// The project root to forget. It need not exist on disk — a root that
+    /// vanished is precisely the one worth forgetting, so a registry that
+    /// demanded a canonicalizable path would make it unforgettable.
+    pub root: String,
+}
+
+/// Result of `project/forget`. Nothing on disk is deleted either way: the
+/// project's sessions, its logs and its analytics are all still there, and it
+/// reappears in the listing the moment it is used or registered again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectForgetResult {
+    /// Whether the registry was listing that root and no longer does. `false`
+    /// says it was not listed to begin with.
+    pub forgotten: bool,
+}
+
 /// Which layer of an entry a detection result describes: the provider's own
 /// official CLI, or the ACP adapter Meltemi can actually pilot
 /// (flota-deteccion-guia design D1/D3).
@@ -1104,6 +1163,73 @@ pub struct SessionWatchResult {
     pub session_id: String,
     /// Whether this connection is now watching it.
     pub watching: bool,
+}
+
+/// Params of `session/start`: an instruction and the project to run it on.
+/// No change, no task, no specification — the free session's whole point
+/// (lanzador-conversacional D1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStartParams {
+    /// Absolute path to the root of the repository the session works in. The
+    /// free session operates on that root, like every other human-attended
+    /// path; it creates no worktree (design D2).
+    pub project_root: String,
+    /// The first instruction, verbatim: it becomes the session's first prompt.
+    pub instruction: String,
+    /// The fleet agent to run: a launch profile name or a catalog id, resolved
+    /// in the fleet's existing order. Absent uses the project's configured
+    /// agent, exactly as before this method existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+}
+
+/// Why a free session got no restore point. The two causes take different
+/// remedies and telling them apart is the whole point: `git init` on a
+/// repository that already exists is not advice, it is noise (design D2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckpointUnavailable {
+    /// The project root is not a git repository at all.
+    NotAGitRepo,
+    /// It is a git repository with nothing committed yet: no history to
+    /// snapshot, so there is nothing to come back to.
+    NoHistory,
+}
+
+/// Result of `session/start`, final for the scriptable client that listens to
+/// no notifications: the session's id, how its turn ended and how many
+/// permissions were denied. A client that does listen already has the id long
+/// before this — `session_started` reaches the connection that started the
+/// session ahead of the agent's first token, which is what lets a surface
+/// navigate into the conversation instead of waiting out the turn (design D3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStartResult {
+    /// Meltemi session identifier.
+    pub session_id: String,
+    /// The official agent binary and arguments (program first).
+    pub agent_command: Vec<String>,
+    /// Final status of the agent turn.
+    pub status: TurnStatus,
+    /// How many of the agent's permission requests were denied during the turn
+    /// (by rule, by the human, or by timeout/default). Greater than zero means
+    /// the work may be incomplete (honesty of result).
+    #[serde(default)]
+    pub denied_permissions: u32,
+    /// The restore point taken before the first turn, as a git ref. Absent
+    /// means none was taken — and the two fields below say why and what to do,
+    /// because promising a restore point and not creating one would be worse
+    /// than not promising it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_ref: Option<String>,
+    /// Why there is no restore point; present only when `checkpointRef` is
+    /// absent. The session started regardless: this is never a refusal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_unavailable: Option<CheckpointUnavailable>,
+    /// The English remedy matching that cause, for surfaces that show prose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_remedy: Option<String>,
 }
 
 /// Params of `session/direct`: an instruction aimed at an existing session.

@@ -78,7 +78,25 @@ registro tipado cuelga del método, no del handler—, así que la comodidad no
 compra nada.
 
 `session/start {projectRoot, instruction, agent?}` → `{sessionId, agentCommand,
-status, deniedPermissions, checkpointRef?}`. El handler es la receta de
+status, deniedPermissions, checkpointRef?, checkpointUnavailable?,
+checkpointRemedy?}`.
+
+**Enmienda del 2026-07-31 (tarea 1.1), y la razón.** El arco de arriba se
+escribió con `checkpointRef?` como único campo del punto de restauración, y eso
+no alcanza para lo que D2 exige tres párrafos más abajo: «la sesión también
+arranca, y el remedio es el primer commit, jamás `git init`… Las tres
+superficies muestran la causa que corresponde». Sin campo que la lleve, la causa
+no llega a ninguna superficie, y el requisito de la spec —«el resultado SHALL
+declarar que no hay punto de restauración, con el remedio que corresponda a la
+causa»— quedaría sin cumplir por el contrato mismo. Así que el resultado gana
+dos campos opcionales más, ambos presentes **solo** cuando `checkpointRef` está
+ausente: `checkpointUnavailable`, enum cerrado `not_a_git_repo | no_history`
+—que es lo que cada superficie traduce—, y `checkpointRemedy`, la prosa inglesa
+que corresponde a esa causa, para el cliente scriptable que imprime y no
+traduce. Es el patrón que la flota ya practica (`installState` + `remedy`), y es
+aditivo: ningún campo existente cambia de forma.
+
+El handler es la receta de
 `propose.rs:33-261` sin el andamiaje: validar raíz, resolver agente (por
 `resolve_fleet_agent`, no `resolve_launch` — D6 de flota), acuñar UUIDv4,
 `sessions.register`, `projects::touch`, `SessionLog::create` +
