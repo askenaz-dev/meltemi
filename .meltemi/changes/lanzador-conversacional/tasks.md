@@ -30,7 +30,7 @@ desktop/ui`).
 
 ## 3. Daemon: registro de proyectos — alta y olvido
 
-- [ ] 3.1 Implementar `handle_project_register` en `core/meltemid/src/projects.rs`: validación de directorio existente (3002 con remedio), canonicalización antes de derivar la clave, alta idempotente que conserva `firstSeenAt`, sin crear nada en disco ni recorrer nada — gate: `cargo test -p meltemid`
+- [x] 3.1 Implementar `handle_project_register` en `core/meltemid/src/projects.rs`: validación de directorio existente (3002 con remedio), canonicalización antes de derivar la clave, alta idempotente que conserva `firstSeenAt`, sin crear nada en disco ni recorrer nada — gate: `cargo test -p meltemid`
 - [ ] 3.2 Implementar la línea de olvido y su plegado: lápida en el JSONL apend-only siguiendo el precedente de `worktrees::list`, resolución por clave cuando la ruta canonicaliza y por comparación normalizada cuando no, sin exigir que la raíz exista — gate: `cargo test -p meltemid`
 - [ ] 3.3 Cerrar la trampa del rebuild: distinguir «no hay ningún registro parseable» de «todo lo visible fue olvidado», de modo que `rebuild_from_sessions` solo dispare en el primer caso, con el test que lo fija — gate: `cargo test -p meltemid`
 - [ ] 3.4 Batería de plegado sobre el JSONL: alta repetida en dos formas equivalentes, olvido de raíz ausente, reaparición por uso, línea corrupta que no oculta al resto, y la invariante de solo-lectura de `project/list` — gate: `cargo test -p meltemid`

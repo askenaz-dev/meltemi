@@ -41,6 +41,13 @@ fn index_path(data_dir: &Path) -> PathBuf {
 /// what makes a half-written line survivable). Best-effort — a failure here
 /// never fails the operation that triggered it.
 pub fn touch(data_dir: &Path, root: &Path) {
+    let _ = record_seen(data_dir, root);
+}
+
+/// Appends "seen now" for `root` and returns the record it wrote: the first
+/// sighting is the earliest one the registry ever held, so a repeat is
+/// idempotent.
+fn record_seen(data_dir: &Path, root: &Path) -> ProjectRecord {
     let key = crate::paths::project_key(root);
     let now = crate::clock::now_rfc3339();
     let first_seen_at = list(data_dir)
@@ -55,15 +62,24 @@ pub fn touch(data_dir: &Path, root: &Path) {
         first_seen_at,
         last_seen_at: now,
     };
+    if let Ok(line) = serde_json::to_string(&record) {
+        append_line(data_dir, &line);
+    }
+    record
+}
+
+/// Appends one raw line to the registry, creating its directory. Best-effort by
+/// design: the registry is a convenience over the session records, which are the
+/// source of truth, so a write failure must never fail the caller.
+fn append_line(data_dir: &Path, line: &str) {
     let path = index_path(data_dir);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Ok(line) = serde_json::to_string(&record)
-        && let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
     {
         let _ = writeln!(file, "{line}");
     }
@@ -150,7 +166,7 @@ pub async fn handle_project_list(
     params: serde_json::Value,
     state: &std::sync::Arc<crate::server::DaemonState>,
 ) -> Result<serde_json::Value, crate::rpc::RpcError> {
-    use meltemi_proto::{ProjectInfo, ProjectListParams, ProjectListResult};
+    use meltemi_proto::{ProjectListParams, ProjectListResult};
 
     let params: ProjectListParams = if params.is_null() {
         ProjectListParams::default()
@@ -164,9 +180,25 @@ pub async fn handle_project_list(
         records = rebuild_from_sessions(&state.data_dir);
     }
 
-    // Which sessions are running RIGHT NOW, by id: the registry is history, the
-    // live state belongs to the session registry.
-    let live: std::collections::HashSet<String> = state
+    let live = live_sessions(state).await;
+    let mut projects = Vec::with_capacity(records.len());
+    for record in records {
+        let info = to_info(&state.data_dir, record, &live);
+        if params.existing_only.unwrap_or(false) && !info.exists {
+            continue;
+        }
+        projects.push(info);
+    }
+
+    serde_json::to_value(ProjectListResult { projects }).map_err(crate::rpc::RpcError::internal)
+}
+
+/// Which sessions are running RIGHT NOW, by id: the registry is history, the
+/// live state belongs to the session registry.
+async fn live_sessions(
+    state: &std::sync::Arc<crate::server::DaemonState>,
+) -> std::collections::HashSet<String> {
+    state
         .sessions
         .summaries()
         .await
@@ -180,40 +212,94 @@ pub async fn handle_project_list(
             )
         })
         .map(|summary| summary.session_id)
-        .collect();
+        .collect()
+}
 
-    let mut projects = Vec::with_capacity(records.len());
-    for record in records {
-        let exists = PathBuf::from(&record.root).is_dir();
-        if params.existing_only.unwrap_or(false) && !exists {
-            continue;
-        }
-        let sessions =
-            crate::session_index::records_for_project(&state.data_dir, &record.project_key);
-        let active = sessions
+/// One registry record as the contract reports it. Shared by `project/list` and
+/// `project/register` so a freshly registered project is described in exactly
+/// the shape the listing would describe it in — one row, one composition.
+fn to_info(
+    data_dir: &Path,
+    record: ProjectRecord,
+    live: &std::collections::HashSet<String>,
+) -> meltemi_proto::ProjectInfo {
+    let sessions = crate::session_index::records_for_project(data_dir, &record.project_key);
+    // Live counts are the client's job: `session/list` already reports every
+    // session with its real state and its project root, so a single response
+    // aggregates the tree (design D7). Here we only report what the history
+    // knows, which is stable and cheap.
+    meltemi_proto::ProjectInfo {
+        exists: PathBuf::from(&record.root).is_dir(),
+        project_key: record.project_key,
+        root: record.root,
+        first_seen_at: record.first_seen_at,
+        last_seen_at: record.last_seen_at,
+        sessions_total: sessions.len() as u32,
+        active_sessions: sessions
             .iter()
             .filter(|session| live.contains(&session.session_id))
-            .count() as u32;
-        // Live counts are the client's job: `session/list` already reports every
-        // session with its real state and its project root, so a single response
-        // aggregates the tree (design D7). Here we only report what the history
-        // knows, which is stable and cheap.
-        projects.push(ProjectInfo {
-            project_key: record.project_key,
-            root: record.root,
-            exists,
-            first_seen_at: record.first_seen_at,
-            last_seen_at: record.last_seen_at,
-            sessions_total: sessions.len() as u32,
-            active_sessions: active,
-            resumable_sessions: sessions
-                .iter()
-                .filter(|session| session.resumable())
-                .count() as u32,
-        });
+            .count() as u32,
+        resumable_sessions: sessions
+            .iter()
+            .filter(|session| session.resumable())
+            .count() as u32,
     }
+}
 
-    serde_json::to_value(ProjectListResult { projects }).map_err(crate::rpc::RpcError::internal)
+/// The canonical form of a path, for the registry to store and show. Canonical
+/// because `project/list` resolves the root last-wins and the surfaces print
+/// whatever it holds: without this the registry would show whichever spelling
+/// was typed last, and a later comparison by path would have to argue with it.
+///
+/// On Windows `canonicalize` answers in the `\\?\` extended-length form, which
+/// is canonical and unusable — no user recognizes their own repository in it and
+/// no shell they paste it into likes it. The prefix is stripped back off for a
+/// plain drive path (UNC forms are left exactly as they came), and that costs
+/// nothing downstream: `project_key` canonicalizes again before hashing, so both
+/// spellings key to the same project.
+fn canonical(root: &Path) -> PathBuf {
+    let Ok(resolved) = root.canonicalize() else {
+        return root.to_path_buf();
+    };
+    #[cfg(windows)]
+    {
+        let shown = resolved.to_string_lossy();
+        if let Some(plain) = shown.strip_prefix(r"\\?\")
+            && !plain.starts_with("UNC\\")
+        {
+            return PathBuf::from(plain);
+        }
+    }
+    resolved
+}
+
+/// Handles `project/register`: an explicit entry, with the path the client hands
+/// over. Validated and canonicalized, idempotent, and inert — nothing is created
+/// inside the root, nothing outside it is read, and `.meltemi/` is not required,
+/// because registering is aiming the tool at a directory rather than initializing
+/// it as a project (design D6).
+pub async fn handle_project_register(
+    params: serde_json::Value,
+    state: &std::sync::Arc<crate::server::DaemonState>,
+) -> Result<serde_json::Value, crate::rpc::RpcError> {
+    use meltemi_proto::{ProjectRegisterParams, ProjectRegisterResult, error_codes};
+
+    let params: ProjectRegisterParams = serde_json::from_value(params)
+        .map_err(|e| crate::rpc::RpcError::invalid_params(format!("project/register: {e}")))?;
+    let root = PathBuf::from(&params.root);
+    if !root.is_dir() {
+        return Err(crate::rpc::RpcError::application(
+            error_codes::PROJECT_ROOT_INVALID,
+            "invalid project root",
+            "project_root_invalid",
+            format!("`{}` is not an existing directory", root.display()),
+            Some("Pass the absolute path to an existing directory.".into()),
+        ));
+    }
+    let record = record_seen(&state.data_dir, &canonical(&root));
+    let live = live_sessions(state).await;
+    let project = to_info(&state.data_dir, record, &live);
+    serde_json::to_value(ProjectRegisterResult { project }).map_err(crate::rpc::RpcError::internal)
 }
 
 #[cfg(test)]
