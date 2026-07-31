@@ -181,6 +181,22 @@ existe. Las tres superficies muestran la causa que corresponde. Es la única
 forma honesta: prometer checkpoints y no crearlos sería peor que no
 prometerlos.
 
+**Enmienda del 2026-07-31 (tarea 2.4), y su razón.** Este apartado dice que el
+daemon «MUST declarar en el resultado **y en el log** si ese punto existe». Se
+cumple en el caso positivo —`checkpoint_created` va al log de sesión, y desde
+2.5 al stream con él—, y **no** se cumple en el caso negativo: cuando no hay
+punto de restauración, la causa y su remedio viajan en el resultado y en el log
+del daemon (`tracing`), pero no en el log de la sesión. Las dos formas de
+cumplirlo eran peores que el hueco. `SessionEventKind::Error` es el único
+portador genérico del enum, y `analytics.rs:266` cuenta esos eventos como
+errores de sesión: toda sesión libre en una carpeta sin git reportaría un fallo
+que no ocurrió, y el plegado de burbujas de D4 usa `error` como cierre de turno.
+Y añadir una variante al enum reabre un contrato que el bloque 1 cerró, además
+de dejar obsoleta la cuenta de tipos de la tarea 7.6. Los escenarios de la spec
+exigen la declaración **en el resultado**, y ahí está, con la causa cerrada y su
+remedio. Si el enum de eventos gana alguna vez un aviso neutro, este es el
+primer sitio donde debe usarse.
+
 ### D3 — El stream de sesión lleva el evento completo, no solo el del agente
 
 Sin esto no hay conversación en vivo: `prompt_sent` y `turn_completed` —las dos
