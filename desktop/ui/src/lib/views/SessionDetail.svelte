@@ -288,10 +288,13 @@
    * offset rather than to the top, because a switch is a change of lens and not
    * a reload.
    */
-  async function switchReading() {
+  async function switchReading(
+    next: "conversation" | "log" = reading === "log" ? "conversation" : "log",
+  ) {
+    if (next === reading) return;
     const wasAtBottom = atBottom;
     const offset = scroller?.scrollTop ?? 0;
-    reading = reading === "log" ? "conversation" : "log";
+    reading = next;
     await tick();
     if (!scroller) return;
     if (wasAtBottom) scroller.scrollTo({ top: scroller.scrollHeight });
@@ -535,7 +538,17 @@
           onclick={() => stepMatch(1)}>↓</button
         >
       {:else}
-        <button class="ghost" aria-label={$t("transcript.search")} onclick={() => (searchOpen = true)}>
+        <!-- Searching highlights lines of the operator log, so opening it goes
+             there: the alternative is a field that finds matches the reading on
+             screen cannot show, which is a control that quietly does nothing. -->
+        <button
+          class="ghost"
+          aria-label={$t("transcript.search")}
+          onclick={() => {
+            searchOpen = true;
+            void switchReading("log");
+          }}
+        >
           <Icon name="search" size={14} />
         </button>
       {/if}

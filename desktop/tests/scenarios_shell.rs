@@ -689,6 +689,12 @@ fn the_transcript_expands_searches_and_survives_an_unknown_event() {
         detail.contains("transcript.search"),
         "the transcript is searchable"
     );
+    // Search highlights lines of the operator log, so opening it goes there
+    // rather than leaving a field that finds what the reading cannot show.
+    assert!(
+        detail.contains("void switchReading(\"log\");"),
+        "searching takes the reader to the reading that can show the hits"
+    );
     // An unknown event type renders instead of throwing: the style table is
     // consulted with a fallback, never indexed blindly.
     assert!(
