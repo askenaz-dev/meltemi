@@ -144,7 +144,10 @@ documenta el fin de la entrada como paro, el adaptador SHALL cerrar esa
 entrada de modo que el proceso proveedor lo perciba —terminando por su
 cuenta en vez de ser matado al agotarse la gracia— y SHALL rehusar con
 diagnóstico y remedio todo turno posterior de esa sesión, en lugar de darlo
-por enviado.
+por enviado. WHERE el proceso proveedor sigue trabajando pese a ese fin de
+entrada, el adaptador MUST terminarlo al agotarse la gracia y responder el
+turno igualmente como cancelado: quien pidió parar MUST NOT quedar
+esperando el turno que canceló, ni la sesión sostener su worktree abierto.
 
 #### Scenario: Cancelación temprana no perdida entre la aceptación y el turno
 - **WHEN** el daemon cancela un turno ya aceptado cuyo trabajo aún no ha comenzado
@@ -160,6 +163,11 @@ por enviado.
 - **WHEN** el adaptador cierra la entrada del subproceso proveedor
 - **THEN** un proveedor que termina con su entrada SHALL terminar por su cuenta
 - **AND** SHALL NOT depender de que se le mate al agotarse la gracia
+
+#### Scenario: Turno cancelado terminado aunque el proveedor no lo atienda
+- **WHERE** el proceso proveedor sigue trabajando pese al fin de entrada que lo cancela
+- **THEN** el adaptador SHALL terminarlo al agotarse la gracia y responder el turno como cancelado
+- **AND** ninguna sesión SHALL quedar activa sosteniendo el worktree de ese turno
 
 #### Scenario: Turno posterior a una cancelación rehusado con remedio
 - **WHERE** la cancelación acabó con la entrada que la superficie documenta como único paro

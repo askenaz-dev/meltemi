@@ -1761,6 +1761,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_cancelled_turn_that_the_cli_ignores_is_abandoned_so_the_session_can_end_it() {
+        // Scenario: Turno cancelado terminado aunque el proveedor no lo atienda
+        //
         // This surface documents no interruption: the end of its input stops
         // the *next* turn, not this one. The grace is therefore the whole of
         // what makes a cancellation a cancellation, and a CLI that talks

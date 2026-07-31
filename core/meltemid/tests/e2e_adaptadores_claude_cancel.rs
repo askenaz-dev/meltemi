@@ -153,7 +153,7 @@ async fn session_events(peer: &Peer, root: &str) -> Vec<Value> {
 
 #[tokio::test]
 async fn cancelling_ends_a_turn_the_cli_refuses_to_end() {
-    // Scenario: Eventos de sesión mapeados en streaming
+    // Scenario: Turno cancelado terminado aunque el proveedor no lo atienda
     //
     // The cancellation this dialect has to earn: there is no interruption to
     // send, the polite stop is ignored, and the turn still ends — because the
