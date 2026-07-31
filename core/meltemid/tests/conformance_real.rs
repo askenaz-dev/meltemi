@@ -23,14 +23,35 @@
 //! whatever a turn spends. That is the price of knowing, and it is why nobody
 //! is opted in by default.
 //!
+//! Each dialect is run in **two legs**, because the four criteria level 2
+//! declares cannot all be observed in one session:
+//!
+//! 1. A turn that runs to its end — streaming, permissions, session.
+//! 2. A turn that is stopped the moment the CLI speaks inside it —
+//!    cancellation.
+//!
+//! The second leg was expected to be the cheap one — cut off at its first
+//! words — and measured against the real CLI it is not: the stop lands after
+//! the provider has already produced most of a turn, and it cost within a
+//! tenth of what the first leg cost (`docs/conformidad-manual.md`). Budget for
+//! **two full turns per dialect**, not one and a bit.
+//!
+//! The second leg exists because a cancellation is the one property no fixture
+//! can settle here. On the headless dialect the only stop the provider
+//! documents is the end of the CLI's input, and whether a real binary actually
+//! notices that end is a fact about the binary, not about the adapter — a
+//! scripted wire answers whatever it was scripted to answer.
+//!
 //! A criterion this run could not exercise is **left out**, never reported as
 //! passed: `conformance::verified_level` refuses to award a level whose declared
 //! criteria are not all there, so an incomplete run reports an incomplete
-//! result rather than a flattering one.
+//! result rather than a flattering one. A leg that never got its turn in flight
+//! reports nothing rather than a failure, because a stop that was never sent
+//! has demonstrated nothing about stopping.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
@@ -50,6 +71,10 @@ const OPT_IN: &str = "MELTEMI_CONFORMANCE_REAL";
 /// a turn on a different provider's account, and somebody re-anchoring one of
 /// them should not have to pay for the other.
 const ONLY: &str = "MELTEMI_CONFORMANCE_AGENT";
+
+/// How long the stop leg waits for the CLI to speak inside its turn before
+/// giving up on stopping one.
+const TO_FIRST_WORD: Duration = Duration::from_secs(90);
 
 /// The two adapter-piloted entries of the shipped registry, by the id the
 /// catalog knows them as, with the adapter binary each is piloted through and
@@ -198,15 +223,14 @@ struct Turn {
     events: Vec<Value>,
 }
 
-/// Drives one real session, answering permission requests the way a human at
-/// the tray would: allow once, every time.
-async fn drive(root: &Path, tag: &str, idea: &str, timeout: Duration) -> Turn {
-    let root_str = root.display().to_string();
-    let (endpoint, daemon) = spawn_daemon(tag).await;
-    let (peer, incoming) = init_client(&endpoint).await;
-
+/// Answers permission requests the way a human at the tray would: allow once,
+/// every time. Returns the task and the list of calls it was asked about.
+fn deciding(
+    peer: &Peer,
+    incoming: mpsc::UnboundedReceiver<Incoming>,
+) -> (tokio::task::JoinHandle<()>, Arc<Mutex<Vec<String>>>) {
     let asked = Arc::new(Mutex::new(Vec::<String>::new()));
-    let decider = tokio::spawn({
+    let task = tokio::spawn({
         let peer = peer.clone();
         let asked = asked.clone();
         async move {
@@ -238,6 +262,15 @@ async fn drive(root: &Path, tag: &str, idea: &str, timeout: Duration) -> Turn {
             }
         }
     });
+    (task, asked)
+}
+
+/// Drives one real session to its end.
+async fn drive(root: &Path, tag: &str, idea: &str, timeout: Duration) -> Turn {
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon(tag).await;
+    let (peer, incoming) = init_client(&endpoint).await;
+    let (decider, asked) = deciding(&peer, incoming);
 
     let outcome = match tokio::time::timeout(
         timeout,
@@ -264,6 +297,112 @@ async fn drive(root: &Path, tag: &str, idea: &str, timeout: Duration) -> Turn {
     }
 }
 
+/// What the second leg observed about a stop.
+struct Stopped {
+    /// Whether the turn was demonstrably in flight when the stop went out: the
+    /// prompt had been sent and the CLI had spoken *inside* that turn. A stop
+    /// sent into a session with no turn is answered "there is nothing to
+    /// interrupt", which is correct and proves nothing.
+    in_flight: bool,
+    /// How the turn answered, if it answered at all.
+    outcome: Result<Value, String>,
+    /// How long the answer took from the moment the stop went out.
+    took: Duration,
+    /// Whether any session was still listed as running afterwards.
+    left_running: bool,
+}
+
+/// Drives one real session and stops it the moment the CLI speaks inside its
+/// turn.
+///
+/// This is the only leg that can say anything about cancellation against a real
+/// binary — on the headless dialect the stop *is* the end of the CLI's input,
+/// and whether a real process notices that end is a fact about the process, not
+/// about the adapter.
+///
+/// It is not the cheap leg it looks like. "The first words the session sees" is
+/// already late: the provider has produced most of a turn by then, and the
+/// measured cost is within a tenth of the full leg's.
+async fn stop_mid_turn(
+    root: &Path,
+    tag: &str,
+    idea: &str,
+    to_start: Duration,
+    to_answer: Duration,
+) -> Stopped {
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon(tag).await;
+    let (peer, incoming) = init_client(&endpoint).await;
+    let (decider, _asked) = deciding(&peer, incoming);
+
+    let proposing = tokio::spawn({
+        let peer = peer.clone();
+        let root_str = root_str.clone();
+        let idea = idea.to_string();
+        async move {
+            peer.request(
+                methods::PROPOSE,
+                &json!({ "idea": idea, "projectRoot": root_str }),
+            )
+            .await
+        }
+    });
+
+    // Wait for the turn to be demonstrably in flight, then stop it at once.
+    let mut session_id = None;
+    let watching = Instant::now();
+    while watching.elapsed() < to_start {
+        let events = session_events(&peer, &root_str).await;
+        if events.iter().any(|event| event["type"] == "prompt_sent")
+            && events
+                .iter()
+                .any(|event| event["payload"]["update"]["sessionUpdate"] == "agent_message_chunk")
+            && let Some(started) = events
+                .iter()
+                .find(|event| event["type"] == "session_started")
+        {
+            session_id = started["payload"]["sessionId"].as_str().map(str::to_string);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    let in_flight = session_id.is_some();
+    let stopped_at = Instant::now();
+    if let Some(id) = &session_id {
+        peer.notify(methods::SESSION_CANCEL, &json!({ "sessionId": id }));
+    }
+
+    let outcome = match tokio::time::timeout(to_answer, proposing).await {
+        Ok(Ok(Ok(value))) => Ok(value),
+        Ok(Ok(Err(error))) => Err(format!("{error}")),
+        Ok(Err(error)) => Err(format!("the turn's task did not finish: {error}")),
+        Err(_) => Err(format!("no answer within {to_answer:?} of the stop")),
+    };
+    let took = stopped_at.elapsed();
+
+    let left_running = peer
+        .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .ok()
+        .and_then(|list| {
+            list["sessions"]
+                .as_array()
+                .map(|sessions| sessions.iter().any(|session| session["state"] == "active"))
+        })
+        .unwrap_or(true);
+
+    decider.abort();
+    peer.close();
+    daemon.abort();
+    Stopped {
+        in_flight,
+        outcome,
+        took,
+        left_running,
+    }
+}
+
 /// Runs the criteria of one dialect against its real CLI and prints what it
 /// found, criterion by criterion.
 async fn run_dialect(
@@ -280,7 +419,7 @@ async fn run_dialect(
         DIALECTS.iter().find(|d| d.0 == id).unwrap().2,
     );
 
-    println!("  running one real session (this spends a real turn)…");
+    println!("  leg 1/2: one real session, run to its end (this spends a real turn)…");
     let turn = drive(
         &root,
         &format!("real-{id}"),
@@ -336,6 +475,60 @@ async fn run_dialect(
         });
     } else {
         println!("  the agent asked for no permission; that criterion is left unreported");
+    }
+
+    // Leg two: a session opened to be stopped. Its own project root, because a
+    // stop leaves a session behind on purpose and the first leg's log is
+    // evidence.
+    let stop_root = base.join("stop");
+    fixture(
+        &stop_root,
+        id,
+        adapter,
+        DIALECTS.iter().find(|d| d.0 == id).unwrap().2,
+    );
+    println!("  leg 2/2: one real session, stopped at its first words…");
+    let stopped = stop_mid_turn(
+        &stop_root,
+        &format!("real-stop-{id}"),
+        "Write a one-paragraph proposal for adding a `hello` command.",
+        // A CLI that has not spoken a word of its turn in this long is not
+        // going to be stopped mid-turn, and waiting out the whole timeout for
+        // it only makes a run that already failed take longer to say so.
+        TO_FIRST_WORD,
+        timeout,
+    )
+    .await;
+
+    if stopped.in_flight {
+        let status = stopped
+            .outcome
+            .as_ref()
+            .ok()
+            .and_then(|value| value["status"].as_str())
+            .unwrap_or_default()
+            .to_string();
+        if let Err(error) = &stopped.outcome {
+            println!("  the stopped turn did not answer: {error}");
+        }
+        println!(
+            "  the stop was answered in {:?} as `{}`; anything still running: {}",
+            stopped.took,
+            if status.is_empty() { "—" } else { &status },
+            stopped.left_running
+        );
+        criteria.push(ConformanceCriterion {
+            level: 2,
+            name: "cancellation".into(),
+            passed: status == "cancelled" && !stopped.left_running,
+        });
+    } else {
+        // No stop was ever sent, so nothing was learned about stopping. A
+        // failure here would be a finding about this run, not about the bridge.
+        println!(
+            "  the turn never got in flight within the patience, so no stop was sent; \
+             that criterion is left unreported"
+        );
     }
 
     let _ = std::fs::remove_dir_all(&base);

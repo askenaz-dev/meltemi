@@ -75,9 +75,18 @@ cargo test -p meltemid --test conformance_real -- --ignored --nocapture
 presente. Existe porque cada dialecto gasta un turno en la cuenta de un
 proveedor distinto, y quien re-ancla uno no tiene por qué pagar el otro.
 
-**Qué cuesta**: una sesión real por entrada — un `propose` corto contra un
-repositorio fixture temporal. Si la sesión no llega a abrirse, no se gasta
-nada: el turno nunca se envía.
+**Qué cuesta**: **dos sesiones reales por entrada**, no una. La corrida tiene
+dos piernas, porque los cuatro criterios que el nivel 2 declara no caben en una
+sola sesión:
+
+1. Un turno que llega hasta el final — `streaming`, `permissions`, `session`.
+2. Un turno que se para en cuanto el CLI habla dentro de él — `cancellation`.
+
+La segunda se diseñó como la barata («cortada en sus primeras palabras») y
+medida contra el CLI real **no lo es**: cuando la sesión ve la primera palabra
+el proveedor ya produjo casi todo el turno, y su costo quedó a un décimo del de
+la primera. Presupueste dos turnos completos por dialecto. Si la sesión no
+llega a abrirse, no se gasta nada: el turno nunca se envía.
 
 ## Qué queda registrado, y dónde
 
@@ -95,13 +104,14 @@ Una línea por corrida, con su fecha y la versión del CLI que respondió:
 ```json
 {
   "agentId": "claude-code",
-  "verifiedLevel": 0,
+  "verifiedLevel": 2,
   "agentVersion": "2.1.167",
-  "runAt": "2026-07-28T18:07:37Z",
+  "runAt": "2026-07-31T13:41:21Z",
   "criteria": [
     { "level": 2, "name": "streaming", "passed": true },
     { "level": 2, "name": "session", "passed": true },
-    { "level": 2, "name": "permissions", "passed": true }
+    { "level": 2, "name": "permissions", "passed": true },
+    { "level": 2, "name": "cancellation", "passed": true }
   ]
 }
 ```
@@ -117,13 +127,18 @@ Dos reglas de lectura, ambas deliberadas:
   que contra ese binario, ese día, el nivel no quedó verificado.
 
 Las dos reglas juntas tienen una consecuencia que conviene decir en voz alta,
-porque el número solo no la cuenta: **esta corrida no ejerce la cancelación**,
-que es uno de los cuatro criterios que el nivel 2 declara, de modo que su
-`verifiedLevel` es 0 aunque los tres criterios que sí ejerce aprueben. El
-ejemplo de arriba es exactamente ese caso. Un 0 por «nada funcionó» y un 0 por
-«falta un criterio por ejercer» se leen igual en el número y no significan lo
-mismo: la lista de `criteria` es la que lo distingue, y por eso se persiste
-entera.
+porque el número solo no la cuenta: un 0 por «nada funcionó» y un 0 por «falta
+un criterio por ejercer» se leen igual en el número y no significan lo mismo.
+La lista de `criteria` es la que lo distingue, y por eso se persiste entera.
+
+La segunda pierna existe precisamente por eso. Hasta el 2026-07-31 la corrida
+reportaba tres criterios y el nivel 2 declara cuatro: `cancellation` no se
+ejercía **nunca**, de modo que el nivel era inalcanzable por construcción y no
+por lo que la corrida encontrase. Un procedimiento manual que no puede otorgar
+el nivel que documenta no es un procedimiento. Regla que la pierna nueva trae:
+si el turno nunca llegó a estar en vuelo, no se envió paro alguno y el criterio
+**no se reporta** — un fallo ahí sería un hallazgo sobre la corrida, no sobre
+el puente.
 
 `meltemi fleet` lee la última corrida por entrada y muestra el nivel
 verificado junto al declarado. Declarado ≠ verificado es información, no
@@ -147,7 +162,78 @@ cargo run -q -p meltemi --example rpc -- sdd/verify-mark '{
 La nota es el registro. Debe decir contra qué binario, en qué versión, en qué
 fecha y qué se observó — nunca «verificado» a secas, y nunca de memoria.
 
-## Última corrida — 2026-07-28
+## Última corrida — 2026-07-31
+
+Windows 11 (26200), x86_64. Ambos CLIs presentes y con sesión iniciada. Primera
+corrida con las dos piernas.
+
+### Dialecto de sesión headless — `claude 2.1.167`: **nivel verificado 2**
+
+Los cuatro criterios ejercidos y aprobados, por primera vez.
+
+- `streaming`, `session` y `permissions` **aprueban** como el 2026-07-28, y por
+  las mismas razones; la nota de aquella corrida sobre cuál de los dos canales
+  de permiso quedó ejercido —el hook, no el prompt-tool— **sigue siendo exacta
+  y sigue vigente**.
+- `cancellation` **aprueba**: la segunda sesión se paró en cuanto el CLI habló
+  dentro de su turno, `propose` respondió `cancelled` y no quedó sesión alguna
+  activa. Es el criterio que ninguna corrida anterior había ejercido.
+- **Dos observaciones distintas del mismo binario, y la diferencia importa.**
+  El paro se respondió en **4,1 s** en la corrida de las 13:09Z y en **10,1 s**
+  en la de las 13:41Z. La gracia del turno cancelado son 5 s y la del apagado
+  otros 5: por debajo de la primera, el CLI cerró su salida por su cuenta —vio
+  el fin de entrada y terminó su turno—; alrededor de la suma de las dos, no lo
+  hizo y el adaptador lo terminó. El criterio mide lo mismo en los dos casos
+  (el turno para y no queda nada corriendo) y las dos rutas son las que el
+  escenario «Turno cancelado terminado aunque el proveedor no lo atienda»
+  describe: la de abandono no es teórica, ocurre.
+- **Costo real, medido en los archivos de sesión del propio CLI** (cuatro
+  sesiones, las dos corridas del día):
+
+  | Pierna | Entrada | Escritura de caché | Lectura de caché | Salida |
+  | --- | ---: | ---: | ---: | ---: |
+  | 13:09Z turno | 3 648 | 20 263 | 70 324 | 1 670 |
+  | 13:09Z paro | 4 436 | 9 024 | 84 774 | 1 913 |
+  | 13:41Z turno | 4 397 | 8 658 | 64 503 | 1 842 |
+  | 13:41Z paro | 4 464 | 8 237 | 64 079 | 1 667 |
+
+  La pierna del paro cuesta prácticamente lo mismo que la del turno completo.
+  Se esperaba que fuera la barata; no lo es, y la página lo dice donde se
+  presupuesta.
+
+### Dialecto de servidor JSON-RPC — `codex-cli 0.77.0`: **nivel verificado 0**
+
+Nivel no otorgado, y el motivo no está en el puente. Lo que la corrida sí
+estableció y lo que no, en orden:
+
+- **Un defecto real, que solo esta corrida podía encontrar**: el CLI no se podía
+  lanzar. El catálogo lo daba por presente —y tenía razón— y el adaptador
+  rehusaba con «`codex` could not be launched (program not found)». La causa es
+  de Windows: `npm i -g` deja `codex.cmd` y ningún `codex.exe`, y
+  `CreateProcess` sólo añade `.exe` a un nombre pelado. Corregido en el
+  adaptador (design D14): el nombre declarado se resuelve al archivo que la
+  plataforma ejecuta, con el mismo conjunto de extensiones que usa el catálogo.
+- Tras la corrección, `session` **aprueba**: el CLI se lanza, el handshake
+  responde y el adaptador lee `0.77.0`, dentro del rango declarado
+  `[0.77.0, 1.0.0)`. Lanzamiento, handshake y lectura de versión quedan
+  verificados contra el binario real.
+- `streaming` **falla**, y el que dice que no es el proveedor: todo turno vuelve
+  con *«The 'gpt-5.6-sol' model requires a newer version of Codex. Please
+  upgrade to the latest app or CLI and try again.»* El modelo por defecto de la
+  cuenta exige un Codex más nuevo que el 0.77.0 que esta change ancló. El
+  adaptador propaga ese rechazo con las palabras del proveedor y su remedio, que
+  es exactamente lo que debe hacer; no hay turno que streamear.
+- `permissions` y `cancellation` **no se reportan**: sin turno en vuelo no hubo
+  a qué pedir permiso ni qué parar.
+- **Qué haría falta para otorgarle el nivel**: subir el CLI a una versión que
+  sirva el modelo por defecto de la cuenta y **re-anclar el volcado de esquema
+  vendorizado** a esa versión — que es uno de los disparadores que esta misma
+  página lista. Ni el uno sin el otro: el esquema congelado es lo que dice qué
+  versión se soporta.
+- El re-anclaje del esquema y el handshake del 2026-07-28 siguen vigentes: se
+  verificaron contra este mismo `0.77.0`.
+
+## Corrida anterior — 2026-07-28
 
 Windows 11 (26200), x86_64. Ambos CLIs presentes y con sesión iniciada.
 
@@ -164,7 +250,9 @@ Windows 11 (26200), x86_64. Ambos CLIs presentes y con sesión iniciada.
   dentro del rango declarado `[0.77.0, 1.0.0)`.
 - El turno completo (que sí gasta cuota de la cuenta) no se corrió en esta
   fecha; el handshake y el esquema sí, y son lo que ancla la conformidad por
-  versión.
+  versión. (**El 2026-07-31 sí se intentó**, y fue así como se descubrió que el
+  lanzamiento del CLI estaba roto en Windows y que el modelo por defecto de la
+  cuenta exige un Codex más nuevo: dos cosas que un handshake no puede ver.)
 
 ### Dialecto de sesión headless — `claude 2.1.167`
 
@@ -211,9 +299,11 @@ binario:
   solo cuando todos los suyos están presentes y aprobados. Es un 0 distinto del
   de la mañana —tres de cuatro criterios aprobando contra el binario real
   frente a ninguno— y la lista de `criteria` persistida es lo que los
-  distingue. Ejercer la cancelación contra el CLI real gastaría otro turno y
-  sería otra tarea; hasta entonces, el nivel 2 de esta entrada lo verifica CI
-  contra el cable simulado y esta corrida no lo contradice.
+  distingue. (**Superado el 2026-07-31**: la corrida ganó una segunda pierna
+  que sí ejerce la cancelación, y esta entrada quedó en nivel verificado 2. La
+  frase «gastaría otro turno y sería otra tarea» que aquí figuraba resultó ser
+  el techo del procedimiento, no una decisión: mientras estuvo en pie, el nivel
+  2 era inalcanzable por construcción.)
 - **Coste**: un turno de opus — 8,8k tokens de entrada, 22,2k de escritura de
   caché, 139,7k de lectura de caché y 3,8k de salida.
 

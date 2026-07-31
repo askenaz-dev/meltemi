@@ -409,6 +409,31 @@ uno halagador. Y `verifiedLevel: 0` es un resultado, no un fallo de la
 corrida: es lo que la primera corrida devolvió para el dialecto headless, y
 es la razón por la que existe la tarea 5.3.
 
+**Enmienda (2026-07-31, revisión adversarial): la corrida son dos piernas
+por dialecto, porque con una el nivel 2 era inalcanzable por construcción.**
+La corrida reportaba `streaming`, `session` y `permissions`, y el nivel 2
+declara cuatro criterios: `cancellation` no se ejercía **nunca**, de modo
+que su `verifiedLevel` era 0 no por lo que la corrida encontrase sino por lo
+que la corrida no podía hacer. Un procedimiento manual que no puede otorgar
+el nivel que documenta no es un procedimiento: es una página. La segunda
+pierna abre otra sesión real y la para en cuanto el CLI habla dentro de su
+turno, y es la única que puede decir algo sobre la cancelación contra un
+binario real: en el dialecto headless el paro **es** el fin de la entrada
+del CLI, y que un proceso de verdad lo perciba es un hecho sobre el proceso,
+no sobre el adaptador; un cable guionado responde lo que se le guionó. Regla
+que la pierna hereda: si el turno nunca llegó a estar en vuelo, no se envió
+paro alguno y el criterio **no se reporta** —un fallo ahí sería un hallazgo
+sobre la corrida, no sobre el puente—. Y es la pierna que cierra D12: la
+prueba de que soltar el stream cierra la tubería de verdad la da un CLI real
+que termina su turno, no un `duplex` educado.
+
+Se esperaba que fuera la pierna barata —«cortada en sus primeras palabras»—
+y medida contra el CLI real **no lo es**: cuando la sesión ve la primera
+palabra el proveedor ya produjo casi todo el turno, y el costo quedó a un
+décimo del de la primera pierna. Dos turnos completos por dialecto, no uno y
+pico; los números por pierna están en `docs/conformidad-manual.md`, que es
+donde se presupuesta.
+
 ### D11 — Orden con `pulido-pre-anuncio`
 
 `pulido-pre-anuncio` aterriza primero: refresca los `adapter-install` de
