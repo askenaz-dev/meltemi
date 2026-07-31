@@ -42,16 +42,34 @@ use crate::output::{CliError, Outcome};
 pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliError> {
     match command {
         Command::Status => status(endpoint).await,
-        Command::Propose { idea, project_root } => propose(idea, project_root, endpoint).await,
+        Command::Propose {
+            idea,
+            project_root,
+            agent,
+        } => propose(idea, project_root, agent, endpoint).await,
+        Command::Session {
+            instruction,
+            project_root,
+            agent,
+        } => session(instruction, project_root, agent, endpoint).await,
         Command::Fleet => fleet(endpoint).await,
         Command::Project { project_root } => project(project_root, endpoint).await,
         Command::Sessions { project_root } => sessions(project_root, endpoint).await,
-        Command::Explore { topic } => sdd_verb(endpoint, methods::SDD_EXPLORE, topic, None).await,
+        Command::Explore { topic, agent } => {
+            sdd_verb(endpoint, methods::SDD_EXPLORE, topic, None, agent).await
+        }
         Command::Plan { change } => {
-            sdd_verb(endpoint, methods::SDD_PLAN, String::new(), Some(change)).await
+            sdd_verb(
+                endpoint,
+                methods::SDD_PLAN,
+                String::new(),
+                Some(change),
+                None,
+            )
+            .await
         }
         Command::Constitution { topic } => {
-            sdd_verb(endpoint, methods::SDD_CONSTITUTION, topic, None).await
+            sdd_verb(endpoint, methods::SDD_CONSTITUTION, topic, None, None).await
         }
         Command::Review { change } => review(change, endpoint).await,
         Command::Worktrees { project_root } => worktrees(project_root, endpoint).await,
@@ -99,6 +117,8 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             plan_only,
         } => implement(change, agent, plan_only, endpoint).await,
         Command::Projects => projects(endpoint).await,
+        Command::ProjectRegister { path } => project_register(path, endpoint).await,
+        Command::ProjectForget { path } => project_forget(path, endpoint).await,
         Command::Usage {
             project_root,
             granularity,
@@ -194,6 +214,7 @@ async fn status(endpoint: &str) -> Result<Outcome, CliError> {
 async fn propose(
     idea: String,
     project_root: Option<String>,
+    agent: Option<String>,
     endpoint: &str,
 ) -> Result<Outcome, CliError> {
     let project_root = match project_root {
@@ -211,7 +232,7 @@ async fn propose(
             &ProposeParams {
                 idea,
                 project_root,
-                agent: None,
+                agent,
             },
         )
         .await;
@@ -225,6 +246,76 @@ async fn propose(
         human: render_propose(&result),
         json: value,
     })
+}
+
+/// `session`: start a free session on a project (`session/start`). No change,
+/// no task, no specification and no gate — and nothing of the government
+/// relaxed to get there. The call blocks until the turn ends, like every one of
+/// its siblings, so what comes back is final: the session's id, how the turn
+/// ended, how many permissions were denied, and the restore point or the reason
+/// there is none.
+async fn session(
+    instruction: String,
+    project_root: Option<String>,
+    agent: Option<String>,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(project_root)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::SESSION_START,
+            &meltemi_proto::SessionStartParams {
+                project_root,
+                instruction,
+                agent,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: meltemi_proto::SessionStartResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_session(&result),
+        json: value,
+    })
+}
+
+/// Human rendering of a free session: the id first (it is what every other verb
+/// takes as an argument), the turn's outcome, and the restore point — or its
+/// absence with the remedy that fits the cause, never the other cause's.
+fn render_session(result: &meltemi_proto::SessionStartResult) -> String {
+    use meltemi_proto::CheckpointUnavailable;
+    let mut out = format!(
+        "session {} [{}]\n{}",
+        result.session_id,
+        status_word(result.status),
+        result.agent_command.join(" ")
+    );
+    match (&result.checkpoint_ref, result.checkpoint_unavailable) {
+        (Some(git_ref), _) => out.push_str(&format!("\nrestore point: {git_ref}")),
+        (None, cause) => {
+            let word = match cause {
+                Some(CheckpointUnavailable::NotAGitRepo) => "this root is not a git repository",
+                Some(CheckpointUnavailable::NoHistory) => "this repository has no history yet",
+                None => "the daemon reported none",
+            };
+            out.push_str(&format!("\nno restore point: {word}"));
+            if let Some(remedy) = &result.checkpoint_remedy {
+                out.push_str(&format!("\n  remedy: {remedy}"));
+            }
+        }
+    }
+    if result.denied_permissions > 0 {
+        out.push_str(&format!(
+            "\nwarning: {} permission request(s) denied — the work may be incomplete",
+            result.denied_permissions
+        ));
+    }
+    out
 }
 
 async fn fleet(endpoint: &str) -> Result<Outcome, CliError> {
@@ -315,15 +406,21 @@ async fn sdd_verb(
     method: &str,
     topic: String,
     change: Option<String>,
+    agent: Option<String>,
 ) -> Result<Outcome, CliError> {
     let project_root = std::env::current_dir()
         .map_err(CliError::internal)?
         .display()
         .to_string();
-    let params = match &change {
+    let mut params = match &change {
         Some(change) => json!({ "projectRoot": project_root, "changeName": change }),
         None => json!({ "projectRoot": project_root, "topic": topic }),
     };
+    // Additive: absent behaves exactly as it did before the field existed, so
+    // the verbs that take no agent send no key at all.
+    if let Some(agent) = agent {
+        params["agent"] = serde_json::Value::String(agent);
+    }
 
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(method, &params).await;
@@ -791,6 +888,65 @@ async fn projects(endpoint: &str) -> Result<Outcome, CliError> {
         human: render_projects(&result),
         json: value,
     })
+}
+
+/// `projects register`: aim Meltemi at a directory explicitly, before anything
+/// has ever run in it. The daemon checks the path exists, canonicalizes it and
+/// creates nothing inside it — registering is pointing the tool at a folder,
+/// not initializing it as a project (design D6).
+async fn project_register(path: String, endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::PROJECT_REGISTER,
+            &meltemi_proto::ProjectRegisterParams { root: path },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: meltemi_proto::ProjectRegisterResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    let project = &result.project;
+    Ok(Outcome {
+        human: format!(
+            "registered {} — {} session(s), {} live",
+            project.root, project.sessions_total, project.active_sessions
+        ),
+        json: value,
+    })
+}
+
+/// `projects forget`: one line over the listing, and nothing else. The root
+/// need not exist — a directory that vanished is precisely the one worth
+/// forgetting — and the answer says out loud what was NOT done, because a
+/// command that hides a project is one keystroke away from being read as a
+/// command that deletes it.
+async fn project_forget(path: String, endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::PROJECT_FORGET,
+            &meltemi_proto::ProjectForgetParams { root: path.clone() },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: meltemi_proto::ProjectForgetResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    let human = if result.forgotten {
+        format!(
+            "forgot {path} — dropped from the project listing.\n\
+             Nothing was deleted: its sessions, their logs and the local accounting are \
+             untouched, and it reappears the moment the project is used or registered again."
+        )
+    } else {
+        format!("{path} was not in the project listing — nothing changed")
+    };
+    Ok(Outcome { human, json: value })
 }
 
 fn render_projects(result: &meltemi_proto::ProjectListResult) -> String {

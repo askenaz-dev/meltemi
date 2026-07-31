@@ -49,6 +49,7 @@ async fn propose_maps_to_the_propose_method() {
             Command::Propose {
                 idea: "add greeting".into(),
                 project_root: Some(fixture.display().to_string()),
+                agent: None,
             },
             &endpoint,
         ),

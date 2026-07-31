@@ -175,6 +175,77 @@ async fn sessions_maps_to_session_list_and_emits_one_json_object() {
     let _ = std::fs::remove_dir_all(&fixture);
 }
 
+// Scenario: Alta y baja de proyecto desde la CLI
+#[tokio::test]
+async fn the_registry_verbs_map_through_the_grammar_to_their_methods() {
+    // Driven from the argument line rather than from a hand-built `Command`,
+    // because half of what this scenario asks is that the parser reads
+    // `register` as the discriminator and not as the project root.
+    let (endpoint, handle) = spawn_daemon("registry").await;
+
+    let fixture = std::env::temp_dir().join(format!("meltemi-cli-reg-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&fixture);
+    std::fs::create_dir_all(&fixture).unwrap();
+    let path = fixture.display().to_string();
+
+    let outcome = execute(command_of(&["projects", "register", &path]), &endpoint)
+        .await
+        .expect("projects register succeeds");
+    assert_eq!(
+        outcome.json["project"]["exists"], true,
+        "the registered project comes back in the shape `project/list` reports: {}",
+        outcome.json
+    );
+    assert!(
+        outcome.human.starts_with("registered "),
+        "{}",
+        outcome.human
+    );
+    // Nothing was created inside the root: registering aims the tool at a
+    // folder, it does not initialize one.
+    assert!(!fixture.join(".meltemi").exists());
+
+    // It is listed, then it is not — and the second answer says what was NOT
+    // done, because a verb that hides a project sits one keystroke away from
+    // being read as one that deletes it.
+    let listed = execute(command_of(&["projects"]), &endpoint)
+        .await
+        .expect("projects lists");
+    assert!(
+        listed.json["projects"]
+            .as_array()
+            .expect("projects array")
+            .iter()
+            .any(|project| project["exists"] == true),
+        "the registry lists it: {}",
+        listed.json
+    );
+
+    let outcome = execute(command_of(&["projects", "forget", &path]), &endpoint)
+        .await
+        .expect("projects forget succeeds");
+    assert_eq!(outcome.json["forgotten"], true, "{}", outcome.json);
+    assert!(
+        outcome.human.contains("Nothing was deleted"),
+        "the answer says what it did not do: {}",
+        outcome.human
+    );
+    assert!(fixture.is_dir(), "the directory itself is untouched");
+
+    handle.abort();
+    let _ = std::fs::remove_dir_all(&fixture);
+}
+
+/// The `Command` an argument line resolves to, so a mapping test exercises the
+/// grammar it ships with instead of a hand-built value.
+fn command_of(args: &[&str]) -> Command {
+    let owned: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
+    match meltemi::cli::plan(&owned, false).action {
+        meltemi::cli::Action::Run(command) => command,
+        other => panic!("`{args:?}` must resolve to a runnable command, got {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn stop_maps_to_shutdown_and_stops_the_daemon() {
     // Scenario: stop -> shutdown; the daemon then stops.

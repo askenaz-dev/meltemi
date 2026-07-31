@@ -456,6 +456,21 @@ posicional para que el subcomando la lea —la misma lista donde ya viven `--all
 `--project`, `--since`, `--until`—, porque el parser global es estricto con
 flags desconocidas y una flag rechazada haría inusable lo que la ayuda anuncia.
 
+**Enmienda del 2026-07-31 (tarea 5.1), y su razón.** La flag se declara en esa
+lista, exactamente como dice el párrafo anterior; lo que cambia es quién la lee.
+El escenario de la spec pide que no sea rechazada «en cualquier posición de la
+línea», y dejarla como posicional para que cada subcomando la busque solo cubre
+las posiciones **a la derecha del verbo**: escrita antes (`meltemi --agent work
+session "..."`), el primer posicional es `--agent` y el parser la lee como
+subcomando desconocido. Así que se saca de los posicionales una sola vez, en
+`plan`, y se entrega al subcomando como parámetro —igual que `--exec`—, con dos
+consecuencias que valen el cambio: es de verdad independiente de la posición, y
+existe un solo sitio que la parsea en vez de tres copias del mismo barrido. Lo
+que el cambio **no** trae es tolerancia: un subcomando que no arranca sesión
+rehúsa `--agent` con diagnóstico en vez de tragársela, porque una flag ignorada
+es una mentira sobre qué agente corrió, y un `--agent` sin valor rehúsa en vez de
+consumir el token siguiente.
+
 ### D10 — Plan de paridad: qué toca exactamente cada método nuevo
 
 Tres métodos nuevos (`session/start`, `project/register`, `project/forget`).

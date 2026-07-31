@@ -45,8 +45,8 @@ desktop/ui`).
 
 ## 5. Superficies de terminal: CLI y TUI
 
-- [ ] 5.1 Añadir a `tui/src/cli.rs` los subcomandos `session <instruction> [project-root]`, `projects register <path>` y `projects forget <path>`, más `--agent` en la lista de flags que el parser global deja pasar al subcomando; mapearlos en `tui/src/run.rs` — gate: `cargo test -p meltemi`
-- [ ] 5.2 Regenerar `docs/referencia-cli.md` (`cargo run --example gen_cli_ref`) y verificar el gate de frescura — gate: `cargo test -p meltemi` (`tui/tests/docs.rs`)
+- [x] 5.1 Añadir a `tui/src/cli.rs` los subcomandos `session <instruction> [project-root]`, `projects register <path>` y `projects forget <path>`, más `--agent` en la lista de flags que el parser global deja pasar al subcomando; mapearlos en `tui/src/run.rs` — gate: `cargo test -p meltemi`
+- [x] 5.2 Regenerar `docs/referencia-cli.md` (`cargo run --example gen_cli_ref`) y verificar el gate de frescura — gate: `cargo test -p meltemi` (`tui/tests/docs.rs`)
 - [ ] 5.3 Registrar los tres métodos en `tui/src/shell/palette.rs`, cada uno declarado por exactamente una `Entry`, y quitar `reserved: true` del verbo `direct` — gate: `cargo test -p meltemi` (`parity.rs`, unicidad de métodos)
 - [ ] 5.4 Cablear `direct` interactivo: brazo en `Action::Submit` de `state.rs`, variante de `Effect`, despacho en `mod.rs` y operación async en `conn.rs`, con un overlay de entrada que **preserve el texto tal cual** (la paleta hace `to_ascii_lowercase` sobre su línea) — gate: `cargo test -p meltemi`
 - [ ] 5.5 Estados honestos en la TUI: encolada con posición, reanudación, y diagnóstico con remedio cuando la sesión no admite dirección — gate: `cargo test -p meltemi`

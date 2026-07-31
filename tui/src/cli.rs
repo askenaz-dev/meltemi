@@ -21,11 +21,20 @@ USAGE:
 
 SUBCOMMANDS:
     status              show daemon version, uptime and active sessions
-    propose <idea>      scaffold a change proposal and delegate it to an agent
+    propose <idea> [project-root] [--agent <id|profile>]
+                        scaffold a change proposal and delegate it to an agent
     fleet               list the agent fleet catalog (detection and levels)
     project             regenerate the projected context (AGENTS.md, ...)
+    session <instruction> [project-root] [--agent <id|profile>]
+                        start a free session on that project: no change, no
+                        spec and no gate, and nothing of the government
+                        relaxed — the fleet resolves the agent, permissions go
+                        through the proxy, the log is append-only, and a
+                        restore point is taken before the first turn (or its
+                        absence is declared with the remedy that fits)
     sessions            list agent sessions (active and historical)
-    explore <topic>     deliberate with the agent without writing
+    explore <topic> [--agent <id|profile>]
+                        deliberate with the agent without writing
     plan <change>       refine design and sequence a change's tasks
     constitution        create or edit the project constitution
     review <change>     review a change's spec deltas as a checklist
@@ -56,6 +65,13 @@ SUBCOMMANDS:
     archive <change> [confirm]
                         fold a verified change's deltas into the living truth
     projects            list the projects Meltemi has been pointed at
+    projects register <path>
+                        add a directory to that list: the daemon checks it
+                        exists, canonicalizes it and creates nothing inside it
+    projects forget <path>
+                        drop it from the listing and nothing else — no file, no
+                        session and no log is touched, and it comes back the
+                        moment the project is used or registered again
     usage [day|week|month|total] [--project <root>|--all] [--since <ts>] [--until <ts>]
                         local usage accounting folded from the session records;
                         tokens only where the agent's official output reports
@@ -113,6 +129,16 @@ pub enum Command {
     Propose {
         idea: String,
         project_root: Option<String>,
+        /// The fleet agent to draft it (`--agent`); `None` is the project's
+        /// configured agent, exactly as before the flag existed.
+        agent: Option<String>,
+    },
+    /// Start a free session on a project (`session/start`): an instruction and
+    /// a root, with no change, no spec and no gate.
+    Session {
+        instruction: String,
+        project_root: Option<String>,
+        agent: Option<String>,
     },
     /// List the fleet catalog (`fleet/list`).
     Fleet,
@@ -121,7 +147,10 @@ pub enum Command {
     /// List sessions, active and historical (`session/list`).
     Sessions { project_root: Option<String> },
     /// Deliberate with the agent without writing (`sdd/explore`).
-    Explore { topic: String },
+    Explore {
+        topic: String,
+        agent: Option<String>,
+    },
     /// Refine design and sequence a change's tasks (`sdd/plan`).
     Plan { change: String },
     /// Create/edit the project constitution (`sdd/constitution`).
@@ -132,6 +161,10 @@ pub enum Command {
     Worktrees { project_root: Option<String> },
     /// List the registered projects (`project/list`).
     Projects,
+    /// Add a directory to the project registry (`project/register`).
+    ProjectRegister { path: String },
+    /// Drop a project from the registry's listing (`project/forget`).
+    ProjectForget { path: String },
     /// Local usage accounting over the session records (`analytics/usage`).
     /// `scope` is `all` or a project root; `granularity` is day|week|month|total.
     Usage {
@@ -272,7 +305,9 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             // own parser to read. Declared here because the global parser is
             // strict about unknown flags — and a rejected flag would have made
             // the advertised `usage --all` unusable.
-            "--all" | "--project" | "--since" | "--until" => positionals.push(arg.as_str()),
+            "--all" | "--project" | "--since" | "--until" | "--agent" => {
+                positionals.push(arg.as_str());
+            }
             flag if flag.starts_with('-') && flag != "-" => {
                 return Plan {
                     action: Action::Usage(format!("unknown flag `{flag}`; run `meltemi help`")),
@@ -297,6 +332,17 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
         };
     }
 
+    // `--agent` is read once, here, wherever it landed on the line.
+    let agent = match take_agent(&mut positionals) {
+        Ok(agent) => agent,
+        Err(message) => {
+            return Plan {
+                action: Action::Usage(message),
+                json,
+            };
+        }
+    };
+
     let action = match positionals.split_first() {
         None => {
             // A bare invocation goes interactive only with a TTY and without
@@ -308,15 +354,50 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
                 Action::Usage("no subcommand given; run `meltemi help`".into())
             }
         }
-        Some((subcommand, rest)) => plan_subcommand(subcommand, rest, exec),
+        Some((subcommand, rest)) => plan_subcommand(subcommand, rest, exec, agent),
     };
 
     Plan { action, json }
 }
 
+/// Lifts `--agent <value>` out of the collected positionals, wherever on the
+/// line it was written.
+///
+/// The flag is declared in the global loop like `--all` and friends, because a
+/// strict parser that rejected it would make the grammar the help advertises
+/// unusable. Reading it here rather than inside each subcommand is what makes
+/// `--agent` position-independent — a flag that only works to the right of the
+/// instruction is a half-promise — and it keeps one parse instead of three
+/// copies of the same scan. What the subcommand gets is the value, verbatim:
+/// nothing lowercases an agent name on the way to the daemon.
+fn take_agent(positionals: &mut Vec<&str>) -> Result<Option<String>, String> {
+    let Some(index) = positionals.iter().position(|token| *token == "--agent") else {
+        return Ok(None);
+    };
+    match positionals.get(index + 1) {
+        // A flag where the value belongs means the value is missing: refuse,
+        // never consume the next flag as if it were an agent name.
+        Some(value) if !value.starts_with('-') => {
+            let value = (*value).to_string();
+            positionals.drain(index..=index + 1);
+            Ok(Some(value))
+        }
+        _ => Err("`--agent` requires an agent id or launch profile name".into()),
+    }
+}
+
 /// Maps a subcommand and its remaining positionals to an action. `exec` carries
-/// the global `--exec` flag (only `tunnel` consumes it).
-fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool) -> Action {
+/// the global `--exec` flag (only `tunnel` consumes it); `agent` carries
+/// `--agent`, which only the session-starting verbs consume.
+fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool, agent: Option<String>) -> Action {
+    // `--agent` names who runs a session. A subcommand that starts none has
+    // nothing to do with it, and quietly swallowing the flag would be a lie
+    // about which agent ran — so it is refused where it means nothing.
+    if agent.is_some() && !matches!(subcommand, "session" | "propose" | "explore") {
+        return Action::Usage(format!(
+            "`--agent` applies to `session`, `propose` and `explore`, not `{subcommand}`"
+        ));
+    }
     match subcommand {
         "help" => Action::Help,
         "version" => Action::Version,
@@ -342,8 +423,32 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool) -> Action {
             [] => Action::Usage("`explore` requires a topic: meltemi explore \"<topic>\"".into()),
             [topic] => Action::Run(Command::Explore {
                 topic: (*topic).to_string(),
+                agent,
             }),
             _ => Action::Usage("`explore` takes a single quoted topic".into()),
+        },
+        // `session`, not `start`: `stop` already means the daemon in this
+        // grammar, and a `start` beside it would read as "start the daemon",
+        // which is the opposite of what this does (design D9).
+        "session" => match rest {
+            [] => Action::Usage(
+                "`session` requires an instruction: meltemi session \"<instruction>\" \
+                 [project-root] [--agent <id|profile>]"
+                    .into(),
+            ),
+            [instruction] => Action::Run(Command::Session {
+                instruction: (*instruction).to_string(),
+                project_root: None,
+                agent,
+            }),
+            [instruction, root] => Action::Run(Command::Session {
+                instruction: (*instruction).to_string(),
+                project_root: Some((*root).to_string()),
+                agent,
+            }),
+            _ => Action::Usage(
+                "`session` takes a quoted instruction and at most a project root".into(),
+            ),
         },
         "plan" => match rest {
             [change] => Action::Run(Command::Plan {
@@ -535,8 +640,30 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool) -> Action {
                 "`implement` requires: meltemi implement <change> <agent> [plan]".into(),
             ),
         },
-        "projects" if rest.is_empty() => Action::Run(Command::Projects),
-        "projects" => Action::Usage("`projects` takes no arguments".into()),
+        // The registry verbs hang off the plural listing verb, which took no
+        // positionals: `meltemi project register <path>` would have parsed
+        // `register` AS the project root, because `project` already takes one
+        // (design D9). The discriminator comes first, like `usage <granularity>`.
+        "projects" => match rest {
+            [] => Action::Run(Command::Projects),
+            ["register", path] => Action::Run(Command::ProjectRegister {
+                path: (*path).to_string(),
+            }),
+            ["forget", path] => Action::Run(Command::ProjectForget {
+                path: (*path).to_string(),
+            }),
+            ["register"] => Action::Usage(
+                "`projects register` requires a path: meltemi projects register <path>".into(),
+            ),
+            ["forget"] => Action::Usage(
+                "`projects forget` requires a path: meltemi projects forget <path>".into(),
+            ),
+            _ => Action::Usage(
+                "`projects` lists the registry; `projects register <path>` and \
+                 `projects forget <path>` change it"
+                    .into(),
+            ),
+        },
         "usage" => parse_usage(rest),
         "changes" if rest.is_empty() => Action::Run(Command::Changes),
         "changes" => Action::Usage("`changes` takes no arguments".into()),
@@ -591,10 +718,12 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool) -> Action {
             [idea] => Action::Run(Command::Propose {
                 idea: (*idea).to_string(),
                 project_root: None,
+                agent,
             }),
             [idea, root] => Action::Run(Command::Propose {
                 idea: (*idea).to_string(),
                 project_root: Some((*root).to_string()),
+                agent,
             }),
             _ => Action::Usage("`propose` takes at most an idea and a project root".into()),
         },
@@ -1203,11 +1332,13 @@ mod tests {
 
     #[test]
     fn propose_takes_idea_and_optional_root() {
+        // Scenario: Sin la flag el comportamiento no cambia
         assert_eq!(
             plan_of(&["propose", "add auth"], false).action,
             Action::Run(Command::Propose {
                 idea: "add auth".into(),
                 project_root: None,
+                agent: None,
             })
         );
         assert_eq!(
@@ -1215,6 +1346,14 @@ mod tests {
             Action::Run(Command::Propose {
                 idea: "add auth".into(),
                 project_root: Some("/repo".into()),
+                agent: None,
+            })
+        );
+        assert_eq!(
+            plan_of(&["explore", "how do we cache"], false).action,
+            Action::Run(Command::Explore {
+                topic: "how do we cache".into(),
+                agent: None,
             })
         );
     }
@@ -1258,7 +1397,141 @@ mod tests {
             Action::Run(Command::Propose {
                 idea: "--weird-idea".into(),
                 project_root: None,
+                agent: None,
             })
         );
+    }
+
+    #[test]
+    fn the_free_session_verb_takes_an_instruction_and_an_optional_root() {
+        // Scenario: El arranque de sesión libre tiene su subcomando
+        assert_eq!(
+            plan_of(&["session", "look at the failing build"], false).action,
+            Action::Run(Command::Session {
+                instruction: "look at the failing build".into(),
+                project_root: None,
+                agent: None,
+            })
+        );
+        assert_eq!(
+            plan_of(&["session", "look at the failing build", "/repo"], false).action,
+            Action::Run(Command::Session {
+                instruction: "look at the failing build".into(),
+                project_root: Some("/repo".into()),
+                agent: None,
+            })
+        );
+        // Without an instruction there is nothing to run: a usage error, never
+        // a session started on a default prompt nobody wrote.
+        assert!(matches!(
+            plan_of(&["session"], false).action,
+            Action::Usage(_)
+        ));
+        // And it does not collide with the daemon verb it sits next to, nor
+        // with the listing verb one letter away.
+        assert_eq!(plan_of(&["stop"], false).action, Action::Run(Command::Stop));
+        assert_eq!(
+            plan_of(&["sessions"], false).action,
+            Action::Run(Command::Sessions { project_root: None })
+        );
+    }
+
+    #[test]
+    fn the_registry_verbs_read_their_discriminator_and_not_a_path() {
+        // Scenario: Alta y baja de proyecto desde la CLI
+        assert_eq!(
+            plan_of(&["projects", "register", "/repo/Beta"], false).action,
+            Action::Run(Command::ProjectRegister {
+                path: "/repo/Beta".into()
+            })
+        );
+        assert_eq!(
+            plan_of(&["projects", "forget", "/repo/Beta"], false).action,
+            Action::Run(Command::ProjectForget {
+                path: "/repo/Beta".into()
+            })
+        );
+        // The bare verb still lists, and a discriminator with no path is a
+        // usage error rather than a path called `register`.
+        assert_eq!(
+            plan_of(&["projects"], false).action,
+            Action::Run(Command::Projects)
+        );
+        assert!(matches!(
+            plan_of(&["projects", "register"], false).action,
+            Action::Usage(_)
+        ));
+        // The reason these hang off `projects` and not `project`: that verb
+        // already takes a root, so `project register` would name a directory.
+        assert_eq!(
+            plan_of(&["project", "register"], false).action,
+            Action::Run(Command::Project {
+                project_root: Some("register".into())
+            })
+        );
+    }
+
+    #[test]
+    fn the_agent_flag_reaches_the_session_verbs_verbatim() {
+        // Scenario: Arranque con agente nombrado desde la CLI
+        let expected = |agent: &str| {
+            Action::Run(Command::Session {
+                instruction: "ship it".into(),
+                project_root: None,
+                agent: Some(agent.to_string()),
+            })
+        };
+        assert_eq!(
+            plan_of(&["session", "ship it", "--agent", "Work-Sub"], false).action,
+            expected("Work-Sub"),
+            "the agent name travels with its capitals: a lowercased profile \
+             name is a different profile, and on Linux a different binary"
+        );
+        assert_eq!(
+            plan_of(&["propose", "add auth", "--agent", "Work-Sub"], false).action,
+            Action::Run(Command::Propose {
+                idea: "add auth".into(),
+                project_root: None,
+                agent: Some("Work-Sub".into()),
+            })
+        );
+        assert_eq!(
+            plan_of(&["explore", "caching", "--agent", "Work-Sub"], false).action,
+            Action::Run(Command::Explore {
+                topic: "caching".into(),
+                agent: Some("Work-Sub".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn the_agent_flag_is_never_rejected_as_an_unknown_flag() {
+        // Scenario: La flag no es rechazada por el parser global
+        // The global parser is strict about flags it does not know, so an
+        // advertised flag it rejected would be a promise the grammar breaks.
+        // It is read wherever it is written — including ahead of the verb.
+        for line in [
+            &["session", "ship it", "--agent", "work"][..],
+            &["session", "--agent", "work", "ship it"][..],
+            &["--agent", "work", "session", "ship it"][..],
+            &["session", "ship it", "/repo", "--agent", "work"][..],
+        ] {
+            let action = plan_of(line, false).action;
+            assert!(
+                matches!(action, Action::Run(Command::Session { .. })),
+                "`--agent` must reach its subcommand from {line:?}, got {action:?}"
+            );
+        }
+        // A missing value is refused rather than swallowing the next token.
+        assert!(matches!(
+            plan_of(&["session", "ship it", "--agent"], false).action,
+            Action::Usage(_)
+        ));
+        // And where it means nothing it is refused, not ignored: a swallowed
+        // flag would be a lie about which agent ran.
+        assert!(matches!(
+            plan_of(&["sessions", "--agent", "work"], false).action,
+            Action::Usage(_)
+        ));
     }
 }

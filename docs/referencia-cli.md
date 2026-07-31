@@ -17,11 +17,20 @@ USAGE:
 
 SUBCOMMANDS:
     status              show daemon version, uptime and active sessions
-    propose <idea>      scaffold a change proposal and delegate it to an agent
+    propose <idea> [project-root] [--agent <id|profile>]
+                        scaffold a change proposal and delegate it to an agent
     fleet               list the agent fleet catalog (detection and levels)
     project             regenerate the projected context (AGENTS.md, ...)
+    session <instruction> [project-root] [--agent <id|profile>]
+                        start a free session on that project: no change, no
+                        spec and no gate, and nothing of the government
+                        relaxed — the fleet resolves the agent, permissions go
+                        through the proxy, the log is append-only, and a
+                        restore point is taken before the first turn (or its
+                        absence is declared with the remedy that fits)
     sessions            list agent sessions (active and historical)
-    explore <topic>     deliberate with the agent without writing
+    explore <topic> [--agent <id|profile>]
+                        deliberate with the agent without writing
     plan <change>       refine design and sequence a change's tasks
     constitution        create or edit the project constitution
     review <change>     review a change's spec deltas as a checklist
@@ -52,6 +61,13 @@ SUBCOMMANDS:
     archive <change> [confirm]
                         fold a verified change's deltas into the living truth
     projects            list the projects Meltemi has been pointed at
+    projects register <path>
+                        add a directory to that list: the daemon checks it
+                        exists, canonicalizes it and creates nothing inside it
+    projects forget <path>
+                        drop it from the listing and nothing else — no file, no
+                        session and no log is touched, and it comes back the
+                        moment the project is used or registered again
     usage [day|week|month|total] [--project <root>|--all] [--since <ts>] [--until <ts>]
                         local usage accounting folded from the session records;
                         tokens only where the agent's official output reports
