@@ -46,14 +46,18 @@ pub fn touch(data_dir: &Path, root: &Path) {
 
 /// Appends "seen now" for `root` and returns the record it wrote: the first
 /// sighting is the earliest one the registry ever held, so a repeat is
-/// idempotent.
+/// idempotent, and a project that had been forgotten reappears — a later line
+/// wins the fold, which is the whole mechanism.
 fn record_seen(data_dir: &Path, root: &Path) -> ProjectRecord {
     let key = crate::paths::project_key(root);
     let now = crate::clock::now_rfc3339();
-    let first_seen_at = list(data_dir)
-        .into_iter()
-        .find(|record| record.project_key == key)
-        .map(|record| record.first_seen_at)
+    // Looked up in the FOLD rather than the listing: a forgotten project keeps
+    // the day it was first seen when it comes back, because forgetting hides a
+    // row, it does not erase a history.
+    let first_seen_at = fold(data_dir)
+        .all
+        .get(&key)
+        .map(|record| record.first_seen_at.clone())
         .unwrap_or_else(|| now.clone());
     let record = ProjectRecord {
         v: RECORD_VERSION,
@@ -85,21 +89,51 @@ fn append_line(data_dir: &Path, line: &str) {
     }
 }
 
-/// The registered projects, most recently seen first. Unparsable lines are
+/// The prefix of a forget line. The exact precedent is next door:
+/// `worktrees::list` has folded `REMOVED <path>` lines since
+/// orquestacion-worktrees, for the same reason — an append-only file cannot
+/// delete, so it tombstones (design D6).
+const FORGOTTEN: &str = "FORGOTTEN ";
+
+/// The folded registry: what is listed, and what the registry has ever known.
+struct Fold {
+    /// Folded records that no later line forgot, most recently seen first.
+    visible: Vec<ProjectRecord>,
+    /// Every folded record, forgotten ones included: forgetting hides a row, it
+    /// does not erase what the registry knew about it.
+    all: BTreeMap<String, ProjectRecord>,
+}
+
+/// Folds the append-only registry last-wins by project key. Unparsable lines are
 /// skipped: a corrupt tail must not hide the rest of the history.
-pub fn list(data_dir: &Path) -> Vec<ProjectRecord> {
+fn fold(data_dir: &Path) -> Fold {
     let Ok(text) = std::fs::read_to_string(index_path(data_dir)) else {
-        return Vec::new();
+        return Fold {
+            visible: Vec::new(),
+            all: BTreeMap::new(),
+        };
     };
     // The append order IS the recency order, and the timestamps have one-second
     // resolution: two touches inside the same second tie, so the line position
     // breaks the tie. Without it, "most recently used first" would be luck.
     let mut order: BTreeMap<String, usize> = BTreeMap::new();
     let mut folded: BTreeMap<String, ProjectRecord> = BTreeMap::new();
+    let mut forgotten: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for (position, line) in text.lines().enumerate() {
+        if let Some(key) = line.strip_prefix(FORGOTTEN) {
+            let key = key.trim();
+            if !key.is_empty() {
+                forgotten.insert(key.to_string());
+            }
+            continue;
+        }
         let Ok(record) = serde_json::from_str::<ProjectRecord>(line) else {
             continue;
         };
+        // A record after a tombstone un-forgets the project: last line wins, and
+        // that is exactly how a forgotten project reappears when it is used or
+        // registered again.
+        forgotten.remove(&record.project_key);
         order.insert(record.project_key.clone(), position);
         match folded.get_mut(&record.project_key) {
             // Last write wins for the root and the recency; the first sighting
@@ -116,8 +150,12 @@ pub fn list(data_dir: &Path) -> Vec<ProjectRecord> {
             }
         }
     }
-    let mut records: Vec<ProjectRecord> = folded.into_values().collect();
-    records.sort_by(|a, b| {
+    let mut visible: Vec<ProjectRecord> = folded
+        .values()
+        .filter(|record| !forgotten.contains(&record.project_key))
+        .cloned()
+        .collect();
+    visible.sort_by(|a, b| {
         b.last_seen_at.cmp(&a.last_seen_at).then_with(|| {
             let (left, right) = (
                 order.get(&a.project_key).copied().unwrap_or(0),
@@ -126,7 +164,67 @@ pub fn list(data_dir: &Path) -> Vec<ProjectRecord> {
             right.cmp(&left)
         })
     });
-    records
+    Fold {
+        visible,
+        all: folded,
+    }
+}
+
+/// The registered projects, most recently seen first, without the ones a forget
+/// line dropped from the listing.
+pub fn list(data_dir: &Path) -> Vec<ProjectRecord> {
+    fold(data_dir).visible
+}
+
+/// Compares two roots the way a human means them: a trailing separator is not a
+/// different directory, and on Windows neither is a different case or a forward
+/// slash. Used only to find a registered root that can no longer be
+/// canonicalized — which is precisely the root somebody wants to forget.
+fn same_root(left: &str, right: &str) -> bool {
+    fn normalize(path: &str) -> String {
+        let unified = path.replace('\\', "/");
+        let trimmed = unified.trim_end_matches('/');
+        if cfg!(windows) {
+            trimmed.to_lowercase()
+        } else {
+            trimmed.to_string()
+        }
+    }
+    normalize(left) == normalize(right)
+}
+
+/// Drops a project from the listing by appending a forget line. Returns whether
+/// the registry was listing that root and no longer is; `false` says it was not
+/// listed to begin with, which is not an error — the caller asked for a state,
+/// and that state already held.
+///
+/// Nothing on disk is deleted, and nothing but the listing changes: the sessions
+/// keep listing, their logs keep reading and the analytics keep counting them.
+pub fn forget(data_dir: &Path, root: &Path) -> bool {
+    let listed = list(data_dir);
+    // The key when the path still resolves, which is the exact same key the
+    // registry derived when it stored the project.
+    let by_key = root
+        .canonicalize()
+        .ok()
+        .map(|_| crate::paths::project_key(root))
+        .filter(|key| listed.iter().any(|record| &record.project_key == key));
+    // Otherwise match the registered roots as text: a root that no longer exists
+    // cannot be canonicalized, and it is the likeliest thing to be forgetting.
+    let key = by_key.or_else(|| {
+        let target = root.display().to_string();
+        listed
+            .into_iter()
+            .find(|record| same_root(&record.root, &target))
+            .map(|record| record.project_key)
+    });
+    match key {
+        Some(key) => {
+            append_line(data_dir, &format!("{FORGOTTEN}{key}"));
+            true
+        }
+        None => false,
+    }
 }
 
 /// Rebuilds the registry from the session records, which are the source of
@@ -300,6 +398,23 @@ pub async fn handle_project_register(
     let live = live_sessions(state).await;
     let project = to_info(&state.data_dir, record, &live);
     serde_json::to_value(ProjectRegisterResult { project }).map_err(crate::rpc::RpcError::internal)
+}
+
+/// Handles `project/forget`: one line over the listing, and nothing else. No
+/// file, no session, no session log and no analytics record is touched, and the
+/// root need not exist — a directory that vanished is precisely the one worth
+/// forgetting, so demanding a canonicalizable path would make it unforgettable
+/// (design D6).
+pub async fn handle_project_forget(
+    params: serde_json::Value,
+    state: &std::sync::Arc<crate::server::DaemonState>,
+) -> Result<serde_json::Value, crate::rpc::RpcError> {
+    use meltemi_proto::{ProjectForgetParams, ProjectForgetResult};
+
+    let params: ProjectForgetParams = serde_json::from_value(params)
+        .map_err(|e| crate::rpc::RpcError::invalid_params(format!("project/forget: {e}")))?;
+    let forgotten = forget(&state.data_dir, Path::new(&params.root));
+    serde_json::to_value(ProjectForgetResult { forgotten }).map_err(crate::rpc::RpcError::internal)
 }
 
 #[cfg(test)]
