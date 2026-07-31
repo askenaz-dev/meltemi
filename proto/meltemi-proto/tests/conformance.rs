@@ -177,6 +177,54 @@ fn propose_conforms() {
     );
 }
 
+/// The additive agent selector: naming one conforms, and omitting it produces
+/// the very bytes a client sent before the field existed.
+#[test]
+fn propose_and_explore_take_an_optional_agent() {
+    let named = ProposeParams {
+        idea: "add dark mode to the settings page".into(),
+        project_root: "C:\\repos\\fixture".into(),
+        agent: Some("claude-code".into()),
+    };
+    assert_conforms("propose", "params", &named);
+    let omitted = ProposeParams {
+        agent: None,
+        ..named.clone()
+    };
+    assert_conforms("propose", "params", &omitted);
+    assert_eq!(
+        serde_json::to_value(&omitted).unwrap(),
+        json!({ "idea": "add dark mode to the settings page", "projectRoot": "C:\\repos\\fixture" }),
+        "omitting the agent must serialize exactly as before the field existed"
+    );
+
+    let explore = SddExploreParams {
+        project_root: "C:\\repos\\fixture".into(),
+        topic: "how should the launcher work".into(),
+        agent: Some("subscription-profile".into()),
+    };
+    assert_conforms("sdd", "exploreParams", &explore);
+    assert_conforms(
+        "sdd",
+        "exploreParams",
+        &SddExploreParams {
+            agent: None,
+            ..explore.clone()
+        },
+    );
+    // An empty name is not a name: it would resolve to nothing in silence.
+    assert_rejected(
+        "propose",
+        "params",
+        &json!({ "idea": "i", "projectRoot": "/r", "agent": "" }),
+    );
+    assert_rejected(
+        "sdd",
+        "exploreParams",
+        &json!({ "projectRoot": "/r", "agent": "" }),
+    );
+}
+
 #[test]
 fn permission_rules_and_queue_conform() {
     let rule = PermissionRule {
@@ -606,6 +654,187 @@ fn session_direct_conforms() {
             status: Some(TurnStatus::Completed),
             denied_permissions: 2,
         },
+    );
+}
+
+#[test]
+fn session_start_conforms() {
+    assert_conforms(
+        "session-start",
+        "params",
+        &SessionStartParams {
+            project_root: "C:\\repos\\fixture".into(),
+            instruction: "find out why the build is slow".into(),
+            agent: Some("claude-code".into()),
+        },
+    );
+    // No agent named: the project's configured one, exactly as everywhere else.
+    assert_conforms(
+        "session-start",
+        "params",
+        &SessionStartParams {
+            project_root: "/repos/fixture".into(),
+            instruction: "find out why the build is slow".into(),
+            agent: None,
+        },
+    );
+
+    let started = SessionStartResult {
+        session_id: "sess-1".into(),
+        agent_command: vec!["mock-agent".into(), "--acp".into()],
+        status: TurnStatus::Completed,
+        denied_permissions: 0,
+        checkpoint_ref: Some("refs/meltemi/checkpoints/free/sess-1-mock".into()),
+        checkpoint_unavailable: None,
+        checkpoint_remedy: None,
+    };
+    assert_conforms("session-start", "result", &started);
+    // Every turn outcome the contract knows, including a cancelled one.
+    for status in [
+        TurnStatus::Completed,
+        TurnStatus::Cancelled,
+        TurnStatus::Refused,
+        TurnStatus::MaxTokens,
+        TurnStatus::MaxTurnRequests,
+    ] {
+        assert_conforms(
+            "session-start",
+            "result",
+            &SessionStartResult {
+                status,
+                denied_permissions: 2,
+                ..started.clone()
+            },
+        );
+    }
+    // No restore point: the session started anyway, and the result says which
+    // of the two causes it was — the remedies are not interchangeable.
+    assert_conforms(
+        "session-start",
+        "result",
+        &SessionStartResult {
+            checkpoint_ref: None,
+            checkpoint_unavailable: Some(CheckpointUnavailable::NotAGitRepo),
+            checkpoint_remedy: Some(
+                "Run `git init` in this directory to get restore points.".into(),
+            ),
+            ..started.clone()
+        },
+    );
+    assert_conforms(
+        "session-start",
+        "result",
+        &SessionStartResult {
+            checkpoint_ref: None,
+            checkpoint_unavailable: Some(CheckpointUnavailable::NoHistory),
+            checkpoint_remedy: Some(
+                "Make the first commit in this repository to get restore points.".into(),
+            ),
+            ..started.clone()
+        },
+    );
+
+    // An instruction is what a free session is made of; there is no default.
+    assert_rejected(
+        "session-start",
+        "params",
+        &json!({ "projectRoot": "C:\\repos\\fixture" }),
+    );
+    assert_rejected(
+        "session-start",
+        "params",
+        &json!({ "projectRoot": "C:\\repos\\fixture", "instruction": "" }),
+    );
+    // Which binary ran is never ambiguous: an empty command would say nothing.
+    assert_rejected(
+        "session-start",
+        "result",
+        &json!({
+            "sessionId": "sess-1",
+            "agentCommand": [],
+            "status": "completed",
+            "deniedPermissions": 0
+        }),
+    );
+    // The denial count is part of the honest result, not an optional extra.
+    assert_rejected(
+        "session-start",
+        "result",
+        &json!({ "sessionId": "sess-1", "agentCommand": ["mock-agent"], "status": "completed" }),
+    );
+    // A third cause would need a remedy of its own before it could exist.
+    assert_rejected("session-start", "checkpointUnavailable", &json!("no_git"));
+}
+
+// The registry's own two verbs (lanzador-conversacional D6).
+#[test]
+fn project_registry_conforms() {
+    assert_conforms(
+        "project-registry",
+        "projectRegisterParams",
+        &ProjectRegisterParams {
+            root: "C:\\repos\\fixture".into(),
+        },
+    );
+    let project = ProjectInfo {
+        project_key: "a1b2c3d4e5f60718".into(),
+        root: "C:\\repos\\fixture".into(),
+        exists: true,
+        first_seen_at: TS.into(),
+        last_seen_at: TS.into(),
+        sessions_total: 0,
+        active_sessions: 0,
+        resumable_sessions: 0,
+    };
+    // A folder registered before anything ever ran in it: zeros all the way
+    // down, and listed all the same.
+    assert_conforms(
+        "project-registry",
+        "projectRegisterResult",
+        &ProjectRegisterResult { project },
+    );
+    assert_conforms(
+        "project-registry",
+        "projectForgetParams",
+        &ProjectForgetParams {
+            root: "/repos/vanished".into(),
+        },
+    );
+    assert_conforms(
+        "project-registry",
+        "projectForgetResult",
+        &ProjectForgetResult { forgotten: true },
+    );
+    // Nothing was listed under that root: an answer, not a failure.
+    assert_conforms(
+        "project-registry",
+        "projectForgetResult",
+        &ProjectForgetResult { forgotten: false },
+    );
+
+    assert_rejected("project-registry", "projectRegisterParams", &json!({}));
+    assert_rejected(
+        "project-registry",
+        "projectRegisterParams",
+        &json!({ "root": "" }),
+    );
+    assert_rejected(
+        "project-registry",
+        "projectForgetParams",
+        &json!({ "root": "" }),
+    );
+    assert_rejected("project-registry", "projectForgetResult", &json!({}));
+}
+
+/// `projectInfo` is defined twice — the registry file cannot `$ref` across
+/// files, since the harness grafts one document's `$defs` onto a synthetic
+/// root. Copies drift unless something watches them, so this does.
+#[test]
+fn the_two_project_info_definitions_are_the_same_definition() {
+    assert_eq!(
+        schema_doc("project-list")["$defs"]["projectInfo"],
+        schema_doc("project-registry")["$defs"]["projectInfo"],
+        "project-list and project-registry describe the same project differently"
     );
 }
 
@@ -1868,6 +2097,98 @@ fn error_data_conforms() {
             remedy: None,
             candidates: None,
         },
+    );
+}
+
+/// A refusal to resolve an agent hands over the fleet instead of a sentence
+/// (D7): 2000 and 2001 enriched, no new code.
+#[test]
+fn resolution_refusals_carry_the_fleet_candidates() {
+    let states = [
+        FleetInstallState::Ready,
+        FleetInstallState::AdapterMissing,
+        FleetInstallState::CliMissing,
+        FleetInstallState::NotDetected,
+        FleetInstallState::NotLaunchable,
+    ];
+    assert_conforms(
+        "error",
+        "errorData",
+        &ErrorData {
+            kind: "agent_command_not_configured".into(),
+            detail: "No agent is configured for this project.".into(),
+            remedy: Some("Pick one of the detected agents, or set agent.id.".into()),
+            candidates: Some(
+                states
+                    .into_iter()
+                    .map(|install_state| AgentCandidate {
+                        id: "claude-code".into(),
+                        detected: install_state == FleetInstallState::Ready,
+                        install_state,
+                        remedy: Some("Install the official CLI.".into()),
+                        remedy_command: Some("npm i -g @anthropic-ai/claude-code".into()),
+                    })
+                    .collect(),
+            ),
+        },
+    );
+    // A detected candidate needs no remedy at all.
+    assert_conforms(
+        "error",
+        "errorData",
+        &ErrorData {
+            kind: "agent_not_detected".into(),
+            detail: "The agent `acme-agent` is not detected on this system.".into(),
+            remedy: Some("Choose a detected agent.".into()),
+            candidates: Some(vec![AgentCandidate {
+                id: "mock-agent".into(),
+                detected: true,
+                install_state: FleetInstallState::Ready,
+                remedy: None,
+                remedy_command: None,
+            }]),
+        },
+    );
+    // The fleet was consulted and nothing was found: an answer, not an omission.
+    assert_conforms(
+        "error",
+        "errorData",
+        &ErrorData {
+            kind: "agent_command_not_configured".into(),
+            detail: "No agent is configured and none was detected.".into(),
+            remedy: Some("Install one of the supported CLIs.".into()),
+            candidates: Some(vec![]),
+        },
+    );
+
+    // A candidate nobody can act on: no state to show, no choice to offer.
+    assert_rejected(
+        "error",
+        "agentCandidate",
+        &json!({ "id": "claude-code", "detected": false }),
+    );
+    assert_rejected(
+        "error",
+        "agentCandidate",
+        &json!({ "id": "", "detected": true, "installState": "ready" }),
+    );
+    assert_rejected(
+        "error",
+        "agentCandidate",
+        &json!({ "id": "x", "detected": true, "installState": "probably" }),
+    );
+}
+
+/// The candidate's install state is the fleet's install state, spelled twice
+/// because the harness resolves no cross-file `$ref`. A candidate whose states
+/// drifted from `fleet/list` would make the error and the Fleet view disagree,
+/// which is exactly what D7 forbids.
+#[test]
+fn candidate_install_states_are_the_fleets_install_states() {
+    assert_eq!(
+        schema_doc("fleet")["$defs"]["fleetInstallState"]["enum"],
+        schema_doc("error")["$defs"]["agentCandidate"]["properties"]["installState"]["enum"],
+        "the error's install states and the fleet's have diverged"
     );
 }
 
