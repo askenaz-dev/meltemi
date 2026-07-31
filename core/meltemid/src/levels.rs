@@ -62,16 +62,20 @@ pub fn resolve_launch(
             level: 1,
         });
     }
+    let catalog = build_catalog(config);
     let Some(id) = &config.agent_id else {
-        return Err(RpcError::application(
+        // The refusal hands over the fleet rather than a sentence: every surface
+        // could only transcribe "neither is configured", while the daemon knows
+        // perfectly well which agents are installed here (D7).
+        return Err(RpcError::application_with_candidates(
             error_codes::AGENT_COMMAND_NOT_CONFIGURED,
             "no agent configured",
             "agent_command_not_configured",
             "neither `agent.command` nor `agent.id` is configured",
             Some("Set `agent.id` (see `meltemi fleet`) or `agent.command`.".into()),
+            crate::fleet::candidates(&catalog, path_var, bundled_dir),
         ));
     };
-    let catalog = build_catalog(config);
     resolve_id_launch(&catalog, id, path_var, bundled_dir)
 }
 
@@ -197,10 +201,15 @@ pub fn resolve_id_launch(
     bundled_dir: Option<&Path>,
 ) -> Result<Launch, RpcError> {
     let Some(entry) = catalog.entries.iter().find(|e| e.id == id) else {
-        return Err(not_detected(format!(
-            "agent id `{id}` is not in the fleet catalog (registry {})",
-            catalog.registry_version
-        )));
+        return Err(not_detected(
+            format!(
+                "agent id `{id}` is not in the fleet catalog (registry {})",
+                catalog.registry_version
+            ),
+            catalog,
+            path_var,
+            bundled_dir,
+        ));
     };
 
     match entry.level {
@@ -211,7 +220,7 @@ pub fn resolve_id_launch(
                 path_var,
                 entry.bundled.then_some(bundled_dir).flatten(),
             )
-            .ok_or_else(|| layer_refusal(entry, path_var, bundled_dir))?;
+            .ok_or_else(|| layer_refusal(entry, catalog, path_var, bundled_dir))?;
             let mut argv = vec![bin.display().to_string()];
             argv.extend(entry.acp_args.iter().cloned());
             Ok(Launch::Acp { argv, level: 1 })
@@ -225,7 +234,7 @@ pub fn resolve_id_launch(
                 path_var,
                 entry.bundled.then_some(bundled_dir).flatten(),
             )
-            .ok_or_else(|| layer_refusal(entry, path_var, bundled_dir))?;
+            .ok_or_else(|| layer_refusal(entry, catalog, path_var, bundled_dir))?;
             let mut argv = vec![adapter.display().to_string()];
             argv.extend(entry.adapter_args.iter().cloned());
             Ok(Launch::Acp { argv, level: 2 })
@@ -237,7 +246,7 @@ pub fn resolve_id_launch(
                 path_var,
                 entry.bundled.then_some(bundled_dir).flatten(),
             )
-            .ok_or_else(|| layer_refusal(entry, path_var, bundled_dir))?;
+            .ok_or_else(|| layer_refusal(entry, catalog, path_var, bundled_dir))?;
             let mut argv = vec![bin.display().to_string()];
             argv.extend(entry.headless_args.iter().cloned());
             // Native controls Meltemi configures from data in one place (D2).
@@ -245,9 +254,12 @@ pub fn resolve_id_launch(
             Ok(Launch::Headless { argv, level: 3 })
         }
         4 => Ok(Launch::Artifacts { level: 4 }),
-        other => Err(not_detected(format!(
-            "agent `{id}` declares unsupported level {other}"
-        ))),
+        other => Err(not_detected(
+            format!("agent `{id}` declares unsupported level {other}"),
+            catalog,
+            path_var,
+            bundled_dir,
+        )),
     }
 }
 
@@ -263,6 +275,7 @@ fn undetected(name: &str) -> String {
 /// moment the user most needs the answer is what this replaces.
 fn layer_refusal(
     entry: &crate::fleet::CatalogEntry,
+    catalog: &crate::fleet::Catalog,
     path_var: &OsStr,
     bundled_dir: Option<&Path>,
 ) -> RpcError {
@@ -289,17 +302,25 @@ fn layer_refusal(
                 .to_string()
         }
     };
-    RpcError::application(
+    RpcError::application_with_candidates(
         error_codes::AGENT_NOT_DETECTED,
         "agent not detected",
         "agent_not_detected",
         detail,
         Some(hint),
+        crate::fleet::candidates(catalog, path_var, bundled_dir),
     )
 }
 
-fn not_detected(detail: String) -> RpcError {
-    RpcError::application(
+/// A refusal with no layer to point at — an id the catalog does not hold, or a
+/// level nothing can launch — carrying the same offer of detected agents.
+fn not_detected(
+    detail: String,
+    catalog: &crate::fleet::Catalog,
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> RpcError {
+    RpcError::application_with_candidates(
         error_codes::AGENT_NOT_DETECTED,
         "agent not detected",
         "agent_not_detected",
@@ -307,6 +328,7 @@ fn not_detected(detail: String) -> RpcError {
         Some(
             "Run `meltemi fleet`, install the agent's official CLI, or set `agent.command`.".into(),
         ),
+        crate::fleet::candidates(catalog, path_var, bundled_dir),
     )
 }
 

@@ -422,3 +422,128 @@ async fn a_deliberation_records_its_resolution_too() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A fixture with the same registry but NO configured agent at all, so a verb
+/// that needs one refuses with 2000 rather than 2001.
+fn fixture_without_a_configured_agent(tag: &str) -> PathBuf {
+    let root = fixture(tag);
+    let registry = root
+        .join(".meltemi/registry.toml")
+        .display()
+        .to_string()
+        .replace('\\', "/");
+    std::fs::write(
+        root.join(".meltemi/config.toml"),
+        format!("[fleet]\nregistry = '{registry}'\n"),
+    )
+    .unwrap();
+    root
+}
+
+// Scenario: La negativa trae los candidatos detectados
+// Scenario: El error y la vista Flota no discrepan
+#[tokio::test]
+async fn a_refusal_to_resolve_hands_over_the_fleet_it_could_have_used() {
+    let root = fixture_without_a_configured_agent("candidates");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("candidates").await;
+    let peer = init_client(&endpoint).await;
+
+    let refused = peer
+        .request(
+            methods::PROPOSE,
+            &json!({ "idea": "nothing configured", "projectRoot": root_str }),
+        )
+        .await
+        .expect_err("no agent is configured");
+    assert_eq!(
+        refused.code,
+        meltemi_proto::error_codes::AGENT_COMMAND_NOT_CONFIGURED
+    );
+    let data = refused.data.clone().expect("a refusal carries data");
+    let offered = data["candidates"]
+        .as_array()
+        .expect("the refusal offers what this machine has");
+
+    // One entry of the fixture registry resolves to the mock and the other
+    // resolves to nothing, so the offer is exactly the first.
+    let ids: Vec<&str> = offered
+        .iter()
+        .filter_map(|candidate| candidate["id"].as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["provider-a"],
+        "detected agents only: an offer nobody can take is not an offer: {data:#}"
+    );
+    assert_eq!(offered[0]["detected"], true);
+    assert!(
+        offered[0]["installState"].is_string(),
+        "each candidate carries its install state: {data:#}"
+    );
+
+    // And the state agrees with the Fleet view, because both come from the same
+    // detection path: a client comparing the two must never see a machine
+    // described two ways.
+    let fleet = peer
+        .request(methods::FLEET_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .expect("fleet/list ok");
+    for candidate in offered {
+        let row = fleet["agents"]
+            .as_array()
+            .expect("agents")
+            .iter()
+            .find(|agent| agent["id"] == candidate["id"])
+            .unwrap_or_else(|| panic!("the fleet lists {}: {fleet:#}", candidate["id"]));
+        assert_eq!(
+            row["installState"], candidate["installState"],
+            "the error and the Fleet view describe the same machine"
+        );
+        assert_eq!(row["detected"], candidate["detected"]);
+        assert_eq!(row["remedy"], candidate["remedy"]);
+    }
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn naming_an_undetected_agent_also_offers_the_ones_that_are_there() {
+    // The other refusal code: something WAS named, and it is not here. The offer
+    // matters more in this one — the user has already said what they want.
+    let root = fixture("candidates-2001");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("candidates-2001").await;
+    let peer = init_client(&endpoint).await;
+
+    let refused = peer
+        .request(
+            methods::PROPOSE,
+            &json!({ "idea": "absent", "projectRoot": root_str, "agent": "provider-absent" }),
+        )
+        .await
+        .expect_err("the named agent is not on this machine");
+    assert_eq!(refused.code, meltemi_proto::error_codes::AGENT_NOT_DETECTED);
+    let data = refused.data.clone().expect("a refusal carries data");
+    let ids: Vec<&str> = data["candidates"]
+        .as_array()
+        .expect("candidates")
+        .iter()
+        .filter_map(|candidate| candidate["id"].as_str())
+        .collect();
+    assert_eq!(ids, vec!["provider-a"], "{data:#}");
+    assert!(
+        !ids.contains(&"provider-absent"),
+        "the agent that is missing is not among the ways out of missing it: {data:#}"
+    );
+    // The prose survives beside the structure: a scriptable client still prints
+    // a diagnosis and a remedy.
+    assert!(!data["detail"].as_str().unwrap_or_default().is_empty());
+    assert!(!data["remedy"].as_str().unwrap_or_default().is_empty());
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}

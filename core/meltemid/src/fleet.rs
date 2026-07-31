@@ -933,6 +933,48 @@ pub fn list(
     }
 }
 
+/// The agents a refusal to resolve one can offer instead: the catalog entries
+/// **detected on this system**, each with the fleet's own vocabulary
+/// (lanzador-conversacional D7).
+///
+/// Detected only, and that is what makes an empty list meaningful: it says the
+/// fleet was consulted on this machine and nothing was found, which is a
+/// different answer from "this error has nothing to do with resolving an agent"
+/// and must not read the same. The catalog itself is never empty — the registry
+/// is embedded — so listing every entry would make the empty case unreachable
+/// and turn the offer into a shopping list. What is NOT installed belongs in the
+/// Fleet view, which shows it with its install remedy; what a refusal offers is
+/// what the user could pick right now.
+///
+/// Composed by `detect_layers` + `compose_state`, the same path `fleet/list`
+/// takes, so the error and that view cannot disagree about the same machine.
+/// A candidate that is `ready` carries no remedy because none applies: picking
+/// it IS the remedy. Ids, detection and remedies only — never an environment
+/// value, a credential path or anything shaped like a secret (§2).
+#[must_use]
+pub fn candidates(
+    catalog: &Catalog,
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> Vec<meltemi_proto::AgentCandidate> {
+    catalog
+        .entries
+        .iter()
+        .filter_map(|entry| {
+            detect(entry, path_var, bundled_dir)?;
+            let layers = detect_layers(entry, path_var, bundled_dir);
+            let (install_state, remedy, remedy_command) = compose_state(&layers, true);
+            Some(meltemi_proto::AgentCandidate {
+                id: entry.id.clone(),
+                detected: true,
+                install_state,
+                remedy,
+                remedy_command,
+            })
+        })
+        .collect()
+}
+
 /// Handles the `fleet/list` request: catalog plus fresh detection, marking
 /// the configured agent when the request names a project root.
 pub fn handle_fleet_list(params: Value, state: &Arc<DaemonState>) -> Result<Value, RpcError> {
@@ -983,8 +1025,9 @@ pub fn resolve_agent_command(
     if let Some(argv) = &config.agent_command {
         return Ok(argv.clone());
     }
+    let catalog = build_catalog(config);
     let Some(id) = &config.agent_id else {
-        return Err(RpcError::application(
+        return Err(RpcError::application_with_candidates(
             error_codes::AGENT_COMMAND_NOT_CONFIGURED,
             "no agent configured",
             "agent_command_not_configured",
@@ -994,14 +1037,19 @@ pub fn resolve_agent_command(
                  .meltemi/config.toml or the user config."
                     .into(),
             ),
+            candidates(&catalog, path_var, bundled_dir),
         ));
     };
-    let catalog = build_catalog(config);
     let Some(entry) = catalog.entries.iter().find(|e| e.id == *id) else {
-        return Err(not_detected(format!(
-            "agent id `{id}` is not in the fleet catalog (registry {})",
-            catalog.registry_version
-        )));
+        return Err(not_detected(
+            format!(
+                "agent id `{id}` is not in the fleet catalog (registry {})",
+                catalog.registry_version
+            ),
+            &catalog,
+            path_var,
+            bundled_dir,
+        ));
     };
     match detect(entry, path_var, bundled_dir) {
         Some(binary) => {
@@ -1017,17 +1065,27 @@ pub fn resolve_agent_command(
             crate::levels::resolve_id_launch(&catalog, id, path_var, bundled_dir)
                 .err()
                 .unwrap_or_else(|| {
-                    not_detected(format!(
-                        "the binary of agent `{id}` ({}) was not detected on this system",
-                        entry.name
-                    ))
+                    not_detected(
+                        format!(
+                            "the binary of agent `{id}` ({}) was not detected on this system",
+                            entry.name
+                        ),
+                        &catalog,
+                        path_var,
+                        bundled_dir,
+                    )
                 }),
         ),
     }
 }
 
-fn not_detected(detail: String) -> RpcError {
-    RpcError::application(
+fn not_detected(
+    detail: String,
+    catalog: &Catalog,
+    path_var: &OsStr,
+    bundled_dir: Option<&Path>,
+) -> RpcError {
+    RpcError::application_with_candidates(
         error_codes::AGENT_NOT_DETECTED,
         "agent not detected",
         "agent_not_detected",
@@ -1037,6 +1095,7 @@ fn not_detected(detail: String) -> RpcError {
              official CLI, or set `agent.command` explicitly."
                 .into(),
         ),
+        candidates(catalog, path_var, bundled_dir),
     )
 }
 
