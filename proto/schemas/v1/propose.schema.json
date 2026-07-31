@@ -22,6 +22,11 @@
           "type": "string",
           "minLength": 1,
           "description": "Absolute path to the root of the target repository. `.meltemi/changes/` is created here if missing."
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The fleet agent to draft the proposal: a launch profile name or a catalog id, resolved in the fleet's order (profile, catalog id, then the project's configured agent). A name that resolves to an undetected binary refuses with a remedy; nothing degrades to another provider. Absent behaves exactly as before this field existed."
         }
       }
     },

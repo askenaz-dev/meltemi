@@ -46,6 +46,11 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
         "name": "projectRoot",
         "kind": "string",
         "required": true
+      },
+      {
+        "name": "agent",
+        "kind": "string",
+        "required": false
       }
     ]
   },
@@ -173,6 +178,11 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
       },
       {
         "name": "topic",
+        "kind": "string",
+        "required": false
+      },
+      {
+        "name": "agent",
         "kind": "string",
         "required": false
       }

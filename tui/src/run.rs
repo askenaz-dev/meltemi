@@ -206,7 +206,14 @@ async fn propose(
 
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer
-        .request(methods::PROPOSE, &ProposeParams { idea, project_root })
+        .request(
+            methods::PROPOSE,
+            &ProposeParams {
+                idea,
+                project_root,
+                agent: None,
+            },
+        )
         .await;
     peer.close();
     background.abort();

@@ -18,7 +18,12 @@
       "required": ["projectRoot"],
       "properties": {
         "projectRoot": { "type": "string", "minLength": 1 },
-        "topic": { "type": "string" }
+        "topic": { "type": "string" },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The fleet agent to deliberate with: a launch profile name or a catalog id, resolved in the fleet's order. A name that resolves to an undetected binary refuses with a remedy; nothing degrades to another provider. Choosing an agent relaxes no guarantee: explore still writes nothing. Absent uses the project's configured agent."
+        }
       }
     },
     "gateParams": {

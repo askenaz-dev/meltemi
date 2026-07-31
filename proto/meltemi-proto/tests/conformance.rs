@@ -141,6 +141,7 @@ fn propose_conforms() {
         &ProposeParams {
             idea: "add dark mode to the settings page".into(),
             project_root: "C:\\repos\\fixture".into(),
+            agent: None,
         },
     );
     let statuses = [

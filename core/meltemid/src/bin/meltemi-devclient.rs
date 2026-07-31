@@ -69,7 +69,14 @@ async fn main() -> anyhow::Result<()> {
                 None => std::env::current_dir()?.display().to_string(),
             };
             let result = peer
-                .request(methods::PROPOSE, &ProposeParams { idea, project_root })
+                .request(
+                    methods::PROPOSE,
+                    &ProposeParams {
+                        idea,
+                        project_root,
+                        agent: None,
+                    },
+                )
                 .await
                 .map_err(rpc_err)?;
             println!("{result:#}");

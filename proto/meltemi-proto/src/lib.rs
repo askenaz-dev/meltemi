@@ -943,6 +943,12 @@ pub struct SddExploreParams {
     /// The topic/question to deliberate (explore) or guidance (constitution).
     #[serde(default)]
     pub topic: String,
+    /// The fleet agent to deliberate with: a launch profile name or a catalog
+    /// id, resolved in the fleet's existing order. Choosing one relaxes
+    /// nothing: `sdd/explore` still writes no artifact and no project file,
+    /// whichever agent runs (lanzador-conversacional).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 /// Params of `sdd/gate`: decide a pending authoring gate.
@@ -1117,6 +1123,13 @@ pub struct ProposeParams {
     pub idea: String,
     /// Absolute path to the root of the target repository.
     pub project_root: String,
+    /// The fleet agent to draft the proposal: a launch profile name or a
+    /// catalog id, resolved in the fleet's existing order. Absent behaves
+    /// exactly as before this field existed — the project's configured agent —
+    /// so no client that never sends it sees any change
+    /// (lanzador-conversacional).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 /// Result of `propose`.
