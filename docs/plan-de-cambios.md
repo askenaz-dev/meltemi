@@ -128,15 +128,23 @@ revisados uno por uno, deltas plegados a la verdad viva):
 | `sitio-web-producto` | `site/` estático (sin JS, sin orígenes externos), descargas a la última release firmada con nombres estables, tokens derivados del cliente y lint del sitio como gate |
 
 Pendientes de Fase 2: `motor-propio-byok` (propuesta redactada, activa) ·
-`pulido-pre-anuncio` (abierta 2026-07-27, en implementación) ·
 `lanzador-conversacional` (abierta 2026-07-27, **implementada y verificada
 106/106; no archiva hasta la ratificación de la enmienda**) ·
-`adaptadores-propios-acp` (abierta 2026-07-27) ·
+`adaptadores-propios-acp` (abierta 2026-07-27, implementada 24/24 con
+conformidad real anclada; espera la decisión del mantenedor sobre enviar con
+Codex en nivel 0) ·
 `texto-intacto-al-agente` (abierta 2026-07-31, vía rápida: el prompt se
-doble-codifica y el agente recibe acentos rotos) ·
+doble-codifica y el agente recibe acentos rotos; verify limpio, lista para
+archivar) ·
+`avisos-de-escritorio` (abierta 2026-07-31, del comparativo de mercado: nada
+avisa al escritorio cuando un permiso espera) ·
+`primer-arranque-del-home` (abierta 2026-07-31, vía rápida, del mismo
+comparativo) ·
 `registro-agentes-en-superficie` · `menu-nativo-aplicacion` · `sandbox-propio` ·
 `hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` ·
 `metricas-sdd-locales` · `lsp-superficie-revision`.
+(`pulido-pre-anuncio`, la vía rápida del acabado pre-anuncio, quedó archivada
+el 2026-07-27.)
 
 ### `motor-propio-byok` — propuesta activa desde el 2026-07-25
 
@@ -214,7 +222,7 @@ es un script (`scripts/capture-desktop.ps1`, `docs/ux/capturas.md`); la firma de
 de infraestructura de certificados; el arranque y la RAM en macOS y Linux se
 publican en el QA de la primera release que incluya la GUI.
 
-### `pulido-pre-anuncio` — abierta el 2026-07-27, vía rápida
+### `pulido-pre-anuncio` — vía rápida, archivada el 2026-07-27
 
 Tres defectos de acabado a la vista del anuncio. Uno: **siete botones de la
 GUI apilan el icono sobre la etiqueta** — el skin global de botones no declara
@@ -413,6 +421,48 @@ rutas fuera de ASCII se referencian como cualquier otra. Cero dependencias
 nuevas y ningún movimiento del contrato `proto/`. El barrido de `as char` se
 hizo y queda escrito (design D5): un único sitio en código propio, el que esta
 change arregla.
+
+### `avisos-de-escritorio` — abierta el 2026-07-31 (comparativo de mercado)
+
+Nace del comparativo conducido por el mantenedor contra Orca (Stably AI, 13
+capturas) y de una verificación en código que lo confirmó: `espera-humana`
+enseñó al daemon a esperar al humano, `sesion-esperando` y
+`eventos-para-tardios` hicieron la espera visible y suscribible — y ninguna
+superficie avisa al escritorio; los únicos «notification» del cliente son
+mensajes JSON-RPC del bridge, y la TUI no tiene campana. Un permiso puede
+esperar minutos con la app detrás de otra ventana, con el turno detenido en
+silencio. La change: capability nueva `attention-notices` — aviso local del SO
+desde los clientes (permiso esperando, gate esperando, sesión terminada o
+fallida), con regla de foco (al frente, la bandeja de hoy; sin foco, el
+aviso), contenido sin texto del turno, permiso del SO pedido en el primer
+aviso real y estado denegado con remedio; GUI vía el plugin oficial de
+notificaciones de Tauri (el precedente §10 del plugin de diálogo) con «probar
+aviso» en Ajustes; TUI con campana/OSC opt-in. El daemon no gana transporte
+alguno: los eventos ya existen, esto es el último metro — y el aviso remoto
+autohospedado sigue siendo fase 3, jamás del daemon.
+
+### `primer-arranque-del-home` — abierta el 2026-07-31, vía rápida
+
+El residuo chico del mismo comparativo, verificado en `Home.svelte`: el rehúso
+de agente ya guía ejemplarmente (candidatos con estado y remedio dentro del
+chip), pero solo después de fallar; la cara del chip dice «agente del
+proyecto» en tono neutro aunque no haya un solo lanzable — el chip de
+proyecto, al lado, sí advierte cuando falta la carpeta — y la pista del menú
+vacío nombra la Flota sin abrirla. Deltas ADDED-only sobre `gui-shell`: el
+chip advierte proactivamente, el menú vacío gana el gesto a la vista de
+flota, y la primera llegada con flota poblada muestra «N detectados» una sola
+vez. El wizard modal y la checklist persistente del comparativo se rechazan
+por escrito: el compositor con chips es el asistente, en su sitio.
+
+**Hallazgos del comparativo anotados, no colados** (rumbo de estructura):
+setup scripts al crear worktrees → su casa es `hooks-eventos` cuando llegue;
+issues de GitHub/Jira/Linear como tareas vía CLIs oficiales (`gh`/`glab` con
+su propia auth, patrón compatible con §2) → funciones de equipo, fase 3;
+automations recurrentes e importar una carpeta con N repos como grupo →
+futuro con evidencia; y para el anuncio, un contraste que es mensaje y no
+change: ese producto embarca «Yolo / Dangerously skip permissions» marcado
+por defecto — exactamente lo que el deny-by-default constitucional de Meltemi
+existe para no ser.
 
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 
