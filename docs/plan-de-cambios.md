@@ -136,6 +136,8 @@ Codex en nivel 0) ·
 `texto-intacto-al-agente` (abierta 2026-07-31, vía rápida: el prompt se
 doble-codifica y el agente recibe acentos rotos; verify limpio, lista para
 archivar) ·
+`tablero-de-carrera` (abierta 2026-07-31, planificada: la carrera
+multiproveedor visible en GUI y TUI con procedencia por calle) ·
 `avisos-de-escritorio` (abierta 2026-07-31, del comparativo de mercado: nada
 avisa al escritorio cuando un permiso espera) ·
 `primer-arranque-del-home` (abierta 2026-07-31, vía rápida, del mismo
@@ -421,6 +423,34 @@ rutas fuera de ASCII se referencian como cualquier otra. Cero dependencias
 nuevas y ningún movimiento del contrato `proto/`. El barrido de `as char` se
 hizo y queda escrito (design D5): un único sitio en código propio, el que esta
 change arregla.
+
+### `tablero-de-carrera` — abierta el 2026-07-31
+
+Nace de la demostración de aceptación: el daemon corre la carrera
+multiproveedor entera — worktrees aislados, despacho con el binario y la
+suscripción de cada proveedor, procedencia persistida, commit trazable —
+pero **ninguna superficie la muestra como carrera**, y para verla hubo que
+construir un tablero externo desechable. El inventario honesto: la GUI
+tiene medio tablero por accidente (el drill-in de revisión compara diffs
+de competidores, sin procedencia ni estado ni acciones), el shell anuncia
+los diez verbos de carrera como «(reservado)» y no renderiza ninguno, y
+debajo hay tres huecos de contrato que ninguna superficie puede rodear:
+el despacho no nombra la sesión que abre, el diff por calle calla la
+procedencia que el daemon conoce, y las sesiones de despacho ni siquiera
+asientan registro en el índice (aparecen reconstruidas, con nivel
+mentiroso). La change ensancha el contrato con campos aditivos por calle
+(cero ruptura, sin verbo nuevo, la matriz de paridad no cambia de filas),
+hace que el despacho asiente registro de primera clase, y abre las dos
+superficies: en la GUI el drill-in de revisión evoluciona a tablero
+(calles lado a lado con procedencia, acciones con confirmación explícita,
+actualización al concluir turnos); en el TUI el verbo `race` deja de estar
+reservado y abre el tablero sin tocar el contrato de dígitos 1–4. Cuatro
+deltas ADDED-only (`worktree-orchestration`, `session-history`,
+`gui-shell`, `tui-shell`), doce escenarios, cero dependencias nuevas;
+spec-full deliberado — es superficie nueva sobre la feature fundacional,
+no un ajuste. Fuera de alcance, por escrito: canal push de worktrees
+(sigue diferido en `eventos-para-tardios`), merge automático o ranking, y
+toda vista numerada nueva.
 
 ### `avisos-de-escritorio` — abierta el 2026-07-31 (comparativo de mercado)
 
