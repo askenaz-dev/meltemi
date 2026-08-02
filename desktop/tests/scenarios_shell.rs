@@ -989,10 +989,12 @@ fn every_save_goes_through_the_daemon_with_its_trace() {
 #[test]
 fn the_review_compares_competitors_and_acts_per_hunk_and_per_line() {
     let review = read("desktop/ui/src/lib/views/Review.svelte");
-    // Competitors of one task, side by side, over a common base.
+    // Competitors of one task, side by side, over a common base. They used to
+    // be tabs — one lane visible at a time, which is not a comparison — and are
+    // now lanes laid out beside each other (tablero-de-carrera D3).
     assert!(
-        review.contains("role=\"tablist\"") && review.contains("competitor.agent"),
-        "each competitor of the race is selectable"
+        review.contains("class=\"lanes\"") && review.contains("{#each competitors as lane"),
+        "every competitor of the race is on screen at once"
     );
     assert!(
         review.contains("review.base") && review.contains("baseRev"),
@@ -1045,6 +1047,103 @@ fn the_review_compares_competitors_and_acts_per_hunk_and_per_line() {
         review.contains("openExternally(\n                                    activeDiff.path,\n                                    section.file,\n                                    line.newLine,\n                                  )")
             || review.contains("line.newLine,"),
         "and it passes that line, not the head of the file"
+    );
+}
+
+fn race_board() -> String {
+    read("desktop/ui/src/lib/views/Review.svelte")
+}
+
+// Scenario: Calles lado a lado con procedencia visible
+#[test]
+fn each_lane_shows_its_agent_its_subscription_its_state_and_its_diff() {
+    let board = race_board();
+    // The provenance the contract now carries, all of it read from the lane and
+    // none of it inferred from a neighbour.
+    for field in [
+        "lane.source",
+        "lane.profile",
+        "lane.level",
+        "lane.sessionId",
+        "lane.committed",
+        "lane.baseRev",
+    ] {
+        assert!(board.contains(field), "the lane header reads {field}");
+    }
+    // Absence has exactly one face, and it is not a blank.
+    assert!(
+        board.contains("$t(\"race.unknown\")"),
+        "a lane the daemon said nothing about is marked unknown, not left empty"
+    );
+    assert!(
+        board.contains("lane.profile ?? $t(\"race.unknown\")"),
+        "a lane with no subscription says so instead of borrowing one"
+    );
+    // State is signal plus word in all three rows, never colour alone.
+    for pair in [
+        ("race.turn.running", "▸"),
+        ("race.commit.done", "◆"),
+        ("race.checkpoint.have", "⌖"),
+    ] {
+        assert!(board.contains(pair.0), "{} is a word, not a colour", pair.0);
+        assert!(board.contains(pair.1), "{} carries a signal too", pair.0);
+    }
+    // The turn state is the live session's, not a guess from the diff.
+    assert!(
+        board.contains("$allSessions.find((s) => s.sessionId === lane.sessionId)"),
+        "a running turn is one the daemon still lists as live"
+    );
+    // Each lane renders its own diff against its own base, with the shared
+    // parser: the board and the review cannot read the same text two ways.
+    assert!(
+        board.contains("fileSections(lane.diff)")
+            && board.contains("short(lane.baseRev ?? baseRev)"),
+        "the lane's diff is against the lane's base"
+    );
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    for key in [
+        "race.turn.never",
+        "race.commit.none",
+        "race.checkpoint.none",
+    ] {
+        assert_eq!(
+            messages.matches(&format!("\"{key}\"")).count(),
+            2,
+            "{key} is catalogued in both languages"
+        );
+    }
+}
+
+// Scenario: Carrera sin competidores, estado vacío honesto
+#[test]
+fn a_task_without_competitors_says_so_and_offers_the_way_in() {
+    let board = race_board();
+    let empty = board
+        .split("{#if picked && competitors.length === 0}")
+        .nth(1)
+        .expect("the board tells an empty race apart from a loaded one");
+    let empty = empty
+        .split("{:else if picked}")
+        .next()
+        .expect("empty branch");
+    assert!(
+        empty.contains("race.empty.title") && empty.contains("race.empty.hint"),
+        "the empty board says what is missing: {empty}"
+    );
+    assert!(
+        empty.contains("race.empty.assign") && empty.contains("assignRace()"),
+        "and offers the gesture that fixes it, not a dead end: {empty}"
+    );
+    // The gesture is the contract's own assignment, with the picked task
+    // already filled in — the user names the agents and nothing else.
+    assert!(
+        board.contains("request(\"worktree/assign\", {")
+            && board.contains("tasks: [{ change: picked.change, task: picked.task, agents }]"),
+        "assigning goes through the daemon with the task already known"
+    );
+    assert!(
+        board.contains("await refreshBoard(picked.change, picked.task)"),
+        "and the board shows the lanes it just created"
     );
 }
 

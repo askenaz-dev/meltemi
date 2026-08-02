@@ -1,10 +1,17 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  The race board (tablero-de-carrera design D3): the review drill-in grown into
+  what the daemon has been running all along. Lanes side by side, each with the
+  provenance of the turn that ran it, its state in signal plus word, and its own
+  diff against its own base. Nothing here is inferred: a lane the daemon said
+  nothing about shows nothing, marked as unknown rather than filled in.
+-->
 <script lang="ts">
   import { t } from "../i18n";
   import { request } from "../daemon";
   import { fileSections, hunksOf } from "../diff";
   import { openWith } from "../editor/files";
-  import { pushNotice } from "../stores";
+  import { allSessions, pushNotice, type SessionInfo } from "../stores";
   import EmptyState from "../components/EmptyState.svelte";
 
   let {
@@ -32,11 +39,30 @@
     competitor: boolean;
   }
 
+  /** One lane of the race, as `worktree/diff` reports it. Every provenance
+      field is optional on the wire: absent means the daemon has no dispatch on
+      record for that lane, and the board says exactly that. */
   interface CompetitorDiff {
     agent: string;
     path: string;
     changedFiles: string[];
     diff: string;
+    source?: "profile" | "catalog" | "configured";
+    profile?: string;
+    level?: number;
+    sessionId?: string;
+    committed?: boolean;
+    sha?: string;
+    baseRev?: string;
+  }
+
+  interface Checkpoint {
+    change: string;
+    task: string;
+    agent: string;
+    gitRef: string;
+    createdAt: string;
+    irreversible: string[];
   }
 
   let worktrees: Worktree[] = $state([]);
@@ -44,7 +70,9 @@
   let picked: { change: string; task: string } | null = $state(null);
   let baseRev = $state("");
   let competitors: CompetitorDiff[] = $state([]);
-  let activeAgent: string | null = $state(null);
+  let checkpoints: Checkpoint[] = $state([]);
+  /** The agents typed into the empty state's assign path. */
+  let assignAgents = $state("");
 
   const groups = $derived.by(() => {
     const map = new Map<string, { change: string; task: string; agents: string[] }>();
@@ -61,10 +89,6 @@
     return [...map.values()];
   });
 
-  const activeDiff = $derived(
-    competitors.find((c) => c.agent === activeAgent) ?? null,
-  );
-
   $effect(() => {
     void request<{ worktrees: Worktree[] }>("worktree/list", {
       projectRoot: root,
@@ -77,6 +101,12 @@
   async function pick(change: string, task: string) {
     picked = { change, task };
     competitors = [];
+    checkpoints = [];
+    await refreshBoard(change, task);
+  }
+
+  /** Re-reads the lanes of a task and the checkpoints of its change. */
+  async function refreshBoard(change: string, task: string) {
     try {
       const result = await request<{
         baseRev: string;
@@ -84,16 +114,84 @@
       }>("worktree/diff", { projectRoot: root, change, task });
       baseRev = result.baseRev;
       competitors = result.competitors;
-      activeAgent = result.competitors[0]?.agent ?? null;
     } catch (raw) {
       const e = raw as { message?: string };
       pushNotice(`${$t("common.error")}: ${e?.message ?? String(raw)}`, "danger");
     }
+    try {
+      const list = await request<{ checkpoints: Checkpoint[] }>("checkpoint/list", {
+        projectRoot: root,
+        change,
+      });
+      checkpoints = list.checkpoints;
+    } catch {
+      // A change with no checkpoints answers empty; a refusal leaves the mark
+      // unknown rather than claiming there is none.
+      checkpoints = [];
+    }
+  }
+
+  /** The checkpoint of a lane, when the daemon recorded one. */
+  function checkpointOf(agent: string): Checkpoint | null {
+    if (!picked) return null;
+    return (
+      checkpoints.find(
+        (c) => c.task === picked?.task && c.agent === agent && c.change === picked?.change,
+      ) ?? null
+    );
+  }
+
+  /** The live session of a lane, when its dispatch is still running. */
+  function liveTurn(lane: CompetitorDiff): SessionInfo | null {
+    if (!lane.sessionId) return null;
+    const session = $allSessions.find((s) => s.sessionId === lane.sessionId);
+    if (!session) return null;
+    return session.state === "ended" || session.state === "interrupted" ? null : session;
+  }
+
+  /** Turn state as signal + word: running, finished, or never dispatched. */
+  function turnState(lane: CompetitorDiff): { glyph: string; word: string; tone: string } {
+    if (liveTurn(lane)) {
+      return { glyph: "▸", word: $t("race.turn.running"), tone: "info" };
+    }
+    if (lane.sessionId) {
+      return { glyph: "■", word: $t("race.turn.finished"), tone: "muted" };
+    }
+    return { glyph: "○", word: $t("race.turn.never"), tone: "muted" };
+  }
+
+  function short(rev: string | undefined): string {
+    return rev ? rev.slice(0, 10) : "";
   }
 
   async function openExternally(worktreePath: string, file: string, line: number | null) {
     const editor = await openWith(worktreePath, file, line ?? undefined);
     pushNotice($t("editor.openedWith", { editor }), "info");
+  }
+
+  /** The empty state's path out: assign this task to the agents just typed. */
+  async function assignRace() {
+    if (!picked) return;
+    const agents = assignAgents
+      .split(",")
+      .map((a) => a.trim())
+      .filter(Boolean);
+    if (agents.length === 0) return;
+    try {
+      await request("worktree/assign", {
+        projectRoot: root,
+        tasks: [{ change: picked.change, task: picked.task, agents }],
+      });
+      assignAgents = "";
+      const listed = await request<{ worktrees: Worktree[] }>("worktree/list", {
+        projectRoot: root,
+      });
+      worktrees = listed.worktrees;
+      await refreshBoard(picked.change, picked.task);
+    } catch (raw) {
+      const e = raw as { message?: string };
+      pushNotice(`${$t("common.error")}: ${e?.message ?? String(raw)}`, "danger");
+    }
   }
 </script>
 
@@ -124,129 +222,259 @@
       {/each}
     </div>
 
-    {#if picked && competitors.length > 0}
+    {#if picked && competitors.length === 0}
+      <!-- A picked task with no lanes: say so and offer the way in, never a
+           blank board (gui-shell "Carrera sin competidores"). -->
+      <EmptyState
+        glyph="diff"
+        title={$t("race.empty.title")}
+        hint={$t("race.empty.hint")}
+      >
+        <input
+          type="text"
+          bind:value={assignAgents}
+          placeholder={$t("race.empty.agents")}
+          aria-label={$t("race.empty.agents")}
+        />
+        <button class="primary" onclick={() => void assignRace()}>
+          {$t("race.empty.assign")}
+        </button>
+      </EmptyState>
+    {:else if picked}
       <p class="muted">
-        {$t("review.base")}: <code>{baseRev.slice(0, 10)}</code>
+        {$t("review.base")}: <code>{short(baseRev)}</code>
       </p>
-      <div class="tabs" role="tablist">
-        {#each competitors as competitor (competitor.agent)}
-          <button
-            role="tab"
-            aria-selected={competitor.agent === activeAgent}
-            class:active={competitor.agent === activeAgent}
-            onclick={() => (activeAgent = competitor.agent)}
-          >
-            {competitor.agent} ({competitor.changedFiles.length})
-          </button>
+
+      <div class="lanes" aria-label={$t("race.lanes")}>
+        {#each competitors as lane (lane.agent)}
+          <article class="lane">
+            <header class="laneHead">
+              <h3>{lane.agent}</h3>
+              <!-- Provenance, as the daemon reported it. `race.unknown` is the
+                   only thing that ever stands in for a fact it did not. -->
+              <span class="prov">
+                <span class="tag">
+                  {$t("race.source")}:
+                  {lane.source ? $t(("race.source." + lane.source) as never) : $t("race.unknown")}
+                </span>
+                <span class="tag">
+                  {$t("race.profile")}: {lane.profile ?? $t("race.unknown")}
+                </span>
+                <span class="tag">
+                  {$t("race.level")}: {lane.level ? "L" + lane.level : $t("race.unknown")}
+                </span>
+              </span>
+            </header>
+
+            <!-- State: signal plus word, never colour alone. -->
+            <ul class="state">
+              {#key lane.sessionId}
+                <li class="tone-{turnState(lane).tone}">
+                  <span aria-hidden="true">{turnState(lane).glyph}</span>
+                  {turnState(lane).word}
+                </li>
+              {/key}
+              <li class={lane.committed ? "tone-ok" : "tone-muted"}>
+                <span aria-hidden="true">{lane.committed ? "◆" : "◇"}</span>
+                {#if lane.committed}
+                  {$t("race.commit.done")} <code>{short(lane.sha)}</code>
+                {:else if lane.committed === false}
+                  {$t("race.commit.none")}
+                {:else}
+                  {$t("race.unknown")}
+                {/if}
+              </li>
+              <li class={checkpointOf(lane.agent) ? "tone-ok" : "tone-muted"}>
+                <span aria-hidden="true">{checkpointOf(lane.agent) ? "⌖" : "○"}</span>
+                {checkpointOf(lane.agent)
+                  ? $t("race.checkpoint.have")
+                  : $t("race.checkpoint.none")}
+              </li>
+              <li class="tone-muted">
+                <span aria-hidden="true">≡</span>
+                {lane.changedFiles.length}
+                {$t("review.files")} · {$t("review.base")}
+                <code>{short(lane.baseRev ?? baseRev)}</code>
+              </li>
+            </ul>
+
+            <div class="laneDiff">
+              {#if lane.diff.trim() === ""}
+                <p class="muted">{$t("review.nodiff")}</p>
+              {:else}
+                {#each fileSections(lane.diff) as section (section.file)}
+                  <div class="file">
+                    <div class="fileHead">
+                      <code>{section.file}</code>
+                      <span class="fileActions">
+                        <button
+                          onclick={() =>
+                            picked &&
+                            onEditWorktree(
+                              lane.path,
+                              {
+                                change: picked.change,
+                                task: picked.task,
+                                agent: lane.agent,
+                              },
+                              section.file,
+                            )}
+                        >
+                          {$t("review.edit")}
+                        </button>
+                        <button
+                          onclick={() => void openExternally(lane.path, section.file, null)}
+                        >
+                          {$t("review.openFile")}
+                        </button>
+                      </span>
+                    </div>
+                    {#each hunksOf(section) as hunk, h (h)}
+                      <div class="hunk">
+                        <div class="hunkHead">
+                          <code class="hunkRange">{hunk.header || section.file}</code>
+                          <span class="hunkActions">
+                            <button
+                              onclick={() =>
+                                picked &&
+                                onEditWorktree(
+                                  lane.path,
+                                  {
+                                    change: picked.change,
+                                    task: picked.task,
+                                    agent: lane.agent,
+                                  },
+                                  section.file,
+                                  hunk.startLine ?? undefined,
+                                )}
+                            >
+                              {$t("review.editHunk")}
+                            </button>
+                            <button
+                              onclick={() =>
+                                void openExternally(lane.path, section.file, hunk.startLine)}
+                            >
+                              {$t("editor.openWith")}
+                            </button>
+                          </span>
+                        </div>
+                        <table class="diff">
+                          <tbody>
+                            {#each hunk.lines as line, i (i)}
+                              <tr class="line {line.kind}">
+                                <td class="gutter">
+                                  {#if line.newLine !== null}
+                                    <button
+                                      class="lineNo"
+                                      title={$t("review.openLine", {
+                                        line: String(line.newLine),
+                                      })}
+                                      aria-label={$t("review.openLine", {
+                                        line: String(line.newLine),
+                                      })}
+                                      onclick={() =>
+                                        void openExternally(
+                                          lane.path,
+                                          section.file,
+                                          line.newLine,
+                                        )}>{line.newLine}</button
+                                    >
+                                  {:else}
+                                    <span aria-hidden="true">·</span>
+                                  {/if}
+                                </td>
+                                <td class="code"><pre>{line.text}</pre></td>
+                              </tr>
+                            {/each}
+                          </tbody>
+                        </table>
+                      </div>
+                    {/each}
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          </article>
         {/each}
       </div>
-
-      {#if activeDiff}
-        {#if activeDiff.diff.trim() === ""}
-          <p class="muted">{$t("review.nodiff")}</p>
-        {:else}
-          {#each fileSections(activeDiff.diff) as section (section.file)}
-            <article>
-              <div class="fileHead">
-                <code>{section.file}</code>
-                <span class="fileActions">
-                  <button
-                    onclick={() =>
-                      picked &&
-                      onEditWorktree(
-                        activeDiff.path,
-                        {
-                          change: picked.change,
-                          task: picked.task,
-                          agent: activeDiff.agent,
-                        },
-                        section.file,
-                      )}
-                  >
-                    {$t("review.edit")}
-                  </button>
-                  <button
-                    onclick={() =>
-                      void openExternally(activeDiff.path, section.file, null)}
-                  >
-                    {$t("review.openFile")}
-                  </button>
-                </span>
-              </div>
-              {#each hunksOf(section) as hunk, h (h)}
-                <div class="hunk">
-                  <div class="hunkHead">
-                    <code class="hunkRange">{hunk.header || section.file}</code>
-                    <span class="hunkActions">
-                      <button
-                        onclick={() =>
-                          picked &&
-                          onEditWorktree(
-                            activeDiff.path,
-                            {
-                              change: picked.change,
-                              task: picked.task,
-                              agent: activeDiff.agent,
-                            },
-                            section.file,
-                            hunk.startLine ?? undefined,
-                          )}
-                      >
-                        {$t("review.editHunk")}
-                      </button>
-                      <button
-                        onclick={() =>
-                          void openExternally(
-                            activeDiff.path,
-                            section.file,
-                            hunk.startLine,
-                          )}
-                      >
-                        {$t("editor.openWith")}
-                      </button>
-                    </span>
-                  </div>
-                  <table class="diff">
-                    <tbody>
-                      {#each hunk.lines as line, i (i)}
-                        <tr class="line {line.kind}">
-                          <td class="gutter">
-                            {#if line.newLine !== null}
-                              <button
-                                class="lineNo"
-                                title={$t("review.openLine", {
-                                  line: String(line.newLine),
-                                })}
-                                aria-label={$t("review.openLine", {
-                                  line: String(line.newLine),
-                                })}
-                                onclick={() =>
-                                  void openExternally(
-                                    activeDiff.path,
-                                    section.file,
-                                    line.newLine,
-                                  )}>{line.newLine}</button
-                              >
-                            {:else}
-                              <span aria-hidden="true">·</span>
-                            {/if}
-                          </td>
-                          <td class="code"><pre>{line.text}</pre></td>
-                        </tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                </div>
-              {/each}
-            </article>
-          {/each}
-        {/if}
-      {/if}
     {/if}
   {/if}
 </section>
 
 <style>
+  .lanes {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(360px, 1fr);
+    gap: var(--sp-3);
+    align-items: start;
+    overflow-x: auto;
+  }
+  .lane {
+    display: grid;
+    gap: var(--sp-2);
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-panel);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .laneHead {
+    display: grid;
+    gap: var(--sp-1);
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .laneHead h3 {
+    margin: 0;
+    font-size: var(--fs-dense);
+    font-weight: 600;
+  }
+  .prov {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1);
+  }
+  .tag {
+    padding: 1px var(--sp-2);
+    border-radius: var(--radius-control);
+    background: var(--surface);
+    color: var(--text-muted);
+    font-size: var(--fs-caption);
+    white-space: nowrap;
+  }
+  ul.state {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1) var(--sp-3);
+    margin: 0;
+    padding: 0 var(--sp-3);
+    list-style: none;
+    font-size: var(--fs-caption);
+  }
+  ul.state li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+  }
+  .tone-ok {
+    color: var(--ok);
+  }
+  .tone-info {
+    color: var(--info);
+  }
+  .tone-muted {
+    color: var(--text-muted);
+  }
+  .laneDiff {
+    max-height: 55vh;
+    overflow: auto;
+    border-top: 1px solid var(--hair);
+  }
+  .file {
+    border-bottom: 1px solid var(--border);
+  }
   .hunk {
     border-top: 1px solid var(--hair);
   }
@@ -334,19 +562,8 @@
     text-align: left;
     background: var(--surface);
   }
-  .picker button.active,
-  .tabs button.active {
+  .picker button.active {
     border-color: var(--accent);
-  }
-  .tabs {
-    display: flex;
-    gap: var(--sp-2);
-  }
-  article {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-panel);
-    background: var(--surface);
-    overflow: hidden;
   }
   .fileHead {
     display: flex;

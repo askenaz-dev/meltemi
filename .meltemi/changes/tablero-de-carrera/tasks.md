@@ -48,7 +48,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   compartido con test unitario TS; actualizar las aserciones de fuente que
   leen `Review.svelte` (design D3) — gates: `npm test` en `desktop/ui`,
   `cargo test -p meltemi-desktop` (tests de cableado)
-- [ ] 3.2 Tablero: cabecera por calle con procedencia (chips agente +
+- [x] 3.2 Tablero: cabecera por calle con procedencia (chips agente +
   perfil), estado turno/commit/checkpoint con señal+palabra, y calles lado
   a lado sobre el diff compartido; estado vacío honesto con camino a
   asignar; strings nuevas en `messages.ts` ES y EN (design D3) —
