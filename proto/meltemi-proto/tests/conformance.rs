@@ -1611,6 +1611,184 @@ fn worktree_conforms() {
     );
 }
 
+/// The per-lane provenance of a race (tablero-de-carrera design D1), checked
+/// three ways for every field it adds: present and conforming, omitted and
+/// conforming, and — the one that matters to a client built before this change
+/// — omitted producing the very bytes the previous shape produced.
+// Scenario: Los campos aditivos no rompen al cliente anterior
+#[test]
+fn a_race_lane_declares_its_provenance_without_breaking_the_previous_shape() {
+    let bare = WorktreeCompetitorDiff {
+        agent: "claude".into(),
+        path: "C:\\repos\\fixture\\.meltemi\\worktrees\\add-thing\\1-1-claude".into(),
+        changed_files: vec!["src/a.rs".into()],
+        diff: "diff --git a/src/a.rs b/src/a.rs\n".into(),
+        source: None,
+        profile: None,
+        level: None,
+        session_id: None,
+        committed: None,
+        sha: None,
+        base_rev: None,
+    };
+
+    // Every field present: the lane states who ran it, under which
+    // subscription, at which level, in which session, and how it ended.
+    let full = WorktreeCompetitorDiff {
+        source: Some(FleetResolutionSource::Profile),
+        profile: Some("work".into()),
+        level: Some(2),
+        session_id: Some("6f1f0a2e-2b0e-4a1c-9f4d-3b1c2d5e6f70".into()),
+        committed: Some(true),
+        sha: Some("b".repeat(40)),
+        base_rev: Some("a".repeat(40)),
+        ..bare.clone()
+    };
+    assert_conforms("worktree", "competitorDiff", &full);
+
+    // Every field omitted: still conforming, because none of them is required.
+    assert_conforms("worktree", "competitorDiff", &bare);
+
+    // And byte for byte what the shape produced before the fields existed.
+    assert_eq!(
+        serde_json::to_value(&bare).unwrap(),
+        json!({
+            "agent": "claude",
+            "path": "C:\\repos\\fixture\\.meltemi\\worktrees\\add-thing\\1-1-claude",
+            "changedFiles": ["src/a.rs"],
+            "diff": "diff --git a/src/a.rs b/src/a.rs\n"
+        }),
+        "a lane with no dispatch on record serializes exactly as before"
+    );
+
+    // One field at a time, so a field that silently stopped being skipped
+    // cannot hide behind the six that still are.
+    for (name, lane) in [
+        (
+            "source",
+            WorktreeCompetitorDiff {
+                source: Some(FleetResolutionSource::Catalog),
+                ..bare.clone()
+            },
+        ),
+        (
+            "profile",
+            WorktreeCompetitorDiff {
+                profile: Some("work".into()),
+                ..bare.clone()
+            },
+        ),
+        (
+            "level",
+            WorktreeCompetitorDiff {
+                level: Some(1),
+                ..bare.clone()
+            },
+        ),
+        (
+            "sessionId",
+            WorktreeCompetitorDiff {
+                session_id: Some("s-1".into()),
+                ..bare.clone()
+            },
+        ),
+        (
+            "committed",
+            WorktreeCompetitorDiff {
+                committed: Some(false),
+                ..bare.clone()
+            },
+        ),
+        (
+            "sha",
+            WorktreeCompetitorDiff {
+                sha: Some("c".repeat(40)),
+                ..bare.clone()
+            },
+        ),
+        (
+            "baseRev",
+            WorktreeCompetitorDiff {
+                base_rev: Some("a".repeat(40)),
+                ..bare.clone()
+            },
+        ),
+    ] {
+        assert_conforms("worktree", "competitorDiff", &lane);
+        let value = serde_json::to_value(&lane).unwrap();
+        assert!(
+            value.get(name).is_some(),
+            "`{name}` must reach the wire when it is known"
+        );
+        assert_eq!(
+            value.as_object().unwrap().len(),
+            5,
+            "`{name}` alone is added; the other six stay omitted: {value}"
+        );
+    }
+
+    // Degenerates are refused rather than shown as an empty provenance: an
+    // empty profile or session id is not "unknown", it is a broken record.
+    for degenerate in ["profile", "sessionId", "sha", "baseRev"] {
+        let mut instance = serde_json::to_value(&bare).unwrap();
+        instance[degenerate] = json!("");
+        assert_rejected("worktree", "competitorDiff", &instance);
+    }
+    // The level is the integration level, so the range is the contract's.
+    for out_of_range in [0, 5] {
+        let mut instance = serde_json::to_value(&bare).unwrap();
+        instance["level"] = json!(out_of_range);
+        assert_rejected("worktree", "competitorDiff", &instance);
+    }
+}
+
+/// The dispatch names the session it opened — the other half of the
+/// correlation, for whoever dispatched rather than whoever polls the diff.
+#[test]
+fn a_dispatch_result_names_its_session_and_omits_it_compatibly() {
+    let result = WorktreeDispatchResult {
+        change: "add-thing".into(),
+        task: "1.1".into(),
+        agent: "work".into(),
+        resolution: DispatchResolution {
+            binary: "native-agent".into(),
+            source: FleetResolutionSource::Catalog,
+            level: 1,
+            profile: None,
+        },
+        worktree: "C:\\repos\\fixture\\.meltemi\\worktrees\\add-thing\\1-1-work".into(),
+        committed: false,
+        sha: None,
+        changed_files: Vec::new(),
+        status: TurnStatus::Completed,
+        task_ticked: false,
+        session_id: None,
+    };
+    assert_conforms("worktree", "dispatchResult", &result);
+    let before = serde_json::to_value(&result).unwrap();
+    assert!(
+        before.get("sessionId").is_none(),
+        "omitted is omitted: {before}"
+    );
+
+    let named = WorktreeDispatchResult {
+        session_id: Some("6f1f0a2e-2b0e-4a1c-9f4d-3b1c2d5e6f70".into()),
+        ..result.clone()
+    };
+    assert_conforms("worktree", "dispatchResult", &named);
+    let after = serde_json::to_value(&named).unwrap();
+    assert_eq!(
+        after.as_object().unwrap().len(),
+        before.as_object().unwrap().len() + 1,
+        "naming the session adds one key and disturbs nothing else"
+    );
+
+    // An empty session id names nothing and is refused as such.
+    let mut degenerate = after.clone();
+    degenerate["sessionId"] = json!("");
+    assert_rejected("worktree", "dispatchResult", &degenerate);
+}
+
 #[test]
 fn checkpoint_conforms() {
     let cp = Checkpoint {

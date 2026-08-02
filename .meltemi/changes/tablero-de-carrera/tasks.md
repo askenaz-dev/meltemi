@@ -15,7 +15,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   `proto/schemas/v1/worktree.schema.json` sin entrar a `required`, sin
   tocar `taskTicked const:false` (design D1) — gates: `cargo test -p
   meltemi-proto`
-- [ ] 1.2 Conformidad de tres vías para cada campo nuevo: presente
+- [x] 1.2 Conformidad de tres vías para cada campo nuevo: presente
   conforme, omitido conforme, y byte-igualdad de la forma omitida con la
   previa a la change; rechazo de degenerados (cadena vacía) (design D1)
   — gates: `cargo test -p meltemi-proto`
