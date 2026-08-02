@@ -540,6 +540,7 @@ async fn run_turn(
             resumed_from: None,
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
+            source: Some(resolved.source),
         },
     );
 
@@ -589,6 +590,7 @@ async fn run_turn(
         resumed_from: None,
         agent_id: resolved.agent_id.clone(),
         profile: resolved.profile.clone(),
+        source: Some(resolved.source),
     };
     match outcome {
         Ok(session_outcome) => {

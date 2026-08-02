@@ -73,9 +73,24 @@ de la referencia CLI ya la vigila la spec vigente de `cli-contract`.
 
 Hoy la procedencia por calle solo puede reconstruirse escaneando logs de
 sesión (O(sesiones), frágil). En lugar de escanear, **el despacho escribe
-registro de índice al abrir y al cerrar** — con `level` real, `agent_id` y
-`profile` — como ya hacen propose y la reanudación (los campos existen en
-`SessionRecord` desde `multiproyecto-suscripciones`). La agregación del
+registro de índice al abrir y al cerrar** — con `level` real, `agent_id`,
+`profile` y **la fuente de resolución** — como ya hacen propose y la
+reanudación (los tres primeros existen en `SessionRecord` desde
+`multiproyecto-suscripciones`).
+
+> **Enmienda (2026-08-01, implementación de 2.2).** Este design daba por
+> hecho que `level`, `agent_id` y `profile` bastaban. No bastan: la spec de
+> `worktree-orchestration` exige que la calle declare la **fuente de
+> resolución**, y esa fuente no se deduce de los otros dos campos — un id de
+> catálogo y un agente configurado que nombra un id se ven idénticos
+> (`profile: None`, `agent_id: Some`). Deducirla sería inventarla. Por eso
+> `SessionRecord` gana un campo opcional `source`, lo escriben todos los
+> caminos que ya resolvían por la flota (propose, autoría SDD, sesión libre,
+> reanudación y despacho) y la reconstrucción desde logs lo recupera del
+> evento `AgentResolved`, que siempre lo llevó. El índice es privado del
+> daemon, así que el campo es aditivo sin tocar el contrato.
+
+La agregación del
 diff une entonces por igualdad exacta `record.project_root ==
 ManagedWorktree.path` (ambas cadenas escritas por el mismo daemon, misma
 ortografía por construcción) y toma el registro más reciente por calle. La

@@ -644,6 +644,7 @@ mod tests {
             resumed_from: None,
             agent_id: Some("claude-code".into()),
             profile: profile.map(String::from),
+            source: None,
         }
     }
 

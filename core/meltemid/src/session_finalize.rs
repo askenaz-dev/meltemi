@@ -41,6 +41,9 @@ pub struct SessionContext<'a> {
     /// which agent and which subscription ran (multiproyecto-suscripciones D4).
     pub agent_id: Option<String>,
     pub profile: Option<String>,
+    /// How the agent resolved, when the caller resolved through the fleet
+    /// (tablero-de-carrera design D2).
+    pub source: Option<meltemi_proto::FleetResolutionSource>,
 }
 
 /// The pieces a caller reports after a finalized successful turn.
@@ -91,6 +94,7 @@ pub async fn finalize_ok(ctx: &SessionContext<'_>, outcome: SessionOutcome) -> F
             resumed_from: ctx.resumed_from.clone(),
             agent_id: ctx.agent_id.clone(),
             profile: ctx.profile.clone(),
+            source: ctx.source,
         },
     );
     ctx.sessions.deregister(ctx.session_id).await;
@@ -137,6 +141,7 @@ pub async fn finalize_err(ctx: &SessionContext<'_>, kind: &str, detail: String) 
             resumed_from: ctx.resumed_from.clone(),
             agent_id: ctx.agent_id.clone(),
             profile: ctx.profile.clone(),
+            source: ctx.source,
         },
     );
     ctx.sessions.deregister(ctx.session_id).await;

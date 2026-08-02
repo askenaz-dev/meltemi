@@ -8,7 +8,10 @@
 //!   and its provenance), so the historical listing shows it whole without
 //!   walking the logs;
 //! - the reconstruction from logs stays a safety net and still recovers the
-//!   agent and the subscription from the resolution event.
+//!   agent and the subscription from the resolution event;
+//! - every dispatched lane of a race declares who ran it, in which session and
+//!   how it ended, while a lane nobody dispatched declares nothing at all;
+//! - lanes cut from different bases each keep their own.
 //!
 //! Runs against temporary fixtures, never this repo. Requires `git`; skips if
 //! absent. Uses a per-fixture `[fleet] registry` config key (no process env).
@@ -218,6 +221,25 @@ async fn sessions_of(peer: &Peer, root: &str) -> Vec<Value> {
     listed["sessions"].as_array().cloned().unwrap_or_default()
 }
 
+async fn race(peer: &Peer, root: &str, task: &str) -> Value {
+    peer.request(
+        methods::WORKTREE_DIFF,
+        &json!({ "projectRoot": root, "change": "dark-mode", "task": task }),
+    )
+    .await
+    .expect("worktree/diff ok")
+}
+
+/// The lane of one agent in a diff result.
+fn lane<'a>(race: &'a Value, agent: &str) -> &'a Value {
+    race["competitors"]
+        .as_array()
+        .expect("competitors")
+        .iter()
+        .find(|c| c["agent"] == json!(agent))
+        .unwrap_or_else(|| panic!("no lane for `{agent}`: {race:#}"))
+}
+
 /// Every environment knob a fixture-scoped resolution must not inherit.
 fn clear_process_agent_env() {
     // SAFETY: single test process.
@@ -321,6 +343,144 @@ async fn the_safety_net_recovers_the_provenance_from_the_log() {
     assert_eq!(
         session["level"], 1,
         "a rebuilt record cannot know the level: {session:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: La calle declara procedencia, sesión y estado
+#[tokio::test]
+async fn every_dispatched_lane_declares_who_ran_it_and_how_it_ended() {
+    if !git_available() {
+        eprintln!("skipping: git not on PATH");
+        return;
+    }
+    clear_process_agent_env();
+    let root = fixture("provenance");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon, _data) = spawn_daemon("provenance").await;
+    let peer = init_client(&endpoint).await;
+
+    // Two lanes resolved two different ways: one through a launch profile, one
+    // by naming the catalog id — so "the profile when there was one" is
+    // exercised in both directions rather than asserted once.
+    let by_profile = dispatch(&peer, &root_str, "1.1", "work").await;
+    let by_catalog = dispatch(&peer, &root_str, "1.1", "provider-l2").await;
+
+    let race = race(&peer, &root_str, "1.1").await;
+    let profiled = lane(&race, "work");
+    assert_eq!(profiled["source"], "profile", "{profiled:#}");
+    assert_eq!(profiled["profile"], "work");
+    assert_eq!(profiled["level"], 2, "the lane's real level");
+    assert_eq!(profiled["committed"], true);
+    assert!(
+        profiled["sha"].as_str().is_some_and(|s| s.len() >= 7),
+        "a committed lane names its head: {profiled:#}"
+    );
+    assert_eq!(
+        profiled["sessionId"], by_profile["sessionId"],
+        "the lane and the dispatch name the SAME session"
+    );
+
+    let catalogued = lane(&race, "provider-l2");
+    assert_eq!(catalogued["source"], "catalog", "{catalogued:#}");
+    assert!(
+        catalogued["profile"].is_null(),
+        "no profile ran it, and none is invented: {catalogued:#}"
+    );
+    assert_eq!(catalogued["sessionId"], by_catalog["sessionId"]);
+
+    // The two lanes are told apart by their sessions, not merged.
+    assert_ne!(profiled["sessionId"], catalogued["sessionId"]);
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Los campos aditivos no rompen al cliente anterior
+#[tokio::test]
+async fn a_lane_without_a_dispatch_shows_no_provenance_at_all() {
+    if !git_available() {
+        eprintln!("skipping: git not on PATH");
+        return;
+    }
+    clear_process_agent_env();
+    let root = fixture("silent");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon, _data) = spawn_daemon("silent").await;
+    let peer = init_client(&endpoint).await;
+
+    // Two lanes assigned; only one of them ever ran a turn.
+    peer.request(
+        methods::WORKTREE_ASSIGN,
+        &json!({
+            "projectRoot": root_str,
+            "tasks": [{ "change": "dark-mode", "task": "1.1", "agents": ["work", "ghost"] }]
+        }),
+    )
+    .await
+    .expect("assign ok");
+    dispatch(&peer, &root_str, "1.1", "work").await;
+
+    let race = race(&peer, &root_str, "1.1").await;
+    let ghost = lane(&race, "ghost");
+    for field in ["source", "profile", "level", "sessionId"] {
+        assert!(
+            ghost.get(field).is_none(),
+            "`{field}` is absent on a lane nobody dispatched, not null and not \
+             borrowed from the neighbour: {ghost:#}"
+        );
+    }
+    // The lane still carries what IS known about it: its base and the fact
+    // that nothing was committed on it.
+    assert_eq!(ghost["committed"], false, "{ghost:#}");
+    assert!(ghost.get("sha").is_none(), "nothing committed, no sha");
+    assert!(ghost["baseRev"].as_str().is_some_and(|s| !s.is_empty()));
+    // And the neighbour's provenance is intact — absence is per lane.
+    assert_eq!(lane(&race, "work")["source"], "profile");
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Bases divergentes visibles por calle
+#[tokio::test]
+async fn lanes_cut_from_different_bases_each_keep_their_own() {
+    if !git_available() {
+        eprintln!("skipping: git not on PATH");
+        return;
+    }
+    clear_process_agent_env();
+    let root = fixture("bases");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon, _data) = spawn_daemon("bases").await;
+    let peer = init_client(&endpoint).await;
+
+    // The first lane is cut from the repository's HEAD...
+    let first = dispatch(&peer, &root_str, "1.1", "work").await;
+    // ...then the repository moves on, and the second lane is cut from there.
+    std::fs::write(root.join("moved.txt"), "the base moved\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-q", "-m", "move the base"]);
+    let second = dispatch(&peer, &root_str, "1.1", "provider-l2").await;
+    assert_ne!(first["worktree"], second["worktree"]);
+
+    let race = race(&peer, &root_str, "1.1").await;
+    let a = lane(&race, "work")["baseRev"].as_str().expect("own base");
+    let b = lane(&race, "provider-l2")["baseRev"]
+        .as_str()
+        .expect("own base");
+    assert_ne!(a, b, "each lane keeps the base it was actually cut from");
+    // The result's single base is one of them, and the per-lane fields are
+    // what a board must read: fusing them would misname what a diff is against.
+    let common = race["baseRev"].as_str().expect("result base");
+    assert!(
+        common == a || common == b,
+        "the result's base is a real one, not a synthesis: {race:#}"
     );
 
     peer.close();

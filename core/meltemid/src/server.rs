@@ -330,7 +330,7 @@ async fn dispatch_request(
         methods::WORKTREE_ASSIGN => handle_worktree_assign(params).await,
         methods::WORKTREE_LIST => handle_worktree_list(params).await,
         methods::WORKTREE_REMOVE => handle_worktree_remove(params).await,
-        methods::WORKTREE_DIFF => handle_worktree_diff(params).await,
+        methods::WORKTREE_DIFF => handle_worktree_diff(params, state).await,
         methods::WORKTREE_MERGE_FILE => handle_worktree_merge_file(params).await,
         methods::WORKTREE_APPLY_EDIT => handle_worktree_apply_edit(params, state).await,
         methods::WORKTREE_DISPATCH => handle_worktree_dispatch(params, state, peer).await,
@@ -551,9 +551,20 @@ async fn handle_worktree_remove(params: Value) -> Result<Value, RpcError> {
 }
 
 /// `worktree/diff`: every competitor of a task as a diff against the common
-/// base — the side-by-side input to assisted merge (orquestacion-worktrees D5).
-async fn handle_worktree_diff(params: Value) -> Result<Value, RpcError> {
+/// base — the side-by-side input to assisted merge (orquestacion-worktrees D5)
+/// — now with each lane's own base, its commit state and the provenance of the
+/// last turn dispatched over it (tablero-de-carrera design D1/D2).
+///
+/// The provenance is a read-only aggregation of state the daemon already
+/// persists (the precedent is `navigate.rs`): the session index is joined to
+/// the worktree registry by exact path equality, because both strings are
+/// written by this daemon from the same value. The incoming root is
+/// canonicalized on the way to the project key — `paths::project_key` does
+/// that — and the STORED paths are never re-canonicalized, which is the
+/// lesson the multiproject work paid for.
+async fn handle_worktree_diff(params: Value, state: &Arc<DaemonState>) -> Result<Value, RpcError> {
     use meltemi_proto::{WorktreeCompetitorDiff, WorktreeDiffParams, WorktreeDiffResult};
+    use std::collections::HashMap;
 
     let params: WorktreeDiffParams = serde_json::from_value(params)
         .map_err(|e| RpcError::invalid_params(format!("worktree/diff: {e}")))?;
@@ -564,25 +575,46 @@ async fn handle_worktree_diff(params: Value) -> Result<Value, RpcError> {
         .first()
         .map(|w| w.base_rev.clone())
         .unwrap_or_default();
+
+    // The most recent session record per lane. `records_for_project` answers
+    // most recent first, so the first record seen for a tree is the last turn
+    // that ran there.
+    let key = crate::paths::project_key(&root);
+    let mut last_turn: HashMap<String, crate::session_index::SessionRecord> = HashMap::new();
+    for record in crate::session_index::records_for_project(&state.data_dir, &key) {
+        last_turn
+            .entry(record.project_root.clone())
+            .or_insert(record);
+    }
+
     let competitors = competitors
         .into_iter()
         .map(|w| {
             let path = PathBuf::from(&w.path);
+            // The lane's commit state is a fact about the tree, not about a
+            // dispatch: a lane committed by hand counts too. Its head differing
+            // from its own fixed base is what "committed" means here.
+            let head = crate::git::head_rev(&path);
+            let committed = head.as_deref().is_some_and(|head| head != w.base_rev);
+            // A lane with no dispatch on record states nothing about who ran
+            // it, rather than borrowing another lane's provenance.
+            let turn = last_turn.get(&w.path);
             WorktreeCompetitorDiff {
                 agent: w.agent,
                 changed_files: crate::git::changed_files(&path, &w.base_rev),
                 diff: crate::git::diff_against(&path, &w.base_rev),
                 path: w.path,
-                // Provenance is aggregated from the session index in
-                // tablero-de-carrera 2.2; until then the lane states nothing,
-                // which is exactly what an unknown provenance must look like.
-                source: None,
-                profile: None,
-                level: None,
-                session_id: None,
-                committed: None,
-                sha: None,
-                base_rev: None,
+                source: turn.and_then(|r| r.source),
+                profile: turn.and_then(|r| r.profile.clone()),
+                level: turn.map(|r| r.level),
+                session_id: turn.map(|r| r.session_id.clone()),
+                committed: Some(committed),
+                sha: head.filter(|_| committed),
+                // Each lane keeps ITS base. Two lanes of one task normally
+                // share it; when an assignment was replayed against a moved
+                // HEAD they do not, and folding them into one would misname
+                // what every diff on the board is taken against.
+                base_rev: Some(w.base_rev),
             }
         })
         .collect();
@@ -760,6 +792,7 @@ async fn handle_worktree_dispatch(
             resumed_from: None,
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
+            source: Some(resolved.source),
         }
     };
     let _ = crate::session_index::append(
@@ -2033,6 +2066,7 @@ async fn resume_with_instruction(
             // A resume runs the same agent and subscription it resumed.
             agent_id: record.agent_id.clone(),
             profile: record.profile.clone(),
+            source: record.source,
         },
     );
 
@@ -2085,6 +2119,7 @@ async fn resume_with_instruction(
         resumed_from: Some(record.session_id.clone()),
         agent_id: record.agent_id.clone(),
         profile: record.profile.clone(),
+        source: record.source,
     };
     match outcome {
         Ok(session_outcome) => {

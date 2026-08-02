@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use meltemi_proto::{SessionEvent, SessionEventKind, TurnStatus};
+use meltemi_proto::{FleetResolutionSource, SessionEvent, SessionEventKind, TurnStatus};
 
 /// One session's persisted metadata (one JSON line in `index.jsonl`). A start
 /// record has no end fields; the end record is complete, so a last-wins fold
@@ -51,6 +51,12 @@ pub struct SessionRecord {
     /// only, never its env overlay (§2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// HOW the agent resolved (profile, catalog id, configured). Recorded by
+    /// the writers that resolved through the fleet; absent elsewhere, because
+    /// it cannot be derived from the other two — a catalog id and a configured
+    /// agent that names one look identical (tablero-de-carrera design D2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<FleetResolutionSource>,
 }
 
 /// Serde default for the level field (level 1).
@@ -150,6 +156,9 @@ fn merge_into(folded: &mut BTreeMap<String, SessionRecord>, record: SessionRecor
             if record.profile.is_some() {
                 existing.profile = record.profile;
             }
+            if record.source.is_some() {
+                existing.source = record.source;
+            }
         }
     }
 }
@@ -186,6 +195,7 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
     let mut final_status = None;
     let mut agent_id = None;
     let mut profile = None;
+    let mut source = None;
 
     for line in contents.lines().filter(|l| !l.trim().is_empty()) {
         let Ok(event) = serde_json::from_str::<SessionEvent>(line) else {
@@ -208,10 +218,12 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
             SessionEventKind::AgentResolved {
                 agent_id: id,
                 profile: prof,
+                source: src,
                 ..
             } => {
                 agent_id = id;
                 profile = prof;
+                source = Some(src);
             }
             SessionEventKind::TurnCompleted { stop_reason } => final_status = Some(stop_reason),
             SessionEventKind::SessionEnded { .. } => ended_at = Some(event.ts.clone()),
@@ -239,10 +251,12 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
         agent_session_id: None,
         supports_load: false,
         resumed_from: None,
-        // Agent and subscription come from the resolution event when the log
-        // recorded one; a log without it states nothing rather than guessing.
+        // Agent, subscription and HOW it resolved come from the resolution
+        // event when the log recorded one; a log without it states nothing
+        // rather than guessing.
         agent_id,
         profile,
+        source,
     })
 }
 
@@ -283,6 +297,7 @@ mod tests {
             resumed_from: None,
             agent_id: None,
             profile: None,
+            source: None,
         }
     }
 

@@ -556,6 +556,7 @@ mod tests {
                 resumed_from: None,
                 agent_id: None,
                 profile: None,
+                source: None,
             },
         )
         .expect("session record");

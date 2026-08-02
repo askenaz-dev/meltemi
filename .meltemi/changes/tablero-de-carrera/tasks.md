@@ -29,7 +29,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   `AgentResolved` (design D2) — escenarios «Sesión de despacho listada
   completa» y «La red de seguridad recupera la procedencia» — gates:
   `cargo test -p meltemid`
-- [ ] 2.2 `WorktreeDispatchResult.session_id` poblado y agregación de
+- [x] 2.2 `WorktreeDispatchResult.session_id` poblado y agregación de
   procedencia en el handler del diff: unión por igualdad exacta
   `record.project_root == ManagedWorktree.path` tomando el registro más
   reciente por calle; raíz de entrada canonicalizada, rutas almacenadas

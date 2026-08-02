@@ -129,6 +129,7 @@ fn synthetic_session(
             resumed_from: None,
             agent_id: Some(agent.into()),
             profile: profile.map(String::from),
+            source: None,
         },
     )
     .expect("index record");

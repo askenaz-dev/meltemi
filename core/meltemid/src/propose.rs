@@ -177,6 +177,7 @@ pub async fn handle_propose(
             // request named none, and the profile when it named one.
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
+            source: Some(resolved.source),
         },
     );
 
@@ -256,6 +257,7 @@ pub async fn handle_propose(
         resumed_from: None,
         agent_id: resolved.agent_id.clone(),
         profile: resolved.profile.clone(),
+        source: Some(resolved.source),
     };
     let result = match outcome {
         Ok(session_outcome) => {

@@ -84,6 +84,7 @@ fn the_registry_rebuilds_itself_from_the_session_index() {
             resumed_from: None,
             agent_id: None,
             profile: None,
+            source: None,
         },
     )
     .expect("index record");
@@ -117,6 +118,7 @@ fn a_session_without_a_profile_reports_no_profile_at_all() {
             resumed_from: None,
             agent_id: None,
             profile: None,
+            source: None,
         },
     )
     .expect("index record");

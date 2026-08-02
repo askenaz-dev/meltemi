@@ -45,6 +45,7 @@ fn a_range_with_monthly_grain_yields_one_cell_per_period_and_matching_totals() {
         resumed_from: None,
         agent_id: None,
         profile: None,
+        source: None,
     };
     for r in [
         record("june", "2026-06-15T10:00:00Z", "2026-06-15T10:01:00Z"),

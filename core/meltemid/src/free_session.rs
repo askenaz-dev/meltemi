@@ -178,6 +178,7 @@ pub async fn handle_session_start(
             resumed_from: None,
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
+            source: Some(resolved.source),
         },
     );
 
@@ -299,6 +300,7 @@ pub async fn handle_session_start(
         resumed_from: None,
         agent_id: resolved.agent_id.clone(),
         profile: resolved.profile.clone(),
+        source: Some(resolved.source),
     };
     match outcome {
         Ok(session_outcome) => {
