@@ -735,6 +735,39 @@ async fn handle_worktree_dispatch(
         Some(&root),
     ));
 
+    // The start record, so a dispatch is a first-class session in the index
+    // rather than something only reconstructable from its log — reconstruction
+    // cannot know the level and would list every competitor's turn at 1
+    // (tablero-de-carrera design D2). The end record below completes it, and a
+    // crash mid-turn correctly leaves it interrupted.
+    let started_at = crate::clock::now_rfc3339();
+    let dispatch_record = |ended_at: Option<String>,
+                           final_status: Option<meltemi_proto::TurnStatus>,
+                           agent_session_id: Option<String>,
+                           supports_load: bool| {
+        crate::session_index::SessionRecord {
+            session_id: session_id.clone(),
+            agent_command: agent_command.clone(),
+            // The lane, not the repository: this is the tree the turn ran in,
+            // and it is the key the board joins a lane to its session by.
+            project_root: worktree.display().to_string(),
+            level,
+            started_at: started_at.clone(),
+            ended_at,
+            final_status,
+            agent_session_id,
+            supports_load,
+            resumed_from: None,
+            agent_id: resolved.agent_id.clone(),
+            profile: resolved.profile.clone(),
+        }
+    };
+    let _ = crate::session_index::append(
+        &state.data_dir,
+        &project_key,
+        &dispatch_record(None, None, None, false),
+    );
+
     // The prompt points the agent at a per-task artifact so its work is
     // committable; the task description (best-effort) titles the commit.
     let description = std::fs::read_to_string(
@@ -826,6 +859,22 @@ async fn handle_worktree_dispatch(
         },
     )
     .await;
+    // The end record completes the start one: the listing shows the lane's
+    // session finished, with the status it finished with, without any surface
+    // having to walk the logs to find out.
+    let _ = crate::session_index::append(
+        &state.data_dir,
+        &project_key,
+        &dispatch_record(
+            Some(crate::clock::now_rfc3339()),
+            Some(status),
+            outcome
+                .as_ref()
+                .ok()
+                .and_then(|o| o.agent_session_id.clone()),
+            outcome.as_ref().is_ok_and(|o| o.supports_load),
+        ),
+    );
     state
         .sessions
         .set_state(&session_id, meltemi_proto::SessionState::Ended)

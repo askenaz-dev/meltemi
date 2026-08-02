@@ -22,7 +22,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 2. Daemon: el despacho asienta y el diff agrega
 
-- [ ] 2.1 El despacho escribe registro de índice al abrir y al concluir,
+- [x] 2.1 El despacho escribe registro de índice al abrir y al concluir,
   con `level`, `agent_id` y `profile` reales; e2e: la sesión de un
   despacho aparece completa en `session/list` sin reconstrucción, y la
   reconstrucción desde logs recupera la procedencia del evento
