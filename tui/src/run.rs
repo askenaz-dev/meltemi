@@ -1889,22 +1889,69 @@ fn render_revert(result: &CheckpointRevertResult) -> String {
     out
 }
 
-/// Human rendering of a race: each competitor's changed-file count and the
-/// full diff against the common base, ready for an assisted merge decision.
+/// Human rendering of a race: per lane, who ran it and how it ended, then the
+/// full diff against that lane's base, ready for an assisted merge decision.
+/// Anything the daemon did not report is a dash — the scriptable surface shows
+/// the same truth the boards do, and invents no more of it than they do
+/// (tablero-de-carrera design D1).
 fn render_race(result: &WorktreeDiffResult) -> String {
     use std::fmt::Write;
-    let short: String = result.base_rev.chars().take(12).collect();
+    let short = |rev: &str| rev.chars().take(12).collect::<String>();
     let mut out = format!(
-        "{} competitor(s) against base {short}",
-        result.competitors.len()
+        "{} competitor(s) against base {}",
+        result.competitors.len(),
+        short(&result.base_rev)
     );
     for c in &result.competitors {
         let _ = write!(
             out,
-            "\n\n=== {} ({} file(s) changed) — {}\n{}",
+            "\n\n=== {} ({} file(s) changed) — {}",
             c.agent,
             c.changed_files.len(),
-            c.path,
+            c.path
+        );
+
+        // Who ran the lane. A lane nobody dispatched says so once, rather than
+        // printing four dashes that read like a broken record.
+        match c.session_id.as_deref() {
+            None => {
+                let _ = write!(out, "\n  ran by: — (no dispatch on record)");
+            }
+            Some(session) => {
+                let source = c
+                    .source
+                    .and_then(|s| serde_json::to_value(s).ok())
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_else(|| "—".to_string());
+                let level = c
+                    .level
+                    .map(|l| format!("L{l}"))
+                    .unwrap_or_else(|| "—".to_string());
+                let _ = write!(
+                    out,
+                    "\n  ran by: source={source} profile={} {level}  session {session}",
+                    c.profile.as_deref().unwrap_or("—")
+                );
+            }
+        }
+
+        // What the lane holds now. `committed` unknown is a dash too: the
+        // daemon states it, so a missing one is a fact about the answer.
+        let state = match (c.committed, c.sha.as_deref()) {
+            (Some(true), Some(sha)) => format!("committed {}", short(sha)),
+            (Some(true), None) => "committed".to_string(),
+            (Some(false), _) => "not committed".to_string(),
+            (None, _) => "—".to_string(),
+        };
+        let _ = write!(
+            out,
+            "\n  state: {state}  base {}",
+            c.base_rev.as_deref().map(short).unwrap_or("—".to_string())
+        );
+
+        let _ = write!(
+            out,
+            "\n{}",
             if c.diff.is_empty() {
                 "(no changes)"
             } else {
