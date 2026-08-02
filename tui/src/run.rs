@@ -1961,3 +1961,89 @@ fn render_race(result: &WorktreeDiffResult) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use meltemi_proto::{FleetResolutionSource, WorktreeCompetitorDiff};
+
+    fn lane(agent: &str) -> WorktreeCompetitorDiff {
+        WorktreeCompetitorDiff {
+            agent: agent.into(),
+            path: format!("/repo/.meltemi/worktrees/dark-mode/1-1-{agent}"),
+            changed_files: vec!["src/a.rs".into()],
+            diff: "diff --git a/src/a.rs b/src/a.rs\n".into(),
+            source: None,
+            profile: None,
+            level: None,
+            session_id: None,
+            committed: None,
+            sha: None,
+            base_rev: None,
+        }
+    }
+
+    // Scenario: La calle declara procedencia, sesión y estado
+    #[test]
+    fn the_scriptable_race_shows_the_provenance_and_marks_what_it_lacks() {
+        let dispatched = WorktreeCompetitorDiff {
+            source: Some(FleetResolutionSource::Profile),
+            profile: Some("work".into()),
+            level: Some(2),
+            session_id: Some("sess-1".into()),
+            committed: Some(true),
+            sha: Some("b".repeat(40)),
+            base_rev: Some("a".repeat(40)),
+            ..lane("claude")
+        };
+        let untouched = WorktreeCompetitorDiff {
+            committed: Some(false),
+            base_rev: Some("a".repeat(40)),
+            diff: String::new(),
+            changed_files: Vec::new(),
+            ..lane("ghost")
+        };
+        let rendered = render_race(&WorktreeDiffResult {
+            base_rev: "a".repeat(40),
+            competitors: vec![dispatched, untouched],
+        });
+
+        assert!(
+            rendered.contains("source=profile profile=work L2  session sess-1"),
+            "the dispatched lane names who ran it and where: {rendered}"
+        );
+        assert!(
+            rendered.contains("state: committed bbbbbbbbbbbb  base aaaaaaaaaaaa"),
+            "and how it ended, shortened like every other rev: {rendered}"
+        );
+        // The lane nobody dispatched says that once, in words — not as four
+        // dashes that read like a truncated record.
+        assert!(
+            rendered.contains("ran by: — (no dispatch on record)"),
+            "absence is stated, never invented: {rendered}"
+        );
+        assert!(
+            rendered.contains("state: not committed"),
+            "what IS known about it still shows: {rendered}"
+        );
+        assert!(
+            !rendered.contains("profile=ghost"),
+            "no lane borrows a provenance it does not have: {rendered}"
+        );
+        // The diff itself is still the payload of the verb.
+        assert!(rendered.contains("diff --git a/src/a.rs"));
+        assert!(rendered.contains("(no changes)"));
+    }
+
+    #[test]
+    fn a_lane_the_daemon_said_nothing_about_shows_dashes_rather_than_zeroes() {
+        // A pre-change daemon (or any client of the previous shape) sends no
+        // additive field at all. The renderer must not turn that into "not
+        // committed at base 000000" — silence is silence.
+        let rendered = render_race(&WorktreeDiffResult {
+            base_rev: "a".repeat(40),
+            competitors: vec![lane("claude")],
+        });
+        assert!(rendered.contains("state: —  base —"), "{rendered}");
+    }
+}

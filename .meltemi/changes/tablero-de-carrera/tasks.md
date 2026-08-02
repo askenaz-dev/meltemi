@@ -37,7 +37,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   escenarios «La calle declara procedencia, sesión y estado», «Los campos
   aditivos no rompen al cliente anterior» y «Bases divergentes visibles
   por calle» — gates: `cargo test -p meltemid`
-- [ ] 2.3 CLI: `render_race` muestra procedencia, sesión y estado por
+- [x] 2.3 CLI: `render_race` muestra procedencia, sesión y estado por
   calle (ausencia como «—», nunca inventada); referencia CLI regenerada si
   la salida documentada cambia (design D1, D2) — gates: `cargo test -p
   meltemi`
