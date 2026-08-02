@@ -573,6 +573,16 @@ async fn handle_worktree_diff(params: Value) -> Result<Value, RpcError> {
                 changed_files: crate::git::changed_files(&path, &w.base_rev),
                 diff: crate::git::diff_against(&path, &w.base_rev),
                 path: w.path,
+                // Provenance is aggregated from the session index in
+                // tablero-de-carrera 2.2; until then the lane states nothing,
+                // which is exactly what an unknown provenance must look like.
+                source: None,
+                profile: None,
+                level: None,
+                session_id: None,
+                committed: None,
+                sha: None,
+                base_rev: None,
             }
         })
         .collect();
@@ -837,6 +847,7 @@ async fn handle_worktree_dispatch(
         changed_files,
         status,
         task_ticked: false,
+        session_id: Some(session_id),
     };
     Ok(serde_json::to_value(result).expect("WorktreeDispatchResult serializes"))
 }

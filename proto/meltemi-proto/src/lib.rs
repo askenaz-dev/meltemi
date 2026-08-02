@@ -1903,7 +1903,11 @@ pub struct WorktreeDiffParams {
     pub task: String,
 }
 
-/// One competitor's result in a race: its diff against the common base.
+/// One competitor's result in a race: its diff against the common base, plus
+/// the provenance of the last turn dispatched over that lane
+/// (tablero-de-carrera design D1). Every provenance field is additive and
+/// omissible: a lane with no dispatch on record states nothing rather than
+/// guessing, and omitting them all serializes exactly as before they existed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeCompetitorDiff {
@@ -1915,6 +1919,29 @@ pub struct WorktreeCompetitorDiff {
     pub changed_files: Vec<String>,
     /// The unified diff against the common base.
     pub diff: String,
+    /// How the last dispatch over this lane resolved its binary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<FleetResolutionSource>,
+    /// The launch profile — the subscription — that ran the lane: the NAME
+    /// only, never its env overlay (§2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// The integration level the lane's dispatch ran at (1-4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<u8>,
+    /// The session that ran the lane's last dispatch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Whether the lane's branch carries a commit over its own base.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed: Option<bool>,
+    /// The lane's head commit SHA, when it committed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha: Option<String>,
+    /// The base revision THIS lane was created from. Lanes of one task
+    /// normally share it; when they do not, each keeps its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_rev: Option<String>,
 }
 
 /// Result of `worktree/diff`: every competitor of the task, side by side.
@@ -2001,6 +2028,10 @@ pub struct WorktreeDispatchResult {
     pub status: TurnStatus,
     /// Always `false`: a dispatch never marks the task.
     pub task_ticked: bool,
+    /// The session the dispatch opened, so whoever dispatched can correlate the
+    /// lane with the session that ran it (tablero-de-carrera design D2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// Parameters of `worktree/apply-edit` (gui-tauri-paridad design D5): the

@@ -8,7 +8,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 1. Contrato: la calle que se declara
 
-- [ ] 1.1 Campos aditivos por calle en `WorktreeCompetitorDiff` (`source`,
+- [x] 1.1 Campos aditivos por calle en `WorktreeCompetitorDiff` (`source`,
   `profile`, `level`, `sessionId`, `committed`, `sha`, `baseRev`) y
   `session_id` en `WorktreeDispatchResult`, todos `Option` con
   `#[serde(default, skip_serializing_if)]`; propiedades en

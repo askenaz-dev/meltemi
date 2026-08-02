@@ -1486,6 +1486,13 @@ fn worktree_conforms() {
                 path: racer.path.clone(),
                 changed_files: vec!["src/a.rs".into()],
                 diff: "diff --git a/src/a.rs b/src/a.rs\n".into(),
+                source: None,
+                profile: None,
+                level: None,
+                session_id: None,
+                committed: None,
+                sha: None,
+                base_rev: None,
             }],
         },
     );
@@ -1544,6 +1551,7 @@ fn worktree_conforms() {
             changed_files: vec!["toggle.rs".into()],
             status: TurnStatus::Completed,
             task_ticked: false,
+            session_id: Some("6f1f0a2e-2b0e-4a1c-9f4d-3b1c2d5e6f70".into()),
         },
     );
     // task_ticked MUST be false — a dispatch never marks the task.

@@ -100,12 +100,20 @@
     },
     "competitorDiff": {
       "type": "object",
+      "description": "One lane of the race. The provenance of its last dispatch (source, profile, level, sessionId), its commit state and its own fixed base are additive and optional: a lane with no dispatch on record omits them rather than inventing them.",
       "required": ["agent", "path", "changedFiles", "diff"],
       "properties": {
         "agent": { "type": "string", "minLength": 1 },
         "path": { "type": "string", "minLength": 1 },
         "changedFiles": { "type": "array", "items": { "type": "string" } },
-        "diff": { "type": "string" }
+        "diff": { "type": "string" },
+        "source": { "$ref": "#/$defs/resolutionSource" },
+        "profile": { "type": "string", "minLength": 1 },
+        "level": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "sessionId": { "type": "string", "minLength": 1 },
+        "committed": { "type": "boolean" },
+        "sha": { "type": "string", "minLength": 1 },
+        "baseRev": { "type": "string", "minLength": 1 }
       }
     },
     "diffResult": {
@@ -198,7 +206,8 @@
         "sha": { "type": "string", "minLength": 1 },
         "changedFiles": { "type": "array", "items": { "type": "string" } },
         "status": { "type": "string", "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"] },
-        "taskTicked": { "type": "boolean", "const": false }
+        "taskTicked": { "type": "boolean", "const": false },
+        "sessionId": { "type": "string", "minLength": 1 }
       }
     }
   }
