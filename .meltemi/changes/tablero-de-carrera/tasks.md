@@ -44,7 +44,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 3. GUI: el drill-in de revisión se vuelve tablero
 
-- [ ] 3.1 Extraer `fileSections`/`hunksOf` de `Review.svelte` a un módulo
+- [x] 3.1 Extraer `fileSections`/`hunksOf` de `Review.svelte` a un módulo
   compartido con test unitario TS; actualizar las aserciones de fuente que
   leen `Review.svelte` (design D3) — gates: `npm test` en `desktop/ui`,
   `cargo test -p meltemi-desktop` (tests de cableado)

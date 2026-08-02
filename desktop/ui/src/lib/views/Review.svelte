@@ -2,6 +2,7 @@
 <script lang="ts">
   import { t } from "../i18n";
   import { request } from "../daemon";
+  import { fileSections, hunksOf } from "../diff";
   import { openWith } from "../editor/files";
   import { pushNotice } from "../stores";
   import EmptyState from "../components/EmptyState.svelte";
@@ -88,89 +89,6 @@
       const e = raw as { message?: string };
       pushNotice(`${$t("common.error")}: ${e?.message ?? String(raw)}`, "danger");
     }
-  }
-
-  /** Splits a unified diff into per-file sections with classed lines. */
-  function fileSections(
-    diff: string,
-  ): { file: string; lines: { text: string; kind: string; newLine: number | null }[] }[] {
-    const sections: {
-      file: string;
-      lines: { text: string; kind: string; newLine: number | null }[];
-    }[] = [];
-    let current: (typeof sections)[number] | null = null;
-    let newLine = 0;
-    for (const line of diff.split("\n")) {
-      if (line.startsWith("diff --git")) {
-        const file = line.split(" b/").pop() ?? line;
-        current = { file, lines: [] };
-        sections.push(current);
-        continue;
-      }
-      if (!current) continue;
-      let kind = "ctx";
-      let numbered: number | null = null;
-      if (line.startsWith("@@")) {
-        kind = "hunk";
-        const match = /\+(\d+)/.exec(line);
-        newLine = match ? Number(match[1]) : 0;
-      } else if (line.startsWith("+++") || line.startsWith("---")) {
-        kind = "meta";
-      } else if (line.startsWith("+")) {
-        kind = "add";
-        numbered = newLine;
-        newLine += 1;
-      } else if (line.startsWith("-")) {
-        kind = "del";
-      } else {
-        numbered = newLine;
-        newLine += 1;
-      }
-      current.lines.push({ text: line, kind, newLine: numbered });
-    }
-    return sections;
-  }
-
-  /**
-   * The hunks of a file section, so review has a per-hunk unit: its header, its
-   * lines, and the first line of the new file it touches (where editing and
-   * "open with" land).
-   */
-  function hunksOf(section: { file: string; lines: DiffLine[] }): Hunk[] {
-    const hunks: Hunk[] = [];
-    let current: Hunk | null = null;
-    for (const line of section.lines) {
-      if (line.kind === "hunk") {
-        current = { header: line.text, lines: [], startLine: null };
-        hunks.push(current);
-        continue;
-      }
-      if (line.kind === "meta") continue;
-      if (!current) {
-        // Lines before the first @@ (rename/mode headers): keep them visible in
-        // their own unlabeled hunk rather than dropping them.
-        current = { header: "", lines: [], startLine: null };
-        hunks.push(current);
-      }
-      current.lines.push(line);
-      if (current.startLine === null && line.newLine !== null) {
-        current.startLine = line.newLine;
-      }
-    }
-    return hunks;
-  }
-
-  interface DiffLine {
-    text: string;
-    kind: string;
-    newLine: number | null;
-  }
-
-  interface Hunk {
-    header: string;
-    lines: DiffLine[];
-    /** First line of the NEW file this hunk touches, when it has one. */
-    startLine: number | null;
   }
 
   async function openExternally(worktreePath: string, file: string, line: number | null) {

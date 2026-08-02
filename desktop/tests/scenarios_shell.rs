@@ -998,10 +998,23 @@ fn the_review_compares_competitors_and_acts_per_hunk_and_per_line() {
         review.contains("review.base") && review.contains("baseRev"),
         "the common base is stated, so the diffs are comparable"
     );
-    // Per-hunk unit with its own affordances.
+    // Per-hunk unit with its own affordances. The grammar itself lives in the
+    // shared module every diff surface reads, so the review and the race board
+    // cannot drift into two readings of the same text (tablero-de-carrera D3).
     assert!(
-        review.contains("function hunksOf(") && review.contains("class=\"hunk\""),
-        "the diff is grouped into hunks"
+        review.contains("import { fileSections, hunksOf } from \"../diff\"")
+            && review.contains("class=\"hunk\""),
+        "the diff is grouped into hunks, by the shared parser"
+    );
+    let diff = read("desktop/ui/src/lib/diff.ts");
+    assert!(
+        diff.contains("export function fileSections(") && diff.contains("export function hunksOf("),
+        "and the shared module is where those two live"
+    );
+    let diff_test = read("desktop/ui/tests/diff.test.ts");
+    assert!(
+        diff_test.contains("Los hunks conservan su cabecera y su primera línea nueva"),
+        "the grammar has an executed unit test, not merely a home"
     );
     assert!(
         review.contains("review.editHunk"),
