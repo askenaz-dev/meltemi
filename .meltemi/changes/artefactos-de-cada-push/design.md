@@ -186,6 +186,22 @@ hace dos semanas no es el último, y a nadie le sirve. Además acota el
 almacenamiento sin depender de qué plan tenga el repositorio. Es un número, está
 en el YAML, y el requisito exige que sea acotado y declarado, no que sea siete.
 
+**Tres ajustes decididos al implementar**, los tres en la línea de esta
+decisión y anotados aquí para que no queden solo en un comentario del YAML:
+
+- `concurrency` con `cancel-in-progress`, agrupado por ref. Si el propósito es
+  «el último build», un run que ya fue superado por otro push es gasto puro.
+  Es el tercer dial y el único que no hay que girar a mano.
+- `fail-fast: false` en la matriz. En el camino de tag la matriz aborta entera
+  porque una release parcial no existe; aquí es al revés: un fallo en Linux no
+  debe llevarse por delante el DMG de macOS, que es el artefacto que motivó
+  todo esto.
+- `scripts/install.sh` y `install.ps1` **no** viajan en el artefacto, a
+  diferencia del camino de tag. Instalan desde la última release publicada, y
+  un instalador de release al lado de un build sin firmar es exactamente la
+  confusión que `UNSIGNED-BUILD.txt` existe para evitar. No se ensaya ese
+  `cp` porque ensayarlo tendría un costo peor que el que evita.
+
 ### D6 — La imposibilidad de publicar es estructural, y el test la vigila por el lado negativo
 
 El workflow declara `permissions: contents: read` en su cabecera. No es

@@ -44,7 +44,7 @@
 
 ## 4. Verificación
 
-- [ ] 4.1 Gates locales — `cargo fmt --all --check`,
+- [x] 4.1 Gates locales — `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo test --workspace`, `cargo deny check` y `meltemi validate
   artefactos-de-cada-push` limpio— más `meltemi verify` con su cobertura; y
@@ -52,3 +52,40 @@
   el merge, lo que ningún test local puede probar: que los tres jobs completan
   en runner real, que el DMG de macOS sale por esta ruta igual que por la de
   tag, y el tiempo de pared por plataforma (design D8)
+  <!-- 2026-08-06: gates verdes — `cargo fmt --all --check` limpio; `cargo
+  clippy --workspace --all-targets -- -D warnings` sin avisos; `cargo test
+  --workspace` **848 tests / 87 suites, 0 fallos** (incluye `release.rs` 19/19 y
+  `site.rs` 12/12); `cargo deny check` **advisories ok, bans ok, licenses ok,
+  sources ok**; `meltemi validate artefactos-de-cada-push` limpio; `meltemi
+  verify artefactos-de-cada-push` **9/9 (complete)**, los nueve `linked` — ningún
+  escenario quedó sin ancla, así que no hizo falta `sdd/verify-mark`. Se usó el
+  binario de depuración (`target/debug/meltemi.exe`): el de release está tomado
+  por procesos del mantenedor y no se mata nada.
+
+  Además de los tests, se comprobó localmente lo que un archivo YAML sí permite
+  comprobar sin runner: que `build.yml` parsea, que los catorce bloques `run:`
+  pasan `bash -n`, que el lint de bloques (`every_workflow_script_stays_inside_
+  its_block`) sigue verde con tres workflows, y que la secuencia
+  presupuesto→normalización→checksums→aviso produce el `dist/` esperado en un
+  sandbox con un DMG falso. Las tres guardas negativas se verificaron por
+  mutación, no por observación: quitar el gate de tag del job `release` pone roja
+  la segunda; añadir `contents: write` y un `gh release create` a `build.yml`
+  pone roja la primera; cambiar un presupuesto en un solo archivo pone roja la de
+  correspondencia nombrando los dos números y los dos archivos.
+
+  **Verificación documentada, pendiente del primer push a `main` tras el merge**
+  (design D8) — lo que ningún test local puede probar: (1) que los tres jobs de
+  `build.yml` completan en runner real y dejan tres artefactos
+  `meltemi-unsigned-<SO>-<sha-corto>` en la página del run; (2) que el de macOS
+  trae el `meltemi-desktop-macOS.dmg` ya normalizado y el
+  `meltemi-macOS.tar.gz` con los cuatro binarios; (3) el tiempo de pared por
+  plataforma, que es el dato con el que se decide si la cadencia baja a
+  `workflow_dispatch` o a `schedule`; (4) que el resumen del run muestra el aviso
+  y que `UNSIGNED-BUILD.txt` viaja dentro del artefacto; (5) que `publish-site`
+  de `release.yml` publica el sitio en ese mismo push sin esperar nada nuevo —la
+  razón entera de no tocar aquel archivo—; y (6) que no se creó release alguna y
+  que `releases/latest` sigue resolviendo a la última firmada. -->
+
+- [ ] 4.2 Anotar el resultado de esa verificación tras el primer push a `main`
+  (los seis puntos de 4.1), con el tiempo de pared por plataforma, antes de
+  archivar la change
