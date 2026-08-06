@@ -2317,7 +2317,7 @@ dependencies = [
 
 [[package]]
 name = "meltemi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "meltemi-client",
  "meltemi-proto",
@@ -2329,7 +2329,7 @@ dependencies = [
 
 [[package]]
 name = "meltemi-adapters"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agent-client-protocol",
  "jsonschema",
@@ -2342,7 +2342,7 @@ dependencies = [
 
 [[package]]
 name = "meltemi-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "directories",
  "meltemi-proto",
@@ -2355,7 +2355,7 @@ dependencies = [
 
 [[package]]
 name = "meltemi-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ignore",
  "meltemi-client",
@@ -2371,7 +2371,7 @@ dependencies = [
 
 [[package]]
 name = "meltemi-proto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "jsonschema",
  "serde",
@@ -2380,11 +2380,11 @@ dependencies = [
 
 [[package]]
 name = "meltemi-spec"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "meltemid"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -2458,7 +2458,7 @@ dependencies = [
 
 [[package]]
 name = "mock-agent"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agent-client-protocol",
  "tokio",
@@ -2466,11 +2466,11 @@ dependencies = [
 
 [[package]]
 name = "mock-headless"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "mock-provider"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
 ]
