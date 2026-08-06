@@ -2,7 +2,7 @@
 
 ## 1. La ruta de integración
 
-- [ ] 1.1 Añadir `scripts/unsigned-build-notice.txt` con el aviso que viaja a
+- [x] 1.1 Añadir `scripts/unsigned-build-notice.txt` con el aviso que viaja a
   los dos destinos (resumen del run y artefacto): qué garantías no acompañan al
   build —firma, atestación, publicación—, por qué la clave nunca toca CI
   (`docs/release.md`, «Key custody») y la URL de última release como vía de

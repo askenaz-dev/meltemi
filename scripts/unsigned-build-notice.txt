@@ -1,0 +1,30 @@
+UNSIGNED BUILD - NOT A RELEASE
+
+These files were built by .github/workflows/build.yml from a push to main, so
+that the latest build can be tried without waiting for a release. They are for
+trying a build. They are never for distribution.
+
+What they do NOT carry:
+
+  * No signature. Releases publish a SHA256SUMS signed with the project's
+    minisign key, on the maintainer's own machine. That key never touches this
+    repository and no CI job ever holds it (docs/release.md, "Key custody"),
+    which is why no automated path can produce a signed artifact - including
+    this one.
+
+  * No provenance attestation. The build attestation is minted only on the
+    release path, over the merged checksums of a published set.
+
+  * No publication. A workflow artifact has no stable URL, expires, and never
+    appears under releases/latest. Nothing here was published anywhere.
+
+The SHA256SUMS beside these files is a manifest of what this run produced. It
+says the bytes are the bytes this run built. It is not signed, and it says
+nothing about who vouches for them - do not read it as verification of origin.
+
+To install Meltemi, use a published release:
+
+  https://github.com/askenaz-dev/meltemi/releases/latest
+
+Its checksums, signature and provenance are verifiable, and the procedure is in
+docs/release.md.
