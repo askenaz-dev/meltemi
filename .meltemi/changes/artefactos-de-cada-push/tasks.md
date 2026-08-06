@@ -19,7 +19,7 @@
 
 ## 2. Lo que la change afirma, pineado
 
-- [ ] 2.1 Añadir a `core/meltemid/tests/release.rs` la mitad afirmativa
+- [x] 2.1 Añadir a `core/meltemid/tests/release.rs` la mitad afirmativa
   —disparador en `main`, las tres plataformas, los tres presupuestos con
   **idéntico valor** en los dos workflows, los dos adaptadores en los tres
   archivos del núcleo, el nombre con `unsigned` y SHA corto, la retención

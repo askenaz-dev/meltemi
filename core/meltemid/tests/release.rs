@@ -32,11 +32,184 @@ fn versioning_policy_defines_breaking_changes_and_single_version() {
             "the breaking-change definition covers `{contract}`"
         );
     }
-    // Single workspace version (source of truth in the root manifest).
+    // Single workspace version (source of truth in the root manifest). The
+    // literal `0.1.0` used to be asserted here, which made every bump of the
+    // number turn red the test that exists to keep the number singular — and it
+    // did, at 0.1.1. What the policy actually requires is that the root manifest
+    // declares one version and every member inherits it, so that is what is
+    // checked.
     let manifest = read(&root, "Cargo.toml");
+    let (_, workspace_package) = manifest
+        .split_once("[workspace.package]")
+        .expect("the root manifest declares [workspace.package]");
+    let version = workspace_package
+        .lines()
+        .take_while(|line| !line.trim_start().starts_with('[')) // that section only
+        .find_map(|line| line.trim().strip_prefix("version = "))
+        .expect("[workspace.package] carries the version")
+        .trim()
+        .trim_matches('"');
     assert!(
-        manifest.contains("[workspace.package]") && manifest.contains("version = \"0.1.0\""),
-        "the workspace carries a single version"
+        version.split('.').count() == 3 && version.split('.').all(|p| p.parse::<u32>().is_ok()),
+        "the workspace version is a semver triple, found {version:?}"
+    );
+    for member in [
+        "core/meltemid/Cargo.toml",
+        "tui/Cargo.toml",
+        "desktop/Cargo.toml",
+        "proto/meltemi-proto/Cargo.toml",
+    ] {
+        assert!(
+            read(&root, member).contains("version.workspace = true"),
+            "{member} inherits the single workspace version instead of carrying its own"
+        );
+    }
+}
+
+/// The value of an `env:` declaration in a workflow, by key. Only the
+/// declaration matches: a shell line that merely expands `${KEY}` does not
+/// begin with `KEY:`.
+fn workflow_env(text: &str, key: &str) -> String {
+    text.lines()
+        .find(|line| line.trim_start().starts_with(&format!("{key}:")))
+        .and_then(|line| line.split_once(':'))
+        .map(|(_, value)| value.trim().trim_matches('"').to_string())
+        .unwrap_or_else(|| panic!("no `{key}` is declared"))
+}
+
+#[test]
+fn a_push_to_main_packages_every_platform_and_leaves_it_downloadable() {
+    // Scenario: Push a main deja el build descargable
+    // the integration path builds the release path's per-platform artifacts and
+    // uploads them as artifacts of the run.
+    let wf = read(&repo_root(), ".github/workflows/build.yml");
+
+    // Triggered by main, and by hand — the second is also the first cadence
+    // dial: dropping the push trigger leaves a working manual path (design D5).
+    assert!(
+        wf.contains("branches: [\"main\"]"),
+        "the integration build runs on a push to main"
+    );
+    assert!(
+        wf.contains("workflow_dispatch:"),
+        "and can be run by hand, which is the cadence dial"
+    );
+    for os in ["ubuntu-latest", "macos-latest", "windows-latest"] {
+        assert!(wf.contains(os), "the integration build runs on {os}");
+    }
+
+    // The same six files the release path produces: three core archives and
+    // three normalized installers, all built here.
+    for artifact in [
+        "meltemi-Windows.zip",
+        "meltemi-macOS.tar.gz",
+        "meltemi-Linux.tar.gz",
+        "meltemi-desktop-Windows.msi",
+        "meltemi-desktop-macOS.dmg",
+        "meltemi-desktop-Linux.deb",
+    ] {
+        assert!(
+            wf.contains(artifact),
+            "the integration build produces {artifact}"
+        );
+    }
+    assert!(
+        wf.contains("tauri build"),
+        "the desktop installers are bundled, not assumed"
+    );
+    assert!(
+        wf.contains("SHA256SUMS"),
+        "the run's own manifest of what it built travels with it"
+    );
+
+    // And it ends downloadable from the run page.
+    assert!(
+        wf.contains("actions/upload-artifact"),
+        "the output is uploaded as an artifact of the run"
+    );
+}
+
+#[test]
+fn the_integration_artifact_names_its_commit_and_bounds_its_retention() {
+    // Scenario: Nombre del artefacto declara commit y build
+    // Scenario: Retención acotada y declarada
+    // the name says unsigned build and which commit; the retention is a number
+    // in the pipeline, not an open-ended default.
+    let wf = read(&repo_root(), ".github/workflows/build.yml");
+
+    let name = wf
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("name: meltemi-"))
+        .expect("the uploaded artifact is named");
+    assert!(
+        name.contains("unsigned"),
+        "the artifact name declares it is an unsigned build: {name}"
+    );
+    assert!(
+        name.contains("short_sha"),
+        "and identifies the commit that produced it: {name}"
+    );
+    assert!(
+        wf.contains("GITHUB_SHA:0:8"),
+        "the short SHA is derived from the commit being built"
+    );
+
+    // The files INSIDE keep the stable, version-free names of the release path,
+    // so this rehearses the normalization step too (design D3). A per-run name
+    // there would stop rehearsing exactly the step that breaks unnoticed.
+    assert!(
+        wf.contains("normalized $(basename \"$src\") -> $dest"),
+        "the installers are renamed to the stable scheme, as a release does"
+    );
+
+    let retention = wf
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("retention-days:"))
+        .expect("the pipeline declares how long these artifacts live")
+        .trim()
+        .parse::<u32>()
+        .expect("the retention is a number of days");
+    assert!(
+        retention > 0 && retention <= 90,
+        "the retention is bounded, not indefinite: found {retention} days"
+    );
+}
+
+#[test]
+fn the_size_budgets_are_the_same_numbers_in_every_packaging_path() {
+    // Scenario: Presupuesto excedido falla el build de integración
+    // both packaging paths measure against the same limits and exit non-zero.
+    // This is the test that answers the one real cost of keeping the integration
+    // build in a file of its own (design D1): two files that must agree
+    // eventually do not, unless something fails when they stop agreeing.
+    let root = repo_root();
+    let release = read(&root, ".github/workflows/release.yml");
+    let build = read(&root, ".github/workflows/build.yml");
+
+    for budget in [
+        "MELTEMI_TUI_BUDGET_BYTES",
+        "MELTEMI_GUI_INSTALLER_BUDGET_BYTES",
+        "MELTEMI_ADAPTER_BUDGET_BYTES",
+    ] {
+        let on_release = workflow_env(&release, budget);
+        let on_build = workflow_env(&build, budget);
+        assert_eq!(
+            on_release, on_build,
+            "`{budget}` is {on_release} in .github/workflows/release.yml and \
+             {on_build} in .github/workflows/build.yml; a budget measured \
+             differently depending on which file runs it is not a budget"
+        );
+        assert!(
+            build.contains(&format!("${{{budget}}}")),
+            "the integration build measures against `{budget}`, not just declares it"
+        );
+    }
+    // Measuring without failing is a report, not a gate.
+    assert!(
+        build.matches("exit 1").count() >= 3,
+        "each budget aborts the integration build when exceeded"
     );
 }
 
@@ -357,21 +530,29 @@ fn the_bundled_adapters_ship_beside_the_daemon_on_all_three_platforms() {
     let root = repo_root();
     let adapters = ["meltemi-claude-acp", "meltemi-codex-acp"];
 
-    let wf = read(&root, ".github/workflows/release.yml");
-    for platform in [
-        "meltemi-Windows.zip",
-        "meltemi-macOS.tar.gz",
-        "meltemi-Linux.tar.gz",
+    // Both packaging paths: the release one and the integration one
+    // (artefactos-de-cada-push). An archive that rehearses the release without
+    // its adapters rehearses the wrong thing.
+    for workflow in [
+        ".github/workflows/release.yml",
+        ".github/workflows/build.yml",
     ] {
-        let line = wf
-            .lines()
-            .find(|line| line.contains(platform) && !line.trim_start().starts_with('#'))
-            .unwrap_or_else(|| panic!("the packaging step builds {platform}"));
-        for adapter in adapters {
-            assert!(
-                line.contains(adapter),
-                "{platform} must carry `{adapter}`: {line}"
-            );
+        let wf = read(&root, workflow);
+        for platform in [
+            "meltemi-Windows.zip",
+            "meltemi-macOS.tar.gz",
+            "meltemi-Linux.tar.gz",
+        ] {
+            let line = wf
+                .lines()
+                .find(|line| line.contains(platform) && !line.trim_start().starts_with('#'))
+                .unwrap_or_else(|| panic!("{workflow} packages {platform}"));
+            for adapter in adapters {
+                assert!(
+                    line.contains(adapter),
+                    "{workflow}: {platform} must carry `{adapter}`: {line}"
+                );
+            }
         }
     }
 
