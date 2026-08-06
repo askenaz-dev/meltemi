@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change niveles-integracion-conformidad. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Semántica operativa por nivel
 El daemon SHALL soportar los cuatro niveles de integración con semántica
 declarada: nivel 1 ACP nativo por stdio; nivel 2 ACP a través de un binario
@@ -66,16 +67,26 @@ presentar el nivel 4 como lo que es: integración de solo-contexto.
 - **AND** ninguna sesión pilotada SHALL abrirse para ese agente
 
 ### Requirement: Suite de conformidad por nivel
-El proyecto SHALL mantener una suite de conformidad ejecutable con criterios
-pasa/no-pasa por nivel (streaming, cancelación, permisos, sesión, salida
-estructurada, proyección), que en CI MUST correr exclusivamente contra agentes
-simulados y sin red; la ejecución contra agentes reales MUST ser manual y por
-opt-in explícito. El resultado por agente SHALL persistirse con fecha y versión.
+El proyecto SHALL mantener una suite de conformidad ejecutable con
+criterios pasa/no-pasa por nivel (streaming, cancelación, permisos, sesión,
+salida estructurada, proyección), que en CI MUST correr exclusivamente
+contra agentes simulados y sin red; la ejecución contra agentes reales MUST
+ser manual y por opt-in explícito. Los criterios del nivel pilotado por
+adaptador SHALL ejercerse en CI a través de los adaptadores propios de
+Meltemi pilotando procesos proveedor simulados que hablan el cable
+documentado de su proveedor; los binarios de proveedores reales MUST
+permanecer fuera de CI. El resultado por agente SHALL persistirse con fecha
+y versión.
 
 #### Scenario: Conformidad en CI con simulados
 - **WHEN** la suite corre en CI
 - **THEN** SHALL ejecutar los criterios de cada nivel contra los agentes simulados
 - **AND** SHALL NOT contactar red ni agentes reales
+
+#### Scenario: Nivel de adaptador ejercido por los adaptadores propios
+- **WHEN** la suite ejerce en CI los criterios del nivel pilotado por adaptador
+- **THEN** SHALL pilotar los binarios reales de los adaptadores propios contra procesos proveedor simulados
+- **AND** ningún binario de proveedor real SHALL ejecutarse
 
 #### Scenario: Resultado persistido
 - **WHEN** una corrida de conformidad concluye para un agente
@@ -90,4 +101,3 @@ MUST distinguir visualmente declarado de verificado.
 - **WHEN** un agente declara nivel 1 sin corrida de conformidad registrada
 - **THEN** `fleet/list` SHALL reportar nivel declarado 1 y verificado ausente
 - **AND** la vista Flota SHALL mostrar la distinción con etiqueta textual
-
