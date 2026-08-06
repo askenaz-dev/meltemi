@@ -142,6 +142,8 @@ multiproveedor visible en GUI y TUI con procedencia por calle) ·
 avisa al escritorio cuando un permiso espera) ·
 `primer-arranque-del-home` (abierta 2026-07-31, vía rápida, del mismo
 comparativo) ·
+`artefactos-de-cada-push` (abierta 2026-08-05, vía rápida: el build de cada
+push a `main` descargable como artefacto de la ejecución, jamás como release) ·
 `registro-agentes-en-superficie` · `menu-nativo-aplicacion` · `sandbox-propio` ·
 `hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` ·
 `metricas-sdd-locales` · `lsp-superficie-revision`.
@@ -493,6 +495,29 @@ futuro con evidencia; y para el anuncio, un contraste que es mensaje y no
 change: ese producto embarca «Yolo / Dangerously skip permissions» marcado
 por defecto — exactamente lo que el deny-by-default constitucional de Meltemi
 existe para no ser.
+
+### `artefactos-de-cada-push` — abierta el 2026-08-05, vía rápida
+
+Nace de una petición del mantenedor: «me gustaría que esto sea automático con
+cada push (para eso tenemos CICD)» — quiere probar el build del día, y en
+particular el DMG de macOS que su máquina Windows no construye. Lo que **no**
+puede automatizarse es la release firmada: `procedencia-de-release` fijó que la
+firma minisign ocurre fuera de CI porque es el único paso que una cuenta de
+GitHub comprometida no puede completar, y con immutable releases activado firmar
+precede a publicar sin orden alternativo. La change da el escalón intermedio:
+`.github/workflows/build.yml`, un job por plataforma en cada push a `main`, que
+produce los mismos artefactos que el camino de tag y los sube como artefactos de
+la ejecución — sin release, sin versión, sin firma y sin insinuar ninguna de las
+tres. `release.yml` no cambia ni una línea, y esa es la decisión central: hacerlo
+allí habría hecho que cada publicación del sitio esperara un build de Tauri de
+tres plataformas (`publish-site` declara `needs` sobre los jobs de empaquetado) y
+habría duplicado los gates que `ci.yml` ya corre sobre el mismo commit. Los tres
+presupuestos de tamaño gatean también esta ruta, con test que exige el mismo
+valor en los dos archivos; el artefacto se llama `meltemi-unsigned-<SO>-<sha>` y
+caduca a los 7 días; el aviso de «sin firmar» viaja al resumen del run y dentro
+del artefacto. Costo dicho sin maquillar —tres jobs caros por push— con dos
+diales declarados para bajarlo: el bloque `on:` y la matriz de plataformas.
+Cuatro deltas ADDED sobre `release-distribution`, cero dependencias nuevas.
 
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 
