@@ -213,6 +213,172 @@ fn the_size_budgets_are_the_same_numbers_in_every_packaging_path() {
     );
 }
 
+/// A workflow with its comment lines removed. The negative assertions below are
+/// about what the pipeline *does*, and both workflows explain in prose the very
+/// things they must never execute — a naive substring search would trip on the
+/// explanation instead of on the deed.
+fn executable_lines(workflow: &str) -> String {
+    workflow
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// One job of a workflow: from its `  <name>:` header to the next job header at
+/// the same indentation.
+fn job_block(workflow: &str, job: &str) -> String {
+    let header = format!("  {job}:");
+    let mut inside = false;
+    let mut block: Vec<&str> = Vec::new();
+    for line in workflow.lines() {
+        let is_job_header = line.starts_with("  ")
+            && !line.starts_with("   ")
+            && !line.trim_start().starts_with('#')
+            && line.trim_end().ends_with(':');
+        if inside && is_job_header {
+            break;
+        }
+        if line.trim_end() == header {
+            inside = true;
+        }
+        if inside {
+            block.push(line);
+        }
+    }
+    assert!(inside, "the workflow declares a `{job}` job");
+    block.join("\n")
+}
+
+#[test]
+fn the_integration_build_cannot_create_or_sign_a_release() {
+    // Scenario: El build de integración no crea release
+    // nothing on this path creates, signs or attests anything — and the token it
+    // runs with could not, even if a step tried.
+    let wf = executable_lines(&read(&repo_root(), ".github/workflows/build.yml"));
+
+    // The deeds, absent.
+    for forbidden in [
+        "gh release",
+        "release create",
+        "softprops/action-gh-release",
+        "upload-release-asset",
+        "actions/attest",
+        "minisign",
+        ".minisig",
+    ] {
+        assert!(
+            !wf.contains(forbidden),
+            "the integration build must not contain `{forbidden}`: this path \
+             packages, it does not publish, sign or attest"
+        );
+    }
+
+    // And the permission that would be needed, absent too — which is what makes
+    // the guarantee structural instead of a promise (design D6). Every write
+    // scope at once: contents, id-token, attestations.
+    assert!(
+        !wf.contains(": write"),
+        "the integration build grants no write permission of any kind"
+    );
+    let permissions: Vec<&str> = wf
+        .lines()
+        .skip_while(|line| line.trim_end() != "permissions:")
+        .skip(1)
+        .take_while(|line| line.starts_with("  "))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        permissions,
+        ["contents: read"],
+        "the integration build declares read-only permissions and nothing else"
+    );
+}
+
+#[test]
+fn the_release_path_still_belongs_to_a_tag_alone() {
+    // Scenario: El camino de release sigue siendo solo de tag
+    // the job that creates the release is gated on a tag ref, and it is the only
+    // job in the repository that creates one.
+    let root = repo_root();
+    let release_yml = read(&root, ".github/workflows/release.yml");
+    let tag_gate = "if: startsWith(github.ref, 'refs/tags/')";
+
+    let draft = job_block(&release_yml, "release");
+    assert!(
+        draft.contains("gh release create"),
+        "the `release` job is the one that creates the release"
+    );
+    assert!(
+        draft.contains(tag_gate),
+        "and it runs only from a version tag; without that condition a push to \
+         main would publish"
+    );
+    // Its packaging inputs are gated the same way, so a main push cannot even
+    // assemble the set the draft would be built from.
+    for job in ["gates", "deny", "package", "package-gui"] {
+        assert!(
+            job_block(&release_yml, job).contains(tag_gate),
+            "the `{job}` job of the release path stays tag-only"
+        );
+    }
+
+    // No second publisher anywhere in .github/workflows.
+    let dir = root.join(".github/workflows");
+    for entry in std::fs::read_dir(&dir).expect("the workflows directory exists") {
+        let path = entry.expect("readable entry").path();
+        if path.extension().is_none_or(|ext| ext != "yml") {
+            continue;
+        }
+        let name = path.file_name().expect("named file").to_string_lossy();
+        if name == "release.yml" {
+            continue;
+        }
+        let text = executable_lines(&std::fs::read_to_string(&path).expect("readable workflow"));
+        assert!(
+            !text.contains("gh release create"),
+            "{name} creates a release; the tagged path is the only one that may"
+        );
+    }
+}
+
+#[test]
+fn the_version_free_download_urls_still_answer_from_the_signed_release() {
+    // Scenario: La última release firmada sigue resolviendo
+    // the published surfaces link `releases/latest/download/<stable-name>`, and
+    // the only path that can move what that URL resolves to is the tagged one:
+    // a workflow artifact has no stable URL and never enters a release.
+    let root = repo_root();
+    let build = executable_lines(&read(&root, ".github/workflows/build.yml"));
+    assert!(
+        !build.contains("releases/latest"),
+        "the integration build neither writes nor claims the latest-release URL"
+    );
+
+    for surface in ["README.md", "LEEME.md"] {
+        let text = read(&root, surface);
+        for asset in [
+            "meltemi-desktop-Windows.msi",
+            "meltemi-desktop-macOS.dmg",
+            "meltemi-desktop-Linux.deb",
+            "meltemi-Windows.zip",
+            "meltemi-macOS.tar.gz",
+            "meltemi-Linux.tar.gz",
+        ] {
+            assert!(
+                text.contains(&format!("releases/latest/download/{asset}")),
+                "{surface} links `{asset}` at the version-free latest-release URL"
+            );
+            // The same stable name the integration build produces — which is why
+            // the two paths must never share a destination.
+            assert!(
+                build.contains(asset),
+                "the integration build rehearses `{asset}` under its stable name"
+            );
+        }
+    }
+}
+
 #[test]
 fn the_release_pipeline_gates_and_budget_abort() {
     // Scenario: Presupuesto excedido aborta

@@ -26,7 +26,7 @@
   declarada— cubriendo «Push a main deja el build descargable», «Nombre del
   artefacto declara commit y build», «Retención acotada y declarada» y
   «Presupuesto excedido falla el build de integración» (design D6)
-- [ ] 2.2 Añadir la mitad negativa: `build.yml` sin `gh release`, sin
+- [x] 2.2 Añadir la mitad negativa: `build.yml` sin `gh release`, sin
   `actions/attest`, sin `SHA256SUMS.minisig` y sin `contents: write`; y
   `release.yml` con su job `release` todavía condicionado a
   `startsWith(github.ref, 'refs/tags/')` — cubriendo «El build de integración no
