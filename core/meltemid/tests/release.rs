@@ -380,6 +380,75 @@ fn the_version_free_download_urls_still_answer_from_the_signed_release() {
 }
 
 #[test]
+fn an_unsigned_build_says_so_where_it_is_downloaded_and_inside_itself() {
+    // Scenario: Aviso de build sin firmar donde se descarga
+    // Scenario: El artefacto lleva su propio aviso
+    // one text, written once in the tree, reaching the run page and the artifact.
+    let root = repo_root();
+    let notice = read(&root, "scripts/unsigned-build-notice.txt");
+    let build = read(&root, ".github/workflows/build.yml");
+
+    // What it must say: which guarantees are absent, and where to go instead.
+    assert!(
+        notice.contains("UNSIGNED BUILD") && notice.contains("NOT A RELEASE"),
+        "the notice names what this is before anything else"
+    );
+    for absence in [
+        "No signature",
+        "No provenance attestation",
+        "No publication",
+    ] {
+        assert!(
+            notice.contains(absence),
+            "the notice declares `{absence}`: absence is the whole message"
+        );
+    }
+    assert!(
+        notice.contains("releases/latest"),
+        "and points at the published release as the way to install"
+    );
+    // The one file most likely to be misread: a SHA256SUMS with no signature
+    // beside it looks like verification and is only a manifest.
+    let flat = notice.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        flat.contains("It is not signed")
+            && flat.contains("do not read it as verification of origin"),
+        "the notice disarms its own checksums file"
+    );
+
+    // Both destinations, from that same file — never retyped into the YAML.
+    assert!(
+        build.contains("cat scripts/unsigned-build-notice.txt >> \"$GITHUB_STEP_SUMMARY\""),
+        "the notice reaches the run page, which is where the download button is"
+    );
+    assert!(
+        build.contains("cp scripts/unsigned-build-notice.txt dist/UNSIGNED-BUILD.txt"),
+        "and travels inside the artifact, which is what survives the download"
+    );
+
+    // And the documentation tells the two paths apart for whoever arrives here
+    // instead of at a run page.
+    let doc = read(&root, "docs/release.md");
+    let doc_flat = doc.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        doc.contains(".github/workflows/build.yml"),
+        "docs/release.md names the integration workflow"
+    );
+    assert!(
+        doc_flat.contains("not distribution"),
+        "and says a run artifact is not distribution"
+    );
+    assert!(
+        doc.contains("UNSIGNED-BUILD.txt") && doc.contains("permissions: contents: read"),
+        "and states both the notice and the permission that makes publishing impossible"
+    );
+    assert!(
+        doc.contains("es la ruta") || doc_flat.contains("dos rutas de build y solo una publica"),
+        "the Spanish summary carries the same distinction"
+    );
+}
+
+#[test]
 fn the_release_pipeline_gates_and_budget_abort() {
     // Scenario: Presupuesto excedido aborta
     // the budget gate exits non-zero.

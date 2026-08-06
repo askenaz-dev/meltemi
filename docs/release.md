@@ -294,6 +294,55 @@ under 1 s, idle memory under 80 MB) are measured per release and published in
 `docs/qa/` — honest measurements, not blocking CI gates, because they depend
 on the OS webview.
 
+## Two build paths, one of which publishes
+
+The repository builds the same per-platform files on two different paths, and
+only one of them produces something installable.
+
+| | Integration build | Release |
+|---|---|---|
+| Workflow | `.github/workflows/build.yml` | `.github/workflows/release.yml` |
+| Trigger | every push to `main`, or by hand | a `vX.Y.Z` tag |
+| Output | artifacts of the run, expiring after 7 days | assets of a published release |
+| Signature | none, ever | detached, by the maintainer |
+| Provenance | none | attestation over the merged checksums |
+| What it is for | trying a build | installing Meltemi |
+
+An artifact of a workflow run is **not distribution**. It has no stable URL, it
+expires, it never appears under `releases/latest`, and it is served only after
+authentication. That is exactly the right shape for trying the latest build —
+the macOS DMG, on a machine that cannot build one — and exactly the wrong shape
+for installing anything.
+
+So the integration build signs nothing and publishes nothing, and it *cannot*:
+it runs with `permissions: contents: read`, and that token cannot create a
+release even if some future step asked it to. The reason is the same one that
+keeps signing manual (see [Key custody](#key-custody)): the signature is the
+step a compromised CI account cannot perform, so an automated path able to sign
+would be worth exactly as much as the account that triggers it — which is to
+say, not enough.
+
+Each artifact is named for the platform it was built on and the commit it was
+built from, and says `unsigned` in that name, so it can be told from a release
+without being opened. The files inside keep the stable, version-free names of
+the table above: the point of this path is to rehearse exactly what a tag
+produces, name normalization included. The same three size budgets apply, with
+the same values, because a packaging path nobody measures is precisely how a
+budget rots.
+
+Every run declares all of this where the download button is. The run summary and
+an `UNSIGNED-BUILD.txt` beside the binaries both carry the same text, from
+[`scripts/unsigned-build-notice.txt`](../scripts/unsigned-build-notice.txt).
+The checksums file in an integration artifact is a manifest of what that run
+built — not a verification of origin. Nothing is signed beside it, and nothing
+will be.
+
+Cadence is a dial, not a commitment: three release builds with a Tauri bundle on
+every push to `main` is the most expensive thing this repository asks of CI.
+`build.yml` is written so that dropping to manual runs only, or to a schedule,
+or to a single platform, is an edit to its `on:` block or its matrix — not a
+restructuring of the pipeline.
+
 ## Crate namespaces
 
 To secure the project's namespace, the crates `meltemi`, `meltemid`, and
@@ -326,3 +375,12 @@ aborta sin publicar ante cualquier rojo. La GUI se publica como instalador por
 plataforma (MSI/DMG/deb) bajo la misma custodia de firmas; sus
 presupuestos de arranque y memoria se miden y publican en `docs/qa/` por
 release. Los crates `meltemi`/`meltemid`/`meltemi-proto` reservan el namespace.
+Hay **dos rutas de build y solo una publica**: cada push a `main` deja los
+mismos archivos por plataforma descargables desde la página de la ejecución
+(`build.yml`, con los mismos presupuestos y sin crear release alguna); la
+release la crea únicamente un tag. Un artefacto de ejecución no es
+distribución: caduca, no tiene URL estable y jamás aparece en `releases/latest`.
+No lleva firma ni procedencia y lo declara donde se descarga —en el resumen del
+run y en `UNSIGNED-BUILD.txt` junto a los binarios—; su `SHA256SUMS` es el
+manifiesto de lo que ese run construyó, no una verificación de origen. Sirve
+para probar un build; para instalar, la release publicada.

@@ -35,7 +35,7 @@
 
 ## 3. Documentación
 
-- [ ] 3.1 Añadir a `docs/release.md` la sección que distingue las dos rutas
+- [x] 3.1 Añadir a `docs/release.md` la sección que distingue las dos rutas
   —qué produce cada una, qué garantías lleva cada una, y que un artefacto de
   ejecución no es distribución— con su resumen en el bloque en español, y cubrir
   «Aviso de build sin firmar donde se descarga» y «El artefacto lleva su propio
