@@ -1,0 +1,257 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Build
+
+# The integration build (artefactos-de-cada-push): every advance of main leaves
+# the same per-platform artifacts the release path produces, downloadable from
+# the run page. It creates NO release, mints NO attestation, emits NO signature.
+#
+# That boundary is not a convention here, it is the shape of the file. A release
+# is signed on the maintainer's own machine with a key CI never holds
+# (procedencia-de-release; docs/release.md, "Key custody"), because a compromised
+# account can push a tag and get a build attestation that verifies perfectly —
+# the manual signature is the one step it cannot complete. So no automated path
+# can produce a signed artifact, and `permissions: contents: read` below makes
+# that structural: a step that tried `gh release create` would fail on the token
+# rather than on somebody noticing it in review.
+#
+# The gates are deliberately absent: ci.yml already runs fmt, clippy, the full
+# suite and cargo-deny on this same commit, on these same three platforms
+# (design D1). Running them again here would pay twice for the same answer.
+#
+# Cadence has two dials, both in this file and nowhere else (design D5). The
+# `on:` block is the first — dropping to `workflow_dispatch` only, or moving to
+# a `schedule:`, is an edit of four lines. The platform matrix is the second —
+# leaving `macos-latest` alone covers the case that motivated this path, the DMG
+# a Windows machine cannot build, at a third of the cost.
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+# Read-only by construction. See the header: this is the mechanism, not a note.
+permissions:
+  contents: read
+
+# The purpose is "the latest build", so a superseded run is pure waste: a newer
+# push cancels the one it replaces instead of both being paid for.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  # The same three budgets as the release path, with the same values. A build
+  # nobody measures is exactly how a budget rots: a little per commit until the
+  # tag discovers it. The identity of these numbers across the two workflows is
+  # pinned by a test (core/meltemid/tests/release.rs) that names both files when
+  # they drift, because two files that must agree eventually do not.
+  MELTEMI_TUI_BUDGET_BYTES: "26214400"
+  MELTEMI_GUI_INSTALLER_BUDGET_BYTES: "15728640"
+  MELTEMI_ADAPTER_BUDGET_BYTES: "6291456"
+
+jobs:
+  # One job per platform, not the two of the release path. There `package` and
+  # `package-gui` are split so a broken bundle cannot hide a healthy archive;
+  # here they are merged so the release build is shared with the Tauri bundle
+  # instead of being paid for twice per platform (design D5).
+  build:
+    name: unsigned build (${{ matrix.os }})
+    strategy:
+      # Not fail-fast: a Linux failure must not take down the macOS DMG, which
+      # is the artifact this path exists for.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+
+      # The short SHA travels in the artifact name: a build that does not say
+      # which commit produced it cannot be produced again, and in a list of runs
+      # it is the only thing separating this one from yesterday's.
+      - name: Build identity
+        id: identity
+        shell: bash
+        run: |
+          echo "short_sha=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          echo "building ${GITHUB_SHA:0:8} on ${{ runner.os }} (unsigned)"
+
+      - name: Desktop system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl \
+            wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/ui/package-lock.json
+      - name: Desktop frontend install (locked)
+        run: npm ci --prefix desktop/ui
+      # tauri::generate_context! embeds ui/dist at compile time, so the frontend
+      # is built before anything compiles `desktop/`.
+      - name: Desktop frontend build
+        run: npm run build --prefix desktop/ui
+
+      - name: Release build
+        run: cargo build --workspace --release
+
+      - name: Package the core archive
+        shell: bash
+        # The same stable, version-free names the release path publishes
+        # (sitio-web-producto D2), on purpose: the value of this rehearsal is
+        # producing exactly what a tag produces, normalization step included. The
+        # artifact around them is what says "unsigned", not the files inside.
+        # The two ACP adapters ship beside the daemon on all three platforms
+        # (adaptadores-propios-acp): detection probes the daemon's own directory.
+        run: |
+          mkdir -p dist
+          case "${{ runner.os }}" in
+            Windows)
+              7z a "dist/meltemi-Windows.zip" ./target/release/meltemi.exe ./target/release/meltemid.exe ./target/release/meltemi-claude-acp.exe ./target/release/meltemi-codex-acp.exe
+              ;;
+            macOS)
+              tar -czf "dist/meltemi-macOS.tar.gz" -C target/release meltemi meltemid meltemi-claude-acp meltemi-codex-acp
+              ;;
+            Linux)
+              tar -czf "dist/meltemi-Linux.tar.gz" -C target/release meltemi meltemid meltemi-claude-acp meltemi-codex-acp
+              ;;
+            *) echo "::error::unknown runner os"; exit 1 ;;
+          esac
+          # scripts/install.sh and install.ps1 are NOT copied here, unlike the
+          # release path. They install from the latest published release, and a
+          # release installer sitting beside an unsigned build is precisely the
+          # confusion UNSIGNED-BUILD.txt exists to prevent.
+
+      # tauri build emits the per-platform installers (MSI, DMG, deb). The
+      # release binary it needs was just built above, so this is the bundling,
+      # not a second compile.
+      - name: Build GUI installers
+        shell: bash
+        # The tauri binary is called directly (not through `npm run`): nested
+        # npm invocations pollute the hook's environment and cwd.
+        run: cd desktop && ui/node_modules/.bin/tauri build
+
+      - name: TUI size budget
+        shell: bash
+        run: |
+          bin="target/release/meltemi"
+          [ "${{ runner.os }}" = "Windows" ] && bin="target/release/meltemi.exe"
+          size=$(wc -c < "$bin")
+          echo "meltemi binary is $size bytes (budget ${MELTEMI_TUI_BUDGET_BYTES})"
+          if [ "$size" -gt "${MELTEMI_TUI_BUDGET_BYTES}" ]; then
+            echo "::error::TUI binary exceeds its §12 budget; failing this build"
+            exit 1
+          fi
+
+      - name: Adapter size budget
+        shell: bash
+        run: |
+          ext=""
+          [ "${{ runner.os }}" = "Windows" ] && ext=".exe"
+          for name in meltemi-claude-acp meltemi-codex-acp; do
+            bin="target/release/${name}${ext}"
+            size=$(wc -c < "$bin")
+            echo "$name is $size bytes (budget ${MELTEMI_ADAPTER_BUDGET_BYTES})"
+            if [ "$size" -gt "${MELTEMI_ADAPTER_BUDGET_BYTES}" ]; then
+              echo "::error::$name exceeds its budget; failing this build"
+              exit 1
+            fi
+          done
+
+      - name: GUI installer size budget
+        shell: bash
+        run: |
+          # `find`, not `**`: the macOS runners ship bash 3.2, which has no
+          # globstar at all. A file, not a heredoc and not a pipe: a heredoc body
+          # would have to start at column 0 and break this YAML block, and a pipe
+          # would put the loop in a subshell where `found` never comes back.
+          list=installers.list
+          find target/release/bundle -type f \( -name '*.msi' -o -name '*.dmg' -o -name '*.deb' \) | sort > "$list"
+          found=0
+          while IFS= read -r installer; do
+            found=1
+            size=$(wc -c < "$installer")
+            echo "$installer is $size bytes (budget ${MELTEMI_GUI_INSTALLER_BUDGET_BYTES})"
+            if [ "$size" -gt "${MELTEMI_GUI_INSTALLER_BUDGET_BYTES}" ]; then
+              echo "::error::GUI installer exceeds its budget; failing this build"
+              exit 1
+            fi
+          done < "$list"
+          if [ "$found" -eq 0 ]; then
+            echo "::error::no GUI installer was produced"
+            exit 1
+          fi
+
+      - name: Normalize installer names
+        shell: bash
+        # The bundler embeds the version in each installer name; the stable
+        # scheme is what the release path publishes, so this rehearses that
+        # rename too — it is one of the steps that can break unnoticed until a
+        # tag finds it (sitio-web-producto D2, design D3).
+        run: |
+          shopt -s nullglob   # no globstar: bash 3.2 on the macOS runners lacks it
+          normalized=0
+          normalize() {
+            src="$1"; dest="$2"
+            [ -e "$src" ] || return 0
+            cp "$src" "dist/$dest"
+            normalized=1
+            echo "normalized $(basename "$src") -> $dest"
+          }
+          case "${{ runner.os }}" in
+            Windows)
+              for f in target/release/bundle/msi/*.msi; do normalize "$f" "meltemi-desktop-Windows.msi"; done
+              ;;
+            macOS)
+              for f in target/release/bundle/dmg/*.dmg; do normalize "$f" "meltemi-desktop-macOS.dmg"; done
+              ;;
+            Linux)
+              for f in target/release/bundle/deb/*.deb; do normalize "$f" "meltemi-desktop-Linux.deb"; done
+              ;;
+          esac
+          if [ "$normalized" -eq 0 ]; then
+            echo "::error::no installer was normalized for ${{ runner.os }}"
+            exit 1
+          fi
+
+      - name: Checksums
+        shell: bash
+        # A manifest of what this run built, and nothing more. There is no
+        # SHA256SUMS.minisig beside it and there never will be on this path:
+        # signing happens off CI, which is the entire point (docs/release.md).
+        # UNSIGNED-BUILD.txt says so in those words, and is written after this
+        # step so the manifest covers build outputs only.
+        run: |
+          cd dist
+          if command -v sha256sum >/dev/null; then sha256sum * > SHA256SUMS; else shasum -a 256 * > SHA256SUMS; fi
+          cat SHA256SUMS
+
+      # The notice goes to the two places a human actually looks: the run page,
+      # which is where the download button is, and the artifact itself, which is
+      # what survives the download and the forward (design D4). One source of
+      # text, two destinations — never retyped.
+      - name: Declare the build unsigned
+        shell: bash
+        run: |
+          cp scripts/unsigned-build-notice.txt dist/UNSIGNED-BUILD.txt
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat scripts/unsigned-build-notice.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # The name carries both facts a downloader needs before opening it: that
+      # it is unsigned, and which commit it came from (design D3). Seven days of
+      # retention because the purpose is "try the latest build", and a build from
+      # two weeks ago is not the latest one — declared here, in the pipeline.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meltemi-unsigned-${{ runner.os }}-${{ steps.identity.outputs.short_sha }}
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error

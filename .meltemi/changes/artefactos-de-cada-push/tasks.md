@@ -7,7 +7,7 @@
   build —firma, atestación, publicación—, por qué la clave nunca toca CI
   (`docs/release.md`, «Key custody») y la URL de última release como vía de
   instalación (design D4)
-- [ ] 1.2 Añadir `.github/workflows/build.yml`: disparado por push a `main` y
+- [x] 1.2 Añadir `.github/workflows/build.yml`: disparado por push a `main` y
   `workflow_dispatch`, `permissions: contents: read` en cabecera, un job por
   plataforma (`ubuntu-latest`, `macos-latest`, `windows-latest`) que construye
   en release, arma el archivo del núcleo con `meltemi`, `meltemid` y los dos
