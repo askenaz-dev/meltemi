@@ -357,19 +357,23 @@
       </EmptyState>
     {:else if picked}
       <div class="boardHead">
-        <p class="muted">
-          {$t("review.base")}: <code>{short(baseRev)}</code>
-        </p>
+        <div class="boardHeadRow">
+          <p class="muted">
+            {$t("review.base")}: <code>{short(baseRev)}</code>
+          </p>
+          <button
+            class="ghost"
+            onclick={() => picked && void refreshBoard(picked.change, picked.task)}
+          >
+            {$t("race.live.refresh")}
+          </button>
+        </div>
         <!-- The board follows its own turns live. A dispatch started from
              another surface is sealed to that surface's stream, so this says
-             so and offers the gesture, instead of pretending to be current. -->
+             so and offers the gesture, instead of pretending to be current.
+             On its own line: run into the base it reads as one sentence about
+             the base, which is not what it says. -->
         <p class="muted note">{$t("race.live.note")}</p>
-        <button
-          class="ghost"
-          onclick={() => picked && void refreshBoard(picked.change, picked.task)}
-        >
-          {$t("race.live.refresh")}
-        </button>
       </div>
 
       <div class="lanes" aria-label={$t("race.lanes")}>
@@ -623,15 +627,19 @@
 
 <style>
   .boardHead {
+    display: grid;
+    gap: var(--sp-1);
+  }
+  .boardHeadRow {
     display: flex;
     align-items: baseline;
+    justify-content: space-between;
     gap: var(--sp-2);
     flex-wrap: wrap;
   }
   .boardHead .note {
-    flex: 1;
-    min-width: 12rem;
     font-size: var(--fs-dense);
+    max-width: 68ch;
   }
   .lanes {
     display: grid;

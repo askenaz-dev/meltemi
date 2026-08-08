@@ -90,7 +90,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   de worktree/checkpoint (GUI «registry + tablero», TUI «race»), sin filas
   nuevas; coherencia con los tests de docs (design D6) — gates: `cargo
   test -p meltemi --test parity --test docs`
-- [ ] 5.2 Smoke visual CDP del tablero (GUI construida, calles reales de
+- [x] 5.2 Smoke visual CDP del tablero (GUI construida, calles reales de
   una carrera fixture) con informe publicado en `docs/qa/` (design D6)
 - [ ] 5.3 `meltemi validate tablero-de-carrera` limpio y `meltemi verify
   tablero-de-carrera` con los doce escenarios enlazados a sus tests (meta:
