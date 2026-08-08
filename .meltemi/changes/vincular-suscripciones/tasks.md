@@ -8,7 +8,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 1. Contrato y registro: el conocimiento se vuelve dato
 
-- [ ] 1.1 `proto/`: métodos `subscription/link`/`subscription/unlink`,
+- [x] 1.1 `proto/`: métodos `subscription/link`/`subscription/unlink`,
   `SubscriptionLinkParams/Result` (agente, nombre; respuesta con perfil,
   variable, valor, gesto de login y ruta del contexto) y
   `SubscriptionUnlinkParams/Result` (nombre; respuesta con la ruta que queda

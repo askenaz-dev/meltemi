@@ -2498,3 +2498,72 @@ fn harness_rejects_invalid_instances() {
     // The registry version is mandatory.
     assert_rejected("fleet", "result", &json!({ "agents": [] }));
 }
+
+/// The subscription link/unlink contract (vincular-suscripciones design D5):
+/// the composed gesture travels whole, refusal shapes are the error contract's
+/// concern, and the kebab name rule is the schema's own word.
+#[test]
+fn subscription_link_and_unlink_conform() {
+    assert_conforms(
+        "subscription",
+        "linkParams",
+        &SubscriptionLinkParams {
+            agent: "provider-a".into(),
+            name: "work".into(),
+        },
+    );
+    let gesture = LoginGesture {
+        var: "PROVIDER_CONTEXT_DIR".into(),
+        value: r"C:\Users\u\AppData\Roaming\meltemi\data\subscriptions\work".into(),
+        hint: "provider login".into(),
+        posix:
+            "PROVIDER_CONTEXT_DIR=/home/u/.local/share/meltemi/subscriptions/work provider login"
+                .into(),
+        powershell: r#"$env:PROVIDER_CONTEXT_DIR = "C:\...\work"; provider login"#.into(),
+    };
+    assert_conforms(
+        "subscription",
+        "linkResult",
+        &SubscriptionLinkResult {
+            profile: "work".into(),
+            agent: "provider-a".into(),
+            gesture,
+        },
+    );
+    assert_conforms(
+        "subscription",
+        "unlinkParams",
+        &SubscriptionUnlinkParams {
+            name: "work".into(),
+        },
+    );
+    assert_conforms(
+        "subscription",
+        "unlinkResult",
+        &SubscriptionUnlinkResult {
+            profile: "work".into(),
+            context_dir: r"C:\Users\u\AppData\Roaming\meltemi\data\subscriptions\work".into(),
+        },
+    );
+
+    // The name is a directory-safe kebab component, by schema: no separators,
+    // no uppercase, no spaces — the daemon refuses them before any directory
+    // exists, and the schema says so first.
+    for bad in ["Work", "wo rk", "wo/rk", r"wo\rk", "..", "-work", "work-"] {
+        assert_rejected(
+            "subscription",
+            "linkParams",
+            &serde_json::json!({ "agent": "provider-a", "name": bad }),
+        );
+    }
+    // A gesture with an empty variable is a broken record, not an unknown.
+    assert_rejected(
+        "subscription",
+        "linkResult",
+        &serde_json::json!({
+            "profile": "work",
+            "agent": "provider-a",
+            "gesture": { "var": "", "value": "x", "hint": "h", "posix": "p", "powershell": "w" }
+        }),
+    );
+}

@@ -792,6 +792,33 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
       }
     ]
   },
+  "subscription/link": {
+    "schema": "subscription.schema.json",
+    "def": "linkParams",
+    "fields": [
+      {
+        "name": "agent",
+        "kind": "string",
+        "required": true
+      },
+      {
+        "name": "name",
+        "kind": "string",
+        "required": true
+      }
+    ]
+  },
+  "subscription/unlink": {
+    "schema": "subscription.schema.json",
+    "def": "unlinkParams",
+    "fields": [
+      {
+        "name": "name",
+        "kind": "string",
+        "required": true
+      }
+    ]
+  },
   "project/register": {
     "schema": "project-registry.schema.json",
     "def": "projectRegisterParams",

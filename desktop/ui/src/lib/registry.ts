@@ -225,6 +225,12 @@ export const REGISTRY: RegistryEntry[] = [
   R("project/list", "palette.m.project.list", {
     view: "sessions",
   }),
+  R("subscription/link", "palette.m.subscription.link", {
+    template: { agent: "", name: "" },
+  }),
+  R("subscription/unlink", "palette.m.subscription.unlink", {
+    template: { name: "" },
+  }),
   R("project/register", "palette.m.project.register", {
     template: { root: "" },
   }),

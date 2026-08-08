@@ -496,6 +496,10 @@ const es = {
   "palette.m.sdd.archive": "plegar los deltas verificados en la verdad viva",
   "palette.m.sdd.implement": "desplegar al agente sobre tasks.md, tarea a tarea",
   "palette.m.project.list": "listar los proyectos usados con Meltemi",
+  "palette.m.subscription.link":
+    "vincular una suscripción: crea el perfil y compone el gesto de login",
+  "palette.m.subscription.unlink":
+    "desvincular una suscripción; el contexto de autenticación queda intacto",
   "palette.m.project.register": "dar de alta un directorio como proyecto (valida la ruta)",
   "palette.m.project.forget": "quitar un proyecto del listado; no borra nada del disco",
   "palette.m.analytics.usage": "contabilidad local de consumo (solo lo medido)",
@@ -1050,6 +1054,10 @@ const en: Record<MessageKey, string> = {
   "palette.m.sdd.archive": "fold verified deltas into the living truth",
   "palette.m.sdd.implement": "deploy the agent over tasks.md, task by task",
   "palette.m.project.list": "list the projects used with Meltemi",
+  "palette.m.subscription.link":
+    "link a subscription: creates the profile and composes the login gesture",
+  "palette.m.subscription.unlink":
+    "unlink a subscription; the auth context is left intact",
   "palette.m.project.register": "register a directory as a project (the path is validated)",
   "palette.m.project.forget": "drop a project from the listing; nothing on disk is deleted",
   "palette.m.analytics.usage": "local usage accounting (measured only)",

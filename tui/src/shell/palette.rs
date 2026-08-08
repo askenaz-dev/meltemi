@@ -178,6 +178,13 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "known projects; `projects <text>` narrows the scope",
     },
     Entry {
+        name: "link",
+        reserved: true,
+        methods: &[m::SUBSCRIPTION_LINK, m::SUBSCRIPTION_UNLINK],
+        desc_es: "vincular una suscripcion: link <agente> <nombre>",
+        desc_en: "link a subscription: link <agent> <name>",
+    },
+    Entry {
         name: "projects register",
         reserved: false,
         methods: &[m::PROJECT_REGISTER],

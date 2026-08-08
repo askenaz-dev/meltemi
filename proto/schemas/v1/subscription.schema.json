@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/subscription.schema.json",
+  "title": "subscription/link & subscription/unlink",
+  "description": "Linking a named subscription of a catalog agent (vincular-suscripciones): the daemon writes a launch profile whose env pins the provider's auth-context variable to a fresh, empty directory, and answers with the composed login gesture it never runs — the official binary authenticates itself, and Meltemi neither reads nor deletes what it stores (fair play). Unlinking removes the profile from the daemon-owned store only; hand-written profiles refuse with a remedy, and the context directory is always left behind, named.",
+  "$defs": {
+    "linkParams": {
+      "type": "object",
+      "required": ["agent", "name"],
+      "properties": {
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Catalog id of the agent the subscription runs. The entry must declare its auth-context variable in the registry snapshot."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "description": "Link name: becomes the profile name and the context directory's name, so it is a safe kebab-case path component."
+        }
+      }
+    },
+    "loginGesture": {
+      "type": "object",
+      "required": ["var", "value", "hint", "posix", "powershell"],
+      "properties": {
+        "var": { "type": "string", "minLength": 1 },
+        "value": { "type": "string", "minLength": 1 },
+        "hint": { "type": "string", "minLength": 1 },
+        "posix": { "type": "string", "minLength": 1 },
+        "powershell": { "type": "string", "minLength": 1 }
+      }
+    },
+    "linkResult": {
+      "type": "object",
+      "required": ["profile", "agent", "gesture"],
+      "properties": {
+        "profile": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 },
+        "gesture": { "$ref": "#/$defs/loginGesture" }
+      }
+    },
+    "unlinkParams": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "unlinkResult": {
+      "type": "object",
+      "required": ["profile", "contextDir"],
+      "properties": {
+        "profile": { "type": "string", "minLength": 1 },
+        "contextDir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The auth-context directory left behind, untouched: whatever the provider stored there is not Meltemi's to destroy."
+        }
+      }
+    }
+  }
+}

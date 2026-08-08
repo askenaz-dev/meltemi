@@ -158,6 +158,14 @@ pub mod methods {
     /// session records it already keeps (analitica-consumo-local). Reads local
     /// records only; opens no network connection, ever.
     pub const ANALYTICS_USAGE: &str = "analytics/usage";
+    /// Request: link a named subscription of a catalog agent — a launch
+    /// profile whose env pins the provider's auth-context variable to a fresh
+    /// directory — answering with the composed login gesture Meltemi never
+    /// runs (vincular-suscripciones).
+    pub const SUBSCRIPTION_LINK: &str = "subscription/link";
+    /// Request: unlink a linked subscription. Removes the profile from the
+    /// daemon-owned store only; the auth-context directory is never deleted.
+    pub const SUBSCRIPTION_UNLINK: &str = "subscription/unlink";
 }
 
 /// Application error codes, outside the JSON-RPC reserved range and grouped
@@ -181,6 +189,11 @@ pub mod error_codes {
     pub const AGENT_HANDSHAKE_FAILED: i64 = 2003;
     /// The given session id does not correspond to an active session.
     pub const SESSION_NOT_FOUND: i64 = 2004;
+    /// A subscription link/unlink was refused: the entry declares no
+    /// auth-context variable, the name is invalid or already linked, or the
+    /// profile lives in hand-written configuration. The detail says which and
+    /// the remedy says what to do instead (vincular-suscripciones).
+    pub const SUBSCRIPTION_REFUSED: i64 = 2005;
     /// The derived change name already exists under `.meltemi/changes/`.
     pub const CHANGE_ALREADY_EXISTS: i64 = 3000;
     /// No change name can be derived from the given idea.
@@ -778,6 +791,71 @@ pub struct ProjectForgetResult {
     /// Whether the registry was listing that root and no longer does. `false`
     /// says it was not listed to begin with.
     pub forgotten: bool,
+}
+
+/// Params of `subscription/link`: link a named subscription of a catalog
+/// agent whose registry entry declares its auth-context variable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionLinkParams {
+    /// The catalog id of the agent the subscription runs (e.g. a level-2
+    /// entry). Free labels and profiles are not linkable targets.
+    pub agent: String,
+    /// The name of the link — it becomes the profile name and the context
+    /// directory's name, so it must be a safe path component (kebab-case).
+    pub name: String,
+}
+
+/// The composed authentication gesture: everything the human needs to log the
+/// provider's own binary into the linked context. Meltemi composes it and
+/// never runs it — the binary authenticates itself (§2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginGesture {
+    /// The environment variable that redirects the provider's auth context.
+    pub var: String,
+    /// The absolute path of the linked context directory (the value).
+    pub value: String,
+    /// The provider's documented login gesture, as registry data.
+    pub hint: String,
+    /// The gesture as one POSIX shell line (`VAR=value <hint>`).
+    pub posix: String,
+    /// The gesture as PowerShell lines (`$env:VAR = "value"; <hint>`).
+    pub powershell: String,
+}
+
+/// Result of `subscription/link`: the profile now listed by the catalog plus
+/// the login gesture. The context directory was created empty; Meltemi never
+/// reads what the provider stores in it afterwards.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionLinkResult {
+    /// The profile name the resolver now honors.
+    pub profile: String,
+    /// The underlying catalog agent the profile launches.
+    pub agent: String,
+    /// The composed authentication gesture for the human to run.
+    pub gesture: LoginGesture,
+}
+
+/// Params of `subscription/unlink`: undo a linked subscription by name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionUnlinkParams {
+    /// The linked profile name to remove from the daemon-owned store.
+    pub name: String,
+}
+
+/// Result of `subscription/unlink`. The auth-context directory is NEVER
+/// deleted — whatever the provider stored there is not Meltemi's to destroy —
+/// and the response names the path left behind so the human can decide.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionUnlinkResult {
+    /// The unlinked profile name.
+    pub profile: String,
+    /// The context directory left behind, untouched.
+    pub context_dir: String,
 }
 
 /// Which layer of an entry a detection result describes: the provider's own
