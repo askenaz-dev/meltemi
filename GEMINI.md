@@ -1,4 +1,4 @@
-<!-- meltemi:context:begin sha256=b3a309c135232e6adf6e8579403444dbd99df32eec721d727e0ee51ae4e699c8 -->
+<!-- meltemi:context:begin sha256=a8ae111f39d50f557bddce9b836e3bd987a71d7e75cf01d7c1791a46a583ebdc -->
 # Meltemi — contexto proyectado
 
 _Compilado desde `.meltemi/` por `meltemi project`. El contenido del bloque gestionado se regenera; no editarlo a mano._
@@ -122,129 +122,164 @@ meltemi/
 
 **Prohibiciones**: credenciales de agentes (ni leerlas ni tocarlas); transporte de red en el daemon; dependencias que exijan cuentas de proveedores para compilar o testear; features del daemon accesibles desde una sola superficie.
 
-## Cambio activo: avisos-de-escritorio
+## Cambio activo: artefactos-de-cada-push
 
-# avisos-de-escritorio
+# artefactos-de-cada-push
+
+> Vía rápida (fast-forward): los cuatro artefactos de una vez, gate único.
+> Elegible por criterio — deltas solo ADDED sobre una capability existente,
+> ninguna capability nueva, ningún MODIFIED ni REMOVED (design D7). Alcance de
+> un día: un workflow nuevo, sus tests y una sección de documentación.
 
 ## Why
 
-Tres changes enseñaron al daemon a esperar al humano, y ninguna superficie
-avisa al humano de que se le espera. `espera-humana` hizo de la cola la única
-fuente de resolución: mientras haya cliente conectado, el flujo interactivo
-espera — la premisa entera de la política es «hay un humano que llega».
-`sesion-esperando` fijó `waiting_permission` y `gatePending` para que las
-superficies lo pinten; `eventos-para-tardios` puso el hub de eventos y
-`session/watch` para que cualquier conexión lo escuche. Todo eso termina hoy
-en cromo que solo se ve mirándolo: la bandeja, un contador, un badge. Con la
-app detrás de otra ventana — el caso normal de quien lanzó un turno largo y
-volvió a su editor — un permiso puede esperar minutos en silencio. El turno no
-avanza, nadie falló, y nada suena.
+El mantenedor lo pidió en una frase: «Me gustaría que esto sea automático con
+cada push (para eso tenemos CICD)». Quiere probar el build del día —el DMG de
+macOS en particular, que no puede construir en su máquina Windows— sin
+ceremonia, cada vez que `main` se mueve.
 
-La carencia está verificada, no supuesta: los únicos «notification» del
-cliente de escritorio son vocabulario JSON-RPC del bridge
-(`desktop/src/bridge.rs`, `desktop/src/lib.rs`); ninguna superficie toca una
-API de avisos del SO, y la TUI no emite campana ni secuencia de aviso alguna.
+Lo que **no** puede volverse automático es la release firmada, y no por
+comodidad: `procedencia-de-release` lo decidió con lenguaje normativo detrás.
+Una cuenta de GitHub comprometida empuja un tag, CI construye, la atestación se
+acuña y **verifica perfectamente** —porque registra fielmente el commit del
+atacante. La firma manual en una máquina que GitHub no controla es el único
+paso que esa cuenta no puede completar. Y la clave en un secreto de Actions es
+el caso que SLSA v1.2 prohíbe textualmente («MUST NOT be accessible to the
+environment running the user-defined build steps»). A eso se suma que este
+repositorio tiene **immutable releases** activado: publicada una release, sus
+assets no admiten añadidos, así que firmar precede a publicar y no hay orden
+alternativo. Nada de esto se toca aquí.
 
-El comparativo de mercado del 2026-07-31 (capturas del mantenedor sobre Orca,
-de Stably AI) mostró lo mismo desde afuera: un orquestador de agentes
-paralelos trata el aviso de escritorio como pieza de primera clase — con
-detección del permiso del SO, remedio y prueba — porque el producto entero es
-«deja trabajando y vuelve cuando te necesite». Meltemi tiene mejor gobierno de
-la espera que ese producto y peor timbre: la plomería existe completa, falta
-el último metro.
+Pero entre «release firmada» y «nada» hay un escalón que el pipeline ya casi
+tiene construido. `release.yml` empaqueta los seis artefactos por plataforma y
+**ya los sube con `actions/upload-artifact`** (líneas 187 y 289) antes de que el
+job `release` los baje y los fusione. Es decir: la ruta que produce exactamente
+lo que el mantenedor quiere descargar existe, funciona, y está apagada fuera de
+un tag —cada job lleva `if: startsWith(github.ref, 'refs/tags/')` (39, 119,
+129, 194, 303). En un push a `main` hoy solo corren `site-lint` y
+`publish-site`. El último metro que falta no es empaquetar: es **dejar que la
+ruta de empaquetado corra también en `main` y que su salida quede descargable
+desde la página del run**, sin release, sin versión, sin firma y sin insinuar
+ninguna de las tres.
 
-Y hay una frontera que esta change hereda ya trazada: la enmienda del Agent
-Boss dejó escrito que el aviso de espera remoto es opt-in, autohospedado y que
-**nunca lo emite el daemon**. La misma regla vale aquí, por la razón §3 de
-siempre: esta change es cromo local de los clientes sobre eventos que ya
-reciben; el daemon no gana transporte, ni red, ni conocimiento nuevo.
+La distinción importa porque un artefacto de run **no es distribución**. No
+tiene URL estable, caduca, no aparece en `releases/latest`, y GitHub lo sirve
+tras autenticación. Es exactamente la forma correcta de «probar un build» y
+exactamente la forma incorrecta de instalar Meltemi — y esta change escribe esa
+frontera en vez de dejarla a la intuición del que descarga.
 
 ## What Changes
 
-- **Capability nueva `attention-notices`**: cuándo avisa una superficie (una
-  petición de permiso entra en espera de decisión humana; un gate SDD queda
-  esperando; una sesión termina o falla), bajo qué condición (la GUI avisa
-  solo sin foco — al frente, la bandeja y los estados de hoy ya son el aviso,
-  jamás los dos a la vez; la TUI delega en la semántica de campana del
-  emulador, que es su mecanismo nativo de atención en segundo plano), y qué
-  contiene: sesión, proyecto y motivo, **nunca el texto del prompt ni del
-  turno** — el centro de notificaciones del SO persiste fuera del log
-  gobernado, y un prompt puede llevar exactamente lo que no debe salir del
-  repositorio.
-- **GUI**: el plugin oficial de notificaciones de Tauri (dependencia nueva del
-  cliente, justificada §10 en el design — el mismo patrón que el plugin de
-  diálogo que `lanzador-conversacional` introdujo). El permiso del SO se pide
-  en el primer aviso real, no en el arranque; si el SO no entrega avisos, el
-  estado se muestra con remedio (abrir los ajustes del sistema), nunca se
-  finge que se avisó. Ajustes gana conmutador y «probar aviso». Activar el
-  aviso trae la app al frente y navega a lo que espera: la bandeja si es un
-  permiso, la sesión si es un cierre.
-- **TUI**: campana de terminal y/o secuencia OSC de aviso, opt-in por
-  configuración, con los mismos disparadores; la guía documenta qué emuladores
-  la honran y no se promete lo que el emulador no dé.
-- **Sin spam por construcción**: se avisa en la transición, no en el estado —
-  un permiso que espera es un aviso, no uno por repintado; una ráfaga de
-  peticiones de la misma sesión colapsa en un aviso con recuento.
-- **El daemon, intacto**: cero RPC y cero transporte nuevos. Si al cliente le
-  falta un evento para enterarse de una transición sin polling, se añade como
-  evento aditivo al hub existente — jamás un canal nuevo.
-- Textos en es/en por la i18n existente de cada superficie.
+- **Workflow nuevo `.github/workflows/build.yml`**, disparado por push a `main`
+  y por `workflow_dispatch`. Un job por plataforma que construye en modo
+  release, arma el archivo del núcleo (`meltemi`, `meltemid` y los dos
+  adaptadores ACP, como manda `adaptadores-propios-acp`), construye el
+  instalador de la GUI con `tauri build`, **mide los tres presupuestos** y sube
+  todo como artefacto del run.
+- **`release.yml` no se toca en su grafo de jobs.** La ruta que crea releases
+  sigue siendo solo de tag; la ruta nueva vive en su propio archivo con su
+  propio disparador. La razón es medible, no estética: `publish-site` declara
+  `needs: [site-lint, gates, deny, package, package-gui]` (línea 382), y `needs`
+  no es condicional —encender el empaquetado en `main` dentro de ese archivo
+  haría que **cada publicación del sitio esperara un build de tres plataformas
+  con Tauri**, y con `!cancelled()` en su condición (384), cancelar el build
+  ahora caro se llevaría por delante la publicación del sitio que hoy es lo
+  único que `main` hace. Además, `gates` y `deny` en `main` serían un duplicado
+  literal de `ci.yml`, que ya corre fmt, clippy, build, la suite y el lint del
+  sitio en las tres plataformas, más `cargo-deny`, en cada push a `main`
+  (design D1).
+- **El artefacto dice lo que es**: `meltemi-unsigned-<SO>-<sha-corto>`. El
+  nombre lleva el commit porque un build sin commit es un build que nadie puede
+  volver a producir, y lleva `unsigned` porque esa es la propiedad que lo separa
+  de una release. Los **archivos dentro conservan los nombres estables** —
+  `meltemi-macOS.tar.gz`, `meltemi-desktop-macOS.dmg`— porque el valor del
+  ensayo es producir exactamente lo que produce el tag (design D3).
+- **Aviso de «sin firmar» donde el humano mira**: un `UNSIGNED-BUILD.txt` dentro
+  del artefacto y el mismo texto en el resumen del run, que es la página donde
+  está el botón de descarga. Dice qué no tiene (firma, atestación, publicación)
+  y adónde ir para instalar de verdad. El texto vive en `scripts/` como archivo
+  del árbol, revisable y testeable, no incrustado en el YAML.
+- **Los presupuestos gatean esta ruta también**:
+  `MELTEMI_TUI_BUDGET_BYTES`, `MELTEMI_GUI_INSTALLER_BUDGET_BYTES` y
+  `MELTEMI_ADAPTER_BUDGET_BYTES` con los mismos valores y el mismo `exit 1`. Un
+  build que nadie mide es exactamente como se pudre un presupuesto: creciendo un
+  poco por commit hasta que el tag lo descubre.
+- **`permissions: contents: read` en la cabecera del workflow**, para que la
+  ruta nueva no pueda crear una release aunque alguien le añada un paso mañana.
+  La imposibilidad es estructural, no una promesa en un comentario.
+- **Retención de 7 días**, declarada y justificada: el propósito es «probar el
+  último build», y un build de hace dos semanas no es el último.
+- **Tests en `core/meltemid/tests/release.rs`** que pinean lo que la change
+  afirma: que el empaquetado corre en `main`, que el nombre lleva commit y
+  `unsigned`, que los presupuestos son los mismos en los dos archivos, que los
+  adaptadores viajan en los tres archivos, y —el conjunto negativo, el que
+  importa— que `build.yml` **no** contiene creación de release, ni atestación,
+  ni `.minisig`, ni `contents: write`.
+- **`docs/release.md`** gana una sección corta que distingue las dos rutas para
+  quien lea la documentación en vez del aviso.
 
 ## Capabilities
 
-### New Capabilities
-
-- `attention-notices`: los avisos locales de atención de las superficies —
-  disparadores, regla de foco por superficie, contenido mínimo sin texto de
-  turno, honestidad del permiso del SO, opt-out en GUI y opt-in en TUI. (Una
-  sola capability, cross-superficie y sin nombres de terceros: qué SO o
-  emulador honra qué es dato de la guía, no verdad viva.)
-
 ### Modified Capabilities
 
-- Ninguna. La bandeja, los estados de espera y el hub quedan como están; la
-  capability nueva los consume sin enmendarlos.
+- `release-distribution`: + cuatro requisitos ADDED sobre la frontera entre
+  empaquetar y publicar — builds de integración descargables sin crear release,
+  su identidad y caducidad, los presupuestos aplicados a toda ruta que
+  empaquete, y la declaración de ausencia de firma donde se descarga. La
+  capability que ya posee el pipeline y sus presupuestos es la que debe poseer
+  la línea que el pipeline no puede cruzar (design D2).
+
+### New Capabilities
+
+- Ninguna.
 
 ## Impact
 
-- Superficies: `desktop/` (plugin, regla de foco, clic-navega, sección de
-  Ajustes) y `tui/` (campana opt-in). El contrato `proto/` no se mueve en la
-  meta; si un evento aditivo del hub resulta necesario, entra con su schema
-  como todo lo aditivo.
-- Dependencias: una, el plugin oficial de notificaciones de Tauri, confinada
-  al cliente GUI; pasa por cargo-deny y el gate de tamaño de instaladores se
-  re-mide — el presupuesto no se supone, se mide.
-- Paridad §4: el daemon no gana capacidad, así que no nace deber de paridad —
-  aun así las dos superficies reciben el cromo; `docs/paridad-nucleo.md` gana
-  la nota, no una fila (la matriz es por RPC).
-- Verificación honesta: CI corre headless en los 3 SO y un toast real no se
-  puede asertar allí. Los escenarios se parten como `conformidad-manual` ya
-  estableció: la lógica (evento→intención de aviso, regla de foco, colapso,
-  estados del permiso del SO) se prueba automatizada; el render real por
-  plataforma queda como verificación manual documentada con verify-mark.
-- Riesgos pineados para el design: en macOS una app sin bundle firmado puede
-  no mostrar avisos en desarrollo (se documenta cómo probar sobre el bundle);
-  en Windows el toast exige identidad de aplicación — la da el MSI, y el
-  ejecutable suelto se declara; en Linux depende de un daemon de
-  notificaciones DBus presente — su ausencia degrada a silencio declarado en
-  Ajustes, jamás a error fatal; y el clic-navega varía por plataforma — donde
-  el plugin no lo dé, el aviso sigue siendo veraz sin navegación y se
-  declara.
-- §9 intacto: todo local, nada sale de la máquina.
+- Archivos: `.github/workflows/build.yml` (nuevo),
+  `scripts/unsigned-build-notice.txt` (nuevo), `core/meltemid/tests/release.rs`,
+  `docs/release.md`, `docs/plan-de-cambios.md`. **`release.yml` no cambia.**
+- **Costo, dicho y no escondido**: cada push a `main` gana tres jobs que hoy no
+  existen, cada uno con un `cargo build --workspace --release` y un `tauri
+  build`. Es el gasto más caro que este repositorio haya añadido a `main`, y se
+  asume porque el mantenedor lo pidió sabiendo lo que pedía. Se abarata donde se
+  puede: un job por plataforma en vez de los dos del camino de tag (el build
+  release se comparte con el bundle en vez de compilarse dos veces), y sin
+  duplicar los gates que `ci.yml` ya corre sobre el mismo commit. Y se deja con
+  dos diales a mano —el bloque `on:` y la matriz de plataformas— para que
+  bajarlo a `workflow_dispatch` o a `schedule` sea editar cuatro líneas de un
+  archivo, no reestructurar un pipeline (design D5).
+- Cero dependencias nuevas; ningún crate, ninguna action de terceros que no use
+  ya `release.yml`. El contrato `proto/` no se mueve, el daemon no gana
+  capacidad y por tanto **no nace deber de paridad §4**: esto es infraestructura
+  del repositorio, no superficie de producto.
+- Los enlaces de descarga del sitio (`releases/latest/download/…`) siguen
+  resolviendo a la última release **firmada**, porque esta ruta no crea, no
+  modifica y no publica release alguna. El test lo pinea por el lado negativo.
+- **Lo que solo un push real puede confirmar**: que los tres jobs completan
+  dentro del tiempo de runner, que el `tauri build` de macOS produce el DMG en
+  esta ruta igual que en la de tag, y cuánto tarda de verdad. Se declara ahora
+  para que no se lea como verificado.
 
 ## Fuera de alcance
 
-- **El aviso remoto del Agent Boss** (`mobile-companion`/`remote-access`,
-  fase 3): opt-in, autohospedado, nunca del daemon — otra change y otra
-  superficie; esta no lo adelanta ni lo condiciona.
-- **Sonidos personalizados, historial o centro de avisos propio**: el SO ya
-  tiene centro de notificaciones; duplicarlo es cromo sin evidencia.
-- **Avisos de progreso** (por token, por tool call, por tarea que avanza):
-  solo transiciones que piden humano o cierran sesión; lo demás es la sesión
-  abierta, que para eso está.
-- **Badges de dock/taskbar y contadores por plataforma**: futuro con
-  evidencia.
-- **La CLI scriptable**: sus salidas son stdout/stderr y códigos de salida;
-  un script que quiera avisar ya tiene el SO entero a mano.
+- **Firmar, atestiguar o publicar nada desde esta ruta.** Es el punto entero:
+  `procedencia-de-release` decidió que la firma es manual y no se relitiga aquí.
+- **Prereleases, tags `nightly` o cualquier release automática**, incluida la
+  marcada como draft: contaminaría el espacio de versiones y pondría en riesgo
+  `releases/latest`, que es lo que el sitio y los dos README prometen.
+- **Builds en pull requests o en ramas de trabajo**: el mantenedor pidió `main`,
+  y un fork abriría la ruta a ejecutar empaquetado con código de terceros. Si se
+  quiere, es otra change con su análisis de amenaza.
+- **Caché compartida entre `ci.yml` y `build.yml`**: `Swatinem/rust-cache` ya
+  gestiona lo suyo por job; afinarlo es optimización con evidencia, no de
+  entrada.
+- **Instaladores para plataformas que el camino de tag no produce** (`.rpm`,
+  AppImage): siguen fuera por las razones de `instaladores-linux-sin-webview`.
+- **Firma de plataforma** (Authenticode, notarización): deuda declarada en
+  `docs/release.md`, ajena a esta change.
+
+### Deltas
+
+- `release-distribution`: 4 requisitos
 
 <!-- meltemi:context:end -->
