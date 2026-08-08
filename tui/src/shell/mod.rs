@@ -178,6 +178,9 @@ fn handle_action(
             let _ = commands.send(Command::Refresh);
         }
         Some(Effect::RefreshFleet) => refresh_fleet = true,
+        Some(Effect::RaceBoard { change, task }) => {
+            let _ = commands.send(Command::RaceDiff { change, task });
+        }
         Some(Effect::RefreshProjects) => {
             let _ = commands.send(Command::ProjectList);
             // The typed text becomes a REAL scope: resolved against the projects

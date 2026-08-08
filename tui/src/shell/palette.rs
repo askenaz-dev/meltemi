@@ -235,10 +235,10 @@ pub const ENTRIES: &[Entry] = &[
     },
     Entry {
         name: "race",
-        reserved: true,
+        reserved: false,
         methods: &[m::WORKTREE_DIFF],
-        desc_es: "diff de cada competidor contra la base común",
-        desc_en: "each competitor's diff against the common base",
+        desc_es: "tablero de la carrera: race <change> <tarea>",
+        desc_en: "the race board: race <change> <task>",
     },
     Entry {
         name: "dispatch",
@@ -362,6 +362,23 @@ mod tests {
             .find(|entry| entry.name == "direct")
             .expect("the direction verb is in the palette");
         assert!(!entry.reserved, "it is operative, and says so");
+    }
+
+    #[test]
+    fn the_race_verb_is_no_longer_announced_as_reserved() {
+        // Same rule as `direct`: the mark means "announced, not wired", and the
+        // board is wired now. Its description carries the shape it needs,
+        // because a verb that takes arguments and does not say so reads as
+        // broken when typed bare.
+        let entry = ENTRIES
+            .iter()
+            .find(|entry| entry.name == "race")
+            .expect("the race verb is in the palette");
+        assert!(!entry.reserved, "it is operative, and says so");
+        assert!(
+            entry.desc_es.contains("<change>") && entry.desc_en.contains("<change>"),
+            "the description names the arguments in both languages"
+        );
     }
 
     #[test]

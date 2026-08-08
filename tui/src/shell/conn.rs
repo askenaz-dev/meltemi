@@ -20,10 +20,12 @@ use meltemi_proto::{
     PROTOCOL_VERSION, PeerInfo, PermissionChangedParams, PermissionDecideParams,
     PermissionPendingResult, PermissionRule, SessionCancelParams, SessionDirectParams,
     SessionListParams, SessionListResult, SessionLogParams, SessionLogResult, StatusResult,
-    methods,
+    WorktreeDiffResult, methods,
 };
 
-use crate::shell::live::{FleetRow, FleetSnapshot, ProjectRow, SessionRow, Update};
+use crate::shell::live::{
+    FleetRow, FleetSnapshot, ProjectRow, RaceBoard, RaceLane, SessionRow, Update,
+};
 use crate::shell::messages::{Lang, Msg, text};
 use crate::shell::render::ConnState;
 
@@ -57,6 +59,8 @@ pub enum Command {
         project_root: String,
         instruction: String,
     },
+    /// Read the lanes of a task for the race board (`worktree/diff`).
+    RaceDiff { change: String, task: String },
     /// Add a root to the project registry (`project/register`).
     RegisterProject(String),
     /// Drop a project from the registry's listing (`project/forget`).
@@ -203,6 +207,9 @@ async fn serve_connection(
                 }
                 Some(Command::FleetList) => refresh_fleet(&peer, updates, scope.as_deref()).await,
                 Some(Command::ProjectList) => refresh_projects(&peer, updates).await,
+                Some(Command::RaceDiff { change, task }) => {
+                    refresh_race(&peer, updates, scope.as_deref(), &change, &task).await;
+                }
                 Some(Command::SetScope(root)) => {
                     scope = root;
                     // The scope changed: re-answer what depends on it.
@@ -418,6 +425,67 @@ async fn refresh_fleet(peer: &Peer, updates: &UnboundedSender<Update>, scope: Op
         }
         Err(error) => {
             let _ = updates.send(Update::Notice(format!("fleet/list: {error}")));
+        }
+    }
+}
+
+/// Reads the lanes of one task for the race board (`worktree/diff`). The
+/// provenance rides on the same answer, so the board is one round trip and the
+/// shell never joins sessions to worktrees itself (design D1).
+async fn refresh_race(
+    peer: &Peer,
+    updates: &UnboundedSender<Update>,
+    scope: Option<&str>,
+    change: &str,
+    task: &str,
+) {
+    let root = match scope {
+        Some(root) => root.to_string(),
+        None => match std::env::current_dir() {
+            Ok(dir) => dir.display().to_string(),
+            Err(e) => {
+                let _ = updates.send(Update::Notice(format!("worktree/diff: {e}")));
+                return;
+            }
+        },
+    };
+    let params = serde_json::json!({ "projectRoot": root, "change": change, "task": task });
+    match peer.request(methods::WORKTREE_DIFF, &params).await {
+        Ok(value) => match serde_json::from_value::<WorktreeDiffResult>(value) {
+            Ok(result) => {
+                let _ = updates.send(Update::Race(RaceBoard {
+                    change: change.to_string(),
+                    task: task.to_string(),
+                    base_rev: result.base_rev,
+                    lanes: result
+                        .competitors
+                        .into_iter()
+                        .map(|c| RaceLane {
+                            agent: c.agent,
+                            path: c.path,
+                            changed_files: c.changed_files.len(),
+                            diff: c.diff,
+                            source: c
+                                .source
+                                .and_then(|s| serde_json::to_value(s).ok())
+                                .and_then(|v| v.as_str().map(str::to_string)),
+                            profile: c.profile,
+                            level: c.level,
+                            session_id: c.session_id,
+                            committed: c.committed,
+                            sha: c.sha,
+                            base_rev: c.base_rev,
+                        })
+                        .collect(),
+                    selected: 0,
+                }));
+            }
+            Err(e) => {
+                let _ = updates.send(Update::Notice(format!("worktree/diff: {e}")));
+            }
+        },
+        Err(error) => {
+            let _ = updates.send(Update::Notice(format!("worktree/diff: {error}")));
         }
     }
 }

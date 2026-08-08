@@ -154,6 +154,37 @@ pub struct FleetSnapshot {
     pub rows: Vec<FleetRow>,
 }
 
+/// One lane of a race, as the board reads it: who ran it, under which
+/// subscription, how it ended, and its diff against its own base. Every
+/// provenance field is optional because the contract makes it optional — a lane
+/// nobody dispatched states nothing rather than borrowing a neighbour's
+/// (tablero-de-carrera design D1).
+#[derive(Debug, Clone, Default)]
+pub struct RaceLane {
+    pub agent: String,
+    pub path: String,
+    pub changed_files: usize,
+    pub diff: String,
+    pub source: Option<String>,
+    pub profile: Option<String>,
+    pub level: Option<u8>,
+    pub session_id: Option<String>,
+    pub committed: Option<bool>,
+    pub sha: Option<String>,
+    pub base_rev: Option<String>,
+}
+
+/// The board of one task: its lanes and the base they were taken against.
+#[derive(Debug, Clone, Default)]
+pub struct RaceBoard {
+    pub change: String,
+    pub task: String,
+    pub base_rev: String,
+    pub lanes: Vec<RaceLane>,
+    /// The lane the keyboard is on.
+    pub selected: usize,
+}
+
 /// An update pushed from the connection actor to the UI.
 #[derive(Debug, Clone)]
 pub enum Update {
@@ -165,6 +196,8 @@ pub enum Update {
     Fleet(FleetSnapshot),
     /// The known-project registry was (re)queried.
     Projects(Vec<ProjectRow>),
+    /// The lanes of a race were (re)read for the board.
+    Race(RaceBoard),
     /// The pending-permission queue snapshot (from `permission/pending` on
     /// connect, or a `permission/changed` broadcast). Drives the tray and the
     /// chrome counter, so it survives reconnection.
@@ -195,6 +228,8 @@ pub struct LiveData {
     pub projects: Vec<ProjectRow>,
     /// The fleet catalog; `None` until the first `fleet/list` answer arrives.
     pub fleet: Option<FleetSnapshot>,
+    /// The race board currently open, when the shell is drilled into one.
+    pub race: Option<RaceBoard>,
     pub selected: usize,
     /// The pending-permission queue (tray). The daemon owns it, so it survives
     /// reconnection.
@@ -234,6 +269,7 @@ impl LiveData {
             sessions: Vec::new(),
             projects: Vec::new(),
             fleet: None,
+            race: None,
             selected: 0,
             permission_queue: Vec::new(),
             permission_selected: 0,
@@ -282,6 +318,14 @@ impl LiveData {
                 }
             }
             Update::Fleet(snapshot) => self.fleet = Some(snapshot),
+            Update::Race(board) => {
+                // Selection survives a re-read as long as the lane still exists;
+                // a lane that vanished clamps rather than pointing past the end.
+                let previous = self.race.as_ref().map(|b| b.selected).unwrap_or(0);
+                let mut board = board;
+                board.selected = previous.min(board.lanes.len().saturating_sub(1));
+                self.race = Some(board);
+            }
             Update::Projects(rows) => self.projects = rows,
             Update::PermissionQueue(queue) => {
                 self.permission_queue = queue;

@@ -68,7 +68,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 4. TUI: la casa reservada se abre
 
-- [ ] 4.1 Generalizar el drill (`drilled: bool` → superficie drill
+- [x] 4.1 Generalizar el drill (`drilled: bool` → superficie drill
   enumerada) sin cambiar el comportamiento de Sesiones; verbo `race`
   des-reservado con su arm en `reduce_palette` (design D4) — escenario «El
   verbo de carrera abre el tablero» — gates: `cargo test -p meltemi`

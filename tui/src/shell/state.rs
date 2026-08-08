@@ -117,14 +117,32 @@ pub enum Effect {
     RegisterProject(String),
     /// Drop this root from the registry's listing (`project/forget`), as typed.
     ForgetProject(String),
+    /// Read the lanes of a task for the race board (`worktree/diff`).
+    RaceBoard {
+        change: String,
+        task: String,
+    },
+}
+
+/// What the shell is drilled into, one level below a first-level view. The
+/// shell had exactly one drill — the session detail — and named it with a
+/// boolean; a second one (the race board) would have collided with the
+/// transcript's own scroll routing, so the flag became the thing it always
+/// meant: which surface is open underneath (tablero-de-carrera design D4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Drill {
+    /// The Sessions view, drilled into the selected session's detail.
+    Session,
+    /// The race board of one task: its competitors side by side.
+    Race { change: String, task: String },
 }
 
 /// The full navigation state of the shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellState {
     view: View,
-    /// Whether the Sessions view is drilled into a Session detail (one level).
-    drilled: bool,
+    /// The surface open one level below the current view, when any.
+    drill: Option<Drill>,
     overlays: Vec<Overlay>,
     /// The committed list filter of the Sessions view (`/`).
     session_filter: String,
@@ -144,7 +162,7 @@ impl ShellState {
     pub fn new() -> Self {
         Self {
             view: View::Sessions,
-            drilled: false,
+            drill: None,
             overlays: Vec::new(),
             session_filter: String::new(),
             project_scope: None,
@@ -158,7 +176,13 @@ impl ShellState {
 
     #[must_use]
     pub fn is_drilled(&self) -> bool {
-        self.drilled
+        self.drill.is_some()
+    }
+
+    /// The surface open below the current view, when any.
+    #[must_use]
+    pub fn drill(&self) -> Option<&Drill> {
+        self.drill.as_ref()
     }
 
     #[must_use]
@@ -217,13 +241,13 @@ impl ShellState {
             Action::SwitchView(d) => {
                 if let Some(view) = View::from_digit(d) {
                     self.view = view;
-                    self.drilled = false;
+                    self.drill = None;
                 }
                 None
             }
             Action::DrillIn => {
                 match self.view {
-                    View::Sessions if !self.drilled => self.drilled = true,
+                    View::Sessions if self.drill.is_none() => self.drill = Some(Drill::Session),
                     // In the tray, Enter approves the selected request.
                     View::Permissions => return Some(Effect::ApprovePermission),
                     // In the Project view, Enter regenerates the projection.
@@ -233,8 +257,8 @@ impl ShellState {
                 None
             }
             Action::Back => {
-                if self.drilled {
-                    self.drilled = false;
+                if self.drill.is_some() {
+                    self.drill = None;
                     None
                 } else {
                     // Top-level Back requests quit, gated by a confirmation.
@@ -256,7 +280,7 @@ impl ShellState {
             }
             // `/` opens the filter of the focused list. Only the Sessions view
             // has one today; elsewhere the key stays inert rather than lying.
-            Action::Filter if self.view == View::Sessions && !self.drilled => {
+            Action::Filter if self.view == View::Sessions && self.drill.is_none() => {
                 self.overlays.push(Overlay::Filter {
                     input: self.session_filter.clone(),
                 });
@@ -264,12 +288,12 @@ impl ShellState {
             }
             Action::AttendPermissions => {
                 self.view = View::Permissions;
-                self.drilled = false;
+                self.drill = None;
                 None
             }
             Action::CancelSession => {
                 // Only meaningful inside a live session; gated by confirmation.
-                if self.view == View::Sessions && self.drilled {
+                if self.view == View::Sessions && matches!(self.drill, Some(Drill::Session)) {
                     self.overlays.push(Overlay::Confirm {
                         action: ConfirmAction::CancelSession,
                     });
@@ -388,32 +412,54 @@ impl ShellState {
                     _ if command == "projects" || command == "proyectos" => {
                         self.project_scope = None;
                         self.view = View::Sessions;
-                        self.drilled = false;
+                        self.drill = None;
                         Some(Effect::RefreshProjects)
                     }
                     _ if command.starts_with("projects ") || command.starts_with("proyectos ") => {
                         let arg = command.split_once(' ').map(|(_, rest)| rest).unwrap_or("");
                         self.project_scope = Some(arg.trim().to_string());
                         self.view = View::Sessions;
-                        self.drilled = false;
+                        self.drill = None;
                         Some(Effect::RefreshProjects)
                     }
                     "sessions" | "sesiones" => {
                         self.view = View::Sessions;
-                        self.drilled = false;
+                        self.drill = None;
                         Some(Effect::RefreshStatus)
                     }
                     "project" | "proyecto" => {
                         self.view = View::Project;
-                        self.drilled = false;
+                        self.drill = None;
                         Some(Effect::ProjectContext)
                     }
                     "fleet" | "flota" => {
                         // Core parity: the palette reaches the Fleet like the
                         // digit does, and re-queries the catalog on demand.
                         self.view = View::Fleet;
-                        self.drilled = false;
+                        self.drill = None;
                         Some(Effect::RefreshFleet)
+                    }
+                    // `race <change> <task>` opens the board of that task's
+                    // competitors. Both arguments survive the palette's
+                    // lowercasing: change names are kebab-case and task labels
+                    // are digits and dots (design D4/D10). Named without them,
+                    // the verb has no task to open and closes without acting.
+                    _ if command.starts_with("race ") || command.starts_with("carrera ") => {
+                        let rest = command.split_once(' ').map(|(_, r)| r).unwrap_or("");
+                        let mut parts = rest.split_whitespace();
+                        match (parts.next(), parts.next()) {
+                            (Some(change), Some(task)) => {
+                                self.drill = Some(Drill::Race {
+                                    change: change.to_string(),
+                                    task: task.to_string(),
+                                });
+                                Some(Effect::RaceBoard {
+                                    change: change.to_string(),
+                                    task: task.to_string(),
+                                })
+                            }
+                            _ => None,
+                        }
                     }
                     _ => None,
                 };
@@ -537,6 +583,71 @@ mod tests {
     fn press(state: &mut ShellState, key: Key) -> Option<Effect> {
         let action = resolve(key, state.input_mode());
         state.reduce(action)
+    }
+
+    /// Types a palette line and submits it.
+    fn palette(state: &mut ShellState, line: &str) -> Option<Effect> {
+        press(state, Key::Char(':'));
+        for c in line.chars() {
+            press(state, Key::Char(c));
+        }
+        press(state, Key::Enter)
+    }
+
+    #[test]
+    fn the_race_verb_opens_the_board_of_a_task() {
+        let mut s = ShellState::new();
+        let effect = palette(&mut s, "race dark-mode 1.1");
+        assert_eq!(
+            effect,
+            Some(Effect::RaceBoard {
+                change: "dark-mode".into(),
+                task: "1.1".into()
+            }),
+            "the verb asks the daemon for that task's lanes"
+        );
+        assert_eq!(
+            s.drill(),
+            Some(&Drill::Race {
+                change: "dark-mode".into(),
+                task: "1.1".into()
+            }),
+            "and the shell is drilled into the board, not into a session"
+        );
+        // The Spanish spelling opens the same board.
+        let mut es = ShellState::new();
+        assert!(palette(&mut es, "carrera dark-mode 1.1").is_some());
+    }
+
+    #[test]
+    fn the_race_verb_without_a_task_opens_nothing() {
+        // Half an invocation has no board to open. Closing the palette without
+        // acting is the honest answer; guessing a task would not be.
+        let mut s = ShellState::new();
+        assert_eq!(palette(&mut s, "race dark-mode"), None);
+        assert!(!s.is_drilled());
+        assert_eq!(palette(&mut ShellState::new(), "race"), None);
+    }
+
+    #[test]
+    fn the_board_drill_does_not_disturb_the_session_drill() {
+        // The two drills are one field now, so the reducer must still tell them
+        // apart: cancelling a session is a session-drill gesture, and it must
+        // not fire while the board is what is open.
+        let mut s = ShellState::new();
+        palette(&mut s, "race dark-mode 1.1");
+        press(&mut s, Key::Char('x'));
+        assert!(
+            s.top_overlay().is_none(),
+            "cancel-session does not trigger from the race board"
+        );
+        // Back leaves the board and returns to the list level, not to a quit.
+        press(&mut s, Key::Esc);
+        assert!(!s.is_drilled());
+        assert!(
+            s.top_overlay().is_none(),
+            "leaving the board is not quitting"
+        );
     }
 
     #[test]
