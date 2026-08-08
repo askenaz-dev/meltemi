@@ -83,6 +83,27 @@
     }
   }
 
+  /** Unlinks the selected profile row. The context directory is deliberately
+      left behind (credentials are the provider's, not ours to destroy), and
+      the notice names it so the human can decide. */
+  async function unlinkSubscription() {
+    if (!selected) return;
+    try {
+      const result = await request<{ profile: string; contextDir: string }>(
+        "subscription/unlink",
+        { name: selected.id },
+      );
+      pushNotice($t("fleet.unlink.done", { dir: result.contextDir }), "info");
+      selectedId = null;
+      await refreshFleet();
+    } catch (raw) {
+      const e = raw as { message?: string; detail?: string | null; remedy?: string | null };
+      const detail = e?.detail ? `: ${e.detail}` : "";
+      const remedy = e?.remedy ? ` — ${e.remedy}` : "";
+      pushNotice(`${e?.message ?? String(raw)}${detail}${remedy}`, "danger");
+    }
+  }
+
   function levelLabel(agent: FleetAgent): string {
     const level = agent.verifiedLevel ?? agent.integrationLevel;
     return `N${level}`;
@@ -293,6 +314,13 @@
               </button>
             </div>
           {/if}
+        </div>
+      {:else if selected.source === "profile"}
+        <div class="linkBox">
+          <button onclick={() => void unlinkSubscription()}>
+            {$t("fleet.unlink.action")}
+          </button>
+          <p class="hint">{$t("fleet.unlink.keeps")}</p>
         </div>
       {:else if selected.source === "registry"}
         <p class="hint">{$t("fleet.link.manualHint")}</p>

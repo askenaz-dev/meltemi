@@ -66,7 +66,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   gesto de login queda a un clic de copiar» y «La entrada sin variable señala
   la vía manual» — gates: suite de cableado +
   `npm run check:forms`
-- [ ] 4.2 Desvincular desde la ficha con la declaración de lo que no borra
+- [x] 4.2 Desvincular desde la ficha con la declaración de lo que no borra
   (design D4) — escenario «Desvincular dice lo que no borra» — gates: suite
   de cableado
 

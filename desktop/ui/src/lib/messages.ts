@@ -351,6 +351,10 @@ const es = {
     "Autentica «{profile}» ejecutando uno de estos comandos (Meltemi nunca los ejecuta ni lee ese directorio):",
   "fleet.link.manualHint":
     "Esta entrada no declara variable de contexto: las suscripciones se vinculan a mano en config.toml ([[fleet.profile]]) — ver docs/agentes.md.",
+  "fleet.unlink.action": "Desvincular",
+  "fleet.unlink.keeps":
+    "Desvincular quita el perfil; el directorio de autenticación queda intacto.",
+  "fleet.unlink.done": "desvinculado; su contexto de autenticación queda en {dir}",
   "fleet.commandCopied": "comando copiado",
   "fleet.refresh": "Refrescar la detección",
   "fleet.summary": "{total} agentes · {detected} detectados",
@@ -918,6 +922,10 @@ const en: Record<MessageKey, string> = {
     "Authenticate “{profile}” by running one of these (Meltemi never runs them nor reads that directory):",
   "fleet.link.manualHint":
     "This entry declares no context variable: subscriptions are linked by hand in config.toml ([[fleet.profile]]) — see docs/agentes.md.",
+  "fleet.unlink.action": "Unlink",
+  "fleet.unlink.keeps":
+    "Unlinking removes the profile; the authentication directory stays intact.",
+  "fleet.unlink.done": "unlinked; its auth context stays at {dir}",
   "fleet.commandCopied": "command copied",
   "fleet.refresh": "Refresh detection",
   "fleet.summary": "{total} agents · {detected} detected",

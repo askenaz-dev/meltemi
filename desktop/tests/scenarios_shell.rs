@@ -1112,6 +1112,45 @@ fn the_agent_drawer_links_a_subscription_where_the_registry_declares_the_variabl
     );
 }
 
+// Scenario: Desvincular dice lo que no borra
+#[test]
+fn unlinking_from_the_drawer_says_the_context_stays() {
+    let fleet = read("desktop/ui/src/lib/views/Fleet.svelte");
+    // The unlink control lives on profile rows, beside the words that matter.
+    assert!(
+        fleet.contains("{:else if selected.source === \"profile\"}")
+            && fleet.contains("unlinkSubscription()")
+            && fleet.contains("fleet.unlink.keeps"),
+        "profile rows offer unlink with the it-stays declaration beside it"
+    );
+    // The declaration exists in both languages, and the done-notice names the
+    // directory left behind.
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    assert!(
+        messages.contains("queda intacto") && messages.contains("stays intact"),
+        "the it-stays words exist in both locales"
+    );
+    assert!(
+        messages.contains("{dir}"),
+        "the unlink notice names the directory left behind"
+    );
+    // And the row disappears by re-reading the catalog, not by pretending.
+    let unlink_fn = fleet
+        .split("async function unlinkSubscription()")
+        .nth(1)
+        .expect("unlink action")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        unlink_fn.contains("\"subscription/unlink\"") && unlink_fn.contains("await refreshFleet()"),
+        "unlink goes through the contract and refreshes: {unlink_fn}"
+    );
+}
+
 fn race_board() -> String {
     read("desktop/ui/src/lib/views/Review.svelte")
 }
