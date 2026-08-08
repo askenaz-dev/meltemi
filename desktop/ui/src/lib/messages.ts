@@ -208,6 +208,9 @@ const es = {
   "review.nodiff": "sin cambios contra la base",
 
   "race.lanes": "Calles de la carrera",
+  "race.live.note":
+    "El tablero sigue en vivo los turnos que lanza esta ventana. Un despacho iniciado en otra superficie no llega hasta aquí: actualiza para verlo.",
+  "race.live.refresh": "Actualizar",
   "race.unknown": "—",
   "race.source": "resolución",
   "race.source.profile": "perfil",
@@ -760,6 +763,9 @@ const en: Record<MessageKey, string> = {
   "review.nodiff": "no changes against the base",
 
   "race.lanes": "Race lanes",
+  "race.live.note":
+    "The board follows the turns this window launches. A dispatch started on another surface does not reach here: refresh to see it.",
+  "race.live.refresh": "Refresh",
   "race.unknown": "—",
   "race.source": "resolved by",
   "race.source.profile": "profile",

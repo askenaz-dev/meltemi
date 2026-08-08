@@ -11,7 +11,7 @@
   import { request } from "../daemon";
   import { fileSections, hunksOf } from "../diff";
   import { openWith } from "../editor/files";
-  import { allSessions, pushNotice, type SessionInfo } from "../stores";
+  import { allSessions, onSessionEvent, pushNotice, type SessionInfo } from "../stores";
   import { REGISTRY } from "../registry";
   import type { MessageKey } from "../messages";
   import EmptyState from "../components/EmptyState.svelte";
@@ -96,6 +96,42 @@
   const dangerous = $derived(
     action !== null &&
       (REGISTRY.find((entry) => entry.method === action?.method)?.dangerous ?? false),
+  );
+
+  /**
+   * The sessions this board started. A dispatch answers only when the whole
+   * turn is over, but its events reach THIS connection while it runs (the
+   * daemon seals a session's stream to the connection that opened it), so the
+   * board learns the session id from the stream rather than from the answer.
+   */
+  let ownTurns = $state(new Set<string>());
+
+  /**
+   * Follow the turns this board can follow. A turn that ends on a lane of the
+   * open task re-reads the board, so the lane shows its new diff and commit
+   * without the app reloading. A dispatch launched from another surface is
+   * sealed to that surface's connection and never arrives here — hence the
+   * refresh control and the note beside it, rather than a board that quietly
+   * goes stale (design D5).
+   */
+  $effect(() =>
+    onSessionEvent((message) => {
+      if (!picked) return;
+      const mine =
+        ownTurns.has(message.sessionId) ||
+        competitors.some((lane) => lane.sessionId === message.sessionId);
+      if (!mine) {
+        // A session that starts while this board is dispatching is the turn it
+        // just asked for: adopt it, so its end is one this board reacts to.
+        if (message.event.type === "session_started" && running) {
+          ownTurns = new Set(ownTurns).add(message.sessionId);
+        }
+        return;
+      }
+      if (message.event.type === "session_ended") {
+        void refreshBoard(picked.change, picked.task);
+      }
+    }),
   );
 
   const groups = $derived.by(() => {
@@ -320,9 +356,21 @@
         </button>
       </EmptyState>
     {:else if picked}
-      <p class="muted">
-        {$t("review.base")}: <code>{short(baseRev)}</code>
-      </p>
+      <div class="boardHead">
+        <p class="muted">
+          {$t("review.base")}: <code>{short(baseRev)}</code>
+        </p>
+        <!-- The board follows its own turns live. A dispatch started from
+             another surface is sealed to that surface's stream, so this says
+             so and offers the gesture, instead of pretending to be current. -->
+        <p class="muted note">{$t("race.live.note")}</p>
+        <button
+          class="ghost"
+          onclick={() => picked && void refreshBoard(picked.change, picked.task)}
+        >
+          {$t("race.live.refresh")}
+        </button>
+      </div>
 
       <div class="lanes" aria-label={$t("race.lanes")}>
         {#each competitors as lane (lane.agent)}
@@ -574,6 +622,17 @@
 {/if}
 
 <style>
+  .boardHead {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+  }
+  .boardHead .note {
+    flex: 1;
+    min-width: 12rem;
+    font-size: var(--fs-dense);
+  }
   .lanes {
     display: grid;
     grid-auto-flow: column;

@@ -1147,6 +1147,55 @@ fn a_task_without_competitors_says_so_and_offers_the_way_in() {
     );
 }
 
+// Scenario: El tablero refleja el turno concluido
+#[test]
+fn the_board_follows_the_turns_it_started_and_says_which_ones_it_cannot() {
+    let board = race_board();
+    // The board listens to the session stream while a task is open.
+    assert!(
+        board.contains("onSessionEvent((message) =>"),
+        "the board subscribes to the session stream"
+    );
+    let listener = board
+        .split("onSessionEvent((message) =>")
+        .nth(1)
+        .expect("the board listens")
+        .split("\n  );")
+        .next()
+        .expect("body");
+    // A turn is followed when it belongs to this board: one it started, or one
+    // already named by a lane. Anything else is somebody else's stream.
+    assert!(
+        listener.contains("ownTurns.has(message.sessionId)")
+            && listener
+                .contains("competitors.some((lane) => lane.sessionId === message.sessionId)"),
+        "the board follows its own turns and its lanes', not every session: {listener}"
+    );
+    // A dispatch answers only when the turn is over, so the session id is
+    // learned from the stream that runs meanwhile.
+    assert!(
+        listener.contains("message.event.type === \"session_started\"")
+            && listener.contains("running"),
+        "a session started while dispatching is adopted as this board's: {listener}"
+    );
+    // The end of a followed turn re-reads the board — no reload.
+    assert!(
+        listener.contains("message.event.type === \"session_ended\"")
+            && listener.contains("refreshBoard(picked.change, picked.task)"),
+        "a finished turn re-reads the lanes in place: {listener}"
+    );
+    // What it cannot follow, it declares — with the gesture that fixes it.
+    assert!(
+        board.contains("race.live.note") && board.contains("race.live.refresh"),
+        "the board states the limit of what it can follow, and offers the refresh"
+    );
+    let es = read("desktop/ui/src/lib/messages.ts");
+    assert!(
+        es.contains("no llega hasta aquí") && es.contains("does not reach here"),
+        "the limitation is spelled in both languages, not implied"
+    );
+}
+
 // Scenario: Acción destructiva solo con confirmación explícita
 #[test]
 fn a_destructive_race_action_reaches_the_daemon_only_after_a_confirmation() {

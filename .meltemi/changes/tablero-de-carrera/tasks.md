@@ -60,7 +60,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   vía formularios tipados; cancelar la confirmación no envía nada (design
   D3) — escenario «Acción destructiva solo con confirmación explícita» —
   gates: suite de cableado
-- [ ] 3.4 Vida del tablero: al concluir un turno propio (stream de eventos
+- [x] 3.4 Vida del tablero: al concluir un turno propio (stream de eventos
   de sesión), re-consultar el diff y actualizar la calle sin recargar;
   refresco manual conservado para despachos ajenos, con la limitación
   declarada en la superficie (design D5) — escenario «El tablero refleja
