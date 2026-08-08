@@ -379,3 +379,120 @@ async fn unlink_leaves_the_context_behind_and_manual_profiles_alone() {
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// The founding example, end to end: two subscriptions of one provider and
+/// three of another, linked by gesture, racing with distinct contexts, each
+/// session recording which subscription ran it.
+// Scenario: Vincular crea el perfil y la sesión lo honra
+#[tokio::test]
+async fn two_and_three_subscriptions_across_two_providers_run_side_by_side() {
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipping: git not on PATH");
+        return;
+    }
+    let root = fixture("founding");
+    // provider-b needs a variable too for this one: rewrite the registry with
+    // both providers declaring the mock's echo variable.
+    let mock_dir = mock_agent_dir().display().to_string().replace('\\', "/");
+    std::fs::write(
+        root.join(".meltemi/registry.toml"),
+        format!(
+            "version = \"founding\"\n\n\
+             [[agents]]\nid = \"provider-a\"\nname = \"Provider A\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_dir}']\nauth-context-var = \"MELTEMI_MOCK_MARKER\"\nlogin-hint = \"provider-a login\"\n\n\
+             [[agents]]\nid = \"provider-b\"\nname = \"Provider B\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_dir}']\nauth-context-var = \"MELTEMI_MOCK_MARKER\"\nlogin-hint = \"provider-b login\"\n"
+        ),
+    )
+    .unwrap();
+    let (endpoint, base, daemon) =
+        spawn_daemon("founding", &root.join(".meltemi/registry.toml")).await;
+    let peer = init_client(&endpoint).await;
+
+    // Two of provider-a, three of provider-b: the maintainer's own example.
+    for (agent, name) in [
+        ("provider-a", "a-work"),
+        ("provider-a", "a-personal"),
+        ("provider-b", "b-work"),
+        ("provider-b", "b-personal"),
+        ("provider-b", "b-thorough"),
+    ] {
+        peer.request(
+            methods::SUBSCRIPTION_LINK,
+            &json!({ "agent": agent, "name": name }),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("link {name}: {e}"));
+    }
+
+    // All five are catalog rows naming their provider.
+    let fleet = peer
+        .request(methods::FLEET_LIST, &json!({}))
+        .await
+        .expect("fleet ok");
+    let rows = fleet["agents"].as_array().unwrap();
+    for (name, agent) in [
+        ("a-work", "provider-a"),
+        ("a-personal", "provider-a"),
+        ("b-work", "provider-b"),
+        ("b-personal", "provider-b"),
+        ("b-thorough", "provider-b"),
+    ] {
+        let row = rows
+            .iter()
+            .find(|r| r["id"] == name)
+            .unwrap_or_else(|| panic!("{name} listed"));
+        assert_eq!(row["underlyingAgent"], agent);
+    }
+
+    // One subscription of each provider races the same task, each under ITS
+    // context: the artifacts carry different markers — different directories.
+    let root_str = root.display().to_string();
+    let mut markers = Vec::new();
+    for name in ["a-work", "b-thorough"] {
+        let dispatched = peer
+            .request(
+                methods::WORKTREE_DISPATCH,
+                &json!({
+                    "projectRoot": root_str,
+                    "change": "dark-mode",
+                    "task": "1.1",
+                    "agent": name,
+                }),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("dispatch {name}: {e}"));
+        assert_eq!(dispatched["resolution"]["profile"], name);
+        let worktree = PathBuf::from(dispatched["worktree"].as_str().unwrap());
+        let artifact = std::fs::read_to_string(worktree.join("task-1-1.md")).unwrap();
+        let marker = artifact
+            .lines()
+            .find(|l| l.starts_with("marker="))
+            .expect("the mock echoes its context")
+            .to_string();
+        markers.push(marker);
+    }
+    assert_ne!(
+        markers[0], markers[1],
+        "two subscriptions, two contexts: the lanes must not share one"
+    );
+
+    // And the history says which subscription ran each session.
+    let sessions = peer
+        .request(methods::SESSION_LIST, &json!({}))
+        .await
+        .expect("session/list ok");
+    let profiles: Vec<String> = sessions["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["profile"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        profiles.contains(&"a-work".to_string()) && profiles.contains(&"b-thorough".to_string()),
+        "each session records its subscription: {profiles:?}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&base);
+}

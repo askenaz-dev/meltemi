@@ -87,7 +87,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   verifica por el lint de docs vigente (initial-docs: la guía verificada
   contra el registro), sin delta nuevo (design D3, D5, D7)
   — gates: `cargo test -p meltemi --test parity --test docs`
-- [ ] 6.2 E2e integrador con el ejemplo fundacional: dos vínculos de un
+- [x] 6.2 E2e integrador con el ejemplo fundacional: dos vínculos de un
   proveedor y tres de otro (registro fixture), carrera/despacho honrando dos
   de ellos con contextos distintos, `session/list` con la suscripción de cada
   uno; este e2e lleva el marcador del escenario «Vincular crea el perfil y la
