@@ -61,6 +61,12 @@ pub enum Command {
     },
     /// Read the lanes of a task for the race board (`worktree/diff`).
     RaceDiff { change: String, task: String },
+    /// Run a competitor's turn over its worktree (`worktree/dispatch`).
+    RaceDispatch {
+        change: String,
+        task: String,
+        agent: String,
+    },
     /// Add a root to the project registry (`project/register`).
     RegisterProject(String),
     /// Drop a project from the registry's listing (`project/forget`).
@@ -240,6 +246,38 @@ async fn serve_connection(
                             Err(error) => refusal_notice(&error, lang),
                         };
                         let _ = updates.send(Update::Notice(notice));
+                    });
+                }
+                Some(Command::RaceDispatch { change, task, agent }) => {
+                    // A dispatch answers only when the competitor's whole turn
+                    // is over — minutes, not milliseconds. Awaiting it here
+                    // would stop the status tick, the event stream and the
+                    // permission tray for exactly as long, which is the one
+                    // thing the shell must never do. Same shape as `direct`.
+                    let peer = peer.clone();
+                    let updates = updates.clone();
+                    let scope = scope.clone();
+                    tokio::spawn(async move {
+                        let root = match scope {
+                            Some(root) => root,
+                            None => std::env::current_dir()
+                                .map(|d| d.display().to_string())
+                                .unwrap_or_default(),
+                        };
+                        let params = serde_json::json!({
+                            "projectRoot": root,
+                            "change": change,
+                            "task": task,
+                            "agent": agent,
+                        });
+                        let notice = match peer.request(methods::WORKTREE_DISPATCH, &params).await {
+                            Ok(value) => dispatch_notice(&value, &agent, lang),
+                            Err(error) => format!("worktree/dispatch: {error}"),
+                        };
+                        let _ = updates.send(Update::Notice(notice));
+                        // The turn is over: the lane has a new diff and a new
+                        // commit state, so the board re-reads itself.
+                        refresh_race(&peer, &updates, Some(root.as_str()), &change, &task).await;
                     });
                 }
                 Some(Command::RegisterProject(root)) => {
@@ -487,6 +525,21 @@ async fn refresh_race(
         Err(error) => {
             let _ = updates.send(Update::Notice(format!("worktree/diff: {error}")));
         }
+    }
+}
+
+/// What a finished dispatch says in one line: the lane, how the turn ended and
+/// whether it left a commit. Never a bare "ok": the two facts differ.
+fn dispatch_notice(value: &serde_json::Value, agent: &str, lang: Lang) -> String {
+    let status = value["status"].as_str().unwrap_or("?");
+    let committed = value["committed"].as_bool().unwrap_or(false);
+    let sha = value["sha"].as_str().unwrap_or("");
+    let short: String = sha.chars().take(12).collect();
+    match (lang, committed) {
+        (Lang::Es, true) => format!("{agent}: turno {status}, commit {short}"),
+        (Lang::Es, false) => format!("{agent}: turno {status}, sin commit"),
+        (Lang::En, true) => format!("{agent}: turn {status}, commit {short}"),
+        (Lang::En, false) => format!("{agent}: turn {status}, no commit"),
     }
 }
 

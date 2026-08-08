@@ -122,6 +122,9 @@ pub enum Effect {
         change: String,
         task: String,
     },
+    /// Run a turn on the focused lane of the open board (`worktree/dispatch`).
+    /// Which lane that is lives in the live data, not in the reducer.
+    DispatchRaceLane,
 }
 
 /// What the shell is drilled into, one level below a first-level view. The
@@ -285,6 +288,12 @@ impl ShellState {
                     input: self.session_filter.clone(),
                 });
                 None
+            }
+            // `d` on the board dispatches a turn to the focused lane. It is a
+            // view-local letter, claimed only while the board is what is open,
+            // so it never shadows the tray's own `d` (design D4).
+            Action::Local('d') if matches!(self.drill, Some(Drill::Race { .. })) => {
+                Some(Effect::DispatchRaceLane)
             }
             Action::AttendPermissions => {
                 self.view = View::Permissions;

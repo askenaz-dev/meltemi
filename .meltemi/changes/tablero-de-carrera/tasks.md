@@ -78,7 +78,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   render con tests de reducer y de buffer, incluida la presentación ASCII
   (design D4) — escenario «El tablero degrada a ASCII sin perder
   significado» — gates: `cargo test -p meltemi`
-- [ ] 4.3 Despacho desde el tablero con el patrón de petición larga (peer
+- [x] 4.3 Despacho desde el tablero con el patrón de petición larga (peer
   clonado, task aparte del bucle); e2e vivo con daemon efímero: el tick
   sigue refrescando mientras corre el turno y el tablero refleja la
   conclusión (design D4, D5) — escenario «El despacho no congela el

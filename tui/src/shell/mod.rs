@@ -208,6 +208,23 @@ fn handle_action(
         Some(Effect::RaceBoard { change, task }) => {
             let _ = commands.send(Command::RaceDiff { change, task });
         }
+        // Which lane the turn runs on is a live fact, not a reducer one: the
+        // board holds the selection, so the effect names the gesture and the
+        // loop resolves the lane. An empty board has nothing to dispatch, and
+        // says so rather than sending a request with no agent in it.
+        Some(Effect::DispatchRaceLane) => match live.race.as_ref() {
+            Some(board) if !board.lanes.is_empty() => {
+                let lane = &board.lanes[board.selected.min(board.lanes.len() - 1)];
+                let _ = commands.send(Command::RaceDispatch {
+                    change: board.change.clone(),
+                    task: board.task.clone(),
+                    agent: lane.agent.clone(),
+                });
+            }
+            _ => live
+                .notices
+                .push(messages::text(messages::Msg::RaceEmpty, lang).to_string()),
+        },
         Some(Effect::RefreshProjects) => {
             let _ = commands.send(Command::ProjectList);
             // The typed text becomes a REAL scope: resolved against the projects
