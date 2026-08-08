@@ -298,3 +298,84 @@ async fn refusals_name_their_cause_and_their_remedy() {
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[tokio::test]
+async fn unlink_leaves_the_context_behind_and_manual_profiles_alone() {
+    // Scenario: Desvincular deja el contexto intacto
+    // Scenario: Lo escrito a mano gana y no se desvincula por superficie
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipping: git not on PATH");
+        return;
+    }
+    let root = fixture("unlink");
+    let (endpoint, base, daemon) =
+        spawn_daemon("unlink", &root.join(".meltemi/registry.toml")).await;
+
+    // A hand-written profile in the daemon's own config.toml.
+    let config_path = base.join("config").join("config.toml");
+    let mut config = std::fs::read_to_string(&config_path).unwrap();
+    config.push_str(
+        "\n[[fleet.profile]]\nname = \"manual\"\nagent = \"provider-a\"\nenv = { MELTEMI_MOCK_MARKER = 'C:/ctx/manual' }\n",
+    );
+    std::fs::write(&config_path, config).unwrap();
+
+    let peer = init_client(&endpoint).await;
+
+    // Link, then let "the provider" store a credential in the context dir —
+    // the TEST writes it; the daemon never does.
+    let linked = peer
+        .request(
+            methods::SUBSCRIPTION_LINK,
+            &json!({ "agent": "provider-a", "name": "work" }),
+        )
+        .await
+        .expect("link ok");
+    let ctx = PathBuf::from(linked["gesture"]["value"].as_str().unwrap());
+    std::fs::write(ctx.join("auth.json"), "{\"the-provider\": \"wrote-this\"}").unwrap();
+
+    // Unlink: the profile goes, the directory and its contents stay, named.
+    let unlinked = peer
+        .request(methods::SUBSCRIPTION_UNLINK, &json!({ "name": "work" }))
+        .await
+        .expect("unlink ok");
+    assert_eq!(unlinked["profile"], "work");
+    assert_eq!(
+        unlinked["contextDir"].as_str().unwrap(),
+        ctx.display().to_string()
+    );
+    assert!(
+        ctx.join("auth.json").is_file(),
+        "credentials are not ours to destroy"
+    );
+    let fleet = peer
+        .request(methods::FLEET_LIST, &json!({}))
+        .await
+        .expect("fleet ok");
+    assert!(
+        !fleet["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["id"] == "work"),
+        "the profile row is gone"
+    );
+
+    // A hand-written profile is not the store's to remove.
+    let manual = peer
+        .request(methods::SUBSCRIPTION_UNLINK, &json!({ "name": "manual" }))
+        .await
+        .expect_err("hand-written refuses");
+    assert_eq!(manual.code, 2005, "{manual}");
+
+    // And an unknown name says so.
+    let unknown = peer
+        .request(methods::SUBSCRIPTION_UNLINK, &json!({ "name": "ghost" }))
+        .await
+        .expect_err("unknown refuses");
+    assert_eq!(unknown.code, 2005);
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&base);
+}

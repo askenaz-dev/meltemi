@@ -36,7 +36,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   perfil y la sesión lo honra», «Vincular sobre un agente sin variable
   declarada rehúsa», «El vínculo entrega el gesto de login» y «Nombre ya
   vinculado rehúsa» — gates: `cargo test -p meltemid`
-- [ ] 2.3 `subscription/unlink`: retiro solo del archivo gestionado, rehúso
+- [x] 2.3 `subscription/unlink`: retiro solo del archivo gestionado, rehúso
   con remedio para perfiles manuales, directorio de contexto intacto y
   nombrado en la respuesta (design D2, D4) — escenarios «Lo escrito a mano
   gana y no se desvincula por superficie» y «Desvincular deja el contexto

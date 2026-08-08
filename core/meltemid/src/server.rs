@@ -351,6 +351,7 @@ async fn dispatch_request(
         methods::PROJECT_LIST => crate::projects::handle_project_list(params, state).await,
         methods::PROJECT_REGISTER => crate::projects::handle_project_register(params, state).await,
         methods::SUBSCRIPTION_LINK => handle_subscription_link(params, state).await,
+        methods::SUBSCRIPTION_UNLINK => handle_subscription_unlink(params, state).await,
         methods::PROJECT_FORGET => crate::projects::handle_project_forget(params, state).await,
         methods::ANALYTICS_USAGE => crate::analytics::handle_analytics_usage(params, state),
         other => Err(RpcError::method_not_found(other)),
@@ -2252,6 +2253,54 @@ async fn handle_subscription_link(
         gesture,
     };
     Ok(serde_json::to_value(result).expect("SubscriptionLinkResult serializes"))
+}
+
+/// `subscription/unlink`: undo a linked subscription (vincular-suscripciones
+/// D2/D4). Removes the profile from the daemon-owned store only — a
+/// hand-written profile refuses with its remedy — and NEVER deletes the
+/// context directory: whatever the provider stored there is not Meltemi's to
+/// destroy. The response names the path left behind.
+async fn handle_subscription_unlink(
+    params: Value,
+    state: &Arc<DaemonState>,
+) -> Result<Value, RpcError> {
+    use meltemi_proto::{SubscriptionUnlinkParams, SubscriptionUnlinkResult};
+
+    let params: SubscriptionUnlinkParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("subscription/unlink: {e}")))?;
+
+    match crate::subscriptions::remove(&state.config_dir, &params.name) {
+        Some(removed) => {
+            let context_dir = removed
+                .env
+                .first()
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default();
+            let result = SubscriptionUnlinkResult {
+                profile: removed.name,
+                context_dir,
+            };
+            Ok(serde_json::to_value(result).expect("SubscriptionUnlinkResult serializes"))
+        }
+        None => {
+            // Not in the store. A hand-written homonym is the user's, not ours.
+            let config = crate::config::Config::load(&state.config_dir, None);
+            if config.fleet_profiles.iter().any(|p| p.name == params.name) {
+                Err(subscription_refused(
+                    format!(
+                        "`{}` lives in hand-written configuration, not in the linked store",
+                        params.name
+                    ),
+                    "Edit it in your config.toml ([[fleet.profile]]); unlink only removes links.",
+                ))
+            } else {
+                Err(subscription_refused(
+                    format!("no link named `{}`", params.name),
+                    "List the fleet with `meltemi fleet` to see the linked profiles.",
+                ))
+            }
+        }
+    }
 }
 
 /// `session/log`: a paginated slice of a session's JSONL log, so a thin client
