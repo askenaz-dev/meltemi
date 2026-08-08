@@ -126,6 +126,7 @@ revisados uno por uno, deltas plegados a la verdad viva):
 | `multiproyecto-suscripciones` | Registro de proyectos (`project/list`), agente y suscripción en los metadatos de sesión, árbol Proyecto→Sesiones en la GUI, agrupación y ámbito conmutable en la TUI |
 | `analitica-consumo-local` | `analytics/usage`: actividad plegada de los registros locales, tokens solo donde la salida oficial los reporta, frontera medido/no-reportado con motivo estable y declaración de honestidad junto a las cifras |
 | `sitio-web-producto` | `site/` estático (sin JS, sin orígenes externos), descargas a la última release firmada con nombres estables, tokens derivados del cliente y lint del sitio como gate |
+| `tablero-de-carrera` | **Archivada el 2026-08-08.** La carrera visible: procedencia por calle en `worktree/diff` (fuente, suscripción, nivel, sesión, commit y base propia, todo aditivo), el despacho asentando registro de primera clase, el tablero de la GUI (calles lado a lado, acciones con confirmación, merge por archivo) y el del shell (glifo+palabra con gemelos ASCII, despacho sin congelar el bucle); `docs/qa/2026-08-07-tablero-de-carrera-smoke.md` |
 
 Pendientes de Fase 2: `motor-propio-byok` (propuesta redactada, activa) ·
 `lanzador-conversacional` (abierta 2026-07-27, **implementada y verificada
@@ -136,8 +137,6 @@ Codex en nivel 0) ·
 `texto-intacto-al-agente` (abierta 2026-07-31, vía rápida: el prompt se
 doble-codifica y el agente recibe acentos rotos; verify limpio, lista para
 archivar) ·
-`tablero-de-carrera` (abierta 2026-07-31, planificada: la carrera
-multiproveedor visible en GUI y TUI con procedencia por calle) ·
 `avisos-de-escritorio` (abierta 2026-07-31, del comparativo de mercado: nada
 avisa al escritorio cuando un permiso espera) ·
 `primer-arranque-del-home` (abierta 2026-07-31, vía rápida, del mismo
@@ -453,6 +452,26 @@ spec-full deliberado — es superficie nueva sobre la feature fundacional,
 no un ajuste. Fuera de alcance, por escrito: canal push de worktrees
 (sigue diferido en `eventos-para-tardios`), merge automático o ranking, y
 toda vista numerada nueva.
+
+**Desenlace (archivada el 2026-08-08).** Quince tareas, veintiséis commits,
+`verify` 12/12 enlazado **sin una sola marca manual**, suite en 858. El design
+salió enmendado por la implementación en un punto que importa: daba por hecho
+que `level`, `agent_id` y `profile` bastaban para que una calle declarara su
+resolución, y no bastan — un id de catálogo y un agente configurado que nombra
+un id se ven idénticos en esos campos, así que deducir la fuente habría sido
+inventarla; `SessionRecord` ganó un `source` opcional que escriben todos los
+caminos que ya resolvían por la flota. Dos decisiones de implementación que el
+design no anticipó y quedaron escritas: `committed` es un hecho del árbol (la
+cabeza difiere de su base) y no una marca que deje el despacho, de modo que una
+calle comiteada a mano cuenta; y cada calle conserva **su** base, porque dos
+calles de una tarea solo la comparten cuando nadie replicó la asignación contra
+un HEAD movido. El smoke conducido sobre el binario de release
+(`docs/qa/2026-08-07-tablero-de-carrera-smoke.md`) encontró y corrigió un
+defecto que ningún test de cableado podía ver —la nota de vida partía a mitad
+de frase pegada al sha y se leía como una oración sobre la base— y dejó anotado
+un falso positivo del operador que se repetirá si no se nombra: medir una
+superficie nueva con un binario de `target/release` viejo se parece exactamente
+a un bug de la superficie nueva.
 
 ### `avisos-de-escritorio` — abierta el 2026-07-31 (comparativo de mercado)
 
