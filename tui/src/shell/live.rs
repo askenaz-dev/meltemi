@@ -460,6 +460,21 @@ impl LiveData {
         })
     }
 
+    /// Walks the lanes of the open race board, clamped at both ends.
+    pub fn move_race_lane(&mut self, down: bool) {
+        let Some(board) = self.race.as_mut() else {
+            return;
+        };
+        if board.lanes.is_empty() {
+            return;
+        }
+        board.selected = if down {
+            (board.selected + 1).min(board.lanes.len() - 1)
+        } else {
+            board.selected.saturating_sub(1)
+        };
+    }
+
     /// Scrolls the transcript up, suspending auto-follow.
     pub fn scroll_up(&mut self) {
         self.follow_tail = false;

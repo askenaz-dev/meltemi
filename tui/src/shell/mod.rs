@@ -128,6 +128,33 @@ fn handle_action(
         }
     }
 
+    // The race board owns its own selection and panning, whatever view it was
+    // opened from: j/k walk the lanes, the arrows pan the widest row
+    // (tablero-de-carrera design D4).
+    if state.top_overlay().is_none()
+        && matches!(state.drill(), Some(crate::shell::state::Drill::Race { .. }))
+    {
+        match &action {
+            Action::Move(Direction::Down) | Action::Local('j') => {
+                live.move_race_lane(true);
+                return false;
+            }
+            Action::Move(Direction::Up) | Action::Local('k') => {
+                live.move_race_lane(false);
+                return false;
+            }
+            Action::Move(Direction::Right) => {
+                live.scroll_horizontal(true);
+                return false;
+            }
+            Action::Move(Direction::Left) => {
+                live.scroll_horizontal(false);
+                return false;
+            }
+            _ => {}
+        }
+    }
+
     // Selection and transcript scroll are live concerns, handled only in the
     // Sessions view with no overlay open.
     if state.top_overlay().is_none() && state.view() == View::Sessions {

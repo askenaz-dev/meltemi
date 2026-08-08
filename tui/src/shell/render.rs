@@ -257,6 +257,12 @@ fn render_body(frame: &mut Frame, area: Rect, state: &ShellState, live: &LiveDat
         return;
     }
 
+    // The board is a drill of its own, reachable from any view, so it is
+    // matched before the view (tablero-de-carrera design D4).
+    if matches!(state.drill(), Some(crate::shell::state::Drill::Race { .. })) {
+        render_race_board(frame, inner, live, ctx);
+        return;
+    }
     match state.view() {
         View::Sessions if state.is_drilled() => render_session_detail(frame, inner, live, ctx),
         View::Sessions => render_sessions(frame, inner, state, live, ctx),
@@ -425,6 +431,127 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
     }
     render_lines(frame, area, lines);
 }
+
+/// The race board (tablero-de-carrera design D4): the lanes of one task, each
+/// with the provenance of the turn that ran it, its commit state, and its diff
+/// against its own base.
+///
+/// Every state is a glyph AND a word, with an ASCII twin, so nothing here
+/// depends on colour or on Unicode. Absence is a word too: a lane the daemon
+/// said nothing about reads `sin registro`, never a blank that could pass for
+/// a value.
+fn render_race_board(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
+    let Some(board) = &live.race else {
+        let text = format!(
+            "{} {}",
+            glyphs::PENDING.text(&ctx.present),
+            ctx.msg(Msg::RaceLoading)
+        );
+        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
+        return;
+    };
+
+    let header = format!(
+        "{}/{} — {} {} — {}",
+        board.change,
+        board.task,
+        board.lanes.len(),
+        if ctx.lang == Lang::Es {
+            "calle(s)"
+        } else {
+            "lane(s)"
+        },
+        short_rev(&board.base_rev)
+    );
+    let mut lines = vec![Line::styled(header, ctx.emphasis()), Line::from("")];
+
+    if board.lanes.is_empty() {
+        lines.push(Line::from(ctx.msg(Msg::RaceEmpty)));
+        render_lines(frame, area, lines);
+        return;
+    }
+
+    let unknown = ctx.msg(Msg::RaceUnknown);
+    for (i, lane) in board.lanes.iter().enumerate() {
+        let focused = i == board.selected;
+        let marker = if focused {
+            glyphs::FOCUS.text(&ctx.present)
+        } else {
+            " "
+        };
+        // Who ran it: the resolution source, the subscription, the level. Each
+        // one absent says so on its own, because a lane can know one and not
+        // the others.
+        let source = lane.source.as_deref().unwrap_or(unknown);
+        let profile = lane.profile.as_deref().unwrap_or(unknown);
+        let level = lane
+            .level
+            .map(|l| format!("L{l}"))
+            .unwrap_or_else(|| unknown.to_string());
+        // How it ended: glyph plus word, never the glyph alone.
+        let (state_glyph, state_word) = match lane.committed {
+            Some(true) => (glyphs::OK.text(&ctx.present), ctx.msg(Msg::RaceCommitted)),
+            Some(false) => (
+                glyphs::ABSENT.text(&ctx.present),
+                ctx.msg(Msg::RaceUncommitted),
+            ),
+            None => (glyphs::ABSENT.text(&ctx.present), unknown),
+        };
+        let sha = lane
+            .sha
+            .as_deref()
+            .map(short_rev)
+            .unwrap_or_else(|| unknown.to_string());
+        let head = format!(
+            "{marker} {agent}  {state_glyph} {state_word} {sha}  {source} / {profile} / {level}  {files} arch.",
+            agent = lane.agent,
+            files = lane.changed_files,
+        );
+        let head = pan(&head, live.h_scroll);
+        lines.push(if focused {
+            Line::styled(head, ctx.emphasis())
+        } else {
+            Line::from(head)
+        });
+        // Its own base, because two lanes of one task need not share one.
+        lines.push(Line::from(pan(
+            &format!(
+                "    base {}",
+                lane.base_rev
+                    .as_deref()
+                    .map(short_rev)
+                    .unwrap_or_else(|| unknown.to_string())
+            ),
+            live.h_scroll,
+        )));
+
+        // The focused lane opens its diff, capped so a large race cannot make
+        // the frame cost grow without bound (design D4).
+        if focused {
+            for row in lane.diff.lines().take(RACE_DIFF_CAP) {
+                lines.push(Line::from(pan(&format!("    {row}"), live.h_scroll)));
+            }
+            let withheld = lane.diff.lines().count().saturating_sub(RACE_DIFF_CAP);
+            if withheld > 0 {
+                lines.push(Line::from(format!("    ... +{withheld} ")));
+            }
+            if lane.diff.trim().is_empty() {
+                lines.push(Line::from("    (sin cambios / no changes)"));
+            }
+        }
+        lines.push(Line::from(""));
+    }
+    lines.push(Line::from(ctx.msg(Msg::RaceLaneHint)));
+    render_lines(frame, area, lines);
+}
+
+/// The first twelve characters of a revision, the shell's short form.
+fn short_rev(rev: &str) -> String {
+    rev.chars().take(12).collect()
+}
+
+/// How many diff lines the focused lane shows before it says how many are left.
+const RACE_DIFF_CAP: usize = 80;
 
 /// How one scenario differs between the living and the modified requirement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1372,6 +1499,145 @@ mod tests {
         assert!(!out.contains("worktrees"), "no phantom project node");
         // An absent root is marked, never dropped.
         assert!(out.contains("ausente"));
+    }
+
+    /// A board with three lanes: one committed, one that ran and produced
+    /// nothing, and one nobody ever dispatched.
+    fn race_live() -> LiveData {
+        let mut live = LiveData::new();
+        live.apply(Update::Race(crate::shell::live::RaceBoard {
+            change: "dark-mode".into(),
+            task: "1.1".into(),
+            base_rev: "a".repeat(40),
+            lanes: vec![
+                crate::shell::live::RaceLane {
+                    agent: "work".into(),
+                    path: "/repo/.meltemi/worktrees/dark-mode/1-1-work".into(),
+                    changed_files: 1,
+                    diff: "diff --git a/x b/x
++one
+"
+                    .into(),
+                    source: Some("profile".into()),
+                    profile: Some("work".into()),
+                    level: Some(2),
+                    session_id: Some("s-1".into()),
+                    committed: Some(true),
+                    sha: Some("b".repeat(40)),
+                    base_rev: Some("a".repeat(40)),
+                },
+                // A lane that ran and produced nothing: dispatched, not
+                // committed — a different fact from "nobody ran it".
+                crate::shell::live::RaceLane {
+                    agent: "idle".into(),
+                    path: "/repo/.meltemi/worktrees/dark-mode/1-1-idle".into(),
+                    changed_files: 0,
+                    diff: String::new(),
+                    source: Some("catalog".into()),
+                    profile: None,
+                    level: Some(1),
+                    session_id: Some("s-2".into()),
+                    committed: Some(false),
+                    sha: None,
+                    base_rev: Some("a".repeat(40)),
+                },
+                crate::shell::live::RaceLane {
+                    agent: "spare".into(),
+                    path: "/repo/.meltemi/worktrees/dark-mode/1-1-spare".into(),
+                    changed_files: 0,
+                    diff: String::new(),
+                    ..Default::default()
+                },
+            ],
+            selected: 0,
+        }));
+        live
+    }
+
+    /// The shell drilled into that board.
+    fn race_state() -> ShellState {
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::OpenPalette);
+        for c in "race dark-mode 1.1".chars() {
+            state.reduce(crate::shell::keymap::Action::InsertChar(c));
+        }
+        state.reduce(crate::shell::keymap::Action::Submit);
+        state
+    }
+
+    #[test]
+    fn the_race_board_shows_every_lane_with_its_provenance_and_state() {
+        // Scenario: El verbo de carrera abre el tablero
+        let out = draw(
+            &race_state(),
+            &race_live(),
+            &ctx(default_present()),
+            120,
+            30,
+        );
+        assert!(out.contains("dark-mode") && out.contains("1.1"), "{out}");
+        assert!(
+            out.contains("3 calle(s)"),
+            "every lane is on the board: {out}"
+        );
+        // Both lanes, and the dispatched one's provenance as the daemon gave it.
+        assert!(out.contains("work") && out.contains("spare"), "{out}");
+        assert!(out.contains("profile") && out.contains("L2"), "{out}");
+        // A lane nobody dispatched says so instead of showing a blank that
+        // could pass for a value.
+        assert!(out.contains("sin registro"), "unrecorded is a word: {out}");
+        // Commit state is a word, and the committed lane names its sha.
+        assert!(
+            out.contains("comiteada") && out.contains("bbbbbbbbbbbb"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn the_race_board_degrades_to_ascii_without_losing_meaning() {
+        // Scenario: El tablero degrada a ASCII sin perder significado
+        let ascii = Presentation::resolve(&PresentationEnv {
+            ascii_flag: true,
+            no_color: Some("1".into()),
+            ..Default::default()
+        });
+        let out = draw(&race_state(), &race_live(), &ctx(ascii), 120, 30);
+        // The words survive: every state is readable without a glyph at all.
+        assert!(
+            out.contains("comiteada") && out.contains("sin commit") && out.contains("sin registro"),
+            "each state keeps its word: {out}"
+        );
+        // And the glyphs are their ASCII twins, never the Unicode ones.
+        for unicode in ["▸", "●", "○"] {
+            assert!(
+                !out.contains(unicode),
+                "`{unicode}` must not survive ASCII presentation: {out}"
+            );
+        }
+        assert!(
+            out.contains('*') || out.contains('o'),
+            "twins are drawn: {out}"
+        );
+    }
+
+    #[test]
+    fn the_race_board_caps_a_long_diff_and_says_how_much_is_left() {
+        let mut live = race_live();
+        if let Some(board) = live.race.as_mut() {
+            board.lanes[0].diff = (0..200)
+                .map(|i| format!("+line {i}"))
+                .collect::<Vec<_>>()
+                .join(
+                    "
+",
+                );
+        }
+        let out = draw(&race_state(), &live, &ctx(default_present()), 120, 400);
+        assert!(
+            out.contains("+line 0") && !out.contains("+line 199"),
+            "the diff is capped rather than unbounded: {out}"
+        );
+        assert!(out.contains("..."), "and says there is more: {out}");
     }
 
     #[test]

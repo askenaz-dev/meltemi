@@ -72,7 +72,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   enumerada) sin cambiar el comportamiento de Sesiones; verbo `race`
   des-reservado con su arm en `reduce_palette` (design D4) — escenario «El
   verbo de carrera abre el tablero» — gates: `cargo test -p meltemi`
-- [ ] 4.2 Tablero en el shell: calles con estado en glifo+palabra (gemelos
+- [x] 4.2 Tablero en el shell: calles con estado en glifo+palabra (gemelos
   ASCII) y procedencia por calle (agente y perfil, ausencia visible), diff
   con paneo existente y tope declarado; variantes Effect/Command/Update y
   render con tests de reducer y de buffer, incluida la presentación ASCII
