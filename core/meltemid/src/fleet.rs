@@ -88,6 +88,11 @@ pub struct RegistryAgent {
     pub bundled: bool,
     pub legal_status: Option<String>,
     pub legal_note: Option<String>,
+    /// The env variable that redirects the official binary's auth context,
+    /// when the snapshot declares it (vincular-suscripciones D3).
+    pub auth_context_var: Option<String>,
+    /// The provider's documented login gesture, as snapshot data.
+    pub login_hint: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,6 +138,13 @@ struct RawRegistryAgent {
     cli_install: Option<String>,
     #[serde(default)]
     adapter_install: Option<String>,
+    /// The env variable that redirects the official binary's authentication
+    /// context, and the provider's documented login gesture — subscription
+    /// data, never provider logic (vincular-suscripciones D3).
+    #[serde(default)]
+    auth_context_var: Option<String>,
+    #[serde(default)]
+    login_hint: Option<String>,
     /// The entry's pilot layer travels in Meltemi's own installers (design D8).
     #[serde(default)]
     bundled: bool,
@@ -248,6 +260,8 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
             cli_candidate_paths: agent.cli_candidate_paths,
             cli_install: agent.cli_install,
             adapter_install: agent.adapter_install,
+            auth_context_var: agent.auth_context_var,
+            login_hint: agent.login_hint,
             bundled: agent.bundled,
             legal_status: agent.legal_status,
             legal_note: agent.legal_note,
@@ -474,6 +488,11 @@ pub struct CatalogEntry {
     pub bundled: bool,
     pub legal_status: Option<String>,
     pub legal_note: Option<String>,
+    /// The env variable that redirects the official binary's auth context,
+    /// when the snapshot declares it (vincular-suscripciones D3).
+    pub auth_context_var: Option<String>,
+    /// The provider's documented login gesture, as snapshot data.
+    pub login_hint: Option<String>,
 }
 
 impl Default for CatalogEntry {
@@ -497,6 +516,8 @@ impl Default for CatalogEntry {
             cli_candidate_paths: Vec::new(),
             cli_install: None,
             adapter_install: None,
+            auth_context_var: None,
+            login_hint: None,
             bundled: false,
             legal_status: None,
             legal_note: None,
@@ -540,6 +561,8 @@ pub fn build_catalog(config: &Config) -> Catalog {
             cli_candidate_paths: agent.cli_candidate_paths,
             cli_install: agent.cli_install,
             adapter_install: agent.adapter_install,
+            auth_context_var: agent.auth_context_var,
+            login_hint: agent.login_hint,
             bundled: agent.bundled,
             legal_status: agent.legal_status,
             legal_note: agent.legal_note,
@@ -891,6 +914,7 @@ pub fn list(
                 remedy_command,
                 legal_status: legal_status_of(entry),
                 legal_note: entry.legal_note.clone(),
+                auth_context_var: entry.auth_context_var.clone(),
             }
         })
         .collect();
@@ -924,6 +948,9 @@ pub fn list(
             remedy_command,
             legal_status: underlying.and_then(legal_status_of),
             legal_note: underlying.and_then(|e| e.legal_note.clone()),
+            // A profile row is not itself linkable: it IS a link (or a manual
+            // twin of one), so it never advertises the variable.
+            auth_context_var: None,
         });
     }
 
@@ -1388,6 +1415,72 @@ cli-install = "npm i -g somebody-elses-engine"
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
             path
         }
+    }
+
+    #[test]
+    fn the_snapshot_declares_the_context_variable_per_entry() {
+        // Scenario: El registro declara la variable por entrada
+        // Subscription data lives in the snapshot, per entry: the two own-adapter
+        // entries declare their variable and gesture, and an entry that has
+        // none declared exposes none — absence is data too.
+        let registry = parse_registry(EMBEDDED_REGISTRY).expect("embedded registry parses");
+        let by_id = |id: &str| registry.agents.iter().find(|a| a.id == id).unwrap();
+        let claude = by_id("claude-code");
+        assert_eq!(
+            claude.auth_context_var.as_deref(),
+            Some("CLAUDE_CONFIG_DIR")
+        );
+        assert!(claude.login_hint.is_some(), "the gesture is snapshot data");
+        let codex = by_id("codex-cli");
+        assert_eq!(codex.auth_context_var.as_deref(), Some("CODEX_HOME"));
+        assert!(codex.login_hint.is_some());
+        assert!(by_id("gemini-cli").auth_context_var.is_none());
+
+        // And the catalog row exposes it as consultable data.
+        let config = Config::default();
+        let result = list(&config, None, OsStr::new(""), None);
+        let row = result
+            .agents
+            .iter()
+            .find(|a| a.id == "claude-code")
+            .unwrap();
+        assert_eq!(row.auth_context_var.as_deref(), Some("CLAUDE_CONFIG_DIR"));
+    }
+
+    #[test]
+    fn a_substituted_snapshot_declares_its_own_variables() {
+        // Scenario: Registro sustituido declara sus propias variables
+        // The variable comes from whichever snapshot is loaded — never from
+        // knowledge fixed in code.
+        let dir = temp_dir("ctx-var-override");
+        let path = dir.join("registry.toml");
+        std::fs::write(
+            &path,
+            "version = \"fixture-ctx\"
+
+[[agents]]
+id = \"claude-code\"
+name = \"Other\"
+level = 1
+bin = \"other\"
+auth-context-var = \"OTHER_HOME\"
+login-hint = \"other login\"
+",
+        )
+        .unwrap();
+        let registry = load_registry(Some(&path));
+        assert_eq!(registry.version, "fixture-ctx");
+        let entry = registry
+            .agents
+            .iter()
+            .find(|a| a.id == "claude-code")
+            .unwrap();
+        assert_eq!(
+            entry.auth_context_var.as_deref(),
+            Some("OTHER_HOME"),
+            "the substituted snapshot's variable wins: nothing is hardcoded"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

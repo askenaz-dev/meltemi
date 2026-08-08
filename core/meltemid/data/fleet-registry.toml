@@ -48,7 +48,7 @@
 # registry). No dead route survives this revision, because no third-party route
 # survives it.
 
-version = "2026-07-28"
+version = "2026-08-08"
 
 [[agents]]
 id = "gemini-cli"
@@ -124,6 +124,13 @@ cli-install = "npm i -g @anthropic-ai/claude-code"
 legal-status = "grey"
 legal-note = "Meltemi's own adapter pilots the official CLI with the session you already signed into — the safe path, never the provider's agent SDK, and never a mode that demands an API key. It stays grey because the provider has published no position on third-party orchestration of that CLI; if one appears, this note will cite it."
 
+# Subscription data (vincular-suscripciones D3): the variable that redirects
+# the official binary's authentication context, and the provider's documented
+# login gesture. Verified 2026-08-08 on the dev machine: an empty context dir
+# answers "not logged in" while the default context stays logged in.
+auth-context-var = "CLAUDE_CONFIG_DIR"
+login-hint = "claude (and run /login inside)"
+
 [[agents]]
 id = "codex-cli"
 name = "Codex CLI"
@@ -138,6 +145,9 @@ cli-candidate-paths = []
 cli-install = "npm i -g @openai/codex"
 legal-status = "tolerated"
 legal-note = "Meltemi's own adapter drives the official CLI in the app-server mode the provider documents and published for third-party clients; the CLI authenticates itself, and no third-party package sits in between."
+
+auth-context-var = "CODEX_HOME"
+login-hint = "codex login"
 
 # Level 3: structured headless run. No rich permission channel, so it runs
 # inside mandatory guardrails (bounded dir + native controls; design D2).

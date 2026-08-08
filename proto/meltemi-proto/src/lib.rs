@@ -997,6 +997,12 @@ pub struct FleetAgent {
     /// The short note behind that status, shown verbatim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub legal_note: Option<String>,
+    /// The env variable that redirects this entry's authentication context,
+    /// when the registry snapshot declares it. Its presence is what makes the
+    /// entry a linkable subscription target (vincular-suscripciones D3); the
+    /// variable NAME only — never a value, never a credential.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_context_var: Option<String>,
 }
 
 /// Result of `fleet/list`.

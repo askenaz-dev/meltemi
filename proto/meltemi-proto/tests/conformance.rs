@@ -366,6 +366,7 @@ fn fleet_conforms() {
                     remedy_command: None,
                     legal_status: None,
                     legal_note: None,
+                    auth_context_var: None,
                 },
                 FleetAgent {
                     id: "absent-agent".into(),
@@ -385,6 +386,7 @@ fn fleet_conforms() {
                     remedy_command: None,
                     legal_status: None,
                     legal_note: None,
+                    auth_context_var: None,
                 },
                 FleetAgent {
                     id: "my-agent".into(),
@@ -404,6 +406,7 @@ fn fleet_conforms() {
                     remedy_command: None,
                     legal_status: None,
                     legal_note: None,
+                    auth_context_var: None,
                 },
                 // A launch profile row: a catalog agent under a selected auth
                 // context (flota-multiproveedor).
@@ -425,6 +428,7 @@ fn fleet_conforms() {
                     remedy_command: None,
                     legal_status: None,
                     legal_note: None,
+                    auth_context_var: None,
                 },
             ],
         },
@@ -2497,6 +2501,48 @@ fn harness_rejects_invalid_instances() {
     );
     // The registry version is mandatory.
     assert_rejected("fleet", "result", &json!({ "agents": [] }));
+}
+
+/// The catalog row's linkability datum (vincular-suscripciones D3): additive,
+/// omissible, and byte-identical when omitted — the variable NAME only.
+#[test]
+fn a_fleet_row_may_declare_its_auth_context_variable() {
+    let bare = FleetAgent {
+        id: "provider-a".into(),
+        display_name: "Provider A".into(),
+        source: FleetAgentSource::Registry,
+        integration_level: 1,
+        verified_level: None,
+        verified_at: None,
+        mcp_support: false,
+        detected: false,
+        binary_path: None,
+        configured: false,
+        underlying_agent: None,
+        layers: Vec::new(),
+        install_state: None,
+        remedy: None,
+        remedy_command: None,
+        legal_status: None,
+        legal_note: None,
+        auth_context_var: None,
+    };
+    let declared = FleetAgent {
+        auth_context_var: Some("PROVIDER_CONTEXT_DIR".into()),
+        ..bare.clone()
+    };
+    assert_conforms("fleet", "fleetAgent", &declared);
+    assert_conforms("fleet", "fleetAgent", &bare);
+    // Omitted serializes exactly as before the field existed.
+    let value = serde_json::to_value(&bare).unwrap();
+    assert!(
+        value.get("authContextVar").is_none(),
+        "omission must leave no key behind: {value:#}"
+    );
+    // An empty variable name is a broken record, not an unknown.
+    let mut broken = serde_json::to_value(&declared).unwrap();
+    broken["authContextVar"] = serde_json::json!("");
+    assert_rejected("fleet", "fleetAgent", &broken);
 }
 
 /// The subscription link/unlink contract (vincular-suscripciones design D5):

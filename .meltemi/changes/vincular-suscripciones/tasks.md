@@ -14,7 +14,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   `SubscriptionUnlinkParams/Result` (nombre; respuesta con la ruta que queda
   atrás); esquema `subscription.schema.json` + conformidad (design D5, D7) —
   gates: `cargo test -p meltemi-proto`
-- [ ] 1.2 Registro: campos `auth-context-var` y `login-hint` por entrada
+- [x] 1.2 Registro: campos `auth-context-var` y `login-hint` por entrada
   (`#[serde(default)]`, datos de la instantánea), poblados para claude-code
   (`CLAUDE_CONFIG_DIR`) y codex-cli (`CODEX_HOME`) con la verificación del
   2026-08-08 anotada y `version` de la instantánea actualizada; expuestos en

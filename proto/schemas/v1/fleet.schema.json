@@ -99,6 +99,11 @@
         "legalNote": {
           "type": "string",
           "minLength": 1
+        },
+        "authContextVar": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The env variable that redirects this entry's authentication context, when the registry declares it: its presence makes the entry a linkable subscription target. The variable NAME only, never a value."
         }
       }
     },
