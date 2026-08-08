@@ -1147,6 +1147,92 @@ fn a_task_without_competitors_says_so_and_offers_the_way_in() {
     );
 }
 
+// Scenario: Acción destructiva solo con confirmación explícita
+#[test]
+fn a_destructive_race_action_reaches_the_daemon_only_after_a_confirmation() {
+    let board = race_board();
+    // The race acts through the contract's own verbs, on the lane it acts on.
+    for method in [
+        "worktree/dispatch",
+        "checkpoint/revert",
+        "commit/task",
+        "worktree/merge-file",
+    ] {
+        assert!(
+            board.contains(&format!("openAction(\"{method}\"")),
+            "the board offers `{method}` on the lane"
+        );
+    }
+    // Which of them is destructive is the registry's word, not this view's
+    // opinion: the same mark the palette obeys.
+    assert!(
+        board.contains("REGISTRY.find((entry) => entry.method === action?.method)?.dangerous"),
+        "the danger of an action is read from the registry, never hardcoded here"
+    );
+
+    // Submitting a destructive action raises the dialog INSTEAD of sending.
+    let submit = board
+        .split("function submit()")
+        .nth(1)
+        .expect("the board has a send button")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        submit.contains("if (dangerous) {") && submit.contains("confirming = true;"),
+        "a destructive action raises the confirmation: {submit}"
+    );
+    assert!(
+        submit.contains("return;"),
+        "and returns without sending anything: {submit}"
+    );
+    assert!(
+        !submit.contains("request("),
+        "the send path of a destructive action never reaches the daemon directly: {submit}"
+    );
+
+    // The dialog's two exits: confirm sends, cancel sends nothing at all — it
+    // only lowers the dialog, leaving the composed action untouched.
+    let dialog = board
+        .split("{#if confirming && action}")
+        .nth(1)
+        .expect("the board raises a confirmation dialog")
+        .split("{/if}")
+        .next()
+        .expect("dialog");
+    assert!(
+        dialog.contains("onConfirm={() => void perform()}"),
+        "confirming is what performs the action: {dialog}"
+    );
+    let cancel = dialog
+        .split("onCancel=")
+        .nth(1)
+        .expect("the dialog can be cancelled")
+        .split('\n')
+        .next()
+        .expect("handler");
+    assert!(
+        cancel.contains("confirming = false"),
+        "cancelling only lowers the dialog: {cancel}"
+    );
+    assert!(
+        !cancel.contains("perform") && !cancel.contains("request("),
+        "cancelling sends nothing at all: {cancel}"
+    );
+
+    // The parameters are the contract's own typed form, and the `confirm` a
+    // destructive verb carries is left FALSE: the daemon's guard stays a
+    // decision the human takes, not a default this surface ticked for them.
+    assert!(
+        board.contains("<MethodForm") && board.contains("method={action.method}"),
+        "the action is composed in the generated typed form"
+    );
+    assert!(
+        board.contains("confirm: false"),
+        "the contract's confirm is never pre-ticked by the board"
+    );
+}
+
 // Scenario: Inteligencia con servidor del usuario
 // Scenario: Degradación honesta sin servidor
 #[test]

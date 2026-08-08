@@ -12,7 +12,11 @@
   import { fileSections, hunksOf } from "../diff";
   import { openWith } from "../editor/files";
   import { allSessions, pushNotice, type SessionInfo } from "../stores";
+  import { REGISTRY } from "../registry";
+  import type { MessageKey } from "../messages";
   import EmptyState from "../components/EmptyState.svelte";
+  import MethodForm from "../components/MethodForm.svelte";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
 
   let {
     root,
@@ -73,6 +77,26 @@
   let checkpoints: Checkpoint[] = $state([]);
   /** The agents typed into the empty state's assign path. */
   let assignAgents = $state("");
+
+  /** The race action being composed, if any: always the contract's own typed
+      form, prefilled from the lane it was opened on. */
+  let action: {
+    method: string;
+    titleKey: MessageKey;
+    lane: string;
+    values: Record<string, unknown>;
+    raw: string;
+    mode: "form" | "raw";
+  } | null = $state(null);
+  /** Raised for a method the registry marks destructive; nothing is sent while
+      it stands, and cancelling it sends nothing at all. */
+  let confirming = $state(false);
+  let running = $state(false);
+
+  const dangerous = $derived(
+    action !== null &&
+      (REGISTRY.find((entry) => entry.method === action?.method)?.dangerous ?? false),
+  );
 
   const groups = $derived.by(() => {
     const map = new Map<string, { change: string; task: string; agents: string[] }>();
@@ -167,6 +191,61 @@
   async function openExternally(worktreePath: string, file: string, line: number | null) {
     const editor = await openWith(worktreePath, file, line ?? undefined);
     pushNotice($t("editor.openedWith", { editor }), "info");
+  }
+
+  /**
+   * Opens a race action on a lane. The parameters are the contract's, rendered
+   * by the generated typed form; `confirm` is left FALSE where the contract has
+   * one, so the daemon's own guard is a decision the user takes rather than a
+   * default this surface quietly ticked for them.
+   */
+  function openAction(method: string, titleKey: MessageKey, lane: string, values: Record<string, unknown>) {
+    action = {
+      method,
+      titleKey,
+      lane,
+      values,
+      raw: JSON.stringify(values, null, 2),
+      mode: "form",
+    };
+    confirming = false;
+  }
+
+  /** The send button: a destructive method raises the dialog first. */
+  function submit() {
+    if (!action || running) return;
+    if (dangerous) {
+      confirming = true;
+      return;
+    }
+    void perform();
+  }
+
+  /** Actually sends the composed action, then re-reads the board. */
+  async function perform() {
+    if (!action || !picked) return;
+    confirming = false;
+    running = true;
+    const { method } = action;
+    try {
+      const params = action.raw.trim() ? JSON.parse(action.raw) : {};
+      await request(method, params);
+      pushNotice($t("race.action.done", { method }), "info");
+      action = null;
+      await refreshBoard(picked.change, picked.task);
+    } catch (raw) {
+      const e = raw as { message?: string; detail?: string | null; remedy?: string | null };
+      const detail = e?.detail ? `: ${e.detail}` : "";
+      const remedy = e?.remedy ? ` — ${e.remedy}` : "";
+      pushNotice(`${e?.message ?? String(raw)}${detail}${remedy}`, "danger");
+    } finally {
+      running = false;
+    }
+  }
+
+  /** The lanes a file could be applied INTO: every other lane of the race. */
+  function otherLanes(agent: string): CompetitorDiff[] {
+    return competitors.filter((c) => c.agent !== agent);
   }
 
   /** The empty state's path out: assign this task to the agents just typed. */
@@ -298,6 +377,49 @@
               </li>
             </ul>
 
+            <!-- The race's own actions, on the lane they act on. -->
+            <div class="laneActions">
+              <button
+                onclick={() =>
+                  picked &&
+                  openAction("worktree/dispatch", "race.action.dispatch", lane.agent, {
+                    projectRoot: root,
+                    change: picked.change,
+                    task: picked.task,
+                    agent: lane.agent,
+                  })}
+              >
+                {$t("race.action.dispatch")}
+              </button>
+              <button
+                onclick={() =>
+                  picked &&
+                  openAction("checkpoint/revert", "race.action.revert", lane.agent, {
+                    projectRoot: root,
+                    change: picked.change,
+                    task: picked.task,
+                    agent: lane.agent,
+                    confirm: false,
+                  })}
+              >
+                {$t("race.action.revert")}
+              </button>
+              <button
+                onclick={() =>
+                  picked &&
+                  openAction("commit/task", "race.action.commit", lane.agent, {
+                    projectRoot: root,
+                    change: picked.change,
+                    task: picked.task,
+                    agent: lane.agent,
+                    title: "",
+                    confirm: false,
+                  })}
+              >
+                {$t("race.action.commit")}
+              </button>
+            </div>
+
             <div class="laneDiff">
               {#if lane.diff.trim() === ""}
                 <p class="muted">{$t("review.nodiff")}</p>
@@ -327,6 +449,23 @@
                         >
                           {$t("review.openFile")}
                         </button>
+                        <!-- Assisted merge stays a per-file human decision:
+                             take THIS lane's version of the file into another
+                             lane, one file at a time. -->
+                        {#each otherLanes(lane.agent) as target (target.agent)}
+                          <button
+                            onclick={() =>
+                              openAction("worktree/merge-file", "race.action.merge", lane.agent, {
+                                projectRoot: root,
+                                target: target.path,
+                                source: lane.path,
+                                file: section.file,
+                                confirm: false,
+                              })}
+                          >
+                            {$t("race.action.mergeInto", { agent: target.agent })}
+                          </button>
+                        {/each}
                       </span>
                     </div>
                     {#each hunksOf(section) as hunk, h (h)}
@@ -399,7 +538,40 @@
       </div>
     {/if}
   {/if}
+
+  {#if action}
+    <!-- The composed action, in the contract's own typed form. -->
+    <div class="actionPanel" aria-label={$t(action.titleKey)}>
+      <div class="actionHead">
+        <strong>{$t(action.titleKey)}</strong>
+        <code>{action.lane}</code>
+        <span class="muted">{action.method}</span>
+      </div>
+      <MethodForm
+        method={action.method}
+        values={action.values}
+        bind:raw={action.raw}
+        bind:mode={action.mode}
+      />
+      <div class="actionButtons">
+        <button class="ghost" onclick={() => (action = null)}>{$t("common.cancel")}</button>
+        <button class="primary" disabled={running} onclick={submit}>
+          {running ? $t("common.loading") : $t("race.action.send")}
+        </button>
+      </div>
+    </div>
+  {/if}
 </section>
+
+{#if confirming && action}
+  <ConfirmDialog
+    title={$t("confirm.title")}
+    message={$t("race.confirm.message", { action: $t(action.titleKey), lane: action.lane })}
+    confirmLabel={$t(action.titleKey)}
+    onConfirm={() => void perform()}
+    onCancel={() => (confirming = false)}
+  />
+{/if}
 
 <style>
   .lanes {
@@ -457,6 +629,32 @@
     display: inline-flex;
     align-items: center;
     gap: var(--sp-1);
+  }
+  .laneActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1);
+    padding: 0 var(--sp-3);
+  }
+  .actionPanel {
+    display: grid;
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-panel);
+    background: var(--surface);
+  }
+  .actionHead {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    font-size: var(--fs-dense);
+  }
+  .actionButtons {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sp-2);
   }
   .tone-ok {
     color: var(--ok);

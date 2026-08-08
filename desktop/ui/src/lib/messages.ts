@@ -227,6 +227,15 @@ const es = {
     "Una carrera son varios agentes trabajando la misma tarea en worktrees aislados. Nombra los que quieras enfrentar y Meltemi les creará su calle desde la base actual.",
   "race.empty.agents": "agentes separados por comas",
   "race.empty.assign": "Asignar la carrera",
+  "race.action.dispatch": "Despachar un turno",
+  "race.action.revert": "Revertir al checkpoint",
+  "race.action.commit": "Commit de la tarea",
+  "race.action.merge": "Aplicar el archivo en otra calle",
+  "race.action.mergeInto": "Aplicar en {agent}",
+  "race.action.send": "Enviar",
+  "race.action.done": "{method}: hecho",
+  "race.confirm.message":
+    "«{action}» sobre la calle de {lane}. Es una operación destructiva y se envía al daemon en cuanto la confirmes.",
 
   "project.propose": "Proponer un cambio",
   "project.openEditor": "Abrir el editor",
@@ -770,6 +779,15 @@ const en: Record<MessageKey, string> = {
     "A race is several agents working the same task in isolated worktrees. Name the ones you want to face off and Meltemi will cut each of them a lane from the current base.",
   "race.empty.agents": "agents, comma-separated",
   "race.empty.assign": "Assign the race",
+  "race.action.dispatch": "Dispatch a turn",
+  "race.action.revert": "Revert to the checkpoint",
+  "race.action.commit": "Commit the task",
+  "race.action.merge": "Apply the file into another lane",
+  "race.action.mergeInto": "Apply into {agent}",
+  "race.action.send": "Send",
+  "race.action.done": "{method}: done",
+  "race.confirm.message":
+    "“{action}” on {lane}'s lane. This is a destructive operation and it reaches the daemon the moment you confirm.",
 
   "project.propose": "Propose a change",
   "project.openEditor": "Open the editor",

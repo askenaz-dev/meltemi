@@ -55,7 +55,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   escenarios «Calles lado a lado con procedencia visible» y «Carrera sin
   competidores, estado vacío honesto» — gates: suite de cableado +
   `npm run check:forms`
-- [ ] 3.3 Acciones de carrera desde el tablero: despachar turno, revertir
+- [x] 3.3 Acciones de carrera desde el tablero: despachar turno, revertir
   (con `ConfirmDialog`, honrando `dangerous`), commit y merge por archivo
   vía formularios tipados; cancelar la confirmación no envía nada (design
   D3) — escenario «Acción destructiva solo con confirmación explícita» —
