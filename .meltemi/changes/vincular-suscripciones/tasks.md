@@ -92,7 +92,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   de ellos con contextos distintos, `session/list` con la suscripción de cada
   uno; este e2e lleva el marcador del escenario «Vincular crea el perfil y la
   sesión lo honra» (design D1) — gates: `cargo test -p meltemid`
-- [ ] 6.3 `meltemi validate vincular-suscripciones` limpio y `meltemi verify
+- [x] 6.3 `meltemi validate vincular-suscripciones` limpio y `meltemi verify
   vincular-suscripciones` con los diecinueve escenarios enlazados (meta: cero
   marcas manuales); suite completa, clippy y fmt verdes; registro del cierre
   en `docs/plan-de-cambios.md`

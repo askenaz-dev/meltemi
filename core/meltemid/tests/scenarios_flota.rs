@@ -95,9 +95,30 @@ fn meltemi_never_runs_the_remedy_itself() {
         gui.contains("remedyCommand") && gui.contains("navigator.clipboard"),
         "the desktop surface offers to COPY it, never to run it"
     );
+    // What "no path to execute" means, named precisely rather than by a
+    // substring: the bare word `shell` also occurs in `powershell`, which is
+    // the NAME of a gesture the surface prints for the human to run — the
+    // opposite of executing it (vincular-suscripciones). The guard therefore
+    // forbids the actual doors: Tauri's shell plugin, its execute channel, and
+    // any home-grown run/exec command.
+    for door in [
+        "plugin-shell",
+        "plugin:shell",
+        "shell|execute",
+        "invoke(\"run",
+        "invoke(\"exec",
+        "Command.create",
+    ] {
+        assert!(
+            !gui.contains(door),
+            "no surface may have a path to execute a command (`{door}`)"
+        );
+    }
+    // And the only thing done with a command string is putting it on the
+    // clipboard: the copy call is present, execution is not.
     assert!(
-        !gui.contains("invoke(\"run") && !gui.contains("shell"),
-        "no surface has a path to execute the remedy"
+        gui.contains("navigator.clipboard.writeText(command)"),
+        "the surface copies commands; that is the whole interaction"
     );
 }
 
