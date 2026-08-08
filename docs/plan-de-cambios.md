@@ -496,7 +496,7 @@ daemon cargado antes que lo manual (lo escrito a mano gana), el login
 **compuesto y jamás ejecutado** (§2: el contexto se crea vacío, no se lee,
 no se borra al desvincular), el duplicado de contexto advertido, y las tres
 superficies (§4). Cuatro deltas ADDED-only (`fleet-catalog`, `cli-contract`,
-`gui-shell`, `tui-shell`), diecisiete escenarios, cero dependencias nuevas.
+`gui-shell`, `tui-shell`), diecinueve escenarios, cero dependencias nuevas.
 Fuera de alcance por escrito: ejecutar o verificar logins, balanceo entre
 suscripciones, y migrar los perfiles manuales existentes.
 

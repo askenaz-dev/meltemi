@@ -11,13 +11,17 @@ Estado verificado en el código y contra los CLI reales (2026-08-08):
   > configurado, 2001 sin degradar.
 - El overlay de env viaja como tokens `NAME=value` al lanzamiento ACP y los
   adaptadores propios lanzan el CLI del proveedor **sin** `env_clear`
-  (`meltemi-adapters/src/supervisor.rs`): el hijo hereda el contexto.
+  (`core/meltemi-adapters/src/supervisor.rs`): el hijo hereda el contexto.
 - Verificación empírica en esta máquina: `CODEX_HOME=<dir vacío> codex login
   status` → «Not logged in»; el contexto por defecto → «Logged in using
   ChatGPT». `CLAUDE_CONFIG_DIR` es el equivalente documentado de Claude Code.
-- No existe RPC alguno que gestione perfiles; ninguna superficie escribe
-  configuración. El precedente de estado escrito por el daemon es el registro
-  de proyectos (`projects.rs`, bajo el directorio de datos).
+- No existe RPC alguno que gestione perfiles. Sí existe escritura de
+  configuración desde superficies: `permission/decide` con `persist_rule`
+  agrega reglas TOML a `permissions.toml` — en el mismo directorio de config
+  donde D2 pone su archivo — y es el precedente más cercano (la diferencia de
+  D2: archivo **gestionado por la máquina** con reescritura completa, no
+  agregado a un archivo que el usuario también edita). El registro de
+  proyectos (`projects.rs`) es el precedente del directorio de datos.
 - El registro de flota (`fleet-registry.toml`) ya carga datos factuales por
   entrada (`bin`, `adapter`, `legal-note`, capas): el patrón para campos
   nuevos con `#[serde(default)]` está asentado.
@@ -87,6 +91,18 @@ credenciales que el proveedor guardó no son nuestras ni para destruirlas; la
 respuesta nombra la ruta que queda atrás para que el humano decida. El nombre
 del vínculo se valida como componente seguro de ruta (kebab-case, sin
 separadores), porque nombra un directorio.
+
+**Colisión encontrada por la crítica, resuelta aquí**: la lente de higiene
+vigente (`looks_like_plaintext_secret`) marca como secreto opaco cualquier
+valor sin `$` de ≥20 caracteres del alfabeto `[A-Za-z0-9-_./+=]` — y una ruta
+absoluta de Linux (`/home/<u>/.local/share/...`) cae entera en ese alfabeto:
+el perfil que este design escribe sería **rehusado en silencio en Linux**
+(Windows escapa por `:` y `\`; macOS por el espacio de «Application
+Support»). La resolución: un valor que contiene separador de ruta no entra a
+la rama `opaque` de la heurística — una ruta no es una credencial opaca — con
+escenario propio que fija que un perfil con ruta POSIX absoluta sobrevive la
+carga en las tres plataformas. La lente sigue rehusando secretos reales: un
+token sin separadores sigue cayendo donde caía.
 
 ### D5 — El login se compone, jamás se ejecuta
 

@@ -26,6 +26,12 @@ declarada MUST NOT ofrecer el flujo y SHALL señalar la vía manual.
 - **THEN** la ficha SHALL mostrar el gesto de autenticación compuesto
 - **AND** SHALL ofrecer copiarlo con la acción de copia existente
 
+#### Scenario: La entrada sin variable señala la vía manual
+
+- **WHEN** la ficha muestra una entrada sin variable de contexto declarada
+- **THEN** la superficie MUST NOT ofrecer el flujo de vincular
+- **AND** SHALL señalar la vía manual documentada
+
 #### Scenario: Desvincular dice lo que no borra
 
 - **WHEN** el usuario desvincula desde la ficha

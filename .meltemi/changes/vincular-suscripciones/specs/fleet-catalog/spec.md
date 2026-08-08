@@ -36,6 +36,13 @@ nombrar un directorio.
 - **THEN** el daemon SHALL rehusar con diagnóstico
 - **AND** el remedio SHALL nombrar la vía manual documentada
 
+#### Scenario: La ruta de contexto no es un secreto
+
+- **WHEN** la configuración carga un perfil cuyo valor de contexto es una
+  ruta absoluta con separadores
+- **THEN** la higiene MUST NOT rehusarlo como secreto en claro
+- **AND** el perfil SHALL resolver en las tres plataformas
+
 #### Scenario: El nombre inválido como ruta rehúsa
 
 - **WHEN** un cliente vincula con un nombre que no es componente seguro de
@@ -88,10 +95,10 @@ desvincular SHALL nombrar la ruta que queda atrás.
 
 ### Requirement: Contexto duplicado advertido
 
-- **WHILE** dos perfiles del mismo agente resuelven su variable de contexto
-  al mismo valor, la carga de configuración SHALL emitir un diagnóstico de
-  advertencia que los nombre, sin rehusar ninguno; y vincular con un nombre
-  ya vinculado MUST rehusar con remedio.
+WHILE dos perfiles del mismo agente resuelven su variable de contexto al
+mismo valor, la carga de configuración SHALL emitir un diagnóstico de
+advertencia que los nombre, sin rehusar ninguno; y vincular con un nombre ya
+vinculado MUST rehusar con remedio.
 
 #### Scenario: Mismo contexto dos veces se advierte
 

@@ -41,10 +41,13 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   nombrado en la respuesta (design D2, D4) — escenarios «Lo escrito a mano
   gana y no se desvincula por superficie» y «Desvincular deja el contexto
   intacto» — gates: `cargo test -p meltemid`
-- [ ] 2.4 Diagnóstico de contexto duplicado en `Config::apply` (mismo agente,
-  mismo valor resuelto), junto a la higiene de secretos (design D6) —
-  escenario «Mismo contexto dos veces se advierte» — gates: `cargo test -p
-  meltemid`
+- [ ] 2.4 Higiene afinada y duplicados: la rama `opaque` de
+  `looks_like_plaintext_secret` excluye valores con separador de ruta (una
+  ruta no es una credencial opaca; un token sin separadores sigue cayendo) y
+  el diagnóstico de contexto duplicado entra a `Config::apply` (mismo agente,
+  mismo valor resuelto) (design D4, D6) — escenarios «La ruta de contexto no
+  es un secreto» y «Mismo contexto dos veces se advierte» — gates: `cargo
+  test -p meltemid`
 
 ## 3. CLI: los verbos del vínculo
 
@@ -59,8 +62,9 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 - [ ] 4.1 Ficha de Flota: «Vincular suscripción» solo con variable declarada
   (formulario de un campo: el nombre), fila nueva sin recargar, gesto de
   login con copia; entradas sin variable señalan la vía manual; strings ES/EN
-  (design D3, D5, D7) — escenarios «Vincular desde la ficha del agente» y «El
-  gesto de login queda a un clic de copiar» — gates: suite de cableado +
+  (design D3, D5, D7) — escenarios «Vincular desde la ficha del agente», «El
+  gesto de login queda a un clic de copiar» y «La entrada sin variable señala
+  la vía manual» — gates: suite de cableado +
   `npm run check:forms`
 - [ ] 4.2 Desvincular desde la ficha con la declaración de lo que no borra
   (design D4) — escenario «Desvincular dice lo que no borra» — gates: suite
@@ -79,13 +83,16 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 - [ ] 6.1 Matriz de paridad con las dos filas nuevas; `docs/agentes.md` con
   el flujo vinculado (tabla de variables por proveedor citando la
-  verificación, el gesto de login, la vía manual conservada) (design D3, D5)
+  verificación, el gesto de login, la vía manual conservada); la tabla se
+  verifica por el lint de docs vigente (initial-docs: la guía verificada
+  contra el registro), sin delta nuevo (design D3, D5, D7)
   — gates: `cargo test -p meltemi --test parity --test docs`
 - [ ] 6.2 E2e integrador con el ejemplo fundacional: dos vínculos de un
   proveedor y tres de otro (registro fixture), carrera/despacho honrando dos
   de ellos con contextos distintos, `session/list` con la suscripción de cada
-  uno — gates: `cargo test -p meltemid`
+  uno; este e2e lleva el marcador del escenario «Vincular crea el perfil y la
+  sesión lo honra» (design D1) — gates: `cargo test -p meltemid`
 - [ ] 6.3 `meltemi validate vincular-suscripciones` limpio y `meltemi verify
-  vincular-suscripciones` con los diecisiete escenarios enlazados (meta: cero
+  vincular-suscripciones` con los diecinueve escenarios enlazados (meta: cero
   marcas manuales); suite completa, clippy y fmt verdes; registro del cierre
   en `docs/plan-de-cambios.md`
