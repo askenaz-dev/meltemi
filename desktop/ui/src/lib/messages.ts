@@ -343,6 +343,14 @@ const es = {
   "fleet.legal.tolerated": "ruta tolerada",
   "fleet.legal.grey": "zona gris",
   "fleet.copyCommand": "Copiar el comando",
+  "fleet.link.title": "Vincular suscripción",
+  "fleet.link.placeholder": "nombre del vínculo (kebab-case, p. ej. personal)",
+  "fleet.link.action": "Vincular",
+  "fleet.link.done": "vínculo «{profile}» creado; autentícalo una vez con el gesto de abajo",
+  "fleet.link.gestureHint":
+    "Autentica «{profile}» ejecutando uno de estos comandos (Meltemi nunca los ejecuta ni lee ese directorio):",
+  "fleet.link.manualHint":
+    "Esta entrada no declara variable de contexto: las suscripciones se vinculan a mano en config.toml ([[fleet.profile]]) — ver docs/agentes.md.",
   "fleet.commandCopied": "comando copiado",
   "fleet.refresh": "Refrescar la detección",
   "fleet.summary": "{total} agentes · {detected} detectados",
@@ -902,6 +910,14 @@ const en: Record<MessageKey, string> = {
   "fleet.legal.tolerated": "tolerated path",
   "fleet.legal.grey": "grey zone",
   "fleet.copyCommand": "Copy the command",
+  "fleet.link.title": "Link a subscription",
+  "fleet.link.placeholder": "link name (kebab-case, e.g. personal)",
+  "fleet.link.action": "Link",
+  "fleet.link.done": "link “{profile}” created; authenticate it once with the gesture below",
+  "fleet.link.gestureHint":
+    "Authenticate “{profile}” by running one of these (Meltemi never runs them nor reads that directory):",
+  "fleet.link.manualHint":
+    "This entry declares no context variable: subscriptions are linked by hand in config.toml ([[fleet.profile]]) — see docs/agentes.md.",
   "fleet.commandCopied": "command copied",
   "fleet.refresh": "Refresh detection",
   "fleet.summary": "{total} agents · {detected} detected",

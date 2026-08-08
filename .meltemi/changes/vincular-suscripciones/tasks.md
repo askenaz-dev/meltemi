@@ -59,7 +59,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 4. GUI: la ficha del agente vincula
 
-- [ ] 4.1 Ficha de Flota: «Vincular suscripción» solo con variable declarada
+- [x] 4.1 Ficha de Flota: «Vincular suscripción» solo con variable declarada
   (formulario de un campo: el nombre), fila nueva sin recargar, gesto de
   login con copia; entradas sin variable señalan la vía manual; strings ES/EN
   (design D3, D5, D7) — escenarios «Vincular desde la ficha del agente», «El

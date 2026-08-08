@@ -1050,6 +1050,68 @@ fn the_review_compares_competitors_and_acts_per_hunk_and_per_line() {
     );
 }
 
+// Scenario: Vincular desde la ficha del agente
+// Scenario: El gesto de login queda a un clic de copiar
+// Scenario: La entrada sin variable señala la vía manual
+#[test]
+fn the_agent_drawer_links_a_subscription_where_the_registry_declares_the_variable() {
+    let fleet = read("desktop/ui/src/lib/views/Fleet.svelte");
+    // The flow is gated on the registry's own datum, never on a provider name.
+    assert!(
+        fleet.contains("{#if selected.authContextVar}"),
+        "linking is offered exactly where the variable is declared"
+    );
+    // One field: the name. The daemon composes everything else.
+    let link_box = fleet
+        .split("{#if selected.authContextVar}")
+        .nth(1)
+        .expect("link section")
+        .split("{:else if")
+        .next()
+        .expect("section body");
+    assert_eq!(
+        link_box.matches("<input").count(),
+        1,
+        "the form asks only the name: {link_box}"
+    );
+    // The request is the contract's, and the catalog re-reads without reload.
+    assert!(
+        fleet.contains("request<") && fleet.contains("\"subscription/link\""),
+        "the link goes through the contract"
+    );
+    let link_fn = fleet
+        .split("async function linkSubscription()")
+        .nth(1)
+        .expect("link action")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        link_fn.contains("await refreshFleet()"),
+        "the new row appears without reloading the app: {link_fn}"
+    );
+    // The gesture lands beside the copy action the fleet already has.
+    assert!(
+        link_box.contains("{#if gesture}")
+            && link_box.contains("copyCommand(gesture!.powershell)")
+            && link_box.contains("copyCommand(gesture!.posix)"),
+        "the login gesture is one click from copied, in both shells"
+    );
+    // No declared variable: the manual path is named, not a dead control.
+    assert!(
+        fleet.contains("fleet.link.manualHint"),
+        "an entry without the variable points at the manual path"
+    );
+    let es = read("desktop/ui/src/lib/messages.ts");
+    assert!(
+        es.contains("config.toml") && es.contains("[[fleet.profile]]"),
+        "the manual hint names the real file and block"
+    );
+}
+
 fn race_board() -> String {
     read("desktop/ui/src/lib/views/Review.svelte")
 }

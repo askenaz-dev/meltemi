@@ -104,6 +104,9 @@ export interface FleetAgent {
   remedyCommand?: string;
   legalStatus?: "sanctioned" | "tolerated" | "grey";
   legalNote?: string;
+  /** The auth-context variable the registry declares: its presence makes the
+      entry a linkable subscription target (vincular-suscripciones). */
+  authContextVar?: string;
 }
 
 export interface ChangeInfo {

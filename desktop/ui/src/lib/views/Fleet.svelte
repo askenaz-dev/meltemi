@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import { t } from "../i18n";
+  import { request } from "../daemon";
   import { binaryName } from "../agents";
   import { fleet, pushNotice, refreshFleet, type FleetAgent } from "../stores";
   import Avatar from "../components/Avatar.svelte";
@@ -36,6 +37,49 @@
       pushNotice($t("fleet.commandCopied"), "info");
     } catch {
       pushNotice($t("banner.copyFailed"), "danger");
+    }
+  }
+
+  /** The link being composed on the selected entry, and the gesture the last
+      link answered with — kept until another entry is selected, because the
+      login is the one thing the user still has to run. */
+  let linkName = $state("");
+  let linking = $state(false);
+  let gesture: { profile: string; powershell: string; posix: string } | null = $state(null);
+
+  $effect(() => {
+    // Selecting another entry drops the composed state.
+    void selectedId;
+    linkName = "";
+    gesture = null;
+  });
+
+  /** Links a subscription on the selected entry (vincular-suscripciones D5):
+      the daemon writes the profile and answers with the login gesture it
+      never runs — shown here, copyable, the user's to execute. */
+  async function linkSubscription() {
+    if (!selected || !linkName.trim() || linking) return;
+    linking = true;
+    try {
+      const result = await request<{
+        profile: string;
+        gesture: { powershell: string; posix: string };
+      }>("subscription/link", { agent: selected.id, name: linkName.trim() });
+      gesture = {
+        profile: result.profile,
+        powershell: result.gesture.powershell,
+        posix: result.gesture.posix,
+      };
+      linkName = "";
+      pushNotice($t("fleet.link.done", { profile: result.profile }), "info");
+      await refreshFleet();
+    } catch (raw) {
+      const e = raw as { message?: string; detail?: string | null; remedy?: string | null };
+      const detail = e?.detail ? `: ${e.detail}` : "";
+      const remedy = e?.remedy ? ` — ${e.remedy}` : "";
+      pushNotice(`${e?.message ?? String(raw)}${detail}${remedy}`, "danger");
+    } finally {
+      linking = false;
     }
   }
 
@@ -209,6 +253,51 @@
         </p>
       {/if}
 
+      <!-- Linking a subscription (vincular-suscripciones): offered exactly
+           where the registry declares the auth-context variable; everywhere
+           else the manual path is named instead of a dead control. -->
+      {#if selected.authContextVar}
+        <div class="linkBox">
+          <span class="layersTitle">{$t("fleet.link.title")}</span>
+          <div class="linkForm">
+            <input
+              type="text"
+              bind:value={linkName}
+              placeholder={$t("fleet.link.placeholder")}
+              aria-label={$t("fleet.link.placeholder")}
+            />
+            <button disabled={linking || !linkName.trim()} onclick={() => void linkSubscription()}>
+              {$t("fleet.link.action")}
+            </button>
+          </div>
+          {#if gesture}
+            <p class="hint">{$t("fleet.link.gestureHint", { profile: gesture.profile })}</p>
+            <div class="command">
+              <code>{gesture.powershell}</code>
+              <button
+                class="ghost"
+                aria-label={$t("fleet.copyCommand")}
+                onclick={() => void copyCommand(gesture!.powershell)}
+              >
+                <Icon name="copy" size={13} />
+              </button>
+            </div>
+            <div class="command">
+              <code>{gesture.posix}</code>
+              <button
+                class="ghost"
+                aria-label={$t("fleet.copyCommand")}
+                onclick={() => void copyCommand(gesture!.posix)}
+              >
+                <Icon name="copy" size={13} />
+              </button>
+            </div>
+          {/if}
+        </div>
+      {:else if selected.source === "registry"}
+        <p class="hint">{$t("fleet.link.manualHint")}</p>
+      {/if}
+
       <button disabled={refreshing} onclick={() => void refresh()}>
         <Icon name="refresh" size={14} />
         {$t("fleet.refresh")}
@@ -354,5 +443,18 @@
     font-family: var(--font-mono);
     font-size: var(--fs-caption);
     overflow-wrap: anywhere;
+  }
+  .linkBox {
+    display: grid;
+    gap: var(--sp-1);
+    margin-block: var(--sp-2);
+  }
+  .linkForm {
+    display: flex;
+    gap: var(--sp-1);
+  }
+  .linkForm input {
+    flex: 1;
+    min-width: 0;
   }
 </style>
