@@ -350,6 +350,7 @@ async fn dispatch_request(
         methods::SDD_VALIDATE => crate::navigate::handle_sdd_validate(params).await,
         methods::PROJECT_LIST => crate::projects::handle_project_list(params, state).await,
         methods::PROJECT_REGISTER => crate::projects::handle_project_register(params, state).await,
+        methods::SUBSCRIPTION_LINK => handle_subscription_link(params, state).await,
         methods::PROJECT_FORGET => crate::projects::handle_project_forget(params, state).await,
         methods::ANALYTICS_USAGE => crate::analytics::handle_analytics_usage(params, state),
         other => Err(RpcError::method_not_found(other)),
@@ -2146,6 +2147,111 @@ async fn resume_with_instruction(
             ))
         }
     }
+}
+
+/// A `SUBSCRIPTION_REFUSED` (2005) with its remedy: not-linkable is a
+/// different fact from not-detected, and the remedy differs with the cause.
+fn subscription_refused(detail: String, remedy: &str) -> RpcError {
+    RpcError::application(
+        error_codes::SUBSCRIPTION_REFUSED,
+        "subscription refused",
+        "subscription_refused",
+        detail,
+        Some(remedy.to_string()),
+    )
+}
+
+/// `subscription/link`: link a named subscription of a catalog agent
+/// (vincular-suscripciones D1/D3/D4/D5). Writes a launch profile whose env
+/// pins the entry's declared auth-context variable to a fresh directory, and
+/// answers with the composed login gesture Meltemi never runs. The context
+/// directory is created empty and never read afterwards (fair play); relinking
+/// a name whose directory survived an unlink reuses it untouched.
+async fn handle_subscription_link(
+    params: Value,
+    state: &Arc<DaemonState>,
+) -> Result<Value, RpcError> {
+    use meltemi_proto::{LoginGesture, SubscriptionLinkParams, SubscriptionLinkResult};
+
+    let params: SubscriptionLinkParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("subscription/link: {e}")))?;
+
+    // The name becomes a directory: refuse before anything exists.
+    if !crate::subscriptions::is_valid_name(&params.name) {
+        return Err(subscription_refused(
+            format!("`{}` is not a valid link name", params.name),
+            "Use kebab-case: lowercase letters, digits and single hyphens (e.g. `work`, `personal-2`).",
+        ));
+    }
+
+    // The entry must exist and declare its auth-context variable — that
+    // knowledge is registry data, never code (D3).
+    let config = crate::config::Config::load(&state.config_dir, None);
+    let catalog = crate::fleet::build_catalog(&config);
+    let Some(entry) = catalog.entries.iter().find(|e| e.id == params.agent) else {
+        return Err(subscription_refused(
+            format!("`{}` is not in the fleet catalog", params.agent),
+            "List the catalog with `meltemi fleet` and link one of its ids.",
+        ));
+    };
+    let Some(var) = entry.auth_context_var.clone() else {
+        return Err(subscription_refused(
+            format!(
+                "`{}` declares no authentication-context variable in the registry",
+                params.agent
+            ),
+            "Write the profile by hand in config.toml ([[fleet.profile]]) — see docs/agentes.md.",
+        ));
+    };
+
+    // The context directory: created empty, owned by the provider's binary
+    // from here on. A directory that already exists (a relinked name) is
+    // reused untouched — whatever the provider stored there is not ours.
+    let context_dir = state.data_dir.join("subscriptions").join(&params.name);
+    std::fs::create_dir_all(&context_dir).map_err(RpcError::internal)?;
+    let value = context_dir.display().to_string();
+
+    // Persist the profile. A taken name refuses; the store never overwrites.
+    let profile = crate::config::FleetProfile {
+        name: params.name.clone(),
+        agent: params.agent.clone(),
+        env: vec![(var.clone(), value.clone())],
+    };
+    match crate::subscriptions::add(&state.config_dir, profile) {
+        Ok(()) => {}
+        Err(crate::subscriptions::AddError::AlreadyLinked) => {
+            return Err(subscription_refused(
+                format!("`{}` is already linked", params.name),
+                "Unlink it first (`meltemi unlink <name>`) or pick another name.",
+            ));
+        }
+        Err(crate::subscriptions::AddError::InvalidName) => {
+            return Err(subscription_refused(
+                format!("`{}` is not a valid link name", params.name),
+                "Use kebab-case: lowercase letters, digits and single hyphens.",
+            ));
+        }
+    }
+
+    // The composed login gesture: data for the human to run. The daemon never
+    // runs it and never checks whether it was run (fair play).
+    let hint = entry
+        .login_hint
+        .clone()
+        .unwrap_or_else(|| "see the provider's login documentation".to_string());
+    let gesture = LoginGesture {
+        var: var.clone(),
+        value: value.clone(),
+        hint: hint.clone(),
+        posix: format!("{var}='{value}' {hint}"),
+        powershell: format!("$env:{var} = \"{value}\"; {hint}"),
+    };
+    let result = SubscriptionLinkResult {
+        profile: params.name,
+        agent: params.agent,
+        gesture,
+    };
+    Ok(serde_json::to_value(result).expect("SubscriptionLinkResult serializes"))
 }
 
 /// `session/log`: a paginated slice of a session's JSONL log, so a thin client

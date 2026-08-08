@@ -29,7 +29,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   perfil), cargado en `Config::load` **antes** que el config de usuario;
   validación kebab del nombre (design D2, D4) — escenario «El nombre inválido
   como ruta rehúsa» — gates: `cargo test -p meltemid`
-- [ ] 2.2 `subscription/link`: rehúso sin variable declarada (remedio: vía
+- [x] 2.2 `subscription/link`: rehúso sin variable declarada (remedio: vía
   manual) y de nombre ya vinculado; creación del directorio de contexto
   vacío bajo datos del daemon; perfil persistido; respuesta con el gesto
   compuesto por plataforma (design D3, D4, D5) — escenarios «Vincular crea el
