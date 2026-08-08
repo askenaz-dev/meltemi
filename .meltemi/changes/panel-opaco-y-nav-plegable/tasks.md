@@ -18,12 +18,12 @@ suite del crate tocado.
 
 ## 2. La barra que se pliega
 
-- [ ] 2.1 Control de pliegue en la cabecera de la barra y riel angosto: las
+- [x] 2.1 Control de pliegue en la cabecera de la barra y riel angosto: las
   entradas conservan etiqueta accesible, foco y dígito; el contador de
   permisos permanece visible; strings ES/EN (design D2) — escenarios «Plegar
   y desplegar desde la cabecera» y «Plegada no pierde alcance» — gates: suite
   de cableado
-- [ ] 2.2 Persistencia junto a tema y geometría de ventana; perfil nuevo
+- [x] 2.2 Persistencia junto a tema y geometría de ventana; perfil nuevo
   arranca desplegado (design D3) — escenario «El pliegue se recuerda, el
   primer arranque no» — gates: suite de cableado
 

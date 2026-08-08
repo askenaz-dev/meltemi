@@ -16,6 +16,7 @@ export type IconName =
   | "plus"
   | "chevronDown"
   | "chevronRight"
+  | "chevronLeft"
   | "close"
   | "check"
   | "warning"
@@ -39,6 +40,7 @@ export const ICONS: Record<IconName, string> = {
   plus: "M12 5v14M5 12h14",
   chevronDown: "M6 9.5l6 6 6-6",
   chevronRight: "M9.5 6l6 6-6 6",
+  chevronLeft: "M14.5 6l-6 6 6 6",
   close: "M6 6l12 12M18 6L6 18",
   check: "M5 13l4.5 4.5L19 7",
   warning: "M12 4l8.5 15H3.5zM12 10v4M12 16.5v.5",

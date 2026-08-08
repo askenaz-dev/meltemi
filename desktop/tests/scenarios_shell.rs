@@ -1151,6 +1151,74 @@ fn unlinking_from_the_drawer_says_the_context_stays() {
     );
 }
 
+// Scenario: Plegar y desplegar desde la cabecera
+// Scenario: Plegada no pierde alcance
+// Scenario: El pliegue se recuerda, el primer arranque no
+#[test]
+fn the_sidebar_folds_to_a_rail_without_losing_a_single_entry() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    // A visible control in the header, not a hover reveal — the rule this
+    // shell already applies to its per-row actions.
+    assert!(
+        sidebar.contains("class=\"fold ghost\"") && sidebar.contains("onclick={toggleFold}"),
+        "the fold control is a real button in the header"
+    );
+    assert!(
+        sidebar.contains("aria-expanded={!folded}"),
+        "the control states the bar's state to assistive tech"
+    );
+    // One toggle, both ways, and the label says which way it goes.
+    let toggle = sidebar
+        .split("function toggleFold()")
+        .nth(1)
+        .expect("the fold action")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        toggle.contains("folded = !folded"),
+        "the same control folds and unfolds: {toggle}"
+    );
+    assert!(
+        sidebar.contains("nav.fold.expand") && sidebar.contains("nav.fold.collapse"),
+        "the control names the direction it will move"
+    );
+
+    // Folded, the words go and the reach stays: every entry keeps an
+    // accessible name, and the rules hide labels — never the entries.
+    assert!(
+        sidebar.contains("aria-label={$t((\"nav.\" + item.id) as never)}"),
+        "each entry carries its accessible name, folded or not"
+    );
+    let styles = sidebar.split("<style>").nth(1).expect("styles").to_string();
+    assert!(
+        styles.contains("aside.folded .label") && styles.contains("display: none"),
+        "folding hides the words"
+    );
+    for kept in [".item", ".counter"] {
+        assert!(
+            !styles.contains(&format!("aside.folded {kept} {{\n    display: none")),
+            "folding must not hide `{kept}`: the entries and the permission counter stay"
+        );
+    }
+
+    // Remembered beside the theme, and a fresh profile starts unfolded.
+    assert!(
+        sidebar.contains("setNavCollapsed(folded)") && sidebar.contains("$uiState.navCollapsed"),
+        "the choice is persisted and read back"
+    );
+    let ui_state = read("desktop/ui/src/lib/ui-state.ts");
+    assert!(
+        ui_state.contains("navCollapsed: boolean") && ui_state.contains("navCollapsed: false"),
+        "the preference lives with the others and defaults to unfolded"
+    );
+    let rust = read("desktop/src/uistate.rs");
+    assert!(
+        rust.contains("pub nav_collapsed: bool") && rust.contains("#[serde(default)]"),
+        "a profile saved before this field existed still loads, unfolded"
+    );
+}
+
 // Scenario: Ninguna variable de estilo se usa sin existir
 // Scenario: El conmutador de proyectos cubre lo que tapa
 #[test]

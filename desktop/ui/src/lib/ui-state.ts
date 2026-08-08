@@ -22,6 +22,8 @@ export interface UiState {
   editorRecents: Record<string, string[]>;
   paletteUsage: Record<string, Usage>;
   activeProject: string | null;
+  /** Whether the navigation sidebar is folded to its rail. */
+  navCollapsed: boolean;
 }
 
 const EMPTY: UiState = {
@@ -33,6 +35,7 @@ const EMPTY: UiState = {
   editorRecents: {},
   paletteUsage: {},
   activeProject: null,
+  navCollapsed: false,
 };
 
 const store = writable<UiState>(EMPTY);
@@ -88,6 +91,12 @@ export function setLastView(view: string): void {
 
 export function setOpenWithTemplate(template: string): void {
   persist({ ...get(store), openWithTemplate: template.trim() || null });
+}
+
+/** Remembers the sidebar's folded state beside the theme and the geometry:
+    a layout preference belongs with the other layout preferences (D3). */
+export function setNavCollapsed(collapsed: boolean): void {
+  persist({ ...get(store), navCollapsed: collapsed });
 }
 
 export function setActiveProject(root: string | null): void {

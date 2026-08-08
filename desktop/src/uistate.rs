@@ -55,6 +55,11 @@ pub struct UiState {
     /// is bundled either way — the binary is always the user's.
     #[serde(default)]
     pub lsp_servers: HashMap<String, Vec<String>>,
+    /// Whether the navigation sidebar is folded to its rail. Absent — a fresh
+    /// profile — means unfolded: the first run shows the whole navigation,
+    /// which is what the onboarding promises (panel-opaco-y-nav-plegable D3).
+    #[serde(default)]
+    pub nav_collapsed: bool,
 }
 
 /// The command the user configured for a language, if any.

@@ -18,6 +18,7 @@
   import Avatar from "./Avatar.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
+  import { setNavCollapsed, uiState } from "../ui-state";
 
   let {
     view,
@@ -36,6 +37,14 @@
 
   /** Collapsed project nodes, by root. The tree opens expanded. */
   let collapsed = $state(new Set<string>());
+  /** Whether the whole bar is folded to its rail, remembered across runs. */
+  let folded = $state($uiState.navCollapsed);
+
+  /** Folds or unfolds the bar and remembers the choice beside the theme. */
+  function toggleFold() {
+    folded = !folded;
+    setNavCollapsed(folded);
+  }
   /** The node whose forget is awaiting confirmation. */
   let forgetTarget: { root: string; name: string } | null = $state(null);
 
@@ -137,7 +146,7 @@
   }
 </script>
 
-<aside aria-label={$t("nav.viewLabel")}>
+<aside class:folded aria-label={$t("nav.viewLabel")}>
   <div class="identity">
     <svg
         class="mark"
@@ -178,6 +187,17 @@
         />
       </svg>
       <span class="brand-wordmark">{$t("app.title")}</span>
+      <!-- Folding is a visible control, never a hover reveal: a control that
+           appears under the pointer is one the keyboard cannot reach. -->
+      <button
+        class="fold ghost"
+        onclick={toggleFold}
+        aria-expanded={!folded}
+        title={$t(folded ? "nav.fold.expand" : "nav.fold.collapse")}
+        aria-label={$t(folded ? "nav.fold.expand" : "nav.fold.collapse")}
+      >
+        <Icon name={folded ? "chevronRight" : "chevronLeft"} size={14} />
+      </button>
   </div>
 
   <button class="project ghost" onclick={onPickProject}>
@@ -193,6 +213,8 @@
         class:current={view === item.id}
         aria-current={view === item.id ? "page" : undefined}
         onclick={() => onNavigate(item.id)}
+        aria-label={$t(("nav." + item.id) as never)}
+        title={$t(("nav." + item.id) as never)}
       >
         <Icon name={item.icon} size={16} />
         <span class="label">{$t(("nav." + item.id) as never)}</span>
@@ -329,6 +351,32 @@
 {/if}
 
 <style>
+  aside.folded {
+    width: 52px;
+    padding-inline: var(--sp-1);
+  }
+  /* Folded: the words go, the reach stays — every entry keeps its icon, its
+     focus ring and its accessible name, and the permission counter keeps its
+     place because it is the one signal the shell must never hide. */
+  aside.folded .brand-wordmark,
+  aside.folded .label,
+  aside.folded kbd,
+  aside.folded .project .name,
+  aside.folded .section {
+    display: none;
+  }
+  aside.folded .item {
+    justify-content: center;
+  }
+  aside.folded .identity {
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+  .fold {
+    margin-left: auto;
+    padding: 2px;
+    line-height: 0;
+  }
   aside {
     width: 216px;
     flex: none;
