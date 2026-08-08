@@ -24,6 +24,9 @@ SUBCOMMANDS:
     propose <idea> [project-root] [--agent <id|profile>]
                         scaffold a change proposal and delegate it to an agent
     fleet               list the agent fleet catalog (detection and levels)
+    link <agent> <name> link a subscription of a catalog agent: creates the
+                        launch profile and prints the login gesture to run
+    unlink <name>       unlink a subscription; its auth context is not deleted
     project             regenerate the projected context (AGENTS.md, ...)
     session <instruction> [project-root] [--agent <id|profile>]
                         start a free session on that project: no change, no
@@ -142,6 +145,10 @@ pub enum Command {
     },
     /// List the fleet catalog (`fleet/list`).
     Fleet,
+    /// Link a subscription of a catalog agent (`subscription/link`).
+    Link { agent: String, name: String },
+    /// Unlink a subscription (`subscription/unlink`).
+    Unlink { name: String },
     /// Regenerate the projected context (`context/project`).
     Project { project_root: Option<String> },
     /// List sessions, active and historical (`session/list`).
@@ -405,6 +412,20 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool, agent: Option<St
         "status" => Action::Usage("`status` takes no arguments".into()),
         "fleet" if rest.is_empty() => Action::Run(Command::Fleet),
         "fleet" => Action::Usage("`fleet` takes no arguments".into()),
+        // The link name travels verbatim: positionals are never case-folded.
+        "link" => match rest {
+            [agent, name] => Action::Run(Command::Link {
+                agent: (*agent).to_string(),
+                name: (*name).to_string(),
+            }),
+            _ => Action::Usage("`link` requires: meltemi link <agent> <name>".into()),
+        },
+        "unlink" => match rest {
+            [name] => Action::Run(Command::Unlink {
+                name: (*name).to_string(),
+            }),
+            _ => Action::Usage("`unlink` requires: meltemi unlink <name>".into()),
+        },
         "project" => match rest {
             [] => Action::Run(Command::Project { project_root: None }),
             [root] => Action::Run(Command::Project {
@@ -1093,6 +1114,41 @@ mod tests {
             })
         );
         assert!(plan_of(&["--json", "sessions"], false).json);
+    }
+
+    #[test]
+    fn link_and_unlink_parse_with_the_name_verbatim() {
+        // Scenario: link crea y responde con el gesto de login (grammar half)
+        assert_eq!(
+            plan_of(&["link", "claude-code", "personal-2"], false).action,
+            Action::Run(Command::Link {
+                agent: "claude-code".into(),
+                name: "personal-2".into(),
+            })
+        );
+        // Positionals are never case-folded: what the daemon refuses, it
+        // refuses having SEEN what was typed.
+        assert_eq!(
+            plan_of(&["link", "claude-code", "MixedCase"], false).action,
+            Action::Run(Command::Link {
+                agent: "claude-code".into(),
+                name: "MixedCase".into(),
+            })
+        );
+        assert_eq!(
+            plan_of(&["unlink", "personal-2"], false).action,
+            Action::Run(Command::Unlink {
+                name: "personal-2".into(),
+            })
+        );
+        assert!(matches!(
+            plan_of(&["link", "claude-code"], false).action,
+            Action::Usage(_)
+        ));
+        assert!(matches!(
+            plan_of(&["unlink"], false).action,
+            Action::Usage(_)
+        ));
     }
 
     #[test]

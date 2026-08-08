@@ -126,7 +126,18 @@ impl RpcError {
 
 impl std::fmt::Display for RpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}] {}", self.code, self.message)
+        write!(f, "[{}] {}", self.code, self.message)?;
+        // The structured half travels with the prose: a refusal without its
+        // detail is a verdict, and without its remedy it is a dead end.
+        if let Some(data) = &self.data {
+            if let Some(detail) = data.get("detail").and_then(|v| v.as_str()) {
+                write!(f, ": {detail}")?;
+            }
+            if let Some(remedy) = data.get("remedy").and_then(|v| v.as_str()) {
+                write!(f, " — {remedy}")?;
+            }
+        }
+        Ok(())
     }
 }
 

@@ -20,6 +20,9 @@ SUBCOMMANDS:
     propose <idea> [project-root] [--agent <id|profile>]
                         scaffold a change proposal and delegate it to an agent
     fleet               list the agent fleet catalog (detection and levels)
+    link <agent> <name> link a subscription of a catalog agent: creates the
+                        launch profile and prints the login gesture to run
+    unlink <name>       unlink a subscription; its auth context is not deleted
     project             regenerate the projected context (AGENTS.md, ...)
     session <instruction> [project-root] [--agent <id|profile>]
                         start a free session on that project: no change, no

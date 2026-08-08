@@ -51,7 +51,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 3. CLI: los verbos del vínculo
 
-- [ ] 3.1 Gramática `link <agente> <nombre>` / `unlink <nombre>` (nombre
+- [x] 3.1 Gramática `link <agente> <nombre>` / `unlink <nombre>` (nombre
   verbatim), ejecución y render (gesto de login impreso; rehúsos con remedio
   como error de contrato); referencia CLI regenerada (design D7) — escenarios
   «link crea y responde con el gesto de login» y «unlink de un vínculo manual

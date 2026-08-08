@@ -53,6 +53,8 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             agent,
         } => session(instruction, project_root, agent, endpoint).await,
         Command::Fleet => fleet(endpoint).await,
+        Command::Link { agent, name } => link(agent, name, endpoint).await,
+        Command::Unlink { name } => unlink(name, endpoint).await,
         Command::Project { project_root } => project(project_root, endpoint).await,
         Command::Sessions { project_root } => sessions(project_root, endpoint).await,
         Command::Explore { topic, agent } => {
@@ -316,6 +318,53 @@ fn render_session(result: &meltemi_proto::SessionStartResult) -> String {
         ));
     }
     out
+}
+
+/// `link`: link a subscription of a catalog agent (`subscription/link`) and
+/// print the composed login gesture — the one thing the user must run.
+async fn link(agent: String, name: String, endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::SUBSCRIPTION_LINK,
+            &json!({ "agent": agent, "name": name }),
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let gesture = &value["gesture"];
+    let human = format!(
+        "linked `{}` -> {}
+authenticate it once, then it is ready:
+  PowerShell: {}
+  POSIX:      {}",
+        value["profile"].as_str().unwrap_or("?"),
+        value["agent"].as_str().unwrap_or("?"),
+        gesture["powershell"].as_str().unwrap_or("?"),
+        gesture["posix"].as_str().unwrap_or("?"),
+    );
+    Ok(Outcome { human, json: value })
+}
+
+/// `unlink`: undo a linked subscription (`subscription/unlink`). The context
+/// directory is never deleted, and the output says where it stays.
+async fn unlink(name: String, endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(methods::SUBSCRIPTION_UNLINK, &json!({ "name": name }))
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let human = format!(
+        "unlinked `{}` — its auth context stays at {} (not deleted; remove it yourself if you mean to)",
+        value["profile"].as_str().unwrap_or("?"),
+        value["contextDir"].as_str().unwrap_or("?"),
+    );
+    Ok(Outcome { human, json: value })
 }
 
 async fn fleet(endpoint: &str) -> Result<Outcome, CliError> {
