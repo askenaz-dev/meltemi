@@ -86,7 +86,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 5. Cierre: paridad, smoke y verificación
 
-- [ ] 5.1 Matriz de paridad: punteros de vista actualizados para las filas
+- [x] 5.1 Matriz de paridad: punteros de vista actualizados para las filas
   de worktree/checkpoint (GUI «registry + tablero», TUI «race»), sin filas
   nuevas; coherencia con los tests de docs (design D6) — gates: `cargo
   test -p meltemi --test parity --test docs`

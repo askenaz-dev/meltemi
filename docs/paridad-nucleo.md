@@ -55,15 +55,15 @@ future change — never a silent omission.
 | `worktree/assign` | `assign` | `assign` | registry |
 | `worktree/list` | `worktrees` | `worktrees` | registry |
 | `worktree/remove` | — | `worktree-remove` | registry |
-| `worktree/diff` | `race` | `race` | registry |
+| `worktree/diff` | `race` | `race` (tablero) | registry + tablero de carrera |
 | `worktree/apply-edit` | `apply-edit` | `apply-edit` | registry + editor save |
-| `worktree/merge-file` | — | `merge` | registry |
-| `worktree/dispatch` | `dispatch` | `dispatch` | registry |
+| `worktree/merge-file` | — | `merge` | registry + tablero (por archivo) |
+| `worktree/dispatch` | `dispatch` | `dispatch`, `d` en el tablero | registry + tablero |
 | `checkpoint/create` | — | `checkpoints` | registry |
 | `checkpoint/list` | `checkpoints` | `checkpoints` | registry |
-| `checkpoint/revert` | `revert` | `revert` | registry |
+| `checkpoint/revert` | `revert` | `revert` | registry + tablero (confirma) |
 | `checkpoint/record-op` | — | `checkpoints` | registry |
-| `commit/task` | `commit` | `commit` | registry |
+| `commit/task` | `commit` | `commit` | registry + tablero |
 
 A method having a home in the three surfaces is the floor, not the ceiling:
 what a method *reports* has to reach them alike too. `fleet/list` is the
