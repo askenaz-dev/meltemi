@@ -43,8 +43,8 @@ future change — never a silent omission.
 | `sdd/implement` | `implement` | `implement` | registry |
 | `sdd/validate` | `validate` | `validate` | registry |
 | `project/list` | `projects` | `projects` | registry + project switcher |
-| `subscription/link` | `link` | `link` (reservado) | registry |
-| `subscription/unlink` | `unlink` | `link` (reservado) | registry |
+| `subscription/link` | `link` | `link` (captura verbatim) | registry + ficha de Flota |
+| `subscription/unlink` | `unlink` | `unlink` | registry + ficha de Flota |
 | `project/register` | `projects register <path>` | `projects register` (ruta tecleada) | registry |
 | `project/forget` | `projects forget <path>` | `projects forget` (ruta tecleada) | registry |
 | `analytics/usage` | `usage` | `usage` | registry + Usage view |

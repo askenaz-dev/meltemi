@@ -81,7 +81,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 6. Cierre: paridad, docs y verificación
 
-- [ ] 6.1 Matriz de paridad con las dos filas nuevas; `docs/agentes.md` con
+- [x] 6.1 Matriz de paridad con las dos filas nuevas; `docs/agentes.md` con
   el flujo vinculado (tabla de variables por proveedor citando la
   verificación, el gesto de login, la vía manual conservada); la tabla se
   verifica por el lint de docs vigente (initial-docs: la guía verificada

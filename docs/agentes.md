@@ -192,6 +192,37 @@ If an agent you installed shows as not detected:
 
 ## Multiple accounts and subscriptions
 
+### The linked way (recommended)
+
+Where the registry declares an entry's **authentication-context variable**,
+linking a subscription is one gesture from any surface:
+
+```
+meltemi link claude-code personal
+```
+
+— or the "Link a subscription" form on the agent's card in the Fleet, or the
+`link` verb in the interactive shell. Linking writes a launch profile whose
+env pins that variable to a fresh, empty directory under Meltemi's data dir,
+and answers with the **login gesture** to run once — the provider's official
+binary authenticates itself there; Meltemi never runs the login, never reads
+the directory, and never deletes it (unlinking leaves it behind, named).
+
+The variables are registry data, verified against the real CLIs:
+
+| Entry | Variable | Login gesture | Verified |
+|---|---|---|---|
+| `claude-code` | `CLAUDE_CONFIG_DIR` | `claude` (and run `/login` inside) | 2026-08-08: an empty context answers logged-out while the default stays logged in |
+| `codex-cli` | `CODEX_HOME` | `codex login` | 2026-08-08, same probe |
+
+Linked profiles live in `subscriptions.toml` beside your `config.toml`,
+machine-managed and loaded first — so a profile you write by hand under the
+same name **wins**, and `unlink` refuses to touch hand-written ones. Two
+profiles of one agent resolving the same context are diagnosed out loud: that
+is one subscription under two names.
+
+### The manual way
+
 Launch profiles let you run several accounts of the same provider — two Claude
 subscriptions, work and personal — by redirecting the **authentication context**
 of the official binary. Meltemi never reads, stores or forwards credentials;
