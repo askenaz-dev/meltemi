@@ -54,6 +54,9 @@ pub enum Msg {
     SizeFloor,
     DirectTitle,
     DirectHint,
+    LinkTitle,
+    LinkHint,
+    LinkBadInput,
     DirectNoSession,
     DirectQueued,
     DirectResumed,
@@ -154,6 +157,16 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         }
         (Msg::SizeFloor, Lang::Es) => "terminal demasiado pequena; se requiere 80x24",
         (Msg::SizeFloor, Lang::En) => "terminal too small; 80x24 required",
+        (Msg::LinkTitle, Lang::Es) => "Vincular una suscripción",
+        (Msg::LinkTitle, Lang::En) => "Link a subscription",
+        (Msg::LinkHint, Lang::Es) => {
+            "escribe `agente nombre` (el nombre viaja tal cual) | Enter enviar | Esc cancelar"
+        }
+        (Msg::LinkHint, Lang::En) => {
+            "type `agent name` (the name travels verbatim) | Enter send | Esc cancel"
+        }
+        (Msg::LinkBadInput, Lang::Es) => "vincular necesita dos palabras: `agente nombre`",
+        (Msg::LinkBadInput, Lang::En) => "linking needs two words: `agent name`",
         (Msg::DirectTitle, Lang::Es) => "Dirigir la sesión",
         (Msg::DirectTitle, Lang::En) => "Direct the session",
         (Msg::DirectHint, Lang::Es) => {
@@ -258,6 +271,9 @@ pub const ALL: &[Msg] = &[
     Msg::SizeFloor,
     Msg::DirectTitle,
     Msg::DirectHint,
+    Msg::LinkTitle,
+    Msg::LinkHint,
+    Msg::LinkBadInput,
     Msg::DirectNoSession,
     Msg::DirectQueued,
     Msg::DirectResumed,

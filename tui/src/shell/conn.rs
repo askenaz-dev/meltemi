@@ -59,6 +59,10 @@ pub enum Command {
         project_root: String,
         instruction: String,
     },
+    /// Link a subscription (`subscription/link`); the name travels verbatim.
+    LinkSubscription { agent: String, name: String },
+    /// Unlink a subscription (`subscription/unlink`).
+    UnlinkSubscription(String),
     /// Read the lanes of a task for the race board (`worktree/diff`).
     RaceDiff { change: String, task: String },
     /// Run a competitor's turn over its worktree (`worktree/dispatch`).
@@ -213,6 +217,54 @@ async fn serve_connection(
                 }
                 Some(Command::FleetList) => refresh_fleet(&peer, updates, scope.as_deref()).await,
                 Some(Command::ProjectList) => refresh_projects(&peer, updates).await,
+                Some(Command::LinkSubscription { agent, name }) => {
+                    let params = serde_json::json!({ "agent": agent, "name": name });
+                    let notice = match peer.request(methods::SUBSCRIPTION_LINK, &params).await {
+                        // The gesture is the one thing the user must run; the
+                        // notice leads with the platform's own shell form.
+                        Ok(value) => {
+                            let gesture = if cfg!(windows) {
+                                value["gesture"]["powershell"].as_str().unwrap_or("").to_string()
+                            } else {
+                                value["gesture"]["posix"].as_str().unwrap_or("").to_string()
+                            };
+                            match lang {
+                                Lang::Es => format!(
+                                    "vinculada `{}`; autentícala una vez: {gesture}",
+                                    value["profile"].as_str().unwrap_or("?")
+                                ),
+                                Lang::En => format!(
+                                    "linked `{}`; authenticate it once: {gesture}",
+                                    value["profile"].as_str().unwrap_or("?")
+                                ),
+                            }
+                        }
+                        // Display now carries the daemon's detail and remedy.
+                        Err(error) => format!("subscription/link: {error}"),
+                    };
+                    let _ = updates.send(Update::Notice(notice));
+                    refresh_fleet(&peer, updates, scope.as_deref()).await;
+                }
+                Some(Command::UnlinkSubscription(name)) => {
+                    let params = serde_json::json!({ "name": name });
+                    let notice = match peer.request(methods::SUBSCRIPTION_UNLINK, &params).await {
+                        Ok(value) => match lang {
+                            Lang::Es => format!(
+                                "desvinculada `{}`; su contexto queda en {}",
+                                value["profile"].as_str().unwrap_or("?"),
+                                value["contextDir"].as_str().unwrap_or("?")
+                            ),
+                            Lang::En => format!(
+                                "unlinked `{}`; its context stays at {}",
+                                value["profile"].as_str().unwrap_or("?"),
+                                value["contextDir"].as_str().unwrap_or("?")
+                            ),
+                        },
+                        Err(error) => format!("subscription/unlink: {error}"),
+                    };
+                    let _ = updates.send(Update::Notice(notice));
+                    refresh_fleet(&peer, updates, scope.as_deref()).await;
+                }
                 Some(Command::RaceDiff { change, task }) => {
                     refresh_race(&peer, updates, scope.as_deref(), &change, &task).await;
                 }

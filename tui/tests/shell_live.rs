@@ -290,3 +290,51 @@ async fn a_dispatch_runs_a_whole_turn_without_stopping_the_shell() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// Scenario: El rehúso llega con su remedio al shell
+#[tokio::test]
+async fn a_refused_link_reaches_the_shell_with_the_daemons_remedy() {
+    // Linking an agent the catalog does not know: the refusal crosses the
+    // wire with its diagnosis AND its remedy, and the shell shows both — a
+    // typed name is never dropped into silence.
+    let (endpoint, daemon) = spawn_daemon("shell-link").await;
+
+    let (cmd_tx, cmd_rx) = unbounded_channel::<Command>();
+    let (upd_tx, mut upd_rx) = unbounded_channel::<Update>();
+    let actor = tokio::spawn(connection_actor(endpoint.clone(), Lang::Es, cmd_rx, upd_tx));
+
+    cmd_tx
+        .send(Command::LinkSubscription {
+            agent: "no-such-provider".into(),
+            name: "work".into(),
+        })
+        .expect("the actor is listening");
+
+    let mut refusal = None;
+    let collect = async {
+        while let Some(update) = upd_rx.recv().await {
+            if let Update::Notice(text) = update
+                && text.contains("subscription/link")
+            {
+                refusal = Some(text);
+                break;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), collect)
+        .await
+        .expect("the refusal reached the surface within 10s");
+    let refusal = refusal.expect("a refusal notice");
+    assert!(
+        refusal.contains("not in the fleet catalog"),
+        "the diagnosis travels: {refusal}"
+    );
+    assert!(
+        refusal.contains("meltemi fleet"),
+        "and the remedy with it: {refusal}"
+    );
+
+    drop(cmd_tx);
+    let _ = tokio::time::timeout(Duration::from_secs(5), actor).await;
+    daemon.abort();
+}

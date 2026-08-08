@@ -205,6 +205,25 @@ fn handle_action(
             let _ = commands.send(Command::Refresh);
         }
         Some(Effect::RefreshFleet) => refresh_fleet = true,
+        // The Input overlay's raw `agent name`: parsed HERE so a malformed
+        // line becomes a visible notice instead of a guessed request.
+        Some(Effect::LinkSubscription(raw)) => {
+            let mut parts = raw.split_whitespace();
+            match (parts.next(), parts.next(), parts.next()) {
+                (Some(agent), Some(name), None) => {
+                    let _ = commands.send(Command::LinkSubscription {
+                        agent: agent.to_string(),
+                        name: name.to_string(),
+                    });
+                }
+                _ => live
+                    .notices
+                    .push(messages::text(messages::Msg::LinkBadInput, lang).to_string()),
+            }
+        }
+        Some(Effect::UnlinkSubscription(name)) => {
+            let _ = commands.send(Command::UnlinkSubscription(name));
+        }
         Some(Effect::RaceBoard { change, task }) => {
             let _ = commands.send(Command::RaceDiff { change, task });
         }

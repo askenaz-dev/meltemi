@@ -72,7 +72,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 5. TUI: el verbo con captura verbatim
 
-- [ ] 5.1 Verbo `link` en la paleta (overlay de captura verbatim para
+- [x] 5.1 Verbo `link` en la paleta (overlay de captura verbatim para
   `agente nombre`, patrón del alta de proyectos), `unlink` por línea de
   paleta; Command/Update en el actor; avisos con gesto o remedio; entradas en
   el registro de paleta para los dos métodos (design D7) — escenarios «El

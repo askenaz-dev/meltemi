@@ -64,6 +64,10 @@ pub enum InputPurpose {
     RegisterProject,
     /// A project root to drop from the listing (`project/forget`).
     ForgetProject,
+    /// `<agente> <nombre>` of a subscription to link (`subscription/link`).
+    /// Captured verbatim: the palette line lowercases and a name with capitals
+    /// would name a different directory (vincular-suscripciones).
+    LinkSubscription,
 }
 
 /// An overlay stacked above the views. [`Overlay::Palette`],
@@ -117,6 +121,11 @@ pub enum Effect {
     RegisterProject(String),
     /// Drop this root from the registry's listing (`project/forget`), as typed.
     ForgetProject(String),
+    /// Link a subscription: the Input overlay's raw `<agente> <nombre>` text,
+    /// parsed by the loop so a malformed line becomes a notice, not a guess.
+    LinkSubscription(String),
+    /// Unlink a subscription by name (`subscription/unlink`).
+    UnlinkSubscription(String),
     /// Read the lanes of a task for the race board (`worktree/diff`).
     RaceBoard {
         change: String,
@@ -384,6 +393,7 @@ impl ShellState {
                 // wins (design D10).
                 for (verbs, purpose) in [
                     (&["direct", "dirigir"][..], InputPurpose::DirectInstruction),
+                    (&["link", "vincular"][..], InputPurpose::LinkSubscription),
                     (
                         &["projects register", "proyectos alta"][..],
                         InputPurpose::RegisterProject,
@@ -440,6 +450,24 @@ impl ShellState {
                         self.view = View::Project;
                         self.drill = None;
                         Some(Effect::ProjectContext)
+                    }
+                    // A bare `link` opens the capture field empty; `unlink
+                    // <nombre>` resolves inline (valid link names are lowercase
+                    // by rule, so the palette's lowercasing is harmless here).
+                    "link" | "vincular" => {
+                        self.overlays.push(Overlay::Input {
+                            purpose: InputPurpose::LinkSubscription,
+                            input: String::new(),
+                        });
+                        None
+                    }
+                    _ if command.starts_with("unlink ") || command.starts_with("desvincular ") => {
+                        let name = command.split_once(' ').map(|(_, r)| r.trim()).unwrap_or("");
+                        if name.is_empty() {
+                            None
+                        } else {
+                            Some(Effect::UnlinkSubscription(name.to_string()))
+                        }
                     }
                     "fleet" | "flota" => {
                         // Core parity: the palette reaches the Fleet like the
@@ -518,6 +546,7 @@ impl ShellState {
                     // filesystem was told to look for.
                     InputPurpose::RegisterProject => Some(Effect::RegisterProject(value)),
                     InputPurpose::ForgetProject => Some(Effect::ForgetProject(value)),
+                    InputPurpose::LinkSubscription => Some(Effect::LinkSubscription(value)),
                 }
             }
             _ => None,
@@ -601,6 +630,39 @@ mod tests {
             press(state, Key::Char(c));
         }
         press(state, Key::Enter)
+    }
+
+    #[test]
+    fn the_link_verb_captures_the_name_exactly_as_typed() {
+        // Scenario: El verbo de vínculo captura el nombre tal cual
+        // The palette line lowercases; the Input overlay does not. What the
+        // daemon refuses, it refuses having seen what was typed.
+        let mut s = ShellState::new();
+        palette(&mut s, "link");
+        assert!(matches!(
+            s.top_overlay(),
+            Some(Overlay::Input {
+                purpose: InputPurpose::LinkSubscription,
+                ..
+            })
+        ));
+        for c in "claude-code Personal".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        let effect = press(&mut s, Key::Enter);
+        assert_eq!(
+            effect,
+            Some(Effect::LinkSubscription("claude-code Personal".into())),
+            "capitals survive the capture"
+        );
+
+        // And `unlink <name>` resolves inline: valid link names are lowercase
+        // by rule, so the palette's lowercasing cannot corrupt one.
+        let mut s2 = ShellState::new();
+        assert_eq!(
+            palette(&mut s2, "unlink personal-2"),
+            Some(Effect::UnlinkSubscription("personal-2".into()))
+        );
     }
 
     #[test]

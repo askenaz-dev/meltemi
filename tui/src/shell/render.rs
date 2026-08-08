@@ -1218,6 +1218,7 @@ fn render_overlay(
                 InputPurpose::DirectInstruction => (Msg::DirectTitle, Msg::DirectHint),
                 InputPurpose::RegisterProject => (Msg::RegisterTitle, Msg::ProjectPathHint),
                 InputPurpose::ForgetProject => (Msg::ForgetTitle, Msg::ProjectPathHint),
+                InputPurpose::LinkSubscription => (Msg::LinkTitle, Msg::LinkHint),
             };
             let context = match purpose {
                 InputPurpose::DirectInstruction => match live.selected_session() {
@@ -1232,6 +1233,7 @@ fn render_overlay(
                 InputPurpose::RegisterProject => String::new(),
                 // What forgetting does and does not do, before it is done.
                 InputPurpose::ForgetProject => ctx.msg(Msg::ProjectForgotten).to_string(),
+                InputPurpose::LinkSubscription => String::new(),
             };
             (
                 ctx.msg(title).to_string(),

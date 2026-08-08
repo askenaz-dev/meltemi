@@ -179,7 +179,7 @@ pub const ENTRIES: &[Entry] = &[
     },
     Entry {
         name: "link",
-        reserved: true,
+        reserved: false,
         methods: &[m::SUBSCRIPTION_LINK, m::SUBSCRIPTION_UNLINK],
         desc_es: "vincular una suscripcion: link <agente> <nombre>",
         desc_en: "link a subscription: link <agent> <name>",
@@ -386,6 +386,17 @@ mod tests {
             entry.desc_es.contains("<change>") && entry.desc_en.contains("<change>"),
             "the description names the arguments in both languages"
         );
+    }
+
+    #[test]
+    fn the_link_verb_is_no_longer_announced_as_reserved() {
+        // Wired in vincular-suscripciones 5.1: announcing it reserved after it
+        // works would tell the user not to bother.
+        let entry = ENTRIES
+            .iter()
+            .find(|entry| entry.name == "link")
+            .expect("the link verb is in the palette");
+        assert!(!entry.reserved, "it is operative, and says so");
     }
 
     #[test]
