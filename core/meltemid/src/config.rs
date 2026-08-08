@@ -475,6 +475,34 @@ impl Config {
                 None => self.fleet_profiles.push(profile),
             }
         }
+
+        // Duplicate-context lens (vincular-suscripciones D6): two profiles of
+        // the same agent resolving to the same context value are one
+        // subscription under two names — legal, but almost always a silent
+        // mistake, so it is said out loud and both keep resolving.
+        for i in 0..self.fleet_profiles.len() {
+            for j in (i + 1)..self.fleet_profiles.len() {
+                let (a, b) = (&self.fleet_profiles[i], &self.fleet_profiles[j]);
+                if a.agent != b.agent {
+                    continue;
+                }
+                let shared = a.env.iter().any(|(ak, av)| {
+                    !av.trim().is_empty()
+                        && b.env.iter().any(|(bk, bv)| {
+                            ak == bk && crate::mcp::resolve_ref(av) == crate::mcp::resolve_ref(bv)
+                        })
+                });
+                if shared {
+                    let line = format!(
+                        "fleet profiles `{}` and `{}` resolve the same context for `{}`:                          they are one subscription under two names",
+                        a.name, b.name, a.agent
+                    );
+                    if !self.fleet_diagnostics.contains(&line) {
+                        self.fleet_diagnostics.push(line);
+                    }
+                }
+            }
+        }
     }
 
     fn apply_env(&mut self) {
@@ -500,10 +528,17 @@ pub fn looks_like_plaintext_secret(value: &str) -> bool {
     if v.is_empty() || v.starts_with('$') {
         return false; // an env reference is exactly what we want
     }
-    // A long, opaque, high-entropy-looking token.
+    // A long, opaque, high-entropy-looking token. A value carrying a path
+    // separator is a PATH, not an opaque credential: a Linux context dir
+    // (`/home/u/.local/share/...`) fits the token alphabet end to end, and
+    // refusing it would silently kill every linked subscription on the one
+    // platform whose default paths fit (vincular-suscripciones D4). A real
+    // token without separators still lands exactly where it always did.
     let opaque = v.len() >= 20
+        && !v.contains('/')
+        && !v.contains('\\')
         && v.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '+' | '='));
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '='));
     // A common credential prefix carried literally.
     let prefixed = ["sk-", "ghp_", "xoxb-", "AKIA", "Bearer ", "AIza"]
         .iter()
@@ -654,6 +689,77 @@ env = { PROVIDER_CONTEXT_DIR = 'C:/ctx/manual' }
         assert_eq!(work[0].agent, "provider-b", "the hand-written profile wins");
         assert_eq!(work[0].env[0].1, "C:/ctx/manual");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_context_path_is_not_a_plaintext_secret() {
+        // Scenario: La ruta de contexto no es un secreto
+        // The three platforms' default context paths all survive the lens; a
+        // real token without separators still trips it.
+        for path in [
+            "/home/u/.local/share/meltemi/subscriptions/personal",
+            r"C:\Users\u\AppData\Roaming\meltemi\data\subscriptions\personal",
+            "/Users/u/Library/Application Support/meltemi/subscriptions/personal",
+        ] {
+            assert!(
+                !looks_like_plaintext_secret(path),
+                "a path is not an opaque credential: {path}"
+            );
+        }
+        assert!(
+            looks_like_plaintext_secret("sk-abcdefghijklmnopqrstuvwxyz12"),
+            "a prefixed token still trips"
+        );
+        assert!(
+            looks_like_plaintext_secret("abcdefghijklmnopqrstuvwx1234"),
+            "an opaque separator-less token still trips"
+        );
+
+        // And a linked-shaped profile RESOLVES instead of being refused.
+        let mut config = Config::default();
+        config.apply(
+            toml::from_str(
+                "[[fleet.profile]]\nname = \"personal\"\nagent = \"provider-a\"\nenv = { PROVIDER_CONTEXT_DIR = '/home/u/.local/share/meltemi/subscriptions/personal' }\n",
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            config.fleet_profiles.len(),
+            1,
+            "{:?}",
+            config.fleet_diagnostics
+        );
+        assert!(config.fleet_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn two_profiles_on_one_context_are_called_one_subscription() {
+        // Scenario: Mismo contexto dos veces se advierte
+        let mut config = Config::default();
+        config.apply(
+            toml::from_str(
+                "[[fleet.profile]]\nname = \"work\"\nagent = \"provider-a\"\nenv = { CTX = '/home/u/ctx/shared' }\n\n[[fleet.profile]]\nname = \"spare\"\nagent = \"provider-a\"\nenv = { CTX = '/home/u/ctx/shared' }\n\n[[fleet.profile]]\nname = \"other\"\nagent = \"provider-b\"\nenv = { CTX = '/home/u/ctx/shared' }\n",
+            )
+            .unwrap(),
+        );
+        // The duplicate is diagnosed by name, and BOTH keep resolving.
+        assert!(
+            config.fleet_diagnostics.iter().any(|d| d.contains("`work`")
+                && d.contains("`spare`")
+                && d.contains("one subscription")),
+            "{:?}",
+            config.fleet_diagnostics
+        );
+        assert_eq!(config.fleet_profiles.len(), 3, "nothing is refused");
+        // A different agent on the same path is NOT the same subscription.
+        assert!(
+            !config
+                .fleet_diagnostics
+                .iter()
+                .any(|d| d.contains("`other`")),
+            "{:?}",
+            config.fleet_diagnostics
+        );
     }
 
     #[test]

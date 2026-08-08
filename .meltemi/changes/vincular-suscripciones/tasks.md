@@ -41,7 +41,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   nombrado en la respuesta (design D2, D4) — escenarios «Lo escrito a mano
   gana y no se desvincula por superficie» y «Desvincular deja el contexto
   intacto» — gates: `cargo test -p meltemid`
-- [ ] 2.4 Higiene afinada y duplicados: la rama `opaque` de
+- [x] 2.4 Higiene afinada y duplicados: la rama `opaque` de
   `looks_like_plaintext_secret` excluye valores con separador de ruta (una
   ruta no es una credencial opaca; un token sin separadores sigue cayendo) y
   el diagnóstico de contexto duplicado entra a `Config::apply` (mismo agente,
