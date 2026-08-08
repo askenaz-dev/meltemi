@@ -329,6 +329,13 @@ impl Config {
     pub fn load(config_dir: &Path, project_root: Option<&Path>) -> Self {
         let mut config = Config::default();
 
+        // Linked subscriptions load FIRST (vincular-suscripciones D2): they are
+        // ordinary profile blocks in the daemon-owned store, and loading them
+        // before the user's config means the merge-by-name below lets anything
+        // written by hand win over a homonymous link.
+        if let Some(raw) = read_config_file(&crate::subscriptions::store_path(config_dir)) {
+            config.apply(raw);
+        }
         if let Some(raw) = read_config_file(&config_dir.join("config.toml")) {
             config.apply(raw);
         }
@@ -609,6 +616,44 @@ mod tests {
         assert_eq!(other.name, "Other");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_linked_subscription_loads_first_so_hand_written_config_wins() {
+        // Scenario: Lo escrito a mano gana y no se desvincula por superficie
+        // (the merge half: the store loads before config.toml, and the
+        // merge-by-name rule makes the later, hand-written profile win).
+        let dir = std::env::temp_dir().join(format!("meltemi-cfg-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            crate::subscriptions::store_path(&dir),
+            "[[fleet.profile]]
+name = \"work\"
+agent = \"provider-a\"
+env = { PROVIDER_CONTEXT_DIR = 'C:/ctx/linked' }
+",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("config.toml"),
+            "[[fleet.profile]]
+name = \"work\"
+agent = \"provider-b\"
+env = { PROVIDER_CONTEXT_DIR = 'C:/ctx/manual' }
+",
+        )
+        .unwrap();
+        let config = Config::load(&dir, None);
+        let work: Vec<_> = config
+            .fleet_profiles
+            .iter()
+            .filter(|p| p.name == "work")
+            .collect();
+        assert_eq!(work.len(), 1, "merged by name, not appended");
+        assert_eq!(work[0].agent, "provider-b", "the hand-written profile wins");
+        assert_eq!(work[0].env[0].1, "C:/ctx/manual");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -24,7 +24,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
 
 ## 2. Daemon: el vínculo nace, muere y se advierte
 
-- [ ] 2.1 Almacén `subscriptions.toml` en el directorio de config del daemon
+- [x] 2.1 Almacén `subscriptions.toml` en el directorio de config del daemon
   (cabecera de archivo gestionado, reescritura completa, solo bloques de
   perfil), cargado en `Config::load` **antes** que el config de usuario;
   validación kebab del nombre (design D2, D4) — escenario «El nombre inválido
