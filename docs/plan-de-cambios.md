@@ -143,6 +143,9 @@ avisa al escritorio cuando un permiso espera) ·
 comparativo) ·
 `artefactos-de-cada-push` (abierta 2026-08-05, vía rápida: el build de cada
 push a `main` descargable como artefacto de la ejecución, jamás como release) ·
+`vincular-suscripciones` (abierta 2026-08-08, planificada: el pedido
+fundacional — vincular N suscripciones por proveedor desde cualquier
+superficie, con la variable de contexto como dato del registro) ·
 `registro-agentes-en-superficie` · `menu-nativo-aplicacion` · `sandbox-propio` ·
 `hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` ·
 `metricas-sdd-locales` · `lsp-superficie-revision`.
@@ -472,6 +475,30 @@ de frase pegada al sha y se leía como una oración sobre la base— y dejó ano
 un falso positivo del operador que se repetirá si no se nombra: medir una
 superficie nueva con un binario de `target/release` viejo se parece exactamente
 a un bug de la superficie nueva.
+
+### `vincular-suscripciones` — abierta el 2026-08-08
+
+El pedido fundacional en palabras del mantenedor: «si tengo dos suscripciones
+de Claude y tres de Codex, debo poder vincular esas suscripciones en la
+flota». El motor existe y está probado (`flota-multiproveedor`: perfiles con
+overlay de contexto, resolución sin degradar, carrera de dos suscripciones
+verificada e2e; el overlay llega al CLI real a través de los adaptadores
+propios, que lanzan sin limpiar el entorno), y la verificación empírica del
+2026-08-08 sobre la máquina de desarrollo lo cerró: `CODEX_HOME=<dir vacío>
+codex login status` responde «Not logged in» mientras el contexto por defecto
+responde «Logged in using ChatGPT». Lo que no existe es el **vínculo como
+experiencia**: ninguna superficie crea, deshace ni compone una suscripción —
+solo TOML a mano, sabiendo por cuenta propia qué variable redirige cada
+proveedor. La change: la variable de contexto y el gesto de login como
+**datos del registro** (jamás un match por proveedor en el código),
+`subscription/link`/`unlink` con persistencia en un archivo propiedad del
+daemon cargado antes que lo manual (lo escrito a mano gana), el login
+**compuesto y jamás ejecutado** (§2: el contexto se crea vacío, no se lee,
+no se borra al desvincular), el duplicado de contexto advertido, y las tres
+superficies (§4). Cuatro deltas ADDED-only (`fleet-catalog`, `cli-contract`,
+`gui-shell`, `tui-shell`), diecisiete escenarios, cero dependencias nuevas.
+Fuera de alcance por escrito: ejecutar o verificar logins, balanceo entre
+suscripciones, y migrar los perfiles manuales existentes.
 
 ### `avisos-de-escritorio` — abierta el 2026-07-31 (comparativo de mercado)
 
