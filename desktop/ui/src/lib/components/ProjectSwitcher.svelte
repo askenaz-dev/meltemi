@@ -107,7 +107,7 @@
     max-height: 60vh;
     display: flex;
     flex-direction: column;
-    background: var(--surface-1);
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-panel);
     box-shadow: var(--shadow-overlay);

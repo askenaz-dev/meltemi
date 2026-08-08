@@ -1151,6 +1151,95 @@ fn unlinking_from_the_drawer_says_the_context_stays() {
     );
 }
 
+// Scenario: Ninguna variable de estilo se usa sin existir
+// Scenario: El conmutador de proyectos cubre lo que tapa
+#[test]
+fn every_style_variable_used_by_the_surface_is_one_that_exists() {
+    // A `var(--typo)` does not fail and does not warn: it paints nothing. That
+    // is how a floating panel shipped with no background at all, letting the
+    // navigation tree read through it. Source assertions could not see it —
+    // the node was there, correct, and invisible — so the guard is this lint:
+    // every variable used must be one the design system defines.
+    let root = repo_root().join("desktop/ui/src");
+    let mut stack = vec![root];
+    let mut defined: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut used: Vec<(String, usize, String)> = Vec::new();
+
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read src").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let is_style = path
+                .extension()
+                .is_some_and(|e| e == "svelte" || e == "css");
+            if !is_style {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            let shown = path
+                .strip_prefix(repo_root())
+                .unwrap_or(&path)
+                .display()
+                .to_string();
+            for (number, line) in text.lines().enumerate() {
+                // Definitions: `--name:` anywhere (`:root`, a theme block, a
+                // component's own scope).
+                let mut rest = line;
+                while let Some(at) = rest.find("--") {
+                    let tail = &rest[at..];
+                    let name: String = tail
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+                        .collect();
+                    let after = &tail[name.len()..];
+                    if after.trim_start().starts_with(':') && !name.is_empty() {
+                        defined.insert(name.clone());
+                    }
+                    rest = &tail[name.len().max(2)..];
+                }
+                // Uses: `var(--name`.
+                let mut rest = line;
+                while let Some(at) = rest.find("var(--") {
+                    let tail = &rest[at + 4..];
+                    let name: String = tail
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+                        .collect();
+                    if !name.is_empty() {
+                        used.push((shown.clone(), number + 1, name.clone()));
+                    }
+                    rest = &tail[name.len().max(1)..];
+                }
+            }
+        }
+    }
+
+    assert!(
+        defined.len() > 20,
+        "the lint found almost no definitions — it stopped seeing the design system"
+    );
+    let ghosts: Vec<String> = used
+        .iter()
+        .filter(|(_, _, name)| !defined.contains(name))
+        .map(|(file, line, name)| format!("{file}:{line} uses `var({name})`, never defined"))
+        .collect();
+    assert!(
+        ghosts.is_empty(),
+        "style variables used without being defined paint NOTHING:\n{}",
+        ghosts.join("\n")
+    );
+
+    // And the panel that shipped broken states its background from a token.
+    let switcher = read("desktop/ui/src/lib/components/ProjectSwitcher.svelte");
+    assert!(
+        switcher.contains("background: var(--surface)"),
+        "the project switcher paints an opaque surface"
+    );
+}
+
 fn race_board() -> String {
     read("desktop/ui/src/lib/views/Review.svelte")
 }
