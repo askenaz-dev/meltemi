@@ -92,7 +92,7 @@ warnings`, `cargo fmt --check` y la suite del crate tocado.
   test -p meltemi --test parity --test docs`
 - [x] 5.2 Smoke visual CDP del tablero (GUI construida, calles reales de
   una carrera fixture) con informe publicado en `docs/qa/` (design D6)
-- [ ] 5.3 `meltemi validate tablero-de-carrera` limpio y `meltemi verify
+- [x] 5.3 `meltemi validate tablero-de-carrera` limpio y `meltemi verify
   tablero-de-carrera` con los doce escenarios enlazados a sus tests (meta:
   cero marcas manuales); suite completa, clippy y fmt verdes en las tres
   plataformas (design D6)
