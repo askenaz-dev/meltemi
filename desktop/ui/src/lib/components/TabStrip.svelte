@@ -9,6 +9,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import {
+    GROUP_BAND_PX,
     MAX_TAB_PX,
     MIN_TAB_PX,
     SCROLL_STEP_PX,
@@ -171,7 +172,7 @@
      is a second owner nobody keeps in step (piel-de-pestanas design D8). -->
 <div
   class="strip"
-  style="--tab-min: {MIN_TAB_PX}px; --tab-max: {MAX_TAB_PX}px; --tab-join: {TAB_JOIN_PX}px"
+  style="--tab-min: {MIN_TAB_PX}px; --tab-max: {MAX_TAB_PX}px; --tab-join: {TAB_JOIN_PX}px; --group-band: {GROUP_BAND_PX}px"
 >
   {#if overflowing}
     <button
@@ -213,7 +214,11 @@
         </button>
       {/if}
       {#if !group?.collapsed}
-      <span class="tab" class:active class:grouped={group !== undefined}>
+      <span
+        class="tab {group ? `tone-${group.color}` : ''}"
+        class:active
+        class:grouped={group !== undefined}
+      >
         <button
           role="tab"
         id="tab-{item.id}"
@@ -291,9 +296,28 @@
     min-width: var(--tab-min);
     max-width: var(--tab-max);
     border: 1px solid transparent;
+    /* Every tab reserves the group band, transparent when it belongs to none:
+       joining a group must not shift a tab against its neighbours (design
+       D7). */
+    border-top-width: var(--group-band);
     border-bottom: none;
     border-radius: var(--radius-control) var(--radius-control) 0 0;
     background: transparent;
+  }
+  /* Membership visible on the tab itself, not only on the label that opens the
+     run. The colour identifies; the group's NAME still travels in the tab's
+     accessible name, so it is never the only carrier. */
+  .tab.grouped.tone-ok {
+    border-top-color: var(--ok);
+  }
+  .tab.grouped.tone-warn {
+    border-top-color: var(--warn);
+  }
+  .tab.grouped.tone-danger {
+    border-top-color: var(--danger);
+  }
+  .tab.grouped.tone-info {
+    border-top-color: var(--info);
   }
   .tab.active {
     background: var(--surface);

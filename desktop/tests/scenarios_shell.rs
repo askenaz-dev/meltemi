@@ -1651,6 +1651,42 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: La pertenencia se ve en la pestaña, no solo en la etiqueta
+#[test]
+fn a_grouped_tab_wears_its_groups_colour_without_relying_on_it() {
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+    let styles = strip.split("<style>").nth(1).expect("the strip's styles");
+    assert!(
+        strip.contains("class=\"tab {group ? `tone-${group.color}` : ''}\""),
+        "a member tab carries its group's tone"
+    );
+    for tone in ["ok", "warn", "danger", "info"] {
+        assert!(
+            styles.contains(&format!(".tab.grouped.tone-{tone} {{")),
+            "the band is drawn for the {tone} group"
+        );
+    }
+    // Reserved by every tab, so joining a group never shifts one against its
+    // neighbours.
+    let tab_rule = styles
+        .split("\n  .tab {")
+        .nth(1)
+        .expect("the tab rule")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        tab_rule.contains("border-top-width: var(--group-band)"),
+        "every tab reserves the band: {tab_rule}"
+    );
+    // And colour is never the only carrier: the name still travels in the
+    // accessible name, which the composer above already guarantees.
+    assert!(
+        strip.contains("[item.state, item.group?.name].filter(Boolean)"),
+        "the group's name stays in the tab's accessible name"
+    );
+}
+
 // Scenario: El estado no gasta ancho en repetirse
 #[test]
 fn the_tab_spends_its_width_on_the_label() {

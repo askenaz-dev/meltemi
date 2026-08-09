@@ -113,9 +113,20 @@ crate tocado si lo hubiera.
   garantías siguen exigidas, ahora por su nueva forma. -->
 - [ ] 3.3b Comprobar en el smoke (4.2) que el rótulo recupera ancho real con
   seis pestañas del mismo agente, medido
-- [ ] 3.4 Franja del color del grupo en cada pestaña miembro, con el nombre del
+- [x] 3.4 Franja del color del grupo en cada pestaña miembro, con el nombre del
   grupo intacto en el nombre accesible (design D7) — escenario «La pertenencia
   se ve en la pestaña, no solo en la etiqueta»
+  <!-- 2026-08-09: la franja es el **borde superior**, no un pseudo-elemento:
+  `::before` y `::after` ya están tomados por el separador y por la costura, y
+  una tercera capa habría exigido un elemento nuevo en el marcado. **Todas** las
+  pestañas reservan el ancho de la franja (transparente si no hay grupo), de
+  modo que entrar a un grupo no desplaza la pestaña contra sus vecinas.
+  `GROUP_BAND_PX = 3` y no 2 por una razón concreta y verificable: el `2px` del
+  swatch ya vive en esta hoja de estilo, y el guardián de la tarea 1.1 —que
+  prohíbe el literal de cualquier medida del módulo— habría disparado con
+  razón. -->
+- [ ] 3.4b Comprobar los cuatro tonos de grupo en el smoke (4.2), en los dos
+  temas
 
 ## 4. Cierre
 

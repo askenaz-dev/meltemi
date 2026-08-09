@@ -20,6 +20,13 @@ export const SCROLL_STEP_PX = 200;
  */
 export const TAB_JOIN_PX = 6;
 
+/**
+ * The band of a group's colour along a member tab's top edge. Every tab
+ * reserves it — transparent when the tab belongs to no group — so belonging to
+ * one never shifts a tab against its neighbours.
+ */
+export const GROUP_BAND_PX = 3;
+
 /** Whether the strip overflows, given what it can show and what it holds. */
 export function overflows(visibleWidth: number, contentWidth: number): boolean {
   // A pixel of slack: sub-pixel layout rounding must not raise the controls on
