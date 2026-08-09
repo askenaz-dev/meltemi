@@ -1579,6 +1579,66 @@ fn the_tab_strip_is_one_row_that_scrolls_when_it_has_to() {
     );
 }
 
+// Scenario: La activa se distingue por su forma
+#[test]
+fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+    let styles = strip.split("<style>").nth(1).expect("the strip's styles");
+    let rule = |name: &str| {
+        styles
+            .split(&format!("\n  {name} {{"))
+            .nth(1)
+            .unwrap_or_else(|| panic!("the {name} rule"))
+            .split("\n  }")
+            .next()
+            .expect("body")
+            .to_owned()
+    };
+
+    // The strip is a layer of its own; without it the active tab has no darker
+    // surface to rise from and both states sit a step apart on the panel.
+    assert!(
+        rule(".tabs").contains("background: var(--surface-2)"),
+        "the strip carries its own layer"
+    );
+    let active = rule(".tab.active");
+    assert!(
+        active.contains("background: var(--surface)"),
+        "the active tab takes the surface of the panel it governs: {active}"
+    );
+    // An accent border is the shape of a focused text field, not of a raised
+    // tab. Selection is carried by surface and seam; the focus ring is a
+    // separate thing and stays untouched.
+    assert!(
+        !active.contains("--accent"),
+        "selection is not marked with an accent border: {active}"
+    );
+    assert!(
+        rule(".tab").contains("border: 1px solid transparent"),
+        "inactive tabs stop drawing a box each"
+    );
+    // The seam, drawn by composition alone.
+    assert!(
+        styles.contains(".tab.active::before") && styles.contains(".tab.active::after"),
+        "the active tab has both feet"
+    );
+    // Read the declarations, not the prose: a comment naming what the rule
+    // avoids must not read as the rule using it.
+    let mut code = String::new();
+    let mut rest = styles;
+    while let Some((before, after)) = rest.split_once("/*") {
+        code.push_str(before);
+        rest = after.split_once("*/").map(|(_, tail)| tail).unwrap_or("");
+    }
+    code.push_str(rest);
+    assert!(
+        code.matches("radial-gradient").count() >= 2
+            && !code.contains("mask-composite")
+            && !code.contains("@property"),
+        "the curve stays inside the cross-webview budget"
+    );
+}
+
 // Scenario: La hoja de estilo no repite lo que el módulo declara
 #[test]
 fn the_strips_measurements_have_a_single_owner() {

@@ -8,7 +8,14 @@
 -->
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { MAX_TAB_PX, MIN_TAB_PX, SCROLL_STEP_PX, canScroll, overflows } from "../tab-strip";
+  import {
+    MAX_TAB_PX,
+    MIN_TAB_PX,
+    SCROLL_STEP_PX,
+    TAB_JOIN_PX,
+    canScroll,
+    overflows,
+  } from "../tab-strip";
   import Icon from "./Icon.svelte";
 
   export interface TabItem {
@@ -145,7 +152,10 @@
 <!-- The strip's numbers have one owner: the module declares them, the element
      publishes them, and the stylesheet consumes them. A literal copy in the CSS
      is a second owner nobody keeps in step (piel-de-pestanas design D8). -->
-<div class="strip" style="--tab-min: {MIN_TAB_PX}px; --tab-max: {MAX_TAB_PX}px">
+<div
+  class="strip"
+  style="--tab-min: {MIN_TAB_PX}px; --tab-max: {MAX_TAB_PX}px; --tab-join: {TAB_JOIN_PX}px"
+>
   {#if overflowing}
     <button
       class="ghost nudge"
@@ -239,6 +249,10 @@
     align-items: flex-end;
     flex: 1 1 auto;
     min-width: 0;
+    /* The strip is its own layer, darker than the panel: that contrast is what
+       lets the active tab rise by joining the panel instead of by wearing an
+       accent border (design D1). */
+    background: var(--surface-2);
     overflow-x: auto;
     overflow-y: hidden;
     /* The strip scrolls by its controls and by the wheel; it never shows a bar
@@ -248,22 +262,53 @@
   .tabs::-webkit-scrollbar {
     display: none;
   }
+  /* A browser's anatomy: the tabs do not draw a box each, they rest on the
+     strip's own layer, and the active one takes the panel's surface and joins
+     it. Without that layer the active tab has nothing to rise from
+     (piel-de-pestanas design D1). */
   .tab {
     display: inline-flex;
     align-items: center;
+    position: relative;
     flex: 0 1 auto;
     min-width: var(--tab-min);
     max-width: var(--tab-max);
-    border: 1px solid var(--border);
-    /* Chrome's shape: contiguous, top corners rounded, the active one joined to
-       the panel it governs. */
+    border: 1px solid transparent;
     border-bottom: none;
     border-radius: var(--radius-control) var(--radius-control) 0 0;
-    background: var(--surface-2);
+    background: transparent;
   }
   .tab.active {
-    border-color: var(--accent);
     background: var(--surface);
+  }
+  /* The seam: two squares filled with the panel's colour and bitten by a
+     quarter circle, so the active tab spills into the strip in a curve instead
+     of ending in a corner. Composition only — no mask-composite, no @property
+     (design D2). */
+  .tab.active::before,
+  .tab.active::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    width: var(--tab-join);
+    height: var(--tab-join);
+    pointer-events: none;
+  }
+  .tab.active::before {
+    left: calc(-1 * var(--tab-join));
+    background: radial-gradient(
+      circle at top left,
+      transparent var(--tab-join),
+      var(--surface) var(--tab-join)
+    );
+  }
+  .tab.active::after {
+    right: calc(-1 * var(--tab-join));
+    background: radial-gradient(
+      circle at top right,
+      transparent var(--tab-join),
+      var(--surface) var(--tab-join)
+    );
   }
   .nudge {
     flex: none;

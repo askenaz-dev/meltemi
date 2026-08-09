@@ -24,14 +24,26 @@ crate tocado si lo hubiera.
 - [ ] 1.2 Las medidas nuevas de la piel (alto de pestaña, radio superior, ancho
   de la franja de grupo) nacen en `tab-strip.ts` con el mismo trato, cada una
   en la tarea que la usa (design D8) — mismo escenario, cubierto por derivación
+  <!-- 2026-08-09: `TAB_JOIN_PX` entró con 2.1, que es quien la usa. Las
+  restantes llegan con 2.3 y 3.4. -->
 
 ## 2. La anatomía
 
-- [ ] 2.1 La tira gana su capa (`background`), las inactivas se vuelven
+- [x] 2.1 La tira gana su capa (`background`), las inactivas se vuelven
   transparentes y la activa toma la superficie del panel; se retira
   `border-color: var(--accent)` y la activa se une al panel con las curvas de
   pie por pseudo-elemento y `radial-gradient` (design D1, D2) — escenario «La
   activa se distingue por su forma»
+  <!-- 2026-08-09: el test lee las **declaraciones**, no la prosa: la primera
+  versión se cazó a sí misma, porque el comentario que explica qué evita la
+  regla («no mask-composite, no @property») hacía fallar la aserción que
+  buscaba esos nombres en el texto del bloque. Se retiran los comentarios antes
+  de comprobar; el comentario útil se queda donde el próximo lector lo
+  necesita. -->
+- [ ] 2.1b El contraste real entre la capa de la tira y el panel se mide en el
+  smoke (4.2): `--surface` y `--surface-2` están a un paso de tono en el tema
+  oscuro y el design D1 ya declaró la palanca si no separan (hairline o la
+  sombra de un nivel, jamás un color fuera de los tokens)
 - [ ] 2.2 La activa conserva marca bajo `forced-colors`, con el anillo de foco
   global y `aria-selected` intactos (design D2) — escenario «La selección
   sobrevive a la sustitución de colores»

@@ -14,6 +14,12 @@ export const MAX_TAB_PX = 240;
 /** How far one press of an overflow control moves the strip. */
 export const SCROLL_STEP_PX = 200;
 
+/**
+ * The radius of the curve that joins the active tab to the panel it governs.
+ * Small on purpose: it is the seam a browser draws, not an ornament.
+ */
+export const TAB_JOIN_PX = 6;
+
 /** Whether the strip overflows, given what it can show and what it holds. */
 export function overflows(visibleWidth: number, contentWidth: number): boolean {
   // A pixel of slack: sub-pixel layout rounding must not raise the controls on
