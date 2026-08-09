@@ -60,6 +60,13 @@ pub struct UiState {
     /// which is what the onboarding promises (panel-opaco-y-nav-plegable D3).
     #[serde(default)]
     pub nav_collapsed: bool,
+
+    /// Height of the navigation entries in px, as the divider left it. Absent
+    /// — the only value a profile written before this field existed has —
+    /// means the default split: the entries take their natural height and the
+    /// tree takes the rest.
+    #[serde(default)]
+    pub nav_split: Option<u32>,
 }
 
 /// The command the user configured for a language, if any.
@@ -156,6 +163,8 @@ mod tests {
         assert!(state.theme.is_none());
         assert!(state.window.is_none());
         assert!(state.editor_recents.is_empty());
+        assert!(!state.nav_collapsed);
+        assert!(state.nav_split.is_none());
         // A partial file keeps the fields it does carry.
         let partial: UiState =
             serde_json::from_str(r#"{"theme":"dark","lastView":"fleet"}"#).expect("partial");

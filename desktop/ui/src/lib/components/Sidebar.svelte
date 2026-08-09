@@ -18,7 +18,7 @@
   import Avatar from "./Avatar.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
-  import { setNavCollapsed, uiState } from "../ui-state";
+  import { setNavCollapsed, setNavSplit, uiState } from "../ui-state";
   import { MIN_NAV_PX, MIN_TREE_PX, STEP_PX, clampNavHeight, stepNavHeight } from "../nav-split";
 
   let {
@@ -51,7 +51,7 @@
    * How the bar's height is split. `null` means "as the browser lays it out",
    * which is what a profile that never touched the divider gets.
    */
-  let navSplit: number | null = $state(null);
+  let navSplit: number | null = $state($uiState.navSplit);
   let navEl: HTMLElement | undefined = $state();
   let treeEl: HTMLElement | undefined = $state();
   /** Plain, not reactive: only the pointer handlers read it, mid-drag. */
@@ -77,6 +77,20 @@
   function endDrag() {
     if (!dragFrom) return;
     dragFrom = null;
+    setNavSplit(navSplit);
+  }
+
+  /**
+   * A remembered split that no longer fits falls back to one that does — the
+   * same spirit as the window geometry, which is validated against the screens
+   * that exist. The inequality is what makes this converge: without it the
+   * effect writes the value it just read and loops, because the value it writes
+   * is what changes the height it reads.
+   */
+  function reclamp() {
+    if (navSplit === null || folded || !navEl || !treeEl) return;
+    const fixed = clampNavHeight(navSplit, availableHeight());
+    if (fixed !== navSplit) navSplit = fixed;
   }
 
   /**
@@ -95,6 +109,7 @@
     event.preventDefault();
     event.stopPropagation();
     navSplit = next;
+    setNavSplit(next);
   }
   /** The node whose forget is awaiting confirmation. */
   let forgetTarget: { root: string; name: string } | null = $state(null);
@@ -196,6 +211,8 @@
     return null;
   }
 </script>
+
+<svelte:window onresize={reclamp} />
 
 <aside class:folded aria-label={$t("nav.viewLabel")}>
   <div class="identity">

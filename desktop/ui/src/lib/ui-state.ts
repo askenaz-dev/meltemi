@@ -24,6 +24,8 @@ export interface UiState {
   activeProject: string | null;
   /** Whether the navigation sidebar is folded to its rail. */
   navCollapsed: boolean;
+  /** Navigation height in px; null means "as the browser lays it out". */
+  navSplit: number | null;
 }
 
 const EMPTY: UiState = {
@@ -36,6 +38,7 @@ const EMPTY: UiState = {
   paletteUsage: {},
   activeProject: null,
   navCollapsed: false,
+  navSplit: null,
 };
 
 const store = writable<UiState>(EMPTY);
@@ -97,6 +100,13 @@ export function setOpenWithTemplate(template: string): void {
     a layout preference belongs with the other layout preferences (D3). */
 export function setNavCollapsed(collapsed: boolean): void {
   persist({ ...get(store), navCollapsed: collapsed });
+}
+
+/** Remembers the split, on release and never mid-drag: this writes the whole
+    object, and ~200 writes per drag would feed a race the host already has
+    with its own load-modify-save of the window geometry (D3). */
+export function setNavSplit(px: number | null): void {
+  persist({ ...get(store), navSplit: px });
 }
 
 export function setActiveProject(root: string | null): void {

@@ -1151,6 +1151,80 @@ fn unlinking_from_the_drawer_says_the_context_stays() {
     );
 }
 
+// Scenario: El reparto se recuerda, el primer arranque no
+// Scenario: Una ventana más pequeña no deja el reparto inservible
+#[test]
+fn the_split_is_remembered_beside_the_other_layout_preferences() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        sidebar.contains("$state($uiState.navSplit)") && sidebar.contains("setNavSplit("),
+        "the split is read back on mount and written when it changes"
+    );
+    // Written on release, not per pointermove: `persist` writes the WHOLE
+    // object, and ~200 writes per drag would feed the race the host already has
+    // with its own load-modify-save of the window geometry.
+    let moved = sidebar
+        .split("function onDragMove")
+        .nth(1)
+        .expect("the move handler")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        !moved.contains("setNavSplit"),
+        "the drag does not persist on every move: {moved}"
+    );
+    let ended = sidebar
+        .split("function endDrag")
+        .nth(1)
+        .expect("the release handler")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        ended.contains("setNavSplit(navSplit)"),
+        "the release is what persists: {ended}"
+    );
+
+    // A remembered split is re-clamped against the bar that exists now.
+    assert!(
+        sidebar.contains("<svelte:window onresize={reclamp} />"),
+        "a smaller window re-clamps the split"
+    );
+    let reclamp = sidebar
+        .split("function reclamp()")
+        .nth(1)
+        .expect("the reclamp")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        reclamp.contains("clampNavHeight(") && reclamp.contains("if (fixed !== navSplit)"),
+        "the inequality is what stops the effect writing what it just read: {reclamp}"
+    );
+
+    // Both sides of the round trip, or the value is dropped in transit.
+    let ui_state = read("desktop/ui/src/lib/ui-state.ts");
+    assert!(
+        ui_state.contains("navSplit: number | null") && ui_state.contains("navSplit: null"),
+        "the preference lives with the others and defaults to the browser's layout"
+    );
+    let rust = read("desktop/src/uistate.rs");
+    let field = rust
+        .split("pub nav_split: Option<u32>")
+        .next()
+        .expect("the field's preamble");
+    assert!(
+        rust.contains("pub nav_split: Option<u32>"),
+        "the host stores the split as an optional number"
+    );
+    assert!(
+        field.rfind("#[serde(default)]").unwrap_or(0)
+            > field.rfind("pub nav_collapsed").unwrap_or(0),
+        "a profile saved before this field existed still loads, at the default split"
+    );
+}
+
 // Scenario: Arrastrar la línea reparte el alto
 // Scenario: El reparto se ajusta con el teclado
 // Scenario: Plegada la barra, no hay reparto que hacer

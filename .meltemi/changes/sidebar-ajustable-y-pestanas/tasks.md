@@ -23,7 +23,7 @@ bloque 3 es el punto de corte declarado si el alcance se demuestra excesivo.
   escenarios «Arrastrar la línea reparte el alto», «El reparto se ajusta con el
   teclado», «Plegada la barra, no hay reparto que hacer» y «Ninguna entrada se
   pierde al encoger la navegación» — gates: suite de cableado
-- [ ] 1.3 Persistencia: `navSplit` en `ui-state.ts` con `setNavSplit`, escritura
+- [x] 1.3 Persistencia: `navSplit` en `ui-state.ts` con `setNavSplit`, escritura
   al soltar y no durante el arrastre; `nav_split: Option<u32>` tras
   `#[serde(default)]` en `desktop/src/uistate.rs` con su test de defaults
   extendido; reajuste contra la ventana que existe, con la desigualdad que lo
