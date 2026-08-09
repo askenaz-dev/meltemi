@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { SCROLL_STEP_PX, canScroll, overflows } from "../tab-strip";
+  import { MAX_TAB_PX, MIN_TAB_PX, SCROLL_STEP_PX, canScroll, overflows } from "../tab-strip";
   import Icon from "./Icon.svelte";
 
   export interface TabItem {
@@ -142,7 +142,10 @@
   }
 </script>
 
-<div class="strip">
+<!-- The strip's numbers have one owner: the module declares them, the element
+     publishes them, and the stylesheet consumes them. A literal copy in the CSS
+     is a second owner nobody keeps in step (piel-de-pestanas design D8). -->
+<div class="strip" style="--tab-min: {MIN_TAB_PX}px; --tab-max: {MAX_TAB_PX}px">
   {#if overflowing}
     <button
       class="ghost nudge"
@@ -249,8 +252,8 @@
     display: inline-flex;
     align-items: center;
     flex: 0 1 auto;
-    min-width: 96px;
-    max-width: 240px;
+    min-width: var(--tab-min);
+    max-width: var(--tab-max);
     border: 1px solid var(--border);
     /* Chrome's shape: contiguous, top corners rounded, the active one joined to
        the panel it governs. */

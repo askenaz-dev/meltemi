@@ -1539,13 +1539,19 @@ fn the_tab_strip_is_one_row_that_scrolls_when_it_has_to() {
         .next()
         .expect("body");
     assert!(
-        tab_rule.contains("flex: 0 1 auto") && tab_rule.contains("min-width: 96px"),
+        tab_rule.contains("flex: 0 1 auto") && tab_rule.contains("min-width: var(--tab-min)"),
         "tabs shrink to a legible floor before the strip scrolls: {tab_rule}"
     );
     let numbers = read("desktop/ui/src/lib/tab-strip.ts");
     assert!(
         numbers.contains("MIN_TAB_PX = 96"),
         "the floor lives in the module the CSS agrees with"
+    );
+    // Agrees THROUGH the element, not by a second copy of the number: the strip
+    // publishes what the module declares (piel-de-pestanas design D8).
+    assert!(
+        strip.contains("--tab-min: {MIN_TAB_PX}px"),
+        "the element publishes the module's floor to the stylesheet"
     );
 
     // The controls exist ONLY while there is something to scroll, and each is
@@ -1571,6 +1577,35 @@ fn the_tab_strip_is_one_row_that_scrolls_when_it_has_to() {
         strip.contains("scrollIntoView({ block: \"nearest\", inline: \"nearest\" })"),
         "the active tab is brought into view, moving the minimum"
     );
+}
+
+// Scenario: La hoja de estilo no repite lo que el módulo declara
+#[test]
+fn the_strips_measurements_have_a_single_owner() {
+    // Every pixel value the module declares must reach the stylesheet through a
+    // custom property. A literal copy is a second owner, and the pair drifts in
+    // silence: that is how MIN_TAB_PX ended up imported and unused while its 96
+    // sat hand-copied in the CSS (piel-de-pestanas design D8).
+    let numbers = read("desktop/ui/src/lib/tab-strip.ts");
+    let declared: Vec<String> = numbers
+        .lines()
+        .filter_map(|line| line.split_once("_PX = "))
+        .filter_map(|(_, tail)| tail.trim().trim_end_matches(';').parse::<u32>().ok())
+        .map(|value| format!("{value}px"))
+        .collect();
+    assert!(
+        declared.len() >= 3,
+        "the module still declares the strip's numbers: {declared:?}"
+    );
+
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+    let styles = strip.split("<style>").nth(1).expect("the strip's styles");
+    for literal in &declared {
+        assert!(
+            !styles.contains(literal.as_str()),
+            "{literal} is declared in tab-strip.ts and copied into the stylesheet"
+        );
+    }
 }
 
 // Scenario: Varias suscripciones del mismo agente se leen juntas

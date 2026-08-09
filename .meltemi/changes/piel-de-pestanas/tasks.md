@@ -8,12 +8,22 @@ crate tocado si lo hubiera.
 
 ## 1. Las medidas, antes que la piel
 
-- [ ] 1.1 `tab-strip.ts` publica también las medidas de la piel (alto de
-  pestaña, radio superior, ancho de la franja de grupo) y `TabStrip.svelte` las
-  expone como propiedades personalizadas en su elemento raíz, de modo que el
-  CSS deje de repetir `96px` y `240px` a mano (design D8) — escenario «La hoja
-  de estilo no repite lo que el módulo declara» — gates: `npm test`, `npm run
-  check`
+- [x] 1.1 `TabStrip.svelte` publica como propiedades personalizadas las medidas
+  que `tab-strip.ts` declara, de modo que el CSS deje de repetir `96px` y
+  `240px` a mano (design D8) — escenario «La hoja de estilo no repite lo que el
+  módulo declara» — gates: `npm test`, `npm run check`
+  <!-- 2026-08-09: el test `the_strips_measurements_have_a_single_owner` no
+  comprueba dos números concretos: **deriva** de `tab-strip.ts` todo valor
+  `*_PX` declarado y exige que ninguno aparezca literal en la hoja de estilo,
+  así que las medidas de la piel que lleguen en 2.x quedan cubiertas por
+  construcción. Nacen con su tarea y no aquí, para no repetir el defecto que
+  esta tarea corrige: una constante declarada sin uso es la mitad de una
+  duplicación. Hubo que enmendar la aserción vecina de `pestanas-como-chrome`,
+  que exigía `min-width: 96px` **literal** —es decir, exigía la duplicación—;
+  su escenario sigue cubierto, ahora a través del elemento. -->
+- [ ] 1.2 Las medidas nuevas de la piel (alto de pestaña, radio superior, ancho
+  de la franja de grupo) nacen en `tab-strip.ts` con el mismo trato, cada una
+  en la tarea que la usa (design D8) — mismo escenario, cubierto por derivación
 
 ## 2. La anatomía
 
