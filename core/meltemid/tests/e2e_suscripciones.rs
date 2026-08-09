@@ -35,6 +35,23 @@ fn mock_agent_dir() -> PathBuf {
     dir
 }
 
+/// A candidate path is a FILE: the binary itself, never the directory holding
+/// it. A directory candidate resolves to nothing on every platform — Windows
+/// only appears to work because cargo puts the target dir on the test
+/// process's PATH there, which is why a green local run says nothing about
+/// Linux and macOS (same trap as `e2e_flota.rs`).
+fn mock_agent_candidate() -> String {
+    mock_agent_dir()
+        .join(if cfg!(windows) {
+            "mock-agent.exe"
+        } else {
+            "mock-agent"
+        })
+        .display()
+        .to_string()
+        .replace('\\', "/")
+}
+
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
         .args(args)
@@ -55,13 +72,13 @@ fn fixture(tag: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("meltemi-e2e-subs-{}-{tag}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join(".meltemi/changes/dark-mode")).unwrap();
-    let mock_dir = mock_agent_dir().display().to_string().replace('\\', "/");
+    let mock_candidate = mock_agent_candidate();
     std::fs::write(
         root.join(".meltemi/registry.toml"),
         format!(
             "version = \"subs-e2e\"\n\n\
-             [[agents]]\nid = \"provider-a\"\nname = \"Provider A\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_dir}']\nauth-context-var = \"MELTEMI_MOCK_MARKER\"\nlogin-hint = \"provider-a login\"\n\n\
-             [[agents]]\nid = \"provider-b\"\nname = \"Provider B\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_dir}']\n"
+             [[agents]]\nid = \"provider-a\"\nname = \"Provider A\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_candidate}']\nauth-context-var = \"MELTEMI_MOCK_MARKER\"\nlogin-hint = \"provider-a login\"\n\n\
+             [[agents]]\nid = \"provider-b\"\nname = \"Provider B\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_candidate}']\n"
         ),
     )
     .unwrap();
@@ -393,13 +410,13 @@ async fn two_and_three_subscriptions_across_two_providers_run_side_by_side() {
     let root = fixture("founding");
     // provider-b needs a variable too for this one: rewrite the registry with
     // both providers declaring the mock's echo variable.
-    let mock_dir = mock_agent_dir().display().to_string().replace('\\', "/");
+    let mock_candidate = mock_agent_candidate();
     std::fs::write(
         root.join(".meltemi/registry.toml"),
         format!(
             "version = \"founding\"\n\n\
-             [[agents]]\nid = \"provider-a\"\nname = \"Provider A\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_dir}']\nauth-context-var = \"MELTEMI_MOCK_MARKER\"\nlogin-hint = \"provider-a login\"\n\n\
-             [[agents]]\nid = \"provider-b\"\nname = \"Provider B\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_dir}']\nauth-context-var = \"MELTEMI_MOCK_MARKER\"\nlogin-hint = \"provider-b login\"\n"
+             [[agents]]\nid = \"provider-a\"\nname = \"Provider A\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_candidate}']\nauth-context-var = \"MELTEMI_MOCK_MARKER\"\nlogin-hint = \"provider-a login\"\n\n\
+             [[agents]]\nid = \"provider-b\"\nname = \"Provider B\"\nlevel = 1\nbin = \"mock-agent\"\nacp-args = []\ncandidate-paths = ['{mock_candidate}']\nauth-context-var = \"MELTEMI_MOCK_MARKER\"\nlogin-hint = \"provider-b login\"\n"
         ),
     )
     .unwrap();
