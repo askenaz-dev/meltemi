@@ -628,6 +628,68 @@ del artefacto. Costo dicho sin maquillar —tres jobs caros por push— con dos
 diales declarados para bajarlo: el bloque `on:` y la matriz de plataformas.
 Cuatro deltas ADDED sobre `release-distribution`, cero dependencias nuevas.
 
+**Desenlace (2026-08-09) — verificada en runner real.** El primer push a
+`main` tras el merge (commit `5b979c5c`, 2026-08-06) dejó el run de `Build`
+**verde en 15m3s** con sus tres artefactos descargables; el de macOS,
+abierto y no inferido, trae el **DMG normalizado** y el `tar.gz` con los
+cuatro binarios —los dos adaptadores propios incluidos— más `SHA256SUMS` y el
+`UNSIGNED-BUILD.txt` íntegro. Tiempos de pared, el dato con el que se decide
+la cadencia: **Linux 7m36s · macOS 9m35s · Windows 14m59s**. Los tres pasos de
+presupuesto cerraron verdes, así que gatean esta ruta de hecho. No se creó
+release alguna y `releases/latest` sigue en la **v0.1.0 firmada**. Evidencia
+completa de los seis puntos en `tasks.md` 4.2. La segunda corrida (commit
+`5f01907`, mismo día) salió verde en **3m29s / 3m36s / 5m16s**: el par
+**caché fría ~15 min, caché caliente ~5 min** es el número real de la
+cadencia, un tercio de lo que la propuesta declaró para el caso normal.
+
+> **Hallazgo del mismo push, ajeno a esta change y ya resuelto por sí solo**:
+> `publish-site` de `release.yml` arrancó a los **71 segundos** —sin esperar
+> empaquetado alguno, que era la razón entera de no tocar aquel archivo— pero
+> su `actions/deploy-pages@v4` agotó la espera («Timeout reached, aborting!»,
+> 10m9s), y el del run del tag `v0.1.1`, empujado **18 segundos después**,
+> murió con «Deployment cancelled». En el push del 2026-08-09 el mismo job
+> completó **con éxito**, así que la causa fue la concurrencia por el entorno
+> Pages, no una rotura del pipeline. Queda escrito para que un rojo idéntico
+> no se lea mañana como defecto nuevo. Siguen abiertos, y son del mantenedor
+> porque tocan credenciales y configuración del repositorio: el **HTTPS sin
+> provisionar** (`https_enforced: false`) y el **borrador `v0.1.1` sin
+> publicar** que dejó aquel run de tag.
+
+### Cuatro días sin gate verde, y lo que dejaron pasar (2026-08-09)
+
+Al empujar la tanda de propuestas de este día, `CI` salió **rojo en las tres
+plataformas** — y el diagnóstico dejó ver algo más grande que su causa
+inmediata. **Entre el 2026-08-06 y el 2026-08-09 no corrió ni un solo run de
+`ci.yml`**: toda la tanda UX (divisor, pestañas, avisos, flota por
+suscripción, piel de Chrome) entró a `main` sin pasar por los gates, y su
+archivado se apoyó en corridas locales. Lo que eso dejó pasar, encontrado y
+corregido en el acto:
+
+- **Un `ReferenceError` vivo en el camino de permisos**: `stores.ts` llamaba a
+  `pushNotice` en los manejadores de `permission/request` y
+  `permission/timeout`, pero el módulo solo la **re-exportaba**
+  (`export { … } from "./notices"`, que no crea binding local). Un permiso
+  llegado por push reventaba el manejador: sin aviso **y sin el
+  `refreshPending()` que venía después**. Es exactamente el camino que
+  `espera-humana` y `sesion-esperando` construyeron. Lo introdujo
+  `cromo-que-no-estorba` al sacar los avisos a su módulo puro.
+- Cuatro **claves i18n duplicadas** (`fleet.level.declared` y
+  `fleet.level.verified`, en los dos idiomas), de `flota-por-suscripcion`.
+- `MIN_TAB_PX` importado y no usado en `TabStrip.svelte`, con el `96px`
+  duplicado a mano en su CSS — la constante sigue en `tab-strip.ts` y
+  `piel-de-pestanas` la reconectará.
+- `App.svelte` comparaba `view === "sessions"` sobre un `$state` que TypeScript
+  estrechaba al literal `"home"` desde que el compositor pasó a ser la vista de
+  aterrizaje; anotado como `$state<ViewId>` para que el estado vuelva a tener
+  el tipo que dice tener.
+
+Y la causa inmediata del rojo: un aviso de seguridad publicado entre ambos
+pushes — `nanoid <3.3.17` (**high**, GHSA-2v37-7h3g-55p8) y `postcss`
+(moderate), ambos transitivos de Vite. `npm audit fix` los subió a 3.3.18 y
+8.5.26 sin tocar `package.json`. **Lección de método, no anécdota**: el gate
+solo protege si corre; conviene mirar que corrió antes de dar una tanda por
+cerrada.
+
 ### `cromo-que-no-estorba` — abierta el 2026-08-08, vía rápida
 
 Tres frases del mantenedor sobre una captura: el scroll del panel derecho, los

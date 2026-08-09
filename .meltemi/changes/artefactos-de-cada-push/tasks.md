@@ -86,6 +86,80 @@
   razón entera de no tocar aquel archivo—; y (6) que no se creó release alguna y
   que `releases/latest` sigue resolviendo a la última firmada. -->
 
-- [ ] 4.2 Anotar el resultado de esa verificación tras el primer push a `main`
+- [x] 4.2 Anotar el resultado de esa verificación tras el primer push a `main`
   (los seis puntos de 4.1), con el tiempo de pared por plataforma, antes de
   archivar la change
+  <!-- 2026-08-09: el primer push a `main` tras el merge ocurrió el 2026-08-06
+  (commit `5b979c5c`) y disparó el run **31105696074** de `Build`,
+  **completado con éxito en 15m3s**. Los seis puntos, medidos contra
+  ese run y contra los artefactos descargados de él (siguen vivos hasta el
+  2026-08-13; la retención de 7 días se comporta como se declaró):
+
+  1. **Los tres jobs completan en runner real y dejan sus tres artefactos.**
+     `unsigned build (ubuntu-latest)`, `(macos-latest)` y `(windows-latest)`,
+     los tres verdes, con los 19 pasos de cada job en `success` — incluidos
+     los tres presupuestos (`TUI size budget`, `Adapter size budget`, `GUI
+     installer size budget`), que por tanto **gatean esta ruta de verdad y no
+     de palabra**. Artefactos publicados en la página del run:
+     `meltemi-unsigned-Linux-5b979c5c` (12 723 808 B),
+     `meltemi-unsigned-macOS-5b979c5c` (12 106 948 B) y
+     `meltemi-unsigned-Windows-5b979c5c` (10 782 152 B) — el nombre lleva SO y
+     SHA corto del commit, como exige el requisito.
+  2. **El artefacto de macOS trae lo que promete** (descargado y abierto, no
+     inferido del YAML): `meltemi-desktop-macOS.dmg` (4 743 450 B) ya
+     normalizado, `meltemi-macOS.tar.gz` (7 413 725 B) cuyo contenido es
+     exactamente `meltemi`, `meltemid`, `meltemi-claude-acp` y
+     `meltemi-codex-acp` —los cuatro binarios, con los dos adaptadores
+     propios—, más `SHA256SUMS` de las dos piezas. El DMG que la máquina
+     Windows del mantenedor no puede construir queda descargable desde la
+     página del run, que era el pedido entero de esta change.
+  3. **Tiempo de pared por plataforma** — el dato con el que se decide si la
+     cadencia baja a `workflow_dispatch` o a `schedule`: **Linux 7m36s**,
+     **macOS 9m35s**, **Windows 14m59s**; el run completo, 15m3s (los tres en
+     paralelo, así que el reloj lo marca Windows). El costo declarado en la
+     propuesta —«el gasto más caro que este repositorio haya añadido a
+     `main`»— se confirma en su orden de magnitud y no lo excede: ningún job
+     se acercó al límite del runner.
+  4. **El aviso viaja a sus dos destinos.** El paso `Declare the build
+     unsigned` cerró en `success` en los tres jobs (el que escribe al resumen
+     del run y al artefacto), y `UNSIGNED-BUILD.txt` (1 311 B) está dentro del
+     artefacto descargado, con el texto íntegro de `scripts/`: qué no lleva
+     (firma, atestación, publicación), por qué la clave nunca toca CI, y la
+     URL de `releases/latest` como la vía de instalación.
+  5. **`publish-site` no esperó a nada nuevo, que era la razón entera de no
+     tocar `release.yml`**: el run de `Release` en ese mismo push se creó a
+     las 13:23:36Z y su job `publish site` arrancó a las 13:24:47Z — **71
+     segundos después**, sin esperar empaquetado alguno (los jobs de tag
+     quedaron `skipped` en 0s, como debía). La mitad medible del punto queda
+     confirmada. **La otra mitad falló por causa ajena a esta change y se
+     anota sin maquillar**: el paso `actions/deploy-pages@v4` de ese job
+     agotó su espera («Timeout reached, aborting!») a los 10m9s, y el mismo
+     paso del run del tag `v0.1.1` —empujado 18 s después— murió con
+     «Deployment cancelled». El sitio sigue en pie (HTTP 200 en meltemi.dev,
+     sirviendo el último despliegue bueno) y ningún job de `build.yml` está
+     implicado: es el entorno Pages del repositorio, no el grafo de jobs.
+     Queda anotado como hallazgo en `docs/plan-de-cambios.md`, no colado aquí.
+  6. **No se creó release alguna por esta ruta y `releases/latest` sigue
+     resolviendo a la última firmada.** `build.yml` no publicó nada —su
+     cabecera `contents: read` lo hace imposible, y el conjunto negativo de
+     tests lo pinea—; `releases/latest` sigue siendo **v0.1.0**, la firmada
+     del 2026-07-26. El borrador `v0.1.1` que existe en el repositorio lo creó
+     el run del **tag**, no esta ruta, y sigue en `Draft`: los enlaces de
+     descarga del sitio no cambiaron de destino.
+
+  **Segunda corrida, sobre el commit de hoy** (`5f01907`, run 31326960758,
+  2026-08-09): **verde en las tres plataformas** — ubuntu 3m29s, macOS 3m36s,
+  Windows 5m16s. La ruta no dependía del commit que la introdujo, y el número
+  que importa para la cadencia es este par: **caché fría ~15 min, caché
+  caliente ~5 min** (`Swatinem/rust-cache` por job, sin afinar). El costo por
+  push, en el caso normal, es un tercio del que la propuesta declaró.
+
+  **Y el punto 5 queda cerrado con evidencia posterior**: en este mismo push
+  el workflow `Release` completó **con éxito**, `publish site` incluido. El
+  fallo de `deploy-pages` del 2026-08-06 fue por tanto **transitorio, y su
+  causa más probable es la concurrencia** —un push a `main` y un push de tag
+  separados por 18 segundos, compitiendo por el mismo entorno Pages: el
+  primero agotó su espera de 10 min y el segundo murió con «Deployment
+  cancelled»—, no un defecto del pipeline ni de esta change. Se deja escrito
+  para que un rojo idéntico no se lea mañana como una rotura nueva. -->
+
