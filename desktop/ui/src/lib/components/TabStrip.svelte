@@ -310,6 +310,27 @@
       var(--surface) var(--tab-join)
     );
   }
+  /* With no box per tab, the silhouette comes from a hairline between
+     neighbours — and it disappears next to the active tab and next to the one
+     under the pointer, as a browser's does. It is a pseudo-element, not a
+     border, so switching it off never moves a tab (design D3). */
+  .tab:not(.active)::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 25%;
+    bottom: 25%;
+    width: 1px;
+    background: var(--border);
+    pointer-events: none;
+  }
+  .tab:first-child::before,
+  .groupTag + .tab::before,
+  .tab.active + .tab::before,
+  .tab:hover::before,
+  .tab:hover + .tab::before {
+    background: transparent;
+  }
   /* When the system substitutes its own colours, surfaces and gradients go with
      it — including the seam. Selection cannot ride on a fill the system is
      free to replace, so it falls back to a border in a system colour. The

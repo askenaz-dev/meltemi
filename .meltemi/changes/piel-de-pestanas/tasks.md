@@ -55,9 +55,18 @@ crate tocado si lo hubiera.
 - [ ] 2.2b Comprobar la rama `forced-colors` en el smoke (4.2): un test de
   fuente prueba que la regla existe, no que el sistema la aplique como se
   espera
-- [ ] 2.3 Separador hairline entre inactivas contiguas por pseudo-elemento,
+- [x] 2.3 Separador hairline entre inactivas contiguas por pseudo-elemento,
   oculto junto a la activa y junto a la pestaña bajo el puntero, sin desplazar
   nada al ocultarse (design D3) — escenario «Las inactivas comparten silueta»
+  <!-- 2026-08-09: el separador vive en `::before` de las **inactivas**, que es
+  el pseudo-elemento que la activa dedica a su costura: selectores disjuntos,
+  sin colisión. Se apaga por color y nunca por `display`, y el test lo exige
+  por el lado negativo —un `display: none` en un separador movería cada pestaña
+  posterior cada vez que el puntero cruza la tira—. Se apaga también tras una
+  etiqueta de grupo, donde el separador dibujaría una línea contra el borde de
+  la etiqueta. -->
+- [ ] 2.4 La franja de color del grupo (design D7) queda con 3.4, que es su
+  tarea; se anota aquí para que la anatomía no se dé por cerrada sin ella
 
 ## 3. El puntero, el cierre y el ancho
 

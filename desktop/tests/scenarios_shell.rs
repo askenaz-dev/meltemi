@@ -1639,6 +1639,45 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: Las inactivas comparten silueta
+#[test]
+fn inactive_tabs_are_separated_by_a_hairline_that_knows_its_neighbours() {
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+    let styles = strip.split("<style>").nth(1).expect("the strip's styles");
+    assert!(
+        styles.contains(".tab:not(.active)::before"),
+        "inactive tabs carry the separator, and the active one keeps its seam"
+    );
+    // Off next to the active tab and next to the hovered one, exactly where a
+    // browser drops it.
+    for neighbour in [
+        ".tab.active + .tab::before",
+        ".tab:hover + .tab::before",
+        ".tab:hover::before",
+        ".tab:first-child::before",
+    ] {
+        assert!(
+            styles.contains(neighbour),
+            "the separator is dropped for {neighbour}"
+        );
+    }
+    // Dropped by paint, never by layout: `display: none` on a separator would
+    // move every tab after it each time the pointer crossed the strip.
+    let dropped = styles
+        .split(".tab:first-child::before,")
+        .nth(1)
+        .expect("the dropping rule")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        dropped.contains("background: transparent")
+            && !dropped.contains("display:")
+            && !dropped.contains("width:"),
+        "hiding the separator must not move anything: {dropped}"
+    );
+}
+
 // Scenario: La selección sobrevive a la sustitución de colores
 #[test]
 fn the_selected_tab_survives_forced_colors() {
