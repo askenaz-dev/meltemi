@@ -26,6 +26,9 @@ pub struct SessionRow {
     pub agent_id: Option<String>,
     /// The launch profile — the subscription — by name only, never its env.
     pub profile: Option<String>,
+    /// What the session is about, when the daemon could derive it from the
+    /// instruction that opened it (titulo-de-sesion D6).
+    pub title: Option<String>,
 }
 
 impl SessionRow {
@@ -74,6 +77,7 @@ impl From<SessionInfo> for SessionRow {
             resumable: s.resumable,
             agent_id: s.agent_id,
             profile: s.profile,
+            title: s.title,
         }
     }
 }
@@ -506,6 +510,7 @@ mod tests {
             resumable: false,
             agent_id: None,
             profile: None,
+            title: None,
         }
     }
 

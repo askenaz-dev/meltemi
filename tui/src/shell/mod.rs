@@ -412,6 +412,7 @@ mod tests {
             resumable: false,
             agent_id: None,
             profile: None,
+            title: None,
         }]));
 
         // Drill into it and direct it from there: the instruction carries the
@@ -452,6 +453,7 @@ mod tests {
             resumable: false,
             agent_id: None,
             profile: None,
+            title: None,
         }]));
 
         direct_from_palette(&mut state, &mut live, &tx, "algo");
@@ -474,6 +476,7 @@ mod tests {
             resumable: true,
             agent_id: None,
             profile: None,
+            title: None,
         }]));
         direct_from_palette(&mut state, &mut live, &tx, "algo");
         assert!(matches!(rx.try_recv(), Ok(Command::Direct { .. })));

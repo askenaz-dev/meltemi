@@ -67,7 +67,7 @@ tocado, y en `desktop/ui` además `npm run check`, `npm run lint:i18n`,
 - [x] 4.2 GUI: el proyecto se antepone al rótulo **solo** cuando las pestañas
   abiertas cruzan más de un proyecto (design D6) — escenarios «El proyecto se
   antepone ante ambigüedad» y «Con un solo proyecto el rótulo no lo repite»
-- [ ] 4.3 TUI: `SessionRow` gana el campo y la lista lo muestra recortado al
+- [x] 4.3 TUI: `SessionRow` gana el campo y la lista lo muestra recortado al
   ancho, sin desplazar columnas (design D6) — escenario «La lista de sesiones
   muestra el título»
 

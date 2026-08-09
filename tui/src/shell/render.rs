@@ -827,13 +827,22 @@ fn render_sessions(
                 Some(profile) => format!("  [{profile}]"),
                 None => String::new(),
             };
+            // What the session is about, after the id and the agent it already
+            // showed: the row keeps its columns and gains a tail, so nothing
+            // moves for a session the daemon could not name (titulo-de-sesion
+            // D6). The shell's own panning is what trims it to the width.
+            let named = match &session.title {
+                Some(title) => format!("  {title}"),
+                None => String::new(),
+            };
             let label = format!(
-                "{marker}  {} {} {}  {}{}",
+                "{marker}  {} {} {}  {}{}{}",
                 glyph.text(&ctx.present),
                 word,
                 session.id,
                 session.agent_label(),
-                subscription
+                subscription,
+                named
             );
             let panned = pan(&label, live.h_scroll);
             if index == live.selected {
@@ -1464,6 +1473,7 @@ mod tests {
                 resumable: false,
                 agent_id: Some("claude-code".into()),
                 profile: Some("work".into()),
+                title: None,
             },
             SessionRow {
                 id: "s2".into(),
@@ -1473,6 +1483,7 @@ mod tests {
                 resumable: true,
                 agent_id: Some("claude-code".into()),
                 profile: Some("personal".into()),
+                title: None,
             },
             SessionRow {
                 id: "s3".into(),
@@ -1482,9 +1493,40 @@ mod tests {
                 resumable: false,
                 agent_id: Some("codex-cli".into()),
                 profile: None,
+                title: None,
             },
         ]));
         live
+    }
+
+    // Scenario: La lista de sesiones muestra el título
+    #[test]
+    fn the_session_list_shows_the_title_and_keeps_its_columns_without_one() {
+        let mut live = two_project_live();
+        let mut rows = live.sessions.clone();
+        rows[0].title = Some("Corregir el login del portal".into());
+        let untitled = rows[1].clone();
+        assert!(untitled.title.is_none(), "the second row names nothing");
+        live.apply(Update::Sessions(rows));
+
+        let out = draw(&ShellState::new(), &live, &ctx(default_present()), 120, 24);
+        assert!(
+            out.contains("Corregir el login del portal"),
+            "a named session says what it is about:\n{out}"
+        );
+        // The row that has no title keeps everything it showed before, in the
+        // same order: the title is a tail, not a column that shifts the rest.
+        // Read the row as the span from its id to the next session's.
+        let id_at = out.find(&untitled.id).expect("the untitled row is listed");
+        let row = out[id_at..].split("s3").next().expect("the row's span");
+        assert!(
+            row.contains(untitled.agent_label()),
+            "the agent still follows the id: {row}"
+        );
+        assert!(
+            !row.contains("Corregir"),
+            "and a session with no title gains nothing: {row}"
+        );
     }
 
     #[test]
@@ -1828,6 +1870,7 @@ mod tests {
             resumable: false,
             agent_id: None,
             profile: None,
+            title: None,
         }]));
         let out = draw(&ShellState::new(), &live, &ctx(ascii), 80, 24);
         for forbidden in ['…', '▸', '·', '›', '┌', '│', '●', '▶'] {

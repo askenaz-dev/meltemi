@@ -59,6 +59,7 @@ fn main() {
             resumable: false,
             agent_id: Some("mock-agent".into()),
             profile: Some("work".into()),
+            title: None,
         },
         SessionRow {
             id: "7b21e4d8".into(),
@@ -68,6 +69,7 @@ fn main() {
             resumable: false,
             agent_id: Some("mock-agent".into()),
             profile: Some("personal".into()),
+            title: None,
         },
         SessionRow {
             id: "c04ab7f1".into(),
@@ -77,6 +79,7 @@ fn main() {
             resumable: true,
             agent_id: Some("mock-agent".into()),
             profile: None,
+            title: None,
         },
     ]));
 
