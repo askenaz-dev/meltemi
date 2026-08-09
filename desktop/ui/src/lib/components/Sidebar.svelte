@@ -19,6 +19,7 @@
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
   import { setNavCollapsed, uiState } from "../ui-state";
+  import { MIN_NAV_PX, MIN_TREE_PX, STEP_PX, clampNavHeight, stepNavHeight } from "../nav-split";
 
   let {
     view,
@@ -44,6 +45,56 @@
   function toggleFold() {
     folded = !folded;
     setNavCollapsed(folded);
+  }
+
+  /**
+   * How the bar's height is split. `null` means "as the browser lays it out",
+   * which is what a profile that never touched the divider gets.
+   */
+  let navSplit: number | null = $state(null);
+  let navEl: HTMLElement | undefined = $state();
+  let treeEl: HTMLElement | undefined = $state();
+  /** Plain, not reactive: only the pointer handlers read it, mid-drag. */
+  let dragFrom: { y: number; nav: number; available: number } | null = null;
+
+  /** The height the two zones have to share right now. */
+  function availableHeight(): number {
+    return (navEl?.offsetHeight ?? 0) + (treeEl?.offsetHeight ?? 0);
+  }
+
+  function startDrag(event: PointerEvent) {
+    if (!navEl) return;
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    dragFrom = { y: event.clientY, nav: navEl.offsetHeight, available: availableHeight() };
+    event.preventDefault();
+  }
+
+  function onDragMove(event: PointerEvent) {
+    if (!dragFrom) return;
+    navSplit = clampNavHeight(dragFrom.nav + (event.clientY - dragFrom.y), dragFrom.available);
+  }
+
+  function endDrag() {
+    if (!dragFrom) return;
+    dragFrom = null;
+  }
+
+  /**
+   * The divider is a control, so it answers to the keyboard: a step each way,
+   * and the two ends by name. No global key is minted for it.
+   */
+  function onSplitKeys(event: KeyboardEvent) {
+    const available = availableHeight();
+    const current = navSplit ?? navEl?.offsetHeight ?? MIN_NAV_PX;
+    let next: number | null = null;
+    if (event.key === "ArrowUp") next = stepNavHeight(current, -STEP_PX, available);
+    else if (event.key === "ArrowDown") next = stepNavHeight(current, STEP_PX, available);
+    else if (event.key === "Home") next = clampNavHeight(MIN_NAV_PX, available);
+    else if (event.key === "End") next = clampNavHeight(available, available);
+    if (next === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    navSplit = next;
   }
   /** The node whose forget is awaiting confirmation. */
   let forgetTarget: { root: string; name: string } | null = $state(null);
@@ -212,7 +263,11 @@
     <Icon name="chevronDown" size={14} />
   </button>
 
-  <nav>
+  <nav
+    id="nav-entries"
+    bind:this={navEl}
+    style:height={folded || navSplit === null ? null : navSplit + "px"}
+  >
     {#each ITEMS as item (item.id)}
       {@const counter = counterFor(item.id)}
       <button
@@ -234,6 +289,27 @@
     {/each}
   </nav>
 
+  <!-- The line that divides the two zones is the control that moves them. It
+       carries the hairline the projects header used to draw, because a rule
+       that now divides should read as a divider and not as a heading. -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    class="split"
+    role="separator"
+    tabindex="0"
+    aria-orientation="horizontal"
+    aria-controls="nav-entries"
+    aria-label={$t("nav.split.label")}
+    aria-valuenow={Math.round(navSplit ?? navEl?.offsetHeight ?? 0)}
+    aria-valuemin={MIN_NAV_PX}
+    aria-valuemax={Math.max(MIN_NAV_PX, availableHeight() - MIN_TREE_PX)}
+    onpointerdown={startDrag}
+    onpointermove={onDragMove}
+    onpointerup={endDrag}
+    onpointercancel={endDrag}
+    onkeydown={onSplitKeys}
+  ></div>
+
   <!-- The projects section is permanent chrome, not something a modal reveals:
        it is where the shell says what it knows about, and it stays put. -->
   <div class="section">
@@ -244,7 +320,7 @@
     </button>
   </div>
 
-  <div class="tree" role="tree" aria-label={$t("nav.tree")}>
+  <div class="tree" bind:this={treeEl} role="tree" aria-label={$t("nav.tree")}>
     {#if tree.length === 0}
       <p class="hint empty">{$t("projects.empty")}</p>
     {/if}
@@ -378,7 +454,8 @@
      would be text broken into single-letter columns. It goes as a whole, and
      nothing goes with it — its projects and sessions stay reachable through the
      Sessions entry and the project switcher, both of which remain on the rail. */
-  aside.folded .tree {
+  aside.folded .tree,
+  aside.folded .split {
     display: none;
   }
   aside.folded .item,
@@ -460,6 +537,33 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    /* Both are mandatory once the divider sets an explicit height: a column
+       flex item defaults to min-height auto and cannot shrink below its own
+       buttons, so without these the entries spill out of the box. */
+    min-height: 0;
+    overflow-y: auto;
+  }
+  /* A 12px grab area with its hairline centred in it. The area is the target;
+     the line is what the eye follows. */
+  .split {
+    flex: none;
+    height: var(--sp-3);
+    margin-bottom: calc(-1 * var(--sp-1));
+    position: relative;
+    cursor: row-resize;
+  }
+  .split::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 5px;
+    height: 1px;
+    background: var(--hair);
+  }
+  .split:hover::after,
+  .split:focus-visible::after {
+    background: var(--accent);
   }
   .item {
     display: flex;
@@ -490,8 +594,8 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--sp-2);
-    border-top: 1px solid var(--hair);
-    padding: var(--sp-2) var(--sp-2) 0;
+    /* The hairline moved to `.split`, which is now what divides. */
+    padding: 0 var(--sp-2) 0;
     margin-bottom: calc(-1 * var(--sp-2));
   }
   .sectionTitle {

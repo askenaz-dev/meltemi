@@ -1151,6 +1151,111 @@ fn unlinking_from_the_drawer_says_the_context_stays() {
     );
 }
 
+// Scenario: Arrastrar la línea reparte el alto
+// Scenario: El reparto se ajusta con el teclado
+// Scenario: Plegada la barra, no hay reparto que hacer
+// Scenario: Ninguna entrada se pierde al encoger la navegación
+#[test]
+fn the_divider_between_the_entries_and_the_tree_is_a_control() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+
+    // A separator element of its own. The projects header could not be the
+    // handle: it holds a title and a button, and interactive descendants inside
+    // a focusable separator is invalid ARIA.
+    assert!(
+        sidebar.contains("class=\"split\"") && sidebar.contains("role=\"separator\""),
+        "the divider is its own element with the separator role"
+    );
+    for attr in [
+        "tabindex=\"0\"",
+        "aria-orientation=\"horizontal\"",
+        "aria-controls=\"nav-entries\"",
+        "aria-label={$t(\"nav.split.label\")}",
+        "aria-valuenow=",
+        "aria-valuemin=",
+        "aria-valuemax=",
+    ] {
+        assert!(
+            sidebar.contains(attr),
+            "the divider states its role, name, value and bounds: missing {attr}"
+        );
+    }
+
+    // Pointer: capture, so the drag survives the pointer leaving a 12px strip.
+    for hook in [
+        "onpointerdown={startDrag}",
+        "onpointermove={onDragMove}",
+        "onpointerup={endDrag}",
+        "onpointercancel={endDrag}",
+        "setPointerCapture",
+    ] {
+        assert!(sidebar.contains(hook), "the drag is wired: missing {hook}");
+    }
+    assert!(
+        sidebar.contains("clampNavHeight(") && sidebar.contains("stepNavHeight("),
+        "both the drag and the keys go through the tested arithmetic"
+    );
+
+    // Keyboard: a step each way and the two ends by name. No global key minted.
+    let keys = sidebar
+        .split("function onSplitKeys")
+        .nth(1)
+        .expect("the key handler")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    for key in ["ArrowUp", "ArrowDown", "Home", "End"] {
+        assert!(keys.contains(key), "the divider answers to {key}: {keys}");
+    }
+    assert!(
+        keys.contains("preventDefault()") && keys.contains("stopPropagation()"),
+        "the divider's keys do not leak to the shell"
+    );
+
+    let styles = sidebar.split("<style>").nth(1).expect("styles");
+
+    // Sizing the entries without letting them shrink is how they spill out of
+    // the box: a column flex item defaults to min-height auto.
+    let nav_rule = styles
+        .split("\n  nav {")
+        .nth(1)
+        .expect("the nav rule")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        nav_rule.contains("min-height: 0") && nav_rule.contains("overflow-y: auto"),
+        "shrinking the navigation scrolls it instead of losing entries: {nav_rule}"
+    );
+
+    // The hairline moved from the heading to the control that now divides.
+    let section_rule = styles
+        .split("\n  .section {")
+        .nth(1)
+        .expect("the section rule")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        !section_rule.contains("border-top"),
+        "the projects heading no longer draws the divider: {section_rule}"
+    );
+    assert!(
+        styles.contains(".split::after"),
+        "the divider draws its own hairline"
+    );
+
+    // Folded, there are no two zones to split.
+    assert!(
+        styles.contains("aside.folded .split"),
+        "the divider retires with the tree on the rail"
+    );
+    assert!(
+        sidebar.contains("style:height={folded || navSplit === null ? null : navSplit + \"px\"}"),
+        "no height is imposed on the rail, nor on a profile that never dragged"
+    );
+}
+
 // Scenario: Plegar y desplegar desde la cabecera
 // Scenario: Plegada no pierde alcance
 // Scenario: El pliegue se recuerda, el primer arranque no

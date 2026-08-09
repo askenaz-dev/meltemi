@@ -14,7 +14,7 @@ bloque 3 es el punto de corte declarado si el alcance se demuestra excesivo.
   nav-split.test.ts` con `node --test` cubriendo suelo, techo, ventana apretada
   y aritmética del paso (design D3) — escenario «El reparto tiene suelo por los
   dos lados» — gates: `npm test`
-- [ ] 1.2 El separador en `Sidebar.svelte`: elemento propio con
+- [x] 1.2 El separador en `Sidebar.svelte`: elemento propio con
   `role="separator"`, `tabindex="0"`, nombre accesible, `aria-orientation`,
   `aria-valuenow`/`min`/`max` y `aria-controls` sobre la navegación; arrastre
   con captura de puntero; ArrowUp/ArrowDown/Home/End; el hairline se muda de
