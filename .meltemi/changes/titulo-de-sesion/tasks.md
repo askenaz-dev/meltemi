@@ -85,8 +85,20 @@ tocado, y en `desktop/ui` además `npm run check`, `npm run lint:i18n`,
   pero no que el título se tomó antes de expandir. La confirmación conducida es
   el smoke de 5.2, y se dice aquí para que la fuerza de cada prueba se lea sin
   averiguarla. -->
-- [ ] 5.2 Smoke conducido sobre el binario de release con la receta de
+- [x] 5.2 Smoke conducido sobre el binario de release con la receta de
   `docs/qa/2026-08-09-piel-de-pestanas-smoke.md` (patch de puerto + user data
   folder propio y nuevo + revertir el patch): seis sesiones con instrucciones
   distintas, pestañas nombradas, una sesión sin título junto a otras con él, y
-  dos proyectos abiertos para ver el nombre antepuesto. Nota en `docs/qa/`
+  dos proyectos abiertos para ver el nombre antepuesto. Nota en
+  `docs/qa/2026-08-09-titulo-de-sesion-smoke.md`
+  <!-- 2026-08-09: los cuatro escenarios de superficie confirmados sobre el
+  binario, **la regla de ambigüedad en sus dos sentidos** — con dos proyectos
+  abiertos cada rótulo antepone el suyo, y al cerrar las pestañas del segundo
+  lo pierden en el mismo gesto (`anyPrefixed: false`). La sesión sin título
+  quedó fotografiada junto a las tituladas porque el fixture del smoke anterior
+  se conservó a propósito: la degradación honesta se mide, no se promete.
+  Binarios propios en `CARGO_TARGET_DIR` aparte y endpoint propio: la GUI y el
+  daemon del mantenedor no se detuvieron. Gotcha nuevo: `[fleet] registry` con
+  ruta **relativa** se resuelve contra el directorio del daemon, no contra el
+  proyecto — en un fixture hay que escribirla absoluta o el agente «no está en
+  el catálogo». -->
