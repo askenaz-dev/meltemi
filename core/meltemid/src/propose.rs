@@ -123,6 +123,8 @@ pub async fn handle_propose(
     let project_key = paths::project_key(&project_root);
     // The project registry is fed by real use only (multiproyecto D3).
     crate::projects::touch(&state.data_dir, &project_root);
+    // Derived before the log, because the first event carries it (design D3).
+    let title = crate::title::derive(&params.idea);
     let mut log = SessionLog::create(&state.data_dir, &project_key, &session_id)
         .map_err(RpcError::internal)?
         .streaming(state.events.clone(), peer.connection_id(), &session_id);
@@ -130,6 +132,7 @@ pub async fn handle_propose(
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: project_root.display().to_string(),
+        title: title.clone(),
     });
     // Which binary ran and why that one, in the log itself: a reconstruction
     // from the log alone must recover the agent and the subscription. Only
@@ -154,10 +157,6 @@ pub async fn handle_propose(
         .sessions
         .set_state(&session_id, SessionState::Active)
         .await;
-
-    // The idea is this session's first instruction, so it names it — from the
-    // raw text, before `@` expansion (titulo-de-sesion design D1, D2).
-    let title = crate::title::derive(&params.idea);
 
     // Persist a start record in the session index; the matching end record is
     // appended below. A crash before the end leaves it as `interrupted`

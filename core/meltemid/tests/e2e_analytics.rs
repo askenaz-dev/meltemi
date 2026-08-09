@@ -140,6 +140,7 @@ fn synthetic_session(
         session_id: session_id.into(),
         agent_command: vec![agent.into()],
         project_root: project_root.display().to_string(),
+        title: None,
     })
     .expect("start");
     log.append(SessionEventKind::AgentResolved {

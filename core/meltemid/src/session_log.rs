@@ -118,6 +118,7 @@ mod tests {
             session_id: "sess-1".into(),
             agent_command: vec!["mock-agent".into()],
             project_root: "C:\\repos\\fixture".into(),
+            title: Some("Corregir el login".into()),
         })
         .unwrap();
         log.append(SessionEventKind::PromptSent {

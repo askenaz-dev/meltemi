@@ -470,6 +470,8 @@ fn session_list_and_log_conform() {
         // The additive resolution fields (multiproyecto-suscripciones D4).
         agent_id: Some("opencode".into()),
         profile: Some("work".into()),
+        // And what the session is about (titulo-de-sesion D3).
+        title: Some("Corregir el login del portal".into()),
     };
     assert_conforms("session-list", "sessionInfo", &info);
     // An interrupted session has no end and is not resumable.
@@ -483,6 +485,19 @@ fn session_list_and_log_conform() {
             resumable: false,
             ..info.clone()
         },
+    );
+    // Three ways for the additive title, the discipline tablero-de-carrera
+    // fixed in writing: present, omitted, and the omitted form byte-identical
+    // to what a client that never heard of titles would send.
+    let untitled = SessionInfo {
+        title: None,
+        ..info.clone()
+    };
+    assert_conforms("session-list", "sessionInfo", &untitled);
+    let encoded = serde_json::to_value(&untitled).expect("untitled encodes");
+    assert!(
+        encoded.get("title").is_none(),
+        "an absent title is omitted from the wire, never sent as null: {encoded}"
     );
     assert_conforms(
         "session-list",
@@ -913,6 +928,15 @@ fn session_events_conform() {
             session_id: "sess-1".into(),
             agent_command: vec!["mock-agent".into()],
             project_root: "C:\\repos\\fixture".into(),
+            title: Some("Corregir el login del portal".into()),
+        },
+        // The same event without a title: what a dispatched lane writes, and
+        // what every session recorded before titles existed looks like.
+        SessionEventKind::SessionStarted {
+            session_id: "sess-2".into(),
+            agent_command: vec!["mock-agent".into()],
+            project_root: "C:\\repos\\fixture".into(),
+            title: None,
         },
         SessionEventKind::PromptSent {
             text: "Complete the proposal".into(),

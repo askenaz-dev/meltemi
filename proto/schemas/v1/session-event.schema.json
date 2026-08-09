@@ -38,7 +38,8 @@
                   "items": { "type": "string" },
                   "minItems": 1
                 },
-                "projectRoot": { "type": "string", "minLength": 1 }
+                "projectRoot": { "type": "string", "minLength": 1 },
+                "title": { "type": "string", "minLength": 1 }
               }
             }
           }

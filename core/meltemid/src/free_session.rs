@@ -123,6 +123,13 @@ pub async fn handle_session_start(
     // Starting work on a root IS pointing Meltemi at it: the registry is fed by
     // real use, and a free session is as real as it gets (multiproyecto D3).
     crate::projects::touch(&state.data_dir, &project_root);
+    // The name the session goes by, derived from the instruction AS TYPED:
+    // `@` references are expanded further down, and a title quoting the
+    // contents of a file would not be what the user wrote (titulo-de-sesion
+    // design D1). Derived before the log exists, because the very first event
+    // carries it.
+    let title = crate::title::derive(&params.instruction);
+
     let mut log = SessionLog::create(&state.data_dir, &project_key, &session_id)
         .map_err(RpcError::internal)?
         // Writing is publishing: everything below reaches this connection
@@ -133,6 +140,7 @@ pub async fn handle_session_start(
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: project_root.display().to_string(),
+        title: title.clone(),
     });
     // Which binary ran, and why that one: a reconstruction from the log alone
     // must recover the agent and its subscription, so the free session records
@@ -157,12 +165,6 @@ pub async fn handle_session_start(
         .sessions
         .set_state(&session_id, SessionState::Active)
         .await;
-
-    // The name the session goes by, derived from the instruction AS TYPED:
-    // `@` references are expanded further down, and a title quoting the
-    // contents of a file would not be what the user wrote (titulo-de-sesion
-    // design D1).
-    let title = crate::title::derive(&params.instruction);
 
     // The start record; the matching end record is written by the finalizer
     // below. A crash in between leaves it `interrupted`, which is what the word

@@ -424,6 +424,12 @@ pub struct SessionInfo {
     /// NAME only: no field ever carries the profile's env overlay (§2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// What the session is about, derived by the daemon from the instruction
+    /// that opened it. Absent when no user sentence started the session — a
+    /// dispatched race lane — and for sessions recorded before titles existed
+    /// (titulo-de-sesion design D1, D2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// Result of `session/list`, most recent first.
@@ -1651,6 +1657,12 @@ pub enum SessionEventKind {
         agent_command: Vec<String>,
         /// The repository root the session works in.
         project_root: String,
+        /// What the session is about. Travels in the event, not only in the
+        /// index, so a client that opens a tab on this event can name it at
+        /// once, and so the index can be rebuilt from the log alone
+        /// (titulo-de-sesion design D3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
     },
     /// A prompt was sent to the agent.
     PromptSent {

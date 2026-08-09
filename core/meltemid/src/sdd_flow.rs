@@ -501,6 +501,9 @@ async fn run_turn(
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: project_root.display().to_string(),
+        // The method composed this prompt; naming a session after generated
+        // text is what design D2 refuses.
+        title: None,
     });
     // Which binary ran and why that one, in the log itself: a reconstruction
     // from the log alone must recover the agent and the subscription. Only

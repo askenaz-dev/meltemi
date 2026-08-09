@@ -29,9 +29,9 @@ tocado, y en `desktop/ui` además `npm run check`, `npm run lint:i18n`,
   gana su rama**: un registro sin título conserva el que había (design D4) —
   escenario «El título sobrevive al cierre de la sesión» — el test pliega inicio
   + cierre y exige que siga ahí
-- [ ] 2.2 `record_from_log` recupera el título del evento de inicio (design D3)
+- [x] 2.2 `record_from_log` recupera el título del evento de inicio (design D3)
   — escenario «El título se recupera del registro»
-- [ ] 2.3 `SessionInfo` y el evento `session_started` ganan `title` opcional en
+- [x] 2.3 `SessionInfo` y el evento `session_started` ganan `title` opcional en
   `meltemi-proto` y en sus dos schemas, fuera de `required`; conformidad de tres
   vías en `conformance.rs` (presente, omitido, byte-igualdad de la forma
   omitida) y `npm run gen:forms` con el generado commiteado (design D3) — gates:

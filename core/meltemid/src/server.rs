@@ -755,6 +755,8 @@ async fn handle_worktree_dispatch(
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: worktree.display().to_string(),
+        // A lane is named by its change and task, not by a sentence (D2).
+        title: None,
     });
     let _ = log.append(SessionEventKind::AgentResolved {
         binary: agent_command.first().cloned().unwrap_or_default(),
@@ -1649,6 +1651,9 @@ async fn handle_sdd_implement(
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: root.display().to_string(),
+        // `sdd/implement` deploys over a change's tasks; no sentence opened it,
+        // and the change and task are what name its work (design D2).
+        title: None,
     });
     // Record which binary/source ran — never the env values (§2).
     let _ = log.append(SessionEventKind::AgentResolved {
@@ -1871,6 +1876,7 @@ async fn handle_session_list(params: Value, state: &Arc<DaemonState>) -> Result<
                 resumable: record.resumable(),
                 agent_id: record.agent_id.clone(),
                 profile: record.profile.clone(),
+                title: record.title.clone(),
             });
         }
     }
@@ -2039,6 +2045,8 @@ async fn resume_with_instruction(
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: record.project_root.clone(),
+        // The same conversation continues, so it keeps its name (design D5).
+        title: record.title.clone(),
     });
     let log = Arc::new(tokio::sync::Mutex::new(log));
     let instruction_queue = state

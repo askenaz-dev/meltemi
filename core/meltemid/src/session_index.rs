@@ -208,6 +208,7 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
     let mut agent_id = None;
     let mut profile = None;
     let mut source = None;
+    let mut title = None;
 
     for line in contents.lines().filter(|l| !l.trim().is_empty()) {
         let Ok(event) = serde_json::from_str::<SessionEvent>(line) else {
@@ -220,10 +221,15 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
             SessionEventKind::SessionStarted {
                 agent_command: cmd,
                 project_root: root,
+                title: name,
                 ..
             } => {
                 agent_command = cmd;
                 project_root = root;
+                // The start event is what makes the title recoverable without
+                // the index, the same job the resolution event does for the
+                // agent (titulo-de-sesion design D3).
+                title = name;
             }
             // The resolution event is what makes agent and subscription
             // recoverable without the index (multiproyecto-suscripciones D2).
@@ -263,9 +269,7 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
         agent_session_id: None,
         supports_load: false,
         resumed_from: None,
-        // Recovered from the start event by task 2.2; until then a rebuilt
-        // record carries no title rather than a guessed one.
-        title: None,
+        title,
         // Agent, subscription and HOW it resolved come from the resolution
         // event when the log recorded one; a log without it states nothing
         // rather than guessing.
@@ -380,6 +384,53 @@ mod tests {
         assert_eq!(records[0].session_id, "new");
         assert_eq!(records[1].session_id, "old");
         std::fs::remove_dir_all(&data).ok();
+    }
+
+    // Scenario: El título se recupera del registro
+    #[test]
+    fn a_rebuilt_record_recovers_the_title_from_the_log() {
+        let data = temp("title-rebuild");
+        let dir = sessions_dir(&data, "k");
+        std::fs::create_dir_all(&dir).unwrap();
+        // Two logs and no index: one session named, one not — which is what a
+        // dispatched lane and every pre-title session look like.
+        std::fs::write(
+            dir.join("named.jsonl"),
+            format!(
+                "{}\n",
+                event_line(
+                    "session_started",
+                    "2026-08-09T10:00:00Z",
+                    r#""sessionId":"named","agentCommand":["mock-agent"],"projectRoot":"/repo","title":"Corregir el login""#
+                )
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("unnamed.jsonl"),
+            format!(
+                "{}\n",
+                event_line(
+                    "session_started",
+                    "2026-08-09T09:00:00Z",
+                    r#""sessionId":"unnamed","agentCommand":["mock-agent"],"projectRoot":"/repo""#
+                )
+            ),
+        )
+        .unwrap();
+
+        let records = records_for_project(&data, "k");
+        let named = records.iter().find(|r| r.session_id == "named").unwrap();
+        assert_eq!(
+            named.title.as_deref(),
+            Some("Corregir el login"),
+            "the log is the source of truth, title included"
+        );
+        let unnamed = records.iter().find(|r| r.session_id == "unnamed").unwrap();
+        assert!(
+            unnamed.title.is_none(),
+            "a log without a title reconstructs without one, never with a guess"
+        );
     }
 
     #[test]
