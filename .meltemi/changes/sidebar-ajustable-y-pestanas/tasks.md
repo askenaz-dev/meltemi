@@ -63,7 +63,7 @@ bloque 3 es el punto de corte declarado si el alcance se demuestra excesivo.
   contador de no leídos con nombre accesible; strings ES/EN (design D5) —
   escenarios «La lista es la primera pestaña y nunca se cierra» y «El estado de
   cada pestaña se lee sin color» — gates: suite de cableado
-- [ ] 3.4 `App.svelte`: `openSessions` + `activeSession` en lugar de la única
+- [x] 3.4 `App.svelte`: `openSessions` + `activeSession` en lugar de la única
   sesión visible, la rama suelta del detalle plegada dentro de la de Sesiones,
   los cuatro puntos de entrada por una sola función, Esc devolviendo a la lista
   sin cerrar nada, y las pestañas sobreviviendo a navegar a otra vista sin

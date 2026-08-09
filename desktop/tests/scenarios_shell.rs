@@ -1172,6 +1172,112 @@ fn walk_ui_sources() -> Vec<std::path::PathBuf> {
     found
 }
 
+// Scenario: Abrir una segunda sesión no reemplaza la primera
+// Scenario: Cambiar de vista no cierra las pestañas; reiniciar sí las olvida
+// Scenario: Esc vuelve a la lista antes de actuar sobre la vista
+#[test]
+fn several_sessions_stay_open_as_tabs_and_none_replaces_another() {
+    let app = app();
+
+    // The shell holds a LIST of open sessions, not one id that gets overwritten.
+    assert!(
+        app.contains("let openSessions: SessionTab[] = $state([])")
+            && app.contains("let activeSession: string | null = $state(null)"),
+        "the shell holds every open session and which one is in front"
+    );
+    assert!(
+        !app.contains("detailSession"),
+        "nothing writes a single visible session any more"
+    );
+
+    // Every entry point goes through one function, so open-or-focus cannot be
+    // implemented in one of them and forgotten in the others.
+    // One definition and the four entry points: the sidebar tree, the
+    // composer, the sessions table and a session resuming another.
+    assert_eq!(
+        app.matches("openSessionTab(").count(),
+        5,
+        "every way into a session goes through one door"
+    );
+    for door in [
+        "onOpenSession={(sessionId) => openSessionTab(sessionId)}",
+        "onOpen={(sessionId) => openSessionTab(sessionId)}",
+        "onOpenSession={(id) => openSessionTab(id)}",
+        "openSessionTab(sessionId);",
+    ] {
+        assert!(
+            app.contains(door),
+            "an entry point still opens by hand: {door}"
+        );
+    }
+    assert!(
+        app.contains("const next = openTab(openSessions, sessionId)")
+            && app.contains("pushNotice($t(\"sessions.tabs.full\""),
+        "the cap is refused with the remedy named, by the tested module"
+    );
+
+    // Panels are hidden, never unmounted: that is what keeps a transcript, a
+    // search and an unsent draft alive in a tab that is not on screen.
+    let region = main_region(&app);
+    assert!(
+        region.contains("{#each openSessions as tab (tab.sessionId)}")
+            && region.contains("hidden={tab.sessionId !== activeSession}"),
+        "each open session is its own keyed, mounted panel"
+    );
+    assert!(
+        region.contains("role=\"tabpanel\"")
+            && region.contains("aria-labelledby=\"tab-{tab.sessionId}\""),
+        "each panel names the tab that controls it"
+    );
+    // With no tabs open there is no tablist, and an orphan tabpanel is invalid.
+    assert!(
+        region.contains("role={openSessions.length > 0 ? \"tabpanel\" : undefined}"),
+        "the list is only a tabpanel while a tablist exists"
+    );
+
+    // Navigating away keeps the tabs: approving a permission must not cost
+    // three transcripts.
+    let navigate = app
+        .split("function navigate(target: ViewId)")
+        .nth(1)
+        .expect("the navigate function")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        !navigate.contains("openSessions ="),
+        "navigating to another view does not close a single tab: {navigate}"
+    );
+
+    // And restarting forgets them — the negative half, which is the claim.
+    let ui_state = read("desktop/ui/src/lib/ui-state.ts");
+    assert!(
+        !ui_state.contains("sessionTabs") && !ui_state.contains("openSessions"),
+        "no tab set is persisted"
+    );
+    let rust = read("desktop/src/uistate.rs");
+    assert!(
+        !rust.contains("session_tabs") && !rust.contains("open_sessions"),
+        "and the host stores none either"
+    );
+
+    // Escape returns to the list without closing anything, after the editor
+    // and the review, in the order the shell already had.
+    let escape = app
+        .split("if (event.key === \"Escape\")")
+        .nth(1)
+        .expect("the escape chain")
+        .split("\n    }")
+        .next()
+        .expect("body");
+    assert!(
+        escape.contains("if (editorContext)")
+            && escape.contains("else if (reviewOpen)")
+            && escape.contains("else if (inSession) activeSession = null;"),
+        "editor, then review, then back to the list — an assignment, not a close: {escape}"
+    );
+}
+
 // Scenario: La lista es la primera pestaña y nunca se cierra
 // Scenario: El estado de cada pestaña se lee sin color
 #[test]

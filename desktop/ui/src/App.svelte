@@ -19,7 +19,16 @@
   } from "./lib/stores";
   import { loadUiState, setLastView } from "./lib/ui-state";
   import { dirtyFiles, requestSaveAll } from "./lib/editor/dirty";
+  import {
+    MAX_SESSION_TABS,
+    clearUnread,
+    closeTab,
+    markUnread,
+    openTab,
+    type SessionTab,
+  } from "./lib/session-tabs";
   import Sidebar from "./lib/components/Sidebar.svelte";
+  import SessionTabs from "./lib/components/SessionTabs.svelte";
   import TopBar from "./lib/components/TopBar.svelte";
   import StatusBar from "./lib/components/StatusBar.svelte";
   import Notices from "./lib/components/Notices.svelte";
@@ -48,7 +57,40 @@
    * anyone who was reading a transcript comes back to where they were.
    */
   let view: ViewId = $state("home");
-  let detailSession: string | null = $state(null);
+  /**
+   * The sessions open as tabs, in the order they were opened, and which one is
+   * in front. `activeSession === null` means the list is in front — that is
+   * what keeps exactly one tab selected, which a tablist requires.
+   *
+   * Deliberately NOT persisted (design D7): restoring eight tabs at launch
+   * would cost eight log reads and eight watches against the startup budget,
+   * and stale ids would greet the user with a notice about tabs vanishing.
+   */
+  let openSessions: SessionTab[] = $state([]);
+  let activeSession: string | null = $state(null);
+  /** The shell only speaks of a session while the sessions view is on screen. */
+  const inSession = $derived(view === "sessions" && activeSession !== null);
+
+  /** Open a session, or bring it to the front if it is already open. */
+  function openSessionTab(sessionId: string) {
+    view = "sessions";
+    const next = openTab(openSessions, sessionId);
+    if ("full" in next && next.full) {
+      // Refuses rather than evicting: a background tab can hold an unsent
+      // draft. The notice names the remedy, because a limit without one is
+      // just a wall.
+      pushNotice($t("sessions.tabs.full", { n: String(MAX_SESSION_TABS) }), "warn");
+      return;
+    }
+    openSessions = next.tabs;
+    activeSession = next.active;
+  }
+
+  function closeSessionTab(sessionId: string) {
+    const next = closeTab(openSessions, activeSession, sessionId);
+    openSessions = next.tabs;
+    activeSession = next.active;
+  }
   let reviewOpen = $state(false);
   let editorContext: {
     root: string;
@@ -90,8 +132,8 @@
     const root = $t(("nav." + view) as never);
     if (editorContext) return [root, $t("editor.title")];
     if (reviewOpen) return [root, $t("review.title")];
-    if (detailSession) {
-      return [root, `${$t("sessions.detail.transcript")} · ${detailSession.slice(0, 8)}`];
+    if (inSession && activeSession) {
+      return [root, `${$t("sessions.detail.transcript")} · ${activeSession.slice(0, 8)}`];
     }
     return [root];
   });
@@ -99,7 +141,7 @@
   const viewTitle = $derived.by(() => {
     if (editorContext) return $t("editor.title");
     if (reviewOpen) return $t("review.title");
-    if (detailSession) return $t("sessions.detail.transcript");
+    if (inSession) return $t("sessions.detail.transcript");
     return $t(("nav." + view) as never);
   });
 
@@ -188,7 +230,8 @@
   function navigate(target: ViewId) {
     leaveEditor(() => {
       view = target;
-      detailSession = null;
+      // The tabs — and which one is in front — survive: approving a permission
+      // must not cost three transcripts.
       reviewOpen = false;
       editorContext = target === "editor" ? editorContext : null;
       if (target === "editor") openProjectEditor();
@@ -210,7 +253,6 @@
   ) {
     leaveEditor(() => {
       view = "home";
-      detailSession = null;
       reviewOpen = false;
       editorContext = null;
       composerMode = mode;
@@ -277,7 +319,7 @@
     }
     // `/` opens the filter of the focused list, the same key the terminal
     // surface uses (core parity of the interaction, not only of the methods).
-    if (event.key === "/" && view === "sessions" && !detailSession) {
+    if (event.key === "/" && view === "sessions" && !activeSession) {
       event.preventDefault();
       window.dispatchEvent(new CustomEvent("meltemi:filter"));
       return;
@@ -285,7 +327,7 @@
     if (event.key === "Escape") {
       if (editorContext) leaveEditor(() => (editorContext = null));
       else if (reviewOpen) reviewOpen = false;
-      else if (detailSession) detailSession = null;
+      else if (inSession) activeSession = null;
     }
   }
 
@@ -322,10 +364,9 @@
     onNewSessionIn={(root) => openComposer("free", root)}
     onOpenSession={(sessionId) =>
       leaveEditor(() => {
-        view = "sessions";
         editorContext = null;
         reviewOpen = false;
-        detailSession = sessionId;
+        openSessionTab(sessionId);
       })}
   />
 
@@ -363,7 +404,7 @@
       onOpenPermissions={() => navigate("permissions")}
       urgent={topSignal === "permission"}
     >
-      {#if detailSession || reviewOpen || editorContext}
+      {#if inSession || reviewOpen || editorContext}
         <button class="ghost" onclick={() => onKeydown(new KeyboardEvent("keydown", { key: "Escape" }))}>
           {$t("common.back")}
         </button>
@@ -397,27 +438,60 @@
           }}
           onBack={() => (reviewOpen = false)}
         />
-      {:else if detailSession}
-        <SessionDetail
-          sessionId={detailSession}
-          onBack={() => (detailSession = null)}
-          onOpenSession={(id) => (detailSession = id)}
-        />
       {:else if view === "home"}
         <Home
           initialMode={composerMode}
           initialProject={composerProject}
-          onOpenSession={(sessionId) => {
-            view = "sessions";
-            detailSession = sessionId;
-          }}
+          onOpenSession={(sessionId) => openSessionTab(sessionId)}
         />
       {:else if view === "sessions"}
-        <Sessions
-          onOpen={(sessionId) => (detailSession = sessionId)}
-          onNavigate={navigate}
-          onNewSession={() => openComposer()}
-        />
+        <!-- The list and every open session are peers here: the list is the
+             first tab, each session is a mounted panel, and the ones not in
+             front are hidden rather than unmounted — which is what keeps a
+             transcript, a search and an unsent draft alive (design D6). -->
+        <div class="sessionSurface">
+          {#if openSessions.length > 0}
+            <SessionTabs
+              tabs={openSessions}
+              active={activeSession}
+              onSelect={(id) => {
+                activeSession = id;
+                if (id !== null) openSessions = clearUnread(openSessions, id);
+              }}
+              onClose={closeSessionTab}
+            />
+          {/if}
+          <div
+            class="panel"
+            role={openSessions.length > 0 ? "tabpanel" : undefined}
+            id="panel-__list__"
+            aria-labelledby={openSessions.length > 0 ? "tab-__list__" : undefined}
+            hidden={activeSession !== null}
+          >
+            <Sessions
+              onOpen={(sessionId) => openSessionTab(sessionId)}
+              onNavigate={navigate}
+              onNewSession={() => openComposer()}
+            />
+          </div>
+          {#each openSessions as tab (tab.sessionId)}
+            <div
+              class="panel"
+              role="tabpanel"
+              id="panel-{tab.sessionId}"
+              aria-labelledby="tab-{tab.sessionId}"
+              hidden={tab.sessionId !== activeSession}
+            >
+              <SessionDetail
+                sessionId={tab.sessionId}
+                active={tab.sessionId === activeSession}
+                onBack={() => (activeSession = null)}
+                onOpenSession={(id) => openSessionTab(id)}
+                onActivity={() => (openSessions = markUnread(openSessions, tab.sessionId))}
+              />
+            </div>
+          {/each}
+        </div>
       {:else if view === "project"}
         <Project
           onOpenEditor={() => openProjectEditor()}
@@ -498,6 +572,23 @@
     flex: 1 1 0;
     overflow: hidden;
     min-height: 0;
+  }
+  /* The strip sits above the panels and every panel takes the rest. `hidden`
+     needs the explicit `display: none` because a flex child's display would
+     otherwise win over the attribute's UA default. */
+  .sessionSurface {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    gap: var(--sp-2);
+  }
+  .sessionSurface .panel {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+  .sessionSurface .panel[hidden] {
+    display: none;
   }
   .banner {
     display: flex;
