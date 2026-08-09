@@ -28,7 +28,7 @@ crate tocado.
 
 ## 3. Cierre
 
-- [ ] 3.1 `meltemi validate flota-por-suscripcion` limpio y `meltemi verify` con
+- [x] 3.1 `meltemi validate flota-por-suscripcion` limpio y `meltemi verify` con
   los tres escenarios enlazados (meta: cero marcas manuales); suite completa,
   clippy y fmt verdes; comprobación sobre el binario de release con captura de
   un agente con varias suscripciones y de una huérfana

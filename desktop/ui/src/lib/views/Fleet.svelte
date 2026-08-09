@@ -160,8 +160,12 @@
                     <span class="name">
                       {agent.displayName}
                       {#if row.subscriptions}
+                        <!-- One is not "1 suscripciones": the singular is its
+                             own string, in both languages. -->
                         <span class="pill sub">
-                          {$t("fleet.subscriptions", { n: String(row.subscriptions) })}
+                          {row.subscriptions === 1
+                            ? $t("fleet.subscriptions.one")
+                            : $t("fleet.subscriptions", { n: String(row.subscriptions) })}
                         </span>
                       {/if}
                     </span>
@@ -382,13 +386,6 @@
     overflow: auto;
     padding: 0 var(--sp-2);
   }
-  /* The indent only accompanies: the relation is in the row's own words. */
-  .childAgent {
-    padding-left: var(--sp-6);
-  }
-  tr.child .name {
-    font-weight: 400;
-  }
   .pill.sub {
     margin-left: var(--sp-1);
   }
@@ -399,6 +396,14 @@
     border-color: transparent;
     text-align: left;
     width: 100%;
+  }
+  /* After `.agent`, or its `padding: 0` wins on equal specificity. The indent
+     only accompanies — the relation is in the row's own words. */
+  .agent.childAgent {
+    padding-left: var(--sp-6);
+  }
+  tr.child .name {
+    font-weight: 400;
   }
   .names {
     display: grid;

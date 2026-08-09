@@ -1469,13 +1469,26 @@ fn the_fleet_reads_by_agent_and_by_subscription() {
         "and one whose agent is unknown says so, with the id it declares"
     );
     assert!(
-        fleet.contains("$t(\"fleet.subscriptions\", { n: String(row.subscriptions) })"),
-        "an agent declares how many subscriptions it has"
+        fleet.contains("$t(\"fleet.subscriptions\", { n: String(row.subscriptions) })")
+            && fleet.contains("row.subscriptions === 1")
+            && fleet.contains("$t(\"fleet.subscriptions.one\")"),
+        "an agent declares how many, and one is not \"1 subscriptions\""
     );
     let styles = fleet.split("<style>").nth(1).expect("styles");
+    // After `.agent`, or its `padding: 0` wins on equal specificity — a rule
+    // that looks right and does nothing, which the packaged build showed.
+    let agent_at = styles
+        .find(
+            "
+  .agent {",
+        )
+        .expect("the agent rule");
+    let child_at = styles
+        .find(".agent.childAgent {")
+        .expect("the child indent, qualified so it can win");
     assert!(
-        styles.contains(".childAgent") && styles.contains("padding-left"),
-        "the indent exists as decoration"
+        child_at > agent_at && styles.contains("padding-left"),
+        "the indent is declared where it actually applies"
     );
 
     // The level distinction is a WORD, which is what the living requirement
