@@ -8,11 +8,19 @@ tocado, y en `desktop/ui` además `npm run check`, `npm run lint:i18n`,
 
 ## 1. La derivación
 
-- [ ] 1.1 Función pura de derivación en el daemon: primera línea no vacía,
+- [x] 1.1 Función pura de derivación en el daemon: primera línea no vacía,
   espacios colapsados, truncado con elipsis a 64 **caracteres** (jamás bytes),
   con tests de unicode, líneas vacías, instrucción de una palabra, instrucción
   toda en blanco y truncado exacto en el límite (design D1) — escenario «Título
   derivado de la primera instrucción»
+  <!-- 2026-08-09: módulo propio `core/meltemid/src/title.rs`, puro y sin
+  dependencias. La elipsis **sustituye** al último carácter en vez de sumarse,
+  para que un título recortado nunca supere el presupuesto que declara. Siete
+  tests, dos de ellos con texto que solo un corte por bytes rompería. -->
+- [ ] 1.2 Deuda declarada al implementar: el título se deriva **por
+  caracteres**, que es lo correcto para no partir un carácter, pero el ancho
+  visible depende del glifo. Si alguna vez importa el ancho en columnas de
+  terminal, es medida de la TUI y no de la derivación
 
 ## 2. El índice y el contrato
 

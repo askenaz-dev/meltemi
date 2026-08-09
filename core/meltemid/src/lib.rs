@@ -41,6 +41,7 @@ pub mod session_finalize;
 pub mod session_index;
 pub mod session_log;
 pub mod subscriptions;
+pub mod title;
 pub mod verify;
 pub mod worktrees;
 
