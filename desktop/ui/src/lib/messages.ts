@@ -120,8 +120,6 @@ const es = {
   "fleet.level.verified": "verificado",
   "fleet.source.custom": "propio",
   "fleet.source.profile": "perfil",
-  "fleet.level.verified": "verificado",
-  "fleet.level.declared": "declarado",
   "fleet.underlying": "sobre {agent}",
   "fleet.empty.title": "Sin agentes detectados",
   "fleet.empty.hint":
@@ -714,8 +712,6 @@ const en: Record<MessageKey, string> = {
   "fleet.level.verified": "verified",
   "fleet.source.custom": "custom",
   "fleet.source.profile": "profile",
-  "fleet.level.verified": "verified",
-  "fleet.level.declared": "declared",
   "fleet.underlying": "over {agent}",
   "fleet.empty.title": "No agents detected",
   "fleet.empty.hint":

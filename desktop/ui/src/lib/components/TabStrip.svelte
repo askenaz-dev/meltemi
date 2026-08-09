@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { MIN_TAB_PX, SCROLL_STEP_PX, canScroll, overflows } from "../tab-strip";
+  import { SCROLL_STEP_PX, canScroll, overflows } from "../tab-strip";
   import Icon from "./Icon.svelte";
 
   export interface TabItem {

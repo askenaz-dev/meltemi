@@ -65,7 +65,7 @@
    * restored on open keeps holding: a fresh profile lands on the composer, and
    * anyone who was reading a transcript comes back to where they were.
    */
-  let view: ViewId = $state("home");
+  let view = $state<ViewId>("home");
   /**
    * The sessions open as tabs, in the order they were opened, and which one is
    * in front. `activeSession === null` means the list is in front — that is

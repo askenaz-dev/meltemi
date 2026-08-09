@@ -6,6 +6,9 @@
 import { get, writable } from "svelte/store";
 import { invoke } from "@tauri-apps/api/core";
 import { onIncoming, request } from "./daemon";
+// Imported, not only re-exported below: `export … from` creates no local
+// binding, so the push handlers in this module need the name in scope.
+import { pushNotice } from "./notices";
 import { setActiveProject } from "./ui-state";
 
 // ---- contract shapes (camelCase mirror of meltemi-proto) -------------------
