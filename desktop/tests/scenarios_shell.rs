@@ -1429,6 +1429,77 @@ fn the_list_is_the_first_tab_and_every_tab_states_its_condition_in_words() {
     );
 }
 
+// Scenario: Varias suscripciones del mismo agente se leen juntas
+// Scenario: La suscripción sin agente conocido no desaparece
+// Scenario: La relación no depende de la sangría
+// Scenario: Declarado no es verificado
+#[test]
+fn the_fleet_reads_by_agent_and_by_subscription() {
+    // The grouping and the orphan are executed by `fleet-groups.test.ts`; this
+    // pins that the cases exist and that the view consumes that module rather
+    // than sorting inline where the executed test cannot see it.
+    let tests = read("desktop/ui/tests/fleet-groups.test.ts");
+    for case in [
+        "each agent is followed by its own subscriptions, counted, in name order",
+        "a subscription whose agent is not in the catalog is listed, marked, at the end",
+        "agents keep the order the catalog gave them",
+    ] {
+        assert!(tests.contains(case), "the executed case is missing: {case}");
+    }
+
+    let fleet = read("desktop/ui/src/lib/views/Fleet.svelte");
+    assert!(
+        fleet.contains("import { groupFleet } from \"../fleet-groups\"")
+            && fleet.contains("$derived(groupFleet($fleet))"),
+        "the table consumes the tested grouping"
+    );
+    assert!(
+        fleet.contains("{#each rows as row (row.agent.id)}"),
+        "the table iterates the grouped rows, not the flat listing"
+    );
+
+    // The relation is TEXT. A screen reader and a copied table must carry it,
+    // so the indent may only accompany what the row already says.
+    assert!(
+        fleet.contains("$t(\"fleet.subscription.of\", { agent: row.belongsTo ?? \"\" })"),
+        "a subscription row names its agent in its own content"
+    );
+    assert!(
+        fleet.contains("$t(\"fleet.subscription.orphan\", { agent: row.belongsTo || \"—\" })"),
+        "and one whose agent is unknown says so, with the id it declares"
+    );
+    assert!(
+        fleet.contains("$t(\"fleet.subscriptions\", { n: String(row.subscriptions) })"),
+        "an agent declares how many subscriptions it has"
+    );
+    let styles = fleet.split("<style>").nth(1).expect("styles");
+    assert!(
+        styles.contains(".childAgent") && styles.contains("padding-left"),
+        "the indent exists as decoration"
+    );
+
+    // The level distinction is a WORD, which is what the living requirement
+    // asks for: a bare check mark is exactly what it forbids.
+    assert!(
+        fleet.contains("function levelState(")
+            && fleet.contains("$t(\"fleet.level.verified\")")
+            && fleet.contains("$t(\"fleet.level.declared\")"),
+        "declared and verified are said in words"
+    );
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    for key in [
+        "\"fleet.level.declared\": \"declarado\"",
+        "\"fleet.level.verified\": \"verificado\"",
+        "\"fleet.level.declared\": \"declared\"",
+        "\"fleet.level.verified\": \"verified\"",
+    ] {
+        assert!(
+            messages.contains(key),
+            "both languages carry the word: {key}"
+        );
+    }
+}
+
 // Scenario: La confirmación se retira sola
 // Scenario: El error se queda hasta que alguien lo retira
 // Scenario: Nada desaparece bajo la mano que iba a leerlo

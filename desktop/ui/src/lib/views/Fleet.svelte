@@ -4,6 +4,7 @@
   import { request } from "../daemon";
   import { binaryName } from "../agents";
   import { fleet, pushNotice, refreshFleet, type FleetAgent } from "../stores";
+  import { groupFleet } from "../fleet-groups";
   import Avatar from "../components/Avatar.svelte";
   import Drawer from "../components/Drawer.svelte";
   import EmptyState from "../components/EmptyState.svelte";
@@ -14,6 +15,8 @@
 
   const selected = $derived($fleet.find((agent) => agent.id === selectedId) ?? null);
   const detected = $derived($fleet.filter((agent) => agent.detected).length);
+  /** Each catalog agent followed by its subscriptions (design D1). */
+  const rows = $derived(groupFleet($fleet));
 
   $effect(() => {
     void refreshFleet().catch(() => {});
@@ -108,6 +111,18 @@
     const level = agent.verifiedLevel ?? agent.integrationLevel;
     return `N${level}`;
   }
+
+  /**
+   * The word, not just the glyph: `integration-levels` requires the surface to
+   * show the declared/verified distinction "con etiqueta textual", and a bare
+   * check mark is exactly what that forbids. The glyph stays beside the word so
+   * whoever already read it keeps their shortcut.
+   */
+  function levelState(agent: FleetAgent): string {
+    return agent.verifiedLevel !== undefined
+      ? $t("fleet.level.verified")
+      : $t("fleet.level.declared");
+  }
 </script>
 
 <div class="wrap">
@@ -131,17 +146,36 @@
           </tr>
         </thead>
         <tbody>
-          {#each $fleet as agent (agent.id)}
-            <tr aria-selected={agent.id === selectedId}>
+          {#each rows as row (row.agent.id)}
+            {@const agent = row.agent}
+            <tr aria-selected={agent.id === selectedId} class:child={row.child}>
               <td>
                 <button
                   class="agent ghost"
+                  class:childAgent={row.child}
                   onclick={() => (selectedId = agent.id === selectedId ? null : agent.id)}
                 >
-                  <Avatar id={agent.id} name={agent.displayName} size={22} />
+                  <Avatar id={agent.id} name={agent.displayName} size={row.child ? 18 : 22} />
                   <span class="names">
-                    <span class="name">{agent.displayName}</span>
-                    <span class="bin mono">{binaryName(agent.binaryPath) || agent.id}</span>
+                    <span class="name">
+                      {agent.displayName}
+                      {#if row.subscriptions}
+                        <span class="pill sub">
+                          {$t("fleet.subscriptions", { n: String(row.subscriptions) })}
+                        </span>
+                      {/if}
+                    </span>
+                    {#if row.child}
+                      <!-- In words, never by indentation: a screen reader and a
+                           copied table must carry the same relation. -->
+                      <span class="bin">
+                        {row.orphan
+                          ? $t("fleet.subscription.orphan", { agent: row.belongsTo || "—" })
+                          : $t("fleet.subscription.of", { agent: row.belongsTo ?? "" })}
+                      </span>
+                    {:else}
+                      <span class="bin mono">{binaryName(agent.binaryPath) || agent.id}</span>
+                    {/if}
                   </span>
                 </button>
               </td>
@@ -150,7 +184,9 @@
               </td>
               <td>
                 <span class="pill" class:ok={agent.verifiedLevel !== undefined}>
-                  {levelLabel(agent)}{agent.verifiedLevel !== undefined ? " ✓" : ""}
+                  {levelLabel(agent)} · {levelState(agent)}{agent.verifiedLevel !== undefined
+                    ? " ✓"
+                    : ""}
                 </span>
               </td>
               <td>
@@ -345,6 +381,16 @@
     min-width: 0;
     overflow: auto;
     padding: 0 var(--sp-2);
+  }
+  /* The indent only accompanies: the relation is in the row's own words. */
+  .childAgent {
+    padding-left: var(--sp-6);
+  }
+  tr.child .name {
+    font-weight: 400;
+  }
+  .pill.sub {
+    margin-left: var(--sp-1);
   }
   .agent {
     display: flex;
