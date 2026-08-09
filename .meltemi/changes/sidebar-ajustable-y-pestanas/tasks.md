@@ -43,7 +43,7 @@ bloque 3 es el punto de corte declarado si el alcance se demuestra excesivo.
 
 ## 3. Varias sesiones a la vez
 
-- [ ] 3.1 `desktop/ui/src/lib/session-tabs.ts` (módulo puro, cabecera SPDX):
+- [x] 3.1 `desktop/ui/src/lib/session-tabs.ts` (módulo puro, cabecera SPDX):
   `SessionTab`, `MAX_SESSION_TABS`, `openTab` (abrir-o-enfocar, rehúsa al tope
   sin desalojar), `closeTab` (cae en la vecina de la izquierda), `markUnread` y
   `clearUnread`; `desktop/ui/tests/session-tabs.test.ts` con `node --test`
