@@ -25,11 +25,17 @@
     sessionId,
     onBack,
     onOpenSession,
+    active = true,
+    onActivity = () => {},
   }: {
     sessionId: string;
     onBack: () => void;
     /** Resuming makes a NEW session; the conversation follows it there. */
     onOpenSession: (sessionId: string) => void;
+    /** Whether this session is the tab in front. Alone, it is always true. */
+    active?: boolean;
+    /** Something arrived while this session was not on screen. */
+    onActivity?: () => void;
   } = $props();
 
   interface Line {
@@ -181,12 +187,22 @@
   function append(line: Omit<Line, "id">) {
     seq += 1;
     lines = [...lines, { ...line, id: seq }];
+    // Off screen, the tab is the only place this can be reported.
+    if (!active) onActivity();
     if (atBottom) {
       queueMicrotask(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
     } else {
       newLines += 1;
     }
   }
+
+  // A hidden subtree reports scrollHeight 0, so the tail pin inside `append` is
+  // a silent no-op while this tab is in the background — and the tab would open
+  // at line 1. Re-pin when it comes to the front, and only then.
+  $effect(() => {
+    if (!active || !atBottom || !scroller) return;
+    queueMicrotask(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
+  });
 
   // The persisted log seeds the transcript.
   $effect(() => {
@@ -411,7 +427,11 @@
   // once per session, so a state change mid-read never steals the focus back.
   let focusedFor: string | null = null;
   $effect(() => {
-    if (!field || focusedFor === sessionId) return;
+    // The `active` guard is not cosmetic. Without it every background panel
+    // runs this from inside a hidden subtree — where `.focus()` does nothing —
+    // and marks the session as focused, so that tab would NEVER focus its
+    // composer when it later comes to the front.
+    if (!active || !field || focusedFor === sessionId) return;
     focusedFor = sessionId;
     field.focus();
   });

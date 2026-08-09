@@ -70,7 +70,7 @@ bloque 3 es el punto de corte declarado si el alcance se demuestra excesivo.
   persistirse al reiniciar (design D5, D7) — escenarios «Abrir una segunda
   sesión no reemplaza la primera» y «Cambiar de vista no cierra las pestañas;
   reiniciar sí las olvida» — gates: suite de cableado
-- [ ] 3.5 `SessionDetail.svelte`: props `active` y `onActivity`; aviso de
+- [x] 3.5 `SessionDetail.svelte`: props `active` y `onActivity`; aviso de
   actividad cuando no está en pantalla; reanclado al pie al volver al frente
   (un subárbol oculto reporta alto 0); y la guarda del autoenfoque sin la cual
   cada panel de fondo se marca como enfocado desde donde `.focus()` no hace

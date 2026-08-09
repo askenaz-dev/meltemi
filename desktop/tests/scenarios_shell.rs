@@ -1172,6 +1172,63 @@ fn walk_ui_sources() -> Vec<std::path::PathBuf> {
     found
 }
 
+// Scenario: Una pestaña de fondo conserva su lectura y su borrador
+// Scenario: La pestaña de fondo dice que llegó algo
+// Scenario: Cada sesión abierta lee su propio registro y su propio flujo
+#[test]
+fn a_background_tab_keeps_its_reading_its_draft_and_its_own_stream() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+
+    assert!(
+        detail.contains("active?: boolean;") && detail.contains("onActivity?: () => void;"),
+        "the panel knows whether it is the tab in front, and can say something arrived"
+    );
+    // Optional with a default, so this component alone is unchanged.
+    assert!(
+        detail.contains("active = true,") && detail.contains("onActivity = () => {},"),
+        "a session shown on its own behaves exactly as it did"
+    );
+
+    let append = detail
+        .split("function append(line: Omit<Line, \"id\">)")
+        .nth(1)
+        .expect("the append")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        append.contains("if (!active) onActivity();"),
+        "arrivals off screen are reported to the tab: {append}"
+    );
+
+    // A hidden subtree reports scrollHeight 0, so the tail pin inside append is
+    // a no-op in the background and the tab would open at line 1.
+    assert!(
+        detail.contains("if (!active || !atBottom || !scroller) return;"),
+        "a tab coming to the front re-pins to the tail it was left at"
+    );
+
+    // The one that is silent and permanent if forgotten: without the guard,
+    // every background panel marks the session focused from where `.focus()`
+    // does nothing, so that tab never focuses its composer afterwards.
+    assert!(
+        detail.contains("if (!active || !field || focusedFor === sessionId) return;"),
+        "only the tab in front may claim the caret"
+    );
+
+    // Each panel owns its own subscription. Lifting it to the shell would make
+    // two owners of a per-connection, idempotent watch set: one unwatch would
+    // deafen the other, and the symptom is a transcript that simply stops.
+    assert!(
+        detail.contains("session/watch"),
+        "the subscription stays with the session that needs it"
+    );
+    assert!(
+        !app().contains("session/watch"),
+        "the shell never subscribes on a session's behalf"
+    );
+}
+
 // Scenario: Abrir una segunda sesión no reemplaza la primera
 // Scenario: Cambiar de vista no cierra las pestañas; reiniciar sí las olvida
 // Scenario: Esc vuelve a la lista antes de actuar sobre la vista
