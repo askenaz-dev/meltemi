@@ -82,7 +82,7 @@ bloque 3 es el punto de corte declarado si el alcance se demuestra excesivo.
 
 ## 4. Cierre
 
-- [ ] 4.1 `meltemi validate sidebar-ajustable-y-pestanas` limpio y
+- [x] 4.1 `meltemi validate sidebar-ajustable-y-pestanas` limpio y
   `meltemi verify` con los veinte escenarios enlazados (meta: cero marcas
   manuales); suite completa, clippy y fmt verdes; smoke visual conducido sobre
   el binario de release con captura —arrastre y teclado del separador, la barra

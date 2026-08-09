@@ -565,6 +565,51 @@ del artefacto. Costo dicho sin maquillar —tres jobs caros por push— con dos
 diales declarados para bajarlo: el bloque `on:` y la matriz de plataformas.
 Cuatro deltas ADDED sobre `release-distribution`, cero dependencias nuevas.
 
+### `sidebar-ajustable-y-pestanas` — abierta el 2026-08-08
+
+Nace de una captura del mantenedor y tres frases: la línea divisoria entre las
+opciones y los proyectos «debe poder moverse», el scroll de la sección de
+proyectos «se ve fea», y las sesiones «deben ser tabs, de esa forma puedo tener
+varios tabs abiertos». Tres cosas de naturaleza distinta y **una sola change**,
+por una razón medible: el divisor **fabrica** la segunda barra de scroll —darle
+alto a `nav` obliga a `overflow-y: auto` y la columna de 216 px estrena otra
+barra clásica—, así que entregar la primera sin la segunda duplica el defecto
+del que trata la segunda.
+
+Lo que la investigación encontró antes de escribir nada: la «línea» no era un
+elemento sino un `border-top` del encabezado PROYECTOS; no existía un solo
+`pointerdown` en toda la superficie de escritorio; no había **ningún** estilo de
+barra de desplazamiento en el repositorio, así que lo que se veía era el
+defecto de plataforma; y las sesiones se pisaban porque el shell guardaba **un**
+identificador que cuatro sitios sobrescribían —de ahí que un borrador escrito en
+una sesión sobreviviera dentro de otra.
+
+Dos decisiones cargan el peso. Las pestañas van **contenidas en la vista
+Sesiones** y no sobre la región principal, porque las dos formas rivales
+modifican el mismo encabezado de requisito que `lanzador-conversacional` ya
+modifica en un delta sin archivar bloqueado en la firma del mantenedor: solo un
+delta ADDED puede fusionarse sin pisar texto ajeno. Y los paneles se **montan y
+se ocultan** en vez de desmontarse, que es lo que mantiene vivos transcript,
+búsqueda y borrador; el lado del daemon es seguro porque su conjunto de
+vigilancias es un `HashSet` por conexión sin tope, leído y citado, no supuesto.
+
+El smoke conducido sobre el binario encontró cuatro cosas que el código fuente
+no podía enseñar, y todas se corrigieron: que `scrollbar-width` **no** hereda;
+que la barra angosta conserva sus botones de flecha en WebView2 y ninguna
+propiedad estándar los quita; que las dos familias de estilo de barra son
+**excluyentes** en Chromium —de ahí las dos ramas `@supports`—; y que el anillo
+de foco del separador parecía un campo de texto vacío. Nota completa en
+`docs/qa/2026-08-08-sidebar-ajustable-y-pestanas-smoke.md`.
+
+Veinte escenarios, tres requisitos ADDED sobre `gui-shell`, cero dependencias,
+cero métodos del contrato, un solo archivo Rust de producto tocado.
+
+**Seguimientos nombrados**: (1) adoptar `TabStrip` en el Editor, cuya tira
+propia no sigue el patrón ARIA; (2) un tope de líneas del transcript en la GUI
+—la TUI ya tiene el suyo— si ocho transcripts montados lo piden; (3) persistir
+el conjunto de pestañas al arrancar, cuya primera tarea sería medir el arranque
+con ocho.
+
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 
 ### Prerrequisitos de daemon del Agent Boss (antes de `companero-movil`, sirven a TUI/GUI hoy)

@@ -70,10 +70,12 @@ renderizarse ni el reparto guardado SHALL aplicarse.
 Toda región desplazable de la GUI SHALL presentar una barra de desplazamiento
 angosta y sin botones de paso, con su color tomado de los mismos tokens que el
 resto del cromo, de modo que siga al tema sin una declaración por tema ni por
-región. La declaración SHALL usar propiedades estándar de CSS; la superficie
-MUST NOT depender de selectores de barra específicos de un motor. Estrechar la
-barra MUST NOT comprimir ninguna fila: el excedente SHALL seguir
-desplazándose.
+región. El ancho y el color SHALL declararse con propiedades estándar de CSS y
+esas propiedades SHALL bastar por sí solas para la barra angosta; los
+selectores específicos de motor MAY usarse **únicamente** para retirar cromo
+que ninguna propiedad estándar retira, y NO SHALL ser el único portador del
+ancho ni del color. Estrechar la barra MUST NOT comprimir ninguna fila: el
+excedente SHALL seguir desplazándose.
 
 #### Scenario: El árbol de proyectos desplaza sin comerse la columna
 

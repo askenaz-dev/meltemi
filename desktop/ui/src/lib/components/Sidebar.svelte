@@ -587,6 +587,13 @@
   .split:focus-visible::after {
     background: var(--accent);
   }
+  /* The focus ring is pulled inside the 12px grab area so it hugs the line.
+     Drawn around the whole area it reads as an empty text field — seen on the
+     packaged build, which is the only place a focus ring can be judged. */
+  .split:focus-visible {
+    outline-offset: -5px;
+    border-radius: 2px;
+  }
   .item {
     display: flex;
     padding: 6px var(--sp-2);

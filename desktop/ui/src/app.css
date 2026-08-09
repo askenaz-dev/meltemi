@@ -60,20 +60,58 @@
 
   color-scheme: light dark;
 
-  /* Scrollbars are chrome, not content. `thin` drops the stepper buttons and
-     the classic width that ate a twelfth of the 216 px sidebar; the colour
-     comes from the same token the hairlines already use, so both themes follow
-     with no second declaration. Both properties INHERIT, so this one pair
-     reaches every scrollable region of the surface without naming any of them.
+  /* Scrollbars are chrome, not content: the classic Windows bar is ~17 px with
+     two stepper arrows, which inside a 216 px sidebar eats a twelfth of the
+     column and puts two squares of chrome beside 28 px rows.
 
-     Standard properties only. The engine-specific scrollbar pseudo-elements
-     are the non-standard family the cross-webview budget calls an exotic
-     selector, and where these two are not yet honoured the platform's own bar
-     is ALREADY thin and stepper-less — so the fallback is the look this asks
-     for, not the defect it removes. A test forbids that family by name, which
-     is why it is not written here either. */
-  scrollbar-width: thin;
-  scrollbar-color: var(--text-faint) transparent;
+     TWO MECHANISMS, NEVER BOTH AT ONCE. Measured on the packaged build: in
+     WebView2 they are mutually exclusive — with `scrollbar-width` OR
+     `scrollbar-color` set, the legacy pseudo-elements are ignored entirely, and
+     the native thin bar KEEPS its stepper buttons (photographed). Neutralising
+     the standard properties made the legacy rules take effect and the buttons
+     disappear. So `@supports` picks one: whichever engine is running gets a
+     complete answer, and the two can never fight.
+
+     The legacy family is not an exotic bet here. The cross-webview budget names
+     its three target engines — WebView2 (Chromium), WKWebView (Safari) and
+     WebKitGTK — and all three implement it. The standard branch is what a
+     future engine outside that set would take. Either way the colour comes from
+     the same token the rest of the chrome uses, so both themes follow with no
+     per-theme and no per-region rule. */
+}
+
+@supports selector(::-webkit-scrollbar) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  /* The arrows. No standard property removes them. */
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--text-faint);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 6px;
+  }
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  /* `scrollbar-color` inherits; `scrollbar-width` does not — measured, not
+     assumed — so the width is declared for every element. */
+  :root {
+    scrollbar-color: var(--text-faint) transparent;
+  }
+  * {
+    scrollbar-width: thin;
+  }
 }
 
 @media (prefers-color-scheme: dark) {

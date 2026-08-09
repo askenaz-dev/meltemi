@@ -1172,6 +1172,53 @@ fn walk_ui_sources() -> Vec<std::path::PathBuf> {
     found
 }
 
+// Scenario: El reparto tiene suelo por los dos lados
+// Scenario: Abrir dos veces la misma sesión enfoca, no duplica
+// Scenario: Cerrar la pestaña activa cae en la vecina
+// Scenario: El tope se rehúsa nombrando el remedio
+#[test]
+fn the_rules_that_can_lose_work_are_driven_by_executed_tests() {
+    // These four are decided by pure modules, so the link is to a test that
+    // RUNS (`node --test`, in CI) rather than to a source assertion. This check
+    // pins that the case exists there and that the surface uses that module —
+    // the convention this file's header describes.
+    let split = read("desktop/ui/tests/nav-split.test.ts");
+    assert!(
+        split.contains(
+            "the split is floored on both sides, and the cramped bar favours the entries"
+        ),
+        "the split's bounds are executed, cramped window included"
+    );
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        sidebar.contains("from \"../nav-split\""),
+        "the sidebar takes its arithmetic from the tested module"
+    );
+
+    let tabs = read("desktop/ui/tests/session-tabs.test.ts");
+    for case in [
+        "opening focuses an already-open session instead of duplicating it",
+        "closing the active tab falls to the left neighbour, then the last, then the list",
+        "the cap refuses instead of evicting, so no unsent draft is discarded",
+        "unread accumulates for the tab it belongs to and clears when it is read",
+    ] {
+        assert!(tabs.contains(case), "the executed case is missing: {case}");
+    }
+    let app = app();
+    assert!(
+        app.contains("from \"./lib/session-tabs\""),
+        "the shell takes its tab rules from the tested module"
+    );
+    // The reducers are pure and the shell owns the state: no tab decision may
+    // be re-implemented inline where the executed test cannot see it.
+    for inline in ["openSessions.filter(", "openSessions.push("] {
+        assert!(
+            !app.contains(inline),
+            "a tab rule is being decided outside the tested module: {inline}"
+        );
+    }
+}
+
 // Scenario: Una pestaña de fondo conserva su lectura y su borrador
 // Scenario: La pestaña de fondo dice que llegó algo
 // Scenario: Cada sesión abierta lee su propio registro y su propio flujo
@@ -1459,38 +1506,94 @@ fn the_surface_declares_a_thin_scrollbar_from_its_own_tokens() {
         "the bar takes its colour from the token the rest of the chrome uses"
     );
 
-    // Once, inherited, in the block that already sets color-scheme — so every
-    // scroller follows and each theme's redefinition of --text-faint carries
-    // the colour with no per-theme and no per-region rule.
-    assert_eq!(
-        css.matches("scrollbar-width").count(),
-        1,
-        "one declaration for the whole surface, not one per region"
-    );
-    let root = css
-        .split(":root {")
-        .nth(1)
-        .expect("the root block")
-        .split("\n}")
-        .next()
-        .expect("body");
+    // One declaration each, for the whole surface — never one per region.
+    // TWO MECHANISMS, EXCLUSIVE BY CONSTRUCTION. Measured on the packaged
+    // build: in WebView2 the legacy pseudo-elements are ignored whenever either
+    // standard property is set, and the native thin bar keeps its stepper
+    // buttons. So each lives in its own @supports branch and they can never
+    // both apply — which is the property this pins.
     assert!(
-        root.contains("color-scheme: light dark") && root.contains("scrollbar-width: thin"),
-        "the pair rides the inherited cascade beside color-scheme"
+        css.contains("@supports selector(::-webkit-scrollbar) {")
+            && css.contains("@supports not selector(::-webkit-scrollbar) {"),
+        "each mechanism is chosen by the engine, never layered on the other"
+    );
+    let legacy = css
+        .split("@supports selector(::-webkit-scrollbar) {")
+        .nth(1)
+        .expect("the legacy branch")
+        .split(
+            "
+@supports",
+        )
+        .next()
+        .expect("branch body");
+    assert!(
+        legacy.contains("::-webkit-scrollbar-button") && legacy.contains("display: none"),
+        "the branch that can remove the stepper buttons does remove them"
+    );
+    assert!(
+        legacy.contains("background: var(--text-faint)"),
+        "and its thumb takes the same token as the rest of the chrome"
+    );
+    assert!(
+        !legacy.contains("scrollbar-width") && !legacy.contains("scrollbar-color"),
+        "no standard property inside the legacy branch, or it would disable it"
     );
 
-    // Engine-specific selectors are refused: they would style one webview and
-    // leave the others with whatever they had.
+    let standard = css
+        .split("@supports not selector(::-webkit-scrollbar) {")
+        .nth(1)
+        .expect("the standard branch")
+        .split(
+            "
+@media",
+        )
+        .next()
+        .expect("branch body");
+    assert!(
+        standard.contains("scrollbar-width: thin")
+            && standard.contains("scrollbar-color: var(--text-faint) transparent"),
+        "the branch for any other engine still gets a thin, themed bar"
+    );
+    // `scrollbar-color` inherits and `scrollbar-width` does not — measured, not
+    // assumed. The width therefore cannot sit in `:root` alone.
+    assert!(
+        standard.contains("* {"),
+        "the width is declared for every element, since it does not inherit"
+    );
+
+    // Counted as DECLARATIONS — a line whose first token is the property — so
+    // prose in a comment explaining the decision is not mistaken for a rule.
+    let declares = |property: &str| {
+        css.lines()
+            .filter(|line| line.trim_start().starts_with(property))
+            .count()
+    };
+    assert_eq!(
+        declares("scrollbar-width:"),
+        1,
+        "one width declaration for the whole surface, not one per region"
+    );
+    assert_eq!(
+        declares("scrollbar-color:"),
+        1,
+        "one colour declaration, carried by inheritance"
+    );
+
+    // Scrollbar chrome is decided once, in the stylesheet — never per component.
     let mut offenders = Vec::new();
     for path in walk_ui_sources() {
+        if path.ends_with("app.css") {
+            continue;
+        }
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        if text.contains("::-webkit-scrollbar") {
+        if text.contains("::-webkit-scrollbar") || text.contains("scrollbar-width") {
             offenders.push(path.display().to_string());
         }
     }
     assert!(
         offenders.is_empty(),
-        "the surface uses standard scrollbar properties, not engine-specific selectors: {offenders:?}"
+        "scrollbar chrome is decided once, in the stylesheet: {offenders:?}"
     );
 
     // Narrowing the bar must not narrow a row: the tree still scrolls its

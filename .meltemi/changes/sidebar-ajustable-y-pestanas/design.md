@@ -110,24 +110,44 @@ satisfacer ambos, **las entradas conservan su mínimo y el árbol se queda con l
 que reste**, desplazándose con scroll. Es una decisión, no un accidente: la
 navegación es el camino de vuelta a todo lo demás.
 
-### D4 — Propiedades estándar de scrollbar, en `:root`, una sola vez
+### D4 — Propiedades estándar de scrollbar, una sola declaración de cada una
 
-`scrollbar-width: thin` y `scrollbar-color: var(--text-faint) transparent`
-dentro de `:root`, inmediatamente después de `color-scheme: light dark`.
+`scrollbar-color: var(--text-faint) transparent` en `:root`, junto a
+`color-scheme: light dark`, y `scrollbar-width: thin` en un selector universal.
 
-Tres razones para esa colocación: (a) ambas propiedades **heredan**, así que un
-solo par alcanza todas las regiones desplazables de la superficie sin nombrar
-ninguna; (b) los cuatro bloques de tema redefinen `--text-faint`, de modo que el
-color sigue al tema sin una segunda declaración; (c) una regla local en
-`Sidebar.svelte` dejaría el transcript, la paleta y Ajustes con la barra gorda
-—exactamente la incoherencia que un design system existe para evitar— y además
-quedaría sujeta al podado de selectores no usados de Svelte.
+**Corrección tras medir sobre el binario empaquetado.** La primera versión de
+esta decisión puso ambas en `:root` afirmando que ambas heredan. **Solo hereda
+`scrollbar-color`.** El smoke lo desmintió con el valor computado del árbol:
+`scrollbar-color` llegó desde la raíz y `scrollbar-width` computó `auto`, con la
+barra clásica y sus botones de paso intactos — es decir, la regla se veía
+correcta y no hacía nada. De ahí la forma final: el color una vez, heredado; el
+ancho declarado para todo elemento, que es la única manera de que una sola regla
+alcance a todos los desplazadores. El test pinea las dos mitades, incluida la
+negativa: el ancho **no** debe quedar en `:root`.
 
-Se rechaza `::-webkit-scrollbar`: es la familia no estándar que el presupuesto
-de compatibilidad entre webviews llama selector exótico. Donde las dos
-propiedades estándar aún no se honran, la barra nativa de esa plataforma **ya
-es angosta y sin botones de paso**, así que el fallback es el aspecto que esta
-regla pide, no el defecto que quita.
+Las demás razones siguen en pie: (a) los cuatro bloques de tema redefinen
+`--text-faint`, de modo que el color sigue al tema sin una segunda declaración;
+(b) una regla local en `Sidebar.svelte` dejaría el transcript, la paleta y
+Ajustes con la barra gorda —exactamente la incoherencia que un design system
+existe para evitar— y además quedaría sujeta al podado de selectores no usados
+de Svelte.
+
+**Segunda corrección tras fotografiar la barra.** La versión anterior rechazaba
+la familia `::-webkit-scrollbar` invocando el presupuesto de compatibilidad
+entre webviews. Al ampliar la captura sobre el binario empaquetado, la barra
+angosta **conserva sus botones de flecha** en WebView2: `scrollbar-width: thin`
+la estrechó de ~17 px a ~10 y redondeó el pulgar, pero los botones —la parte más
+fea de lo que el mantenedor señaló— siguen ahí, y **ninguna propiedad estándar
+los retira**.
+
+El presupuesto nombra sus tres motores objetivo: WebView2 (Chromium), WKWebView
+(Safari) y WebKitGTK. Los tres implementan esa familia: está **dentro** de esa
+intersección, no fuera. Y no queda nada apoyado en ella: las propiedades
+estándar siguen dando el ancho y el color, así que un motor que ignore el bloque
+recibe igualmente la barra angosta. Se usa solo para quitar cromo que ninguna
+propiedad estándar quita. El requisito se redactó con esa frontera —los
+selectores de motor no pueden ser el único portador del ancho ni del color— y el
+test la pinea por los dos lados.
 
 Alcance decidido y no implícito: es una regla **de toda la superficie**. El
 mantenedor nombró la barra lateral porque es donde 17 px duelen dentro de 200,
