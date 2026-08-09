@@ -281,6 +281,15 @@
   .tab.active {
     background: var(--surface);
   }
+  /* The pointer gets an answer here and not through the global button rule:
+     that rule only moves a border colour, and the inner button declares
+     `border: 0`, so hovering a tab changed nothing at all. The fill is the
+     panel's surface — the palette has no step between it and the strip's — and
+     the active tab stays distinguishable because its mark is the seam, not the
+     fill (design D4, D2). */
+  .tab:not(.active):hover {
+    background: var(--surface);
+  }
   /* The seam: two squares filled with the panel's colour and bitten by a
      quarter circle, so the active tab spills into the strip in a curve instead
      of ending in a corner. Composition only — no mask-composite, no @property

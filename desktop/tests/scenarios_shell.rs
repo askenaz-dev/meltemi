@@ -1639,6 +1639,29 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: La inactiva responde al puntero
+#[test]
+fn an_inactive_tab_answers_the_pointer() {
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+    let styles = strip.split("<style>").nth(1).expect("the strip's styles");
+    assert!(
+        styles.contains(".tab:not(.active):hover"),
+        "the tab itself answers the pointer"
+    );
+    // Why it cannot be left to the global rule: that rule moves a border
+    // colour, and the inner button has no border to move. If this stops being
+    // true, the hover silently goes away again.
+    let app_css = read("desktop/ui/src/app.css");
+    assert!(
+        app_css.contains("button:hover:not(:disabled) {\n  border-color:"),
+        "the global hover is still border-only, which a borderless button cannot show"
+    );
+    assert!(
+        styles.contains(".tab button {") && styles.contains("border: 0;"),
+        "the inner button is still borderless"
+    );
+}
+
 // Scenario: Las inactivas comparten silueta
 #[test]
 fn inactive_tabs_are_separated_by_a_hairline_that_knows_its_neighbours() {

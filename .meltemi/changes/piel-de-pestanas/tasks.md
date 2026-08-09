@@ -70,9 +70,21 @@ crate tocado si lo hubiera.
 
 ## 3. El puntero, el cierre y el ancho
 
-- [ ] 3.1 Relleno de hover en las inactivas, puesto en el contenedor porque el
+- [x] 3.1 Relleno de hover en las inactivas, puesto en el contenedor porque el
   botón interno no tiene borde que la regla global pueda alcanzar (design D4) —
   escenario «La inactiva responde al puntero»
+  <!-- 2026-08-09: la paleta **no tiene un paso intermedio** entre la capa de
+  la tira (`--surface-2`) y el panel (`--surface`), así que el hover usa la
+  superficie del panel y la distinción con la activa la sostiene la costura,
+  que es exactamente el portador que D2 eligió. Se descartó inventar un token
+  —el lint de variables lo cazaría y el design system es normativo— y se
+  descartó `color-mix`, que no está verificada en los tres webviews. **El smoke
+  (4.2) debe confirmar que una pestaña bajo el puntero no se confunde con la
+  activa**; si se confunden, el paso siguiente es un token de hover declarado
+  en la paleta con sus dos temas, no un color suelto aquí. El test pinea además
+  por qué el hover no puede quedar en la regla global: si el botón interno
+  dejara de ser sin borde, la explicación caducaría en silencio. -->
+- [ ] 3.1b Confirmar en el smoke (4.2) que hover y activa se distinguen
 - [ ] 3.2 La X se revela con puntero y con foco, permanece en la activa y
   reserva su hueco siempre; `Delete` sigue cerrando (design D5) — escenario «El
   cierre se revela sin perder el camino de teclado»
