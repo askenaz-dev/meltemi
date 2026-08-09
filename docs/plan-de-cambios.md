@@ -565,6 +565,65 @@ del artefacto. Costo dicho sin maquillar —tres jobs caros por push— con dos
 diales declarados para bajarlo: el bloque `on:` y la matriz de plataformas.
 Cuatro deltas ADDED sobre `release-distribution`, cero dependencias nuevas.
 
+### `cromo-que-no-estorba` — abierta el 2026-08-08, vía rápida
+
+Tres frases del mantenedor sobre una captura: el scroll del panel derecho, los
+mensajes que «se quedan pegados» y la paleta que no cierra al hacer clic fuera.
+El cajón declaraba `overflow: auto` en los dos ejes con 268 px fijos, así que
+una ruta larga sacaba barra horizontal; ahora es un solo eje y el contenido se
+parte. Los avisos no caducaban **ninguno**, lo cual es obligatorio solo para lo
+que la spec nombra —un vencimiento «no se descarta en silencio»— y no para un
+«enlace creado»: ahora los informativos se retiran a los 6 s y los de
+advertencia y error **no tienen reloj**, probado por ausencia avanzando cien
+veces el plazo; apuntar o enfocar detiene la cuenta y salir la reinicia. Y el
+velo de la paleta no tenía manejador de clic mientras el del conmutador sí: en
+vez de arreglar ese caso, un barrido exige cierre en **todos** los velos y
+encontró otros cuatro. La política de avisos salió a su propio módulo puro,
+porque el store no es importable bajo `node` y una obligación de spec merece un
+test que corra. Nota: `docs/qa/2026-08-08-cromo-que-no-estorba-smoke.md`.
+
+### `flota-por-suscripcion` — abierta el 2026-08-09, vía rápida
+
+El mantenedor dijo que la flota «no permite configurar varios agentes de un
+tipo». Lo que veía era cierto; lo que suponía, no: enlazar varias ya funcionaba
+y el smoke de la change anterior lo había fotografiado sin buscarlo. Lo que
+faltaba era la **lectura**: una fila de perfil nunca decía de qué agente era,
+aunque el contrato lleva `underlyingAgent` desde `flota-multiproveedor` y el CLI
+ya imprime `(profile → claude-code)`. La superficie que lo decía era la
+terminal; la que lo escondía, la gráfica. Ahora cada agente va seguido de sus
+suscripciones, cada una diciendo «suscripción de X» **como texto** —la sangría
+solo acompaña—, con el recuento en el agente; una suscripción cuyo agente no
+está en el catálogo se lista marcada, con el id que declara, en vez de
+desaparecer. De paso se cumple un requisito vivo de `integration-levels` que la
+superficie incumplía: el nivel se dice «declarado» o «verificado» con palabras y
+no con un `✓` a secas, que es justo lo que esa spec prohíbe. Nota:
+`docs/qa/2026-08-09-flota-por-suscripcion-smoke.md`.
+
+### `pestanas-como-chrome` — abierta el 2026-08-09
+
+«El sistema de tabs quiero que se parezca al de google chrome», con grupos y
+botones `<` `>`. La tira envolvía —`flex-wrap: wrap`— y cinco sesiones ya
+producían una segunda fila que empujaba el contenido. Ahora es una sola fila:
+las pestañas encogen hasta un mínimo legible y solo entonces la tira se
+desplaza, con controles que **existen únicamente mientras hay desbordamiento**,
+medido con `ResizeObserver`, y que se deshabilitan en su extremo en vez de
+esconderse. La pestaña activa se trae a la vista con `nearest`, sin lo cual las
+flechas del patrón ARIA mueven el foco fuera de pantalla. Lo que **no** se copia
+de Chrome es su respuesta al desbordamiento —Chrome encoge hasta el favicon y
+nunca desplaza—: el mantenedor pidió las flechas y la petición manda sobre la
+referencia. Los grupos llevan nombre y color; el color identifica y **el nombre
+viaja en el nombre accesible de cada pestaña**, plegar declara cuántas guarda y
+no cierra ninguna, y si la activa estaba dentro, la actividad sale a una pestaña
+visible. Se agrupa por menú y no arrastrando, porque el equivalente accesible
+del arrastre es otra conversación. Nota:
+`docs/qa/2026-08-09-pestanas-como-chrome-smoke.md`.
+
+> **Deuda declarada de esta tanda**: las pestañas y sus grupos **no se
+> persisten** entre arranques (`sidebar-ajustable-y-pestanas` D7, heredado); si
+> se persisten, la primera tarea de esa change es medir el arranque con ocho
+> pestañas. Sigue pendiente la **auditoría de intuitividad** que el mantenedor
+> pidió como barrido completo de la aplicación.
+
 ### `sidebar-ajustable-y-pestanas` — abierta el 2026-08-08
 
 Nace de una captura del mantenedor y tres frases: la línea divisoria entre las
