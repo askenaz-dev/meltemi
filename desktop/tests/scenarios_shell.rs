@@ -56,8 +56,12 @@ fn the_shell_has_three_zones_and_lands_on_the_composer() {
             "{component} must live outside the routed view"
         );
     }
+    // The type goes on the rune's generic, not on the binding: with
+    // `let view: ViewId = $state("home")` the checker narrows `view` to the
+    // literal "home" and calls every later comparison against another view
+    // impossible. The landing value is what this scenario pins.
     assert!(
-        app.contains("let view: ViewId = $state(\"home\")"),
+        app.contains("let view = $state<ViewId>(\"home\")"),
         "a first run lands on the conversational composer"
     );
     // And the composer is remembered like any other view, so restoring the last
