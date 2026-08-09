@@ -1172,6 +1172,68 @@ fn walk_ui_sources() -> Vec<std::path::PathBuf> {
     found
 }
 
+// Scenario: La tira se recorre entera con el teclado
+#[test]
+fn the_tab_strip_is_traversable_by_arrow_keys() {
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+
+    // The full tabs pattern, not a row of buttons that looks like one.
+    for attr in [
+        "role=\"tablist\"",
+        "role=\"tab\"",
+        "aria-selected={active}",
+        "aria-controls=\"panel-{item.id}\"",
+        "id=\"tab-{item.id}\"",
+        "aria-orientation=\"horizontal\"",
+    ] {
+        assert!(strip.contains(attr), "the strip declares {attr}");
+    }
+
+    // Roving tabindex: exactly one tab in the tab order at a time. This is what
+    // the widened sweep is exempted for, and the exemption is paid for here.
+    assert!(
+        strip.contains("tabindex={active ? 0 : -1}"),
+        "one tab is in the tab order, and the arrows reach the others"
+    );
+
+    let keys = strip
+        .split("function onKeys")
+        .nth(1)
+        .expect("the key handler")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    for key in ["ArrowRight", "ArrowLeft", "Home", "End", "Delete"] {
+        assert!(keys.contains(key), "the strip answers to {key}: {keys}");
+    }
+    assert!(
+        keys.contains("% items.length") && keys.contains("+ items.length"),
+        "the arrows wrap at both ends rather than stopping: {keys}"
+    );
+    assert!(
+        keys.contains("preventDefault()") && keys.contains("stopPropagation()"),
+        "the strip's keys do not leak to the shell: {keys}"
+    );
+    assert!(
+        keys.contains("if (!items[current].closable) return;"),
+        "Delete never closes a tab that has no close control: {keys}"
+    );
+
+    // Selection alone is not enough: if focus does not follow, the next arrow
+    // press moves from wherever focus actually was.
+    let focus = strip
+        .split("function focusTab")
+        .nth(1)
+        .expect("the focus mover")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        focus.contains("onSelect(") && focus.contains(".focus()"),
+        "selection and DOM focus move together: {focus}"
+    );
+}
+
 // Scenario: El árbol de proyectos desplaza sin comerse la columna
 // Scenario: La barra sigue el tema sin una segunda declaración
 #[test]
@@ -1962,8 +2024,16 @@ fn every_action_of_the_shell_is_reachable_from_the_keyboard() {
                 // A container taking programmatic focus (a dialog panel) is
                 // correct focus management; an INTERACTIVE control removed from
                 // the tab order is not.
+                //
+                // The detector now sees BOTH forms. It used to match only the
+                // literal `tabindex="-1"`, so a control taken out of the tab
+                // order by an expression — `tabindex={x ? 0 : -1}` — passed
+                // unseen. That was the blind spot, and closing it is the point
+                // of this amendment (sidebar-ajustable-y-pestanas design D8).
                 for (index, line) in text.lines().enumerate() {
-                    if !line.contains("tabindex=\"-1\"") {
+                    let literal = line.contains("tabindex=\"-1\"");
+                    let dynamic = line.contains("tabindex={") && line.contains("-1");
+                    if !literal && !dynamic {
                         continue;
                     }
                     let head = text.lines().take(index + 1).collect::<Vec<_>>().join(
@@ -1977,7 +2047,14 @@ fn every_action_of_the_shell_is_reachable_from_the_keyboard() {
                         || tag.starts_with("<input")
                         || tag.starts_with("<select")
                         || tag.starts_with("<textarea");
-                    if interactive {
+                    // The one exemption, and it is narrow: the WAI-ARIA tabs
+                    // pattern REQUIRES a roving tabindex — exactly one tab in
+                    // the tab order, the arrows moving between the rest. The
+                    // strip is reached by Tab and traversed by arrow keys, so
+                    // nothing is unreachable; `the_tab_strip_is_traversable_by_
+                    // arrow_keys` is what pays for this exemption.
+                    let roving_tab = tag.contains("role=\"tab\"");
+                    if interactive && !roving_tab {
                         offenders.push(format!("{}:{}", path.display(), index + 1));
                     }
                 }

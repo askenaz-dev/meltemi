@@ -51,7 +51,7 @@ bloque 3 es el punto de corte declarado si el alcance se demuestra excesivo.
   escenarios «Abrir dos veces la misma sesión enfoca, no duplica», «Cerrar la
   pestaña activa cae en la vecina» y «El tope se rehúsa nombrando el remedio» —
   gates: `npm test`
-- [ ] 3.2 `TabStrip.svelte` genérico con el patrón ARIA completo
+- [x] 3.2 `TabStrip.svelte` genérico con el patrón ARIA completo
   (`tablist`/`tab`/`tabpanel`, `tabindex` rotatorio, flechas con ciclo, Home,
   End, Delete, foco además de selección) y la enmienda de la guardia de
   `tabindex`: el detector se ensancha para ver la retirada dinámica del orden de
