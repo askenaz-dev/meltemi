@@ -54,7 +54,9 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div class="scrim" role="presentation" onkeydown={onKeydown}>
+<!-- Clicking away cancels; it can never confirm. The safe direction is
+     the only one a gesture outside the dialog may take. -->
+<div class="scrim" role="presentation" onkeydown={onKeydown} onclick={onCancel}>
   <div
     class="dialog"
     role="alertdialog"

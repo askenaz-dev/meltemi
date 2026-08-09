@@ -77,7 +77,6 @@
   aria-label={label}
   aria-orientation="horizontal"
   bind:this={strip}
-  onkeydown={onKeys}
 >
   {#each items as item (item.id)}
     {@const active = item.id === activeId}
@@ -90,6 +89,7 @@
         tabindex={active ? 0 : -1}
         title={item.title ?? item.label}
         onclick={() => onSelect(item.id)}
+        onkeydown={onKeys}
       >
         {#if mark}{@render mark(item)}{/if}
         <span class="text">{item.label}</span>

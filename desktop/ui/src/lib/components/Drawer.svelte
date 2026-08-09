@@ -70,10 +70,19 @@
   }
   .body {
     padding: var(--panel-pad);
-    overflow: auto;
+    /* One axis. A fixed-width detail panel that scrolls sideways hides half of
+       every line behind a gesture nobody makes in a drawer. */
+    overflow-y: auto;
+    overflow-x: hidden;
     display: grid;
     gap: var(--sp-3);
     align-content: start;
     min-height: 0;
+  }
+  /* Grid items default to min-width: auto and cannot shrink below their own
+     content, which is what pushed a long path past the panel. */
+  .body > :global(*) {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 </style>

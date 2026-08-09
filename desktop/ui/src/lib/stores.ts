@@ -145,29 +145,19 @@ export const projects = writable<ProjectInfo[]>([]);
 export const pending = writable<PendingPermission[]>([]);
 export const fleet = writable<FleetAgent[]>([]);
 
-/** Persistent notices (permission expiries, session errors): never silent. */
-export interface Notice {
-  id: number;
-  text: string;
-  tone: "warn" | "danger" | "info";
-  /** Unix ms, for the relative timestamp. */
-  at: number;
-}
-export const notices = writable<Notice[]>([]);
-let noticeSeq = 0;
-
-export function pushNotice(text: string, tone: Notice["tone"] = "warn"): void {
-  noticeSeq += 1;
-  notices.update((all) => [...all, { id: noticeSeq, text, tone, at: Date.now() }]);
-}
-
-export function dismissNotice(id: number): void {
-  notices.update((all) => all.filter((n) => n.id !== id));
-}
-
-export function dismissAllNotices(): void {
-  notices.set([]);
-}
+// Notices live in their own pure module so their policy is driven by an
+// executed test; re-exported here because every view already imports them from
+// the stores.
+export {
+  NOTICE_TTL_MS,
+  dismissAllNotices,
+  dismissNotice,
+  holdNotice,
+  notices,
+  pushNotice,
+  releaseNotice,
+  type Notice,
+} from "./notices";
 
 // ---- project scope -----------------------------------------------------------
 

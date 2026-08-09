@@ -28,7 +28,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div class="scrim" role="presentation" onkeydown={onKeydown}>
+<div class="scrim" role="presentation" onkeydown={onKeydown} onclick={onClose}>
   <div
     class="card"
     role="dialog"

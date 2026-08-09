@@ -1429,6 +1429,126 @@ fn the_list_is_the_first_tab_and_every_tab_states_its_condition_in_words() {
     );
 }
 
+// Scenario: La confirmación se retira sola
+// Scenario: El error se queda hasta que alguien lo retira
+// Scenario: Nada desaparece bajo la mano que iba a leerlo
+#[test]
+fn a_notice_expires_only_when_letting_it_go_is_safe() {
+    // The policy is executed by `desktop/ui/tests/notices.test.ts`; this pins
+    // that the cases exist there and that the surface routes through it.
+    let tests = read("desktop/ui/tests/notices.test.ts");
+    for case in [
+        "an informational notice retires on its own, and can be retired sooner",
+        "a warning or an error has no clock at all",
+        "holding a transient notice stops its clock, and leaving restarts it",
+    ] {
+        assert!(tests.contains(case), "the executed case is missing: {case}");
+    }
+
+    let module = read("desktop/ui/src/lib/notices.ts");
+    // Only the informational tone gets a clock — asserted at both call sites,
+    // because a clock minted on release would be just as wrong as one minted on
+    // push, and the bug would only show after a hover.
+    assert_eq!(
+        module
+            .matches("if (tone === \"info\") schedule(id);")
+            .count(),
+        2,
+        "the tone gate guards both the push and the release"
+    );
+    assert!(
+        module.contains("clearTimeout") && module.contains("timers.delete(id)"),
+        "a dismissal cancels the timer that would have fired"
+    );
+
+    // The timers live in the module, not in the component: the component
+    // unmounts on a view change, and a timer that went with it would leave the
+    // notice up forever for the sole reason that someone navigated.
+    let component = read("desktop/ui/src/lib/components/Notices.svelte");
+    assert!(
+        !component.contains("setTimeout"),
+        "no notice clock lives in a component that unmounts"
+    );
+    assert!(
+        component.contains("onmouseenter={() => holdNotice(notice.id)}")
+            && component.contains("onmouseleave={() => releaseNotice(notice.id, notice.tone)}")
+            && component.contains("onfocusin=")
+            && component.contains("onfocusout="),
+        "pointer AND focus hold the notice open: a keyboard reader is a reader"
+    );
+}
+
+// Scenario: El cajón parte la ruta larga en vez de desplazarla
+// Scenario: Hacer clic fuera cierra la paleta
+// Scenario: Ningún velo queda sin cierre
+#[test]
+fn no_floating_surface_scrolls_sideways_and_every_scrim_closes() {
+    let drawer = read("desktop/ui/src/lib/components/Drawer.svelte");
+    let body = drawer
+        .split("\n  .body {")
+        .nth(1)
+        .expect("the drawer body rule")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        body.contains("overflow-y: auto") && body.contains("overflow-x: hidden"),
+        "the drawer scrolls on one axis only: {body}"
+    );
+    assert!(
+        drawer.contains("min-width: 0") && drawer.contains("overflow-wrap: anywhere"),
+        "its content breaks to fit rather than pushing past the panel"
+    );
+
+    // Every scrim in the surface, not just the palette: the class of failure is
+    // what dies here.
+    let mut offenders = Vec::new();
+    for path in walk_ui_sources() {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let mut from = 0usize;
+        while let Some(found) = text[from..].find("class=\"scrim\"") {
+            let at = from + found;
+            // The rest of the opening tag: scan to the first `>` that is not
+            // part of an arrow function, since these handlers contain both.
+            let rest = &text[at..];
+            let mut end = rest.len();
+            let bytes = rest.as_bytes();
+            let mut i = 0;
+            while i < bytes.len() {
+                if bytes[i] == b'>' && (i == 0 || bytes[i - 1] != b'=') {
+                    end = i;
+                    break;
+                }
+                i += 1;
+            }
+            if !rest[..end].contains("onclick") {
+                offenders.push(path.display().to_string());
+            }
+            from = at + 1;
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "a scrim covers something the user cannot click away: {offenders:?}"
+    );
+
+    // And the palette specifically, since that is the one the maintainer hit.
+    let palette = read("desktop/ui/src/lib/components/Palette.svelte");
+    assert!(
+        palette.contains("onclick={onClose}"),
+        "clicking outside the palette closes it"
+    );
+    // A confirmation may only ever be CANCELLED by a gesture outside it.
+    let confirm = read("desktop/ui/src/lib/components/ConfirmDialog.svelte");
+    assert!(
+        confirm.contains("onclick={onCancel}")
+            && !confirm.contains(
+                "scrim\" role=\"presentation\" onkeydown={onKeydown} onclick={onConfirm}"
+            ),
+        "clicking away from a confirmation cancels; it can never confirm"
+    );
+}
+
 // Scenario: La tira se recorre entera con el teclado
 #[test]
 fn the_tab_strip_is_traversable_by_arrow_keys() {

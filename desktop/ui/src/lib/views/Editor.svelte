@@ -584,6 +584,7 @@
       if (event.key === "Escape") renaming = false;
       if (event.key === "Enter") void applyRename();
     }}
+    onclick={() => (renaming = false)}
   >
     <div class="quickPanel" role="dialog" aria-modal="true" aria-label={$t("editor.rename")}>
       <input
@@ -634,6 +635,7 @@
       if (event.key === "Escape") quickOpen = false;
       if (event.key === "Enter" && quickResults[0]) void openFile(quickResults[0].item);
     }}
+    onclick={() => (quickOpen = false)}
   >
     <div class="quickPanel" role="dialog" aria-modal="true" aria-label={$t("editor.quickOpen")}>
       <input
