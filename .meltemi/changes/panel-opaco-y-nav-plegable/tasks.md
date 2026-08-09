@@ -29,7 +29,7 @@ suite del crate tocado.
 
 ## 3. Cierre
 
-- [ ] 3.1 `meltemi validate panel-opaco-y-nav-plegable` limpio y `meltemi
+- [x] 3.1 `meltemi validate panel-opaco-y-nav-plegable` limpio y `meltemi
   verify` con los cinco escenarios enlazados (meta: cero marcas manuales);
   suite completa, clippy y fmt verdes; comprobación sobre el binario de
   release de que el panel cubre y la barra pliega, con captura
