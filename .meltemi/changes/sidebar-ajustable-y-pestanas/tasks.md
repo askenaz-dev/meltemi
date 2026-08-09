@@ -33,7 +33,7 @@ bloque 3 es el punto de corte declarado si el alcance se demuestra excesivo.
 
 ## 2. La barra de desplazamiento que no se come la columna
 
-- [ ] 2.1 `desktop/ui/src/app.css`: `scrollbar-width: thin` y
+- [x] 2.1 `desktop/ui/src/app.css`: `scrollbar-width: thin` y
   `scrollbar-color: var(--text-faint) transparent` dentro de `:root`, con el
   comentario que justifica propiedades estándar frente a los selectores de un
   solo motor; test que pinea el par, que aparece una sola vez y que la

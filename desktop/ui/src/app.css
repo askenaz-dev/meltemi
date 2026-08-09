@@ -59,6 +59,21 @@
   --shadow-overlay: 0 4px 16px rgb(0 0 0 / 0.18);
 
   color-scheme: light dark;
+
+  /* Scrollbars are chrome, not content. `thin` drops the stepper buttons and
+     the classic width that ate a twelfth of the 216 px sidebar; the colour
+     comes from the same token the hairlines already use, so both themes follow
+     with no second declaration. Both properties INHERIT, so this one pair
+     reaches every scrollable region of the surface without naming any of them.
+
+     Standard properties only. The engine-specific scrollbar pseudo-elements
+     are the non-standard family the cross-webview budget calls an exotic
+     selector, and where these two are not yet honoured the platform's own bar
+     is ALREADY thin and stepper-less — so the fallback is the look this asks
+     for, not the defect it removes. A test forbids that family by name, which
+     is why it is not written here either. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-faint) transparent;
 }
 
 @media (prefers-color-scheme: dark) {

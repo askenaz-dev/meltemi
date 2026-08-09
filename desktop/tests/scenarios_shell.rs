@@ -1151,6 +1151,92 @@ fn unlinking_from_the_drawer_says_the_context_stays() {
     );
 }
 
+/// Every style-bearing source of the desktop surface, for sweeps that must not
+/// miss a file just because nobody remembered to name it.
+fn walk_ui_sources() -> Vec<std::path::PathBuf> {
+    let mut stack = vec![repo_root().join("desktop/ui/src")];
+    let mut found = Vec::new();
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read src").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path
+                .extension()
+                .is_some_and(|e| e == "svelte" || e == "css")
+            {
+                found.push(path);
+            }
+        }
+    }
+    found
+}
+
+// Scenario: El árbol de proyectos desplaza sin comerse la columna
+// Scenario: La barra sigue el tema sin una segunda declaración
+#[test]
+fn the_surface_declares_a_thin_scrollbar_from_its_own_tokens() {
+    let css = read("desktop/ui/src/app.css");
+
+    assert!(
+        css.contains("scrollbar-width: thin"),
+        "the surface asks for a bar without stepper buttons"
+    );
+    assert!(
+        css.contains("scrollbar-color: var(--text-faint) transparent"),
+        "the bar takes its colour from the token the rest of the chrome uses"
+    );
+
+    // Once, inherited, in the block that already sets color-scheme — so every
+    // scroller follows and each theme's redefinition of --text-faint carries
+    // the colour with no per-theme and no per-region rule.
+    assert_eq!(
+        css.matches("scrollbar-width").count(),
+        1,
+        "one declaration for the whole surface, not one per region"
+    );
+    let root = css
+        .split(":root {")
+        .nth(1)
+        .expect("the root block")
+        .split("\n}")
+        .next()
+        .expect("body");
+    assert!(
+        root.contains("color-scheme: light dark") && root.contains("scrollbar-width: thin"),
+        "the pair rides the inherited cascade beside color-scheme"
+    );
+
+    // Engine-specific selectors are refused: they would style one webview and
+    // leave the others with whatever they had.
+    let mut offenders = Vec::new();
+    for path in walk_ui_sources() {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        if text.contains("::-webkit-scrollbar") {
+            offenders.push(path.display().to_string());
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "the surface uses standard scrollbar properties, not engine-specific selectors: {offenders:?}"
+    );
+
+    // Narrowing the bar must not narrow a row: the tree still scrolls its
+    // overflow rather than compressing it.
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    let tree_rule = sidebar
+        .split("\n  .tree {")
+        .nth(1)
+        .expect("the tree rule")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        tree_rule.contains("overflow-y: auto") && tree_rule.contains("min-height: 0"),
+        "the tree scrolls its overflow instead of compressing it: {tree_rule}"
+    );
+}
+
 // Scenario: El reparto se recuerda, el primer arranque no
 // Scenario: Una ventana más pequeña no deja el reparto inservible
 #[test]
