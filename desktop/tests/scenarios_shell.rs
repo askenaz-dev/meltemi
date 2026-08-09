@@ -1797,22 +1797,26 @@ fn inactive_tabs_are_separated_by_a_hairline_that_knows_its_neighbours() {
         "inactive tabs carry the separator, and the active one keeps its seam"
     );
     // Off next to the active tab and next to the hovered one, exactly where a
-    // browser drops it.
+    // browser drops it — and every one of those selectors must exclude the
+    // active tab, which spends the same pseudo-element on its seam. They have
+    // equal specificity and come later, so without `:not(.active)` they win
+    // and the seam vanishes wherever the active tab is first or follows a
+    // group label. Found on the real binary, pinned here.
     for neighbour in [
-        ".tab.active + .tab::before",
-        ".tab:hover + .tab::before",
-        ".tab:hover::before",
-        ".tab:first-child::before",
+        ".tab.active + .tab:not(.active)::before",
+        ".tab:hover + .tab:not(.active)::before",
+        ".tab:not(.active):hover::before",
+        ".tab:not(.active):first-child::before",
     ] {
         assert!(
             styles.contains(neighbour),
-            "the separator is dropped for {neighbour}"
+            "the separator is dropped for {neighbour}, and only for inactive tabs"
         );
     }
     // Dropped by paint, never by layout: `display: none` on a separator would
     // move every tab after it each time the pointer crossed the strip.
     let dropped = styles
-        .split(".tab:first-child::before,")
+        .split(".tab:not(.active):first-child::before,")
         .nth(1)
         .expect("the dropping rule")
         .split("\n  }")

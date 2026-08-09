@@ -133,9 +133,36 @@ crate tocado si lo hubiera.
 - [ ] 4.1 `meltemi validate piel-de-pestanas` limpio y `meltemi verify` con los
   ocho escenarios enlazados (meta: cero marcas manuales); gates del frontend
   verdes y `cargo clippy`/`fmt` limpios
-- [ ] 4.2 Smoke visual CDP sobre el **binario de release** con capturas y
+- [x] 4.2 Smoke visual CDP sobre el **binario de release** con capturas y
   medidas: los dos temas, `forced-colors` en la pasada, la activa unida al
   panel, el hover de una inactiva, la X revelándose por foco, la franja de
   grupo y el contraste real entre la capa de la tira y el panel (design D1: si
   no separa, se aplica la palanca declarada y se anota). Nota en
-  `docs/qa/2026-08-XX-piel-de-pestanas-smoke.md`
+  `docs/qa/2026-08-09-piel-de-pestanas-smoke.md`
+  <!-- 2026-08-09: conducido sobre binario propio (CARGO_TARGET_DIR aparte,
+  para no cerrar la GUI del mantenedor) contra un fixture con endpoint, datos y
+  config propios — el daemon real no se detuvo ni se consultó. Resultados: las
+  seis comprobaciones cerradas, **el riesgo de contraste confirmado** (1.142:1
+  en oscuro; palanca D1 aplicada = línea de base) y **un defecto que ningún
+  test de fuente podía ver**: los apagadores del separador alcanzaban la
+  costura de la activa —mismo pseudo-elemento, misma especificidad, más
+  tarde—, así que su pie izquierdo no se pintaba cuando era primera o seguía a
+  una etiqueta de grupo. Corregido con `:not(.active)` y pineado. Dos hallazgos
+  de método en la nota (la receta CDP necesita patch **y** user data folder
+  propio) y un hallazgo ajeno anotado en el backlog (el CLI no canonicaliza la
+  raíz del proyecto). -->
+- [x] 2.1b El contraste real entre la capa de la tira y el panel se mide en el
+  smoke — **medido: 1.142:1 (oscuro), 1.124:1 (claro); no separan**; palanca
+  D1 aplicada
+- [x] 2.2b Comprobar la rama `forced-colors` en el smoke — presente en la hoja
+  cargada: `.tab.active { border-color: highlight; }`
+- [x] 3.1b Confirmar que hover y activa se distinguen — resuelto por la línea
+  de base: la activa es la única sin ella
+- [x] 3.2b Comprobar que revelar la X no mueve las vecinas ni recorta el
+  rótulo — medido idéntico al píxel (134.725 / 87.575 / 474.325)
+- [x] 3.3b Confirmar que el rótulo recupera ancho real con seis pestañas del
+  mismo agente — 87–91 px, ninguno truncado; el estado viaja en el nombre
+  accesible
+- [x] 3.4b Comprobar los cuatro tonos de grupo en el smoke, en los dos temas —
+  banda `--ok` medida sobre grupo creado por la vía real; ancho reservado en
+  todas las pestañas

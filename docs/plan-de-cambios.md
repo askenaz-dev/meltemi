@@ -749,6 +749,18 @@ del arrastre es otra conversación. Nota:
 > pestañas. Sigue pendiente la **auditoría de intuitividad** que el mantenedor
 > pidió como barrido completo de la aplicación.
 
+> **Hallazgo del smoke de `piel-de-pestanas` (2026-08-09), anotado y no
+> colado**: el CLI guarda la raíz del proyecto **tal como se la escriben**.
+> `meltemi session "…" .` deja sesiones cuyo `projectRoot` es el literal `.`,
+> mientras `meltemi projects` sí canonicaliza y muestra la ruta absoluta. En la
+> GUI eso produce **dos nodos**: el proyecto real con 0 sesiones y un nodo
+> inferido llamado `.` con todas ellas. Con ruta absoluta el árbol es correcto.
+> Es la misma clase de defecto que la tanda del 2026-07-31 cerró por otras
+> puertas («Spell a project's root the same way whichever door it comes
+> through»), y esta quedó abierta. Candidata a vía rápida; su casa natural es
+> `project-registry`. Evidencia en
+> `docs/qa/2026-08-09-piel-de-pestanas-smoke.md`.
+
 ### `harness-global-y-por-agente` — abierta el 2026-08-09
 
 La directiva del mantenedor: definir una sola vez el comportamiento base y las

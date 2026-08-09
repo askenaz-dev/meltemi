@@ -300,9 +300,19 @@
        joining a group must not shift a tab against its neighbours (design
        D7). */
     border-top-width: var(--group-band);
-    border-bottom: none;
+    /* Reserved, never `none`: colouring it must not change a tab's height. */
+    border-bottom: 1px solid transparent;
     border-radius: var(--radius-control) var(--radius-control) 0 0;
     background: transparent;
+  }
+  /* The baseline the active tab breaks. Measured on the real binary, the two
+     surface tokens sit at 1.14:1 in the dark theme — a difference the eye does
+     not register — so the layer alone could not carry the anatomy. This is the
+     lever design D1 named for exactly that outcome: a hairline, not a colour
+     invented outside the palette. It also keeps a hovered tab, which takes the
+     panel's fill, from reading as the active one. */
+  .tab:not(.active) {
+    border-bottom-color: var(--border);
   }
   /* Membership visible on the tab itself, not only on the label that opens the
      run. The colour identifies; the group's NAME still travels in the tab's
@@ -374,11 +384,17 @@
     background: var(--border);
     pointer-events: none;
   }
-  .tab:first-child::before,
-  .groupTag + .tab::before,
-  .tab.active + .tab::before,
-  .tab:hover::before,
-  .tab:hover + .tab::before {
+  /* Every one of these carries `:not(.active)`, and that is not decoration:
+     the active tab spends the SAME pseudo-element on its left seam, these
+     selectors have the same specificity, and they come later — so without the
+     guard they win and the seam silently disappears whenever the active tab is
+     first in the row or follows a group label. The smoke caught it; no source
+     test could. */
+  .tab:not(.active):first-child::before,
+  .groupTag + .tab:not(.active)::before,
+  .tab.active + .tab:not(.active)::before,
+  .tab:not(.active):hover::before,
+  .tab:hover + .tab:not(.active)::before {
     background: transparent;
   }
   /* When the system substitutes its own colours, surfaces and gradients go with
