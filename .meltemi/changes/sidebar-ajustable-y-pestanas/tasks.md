@@ -8,7 +8,7 @@ bloque 3 es el punto de corte declarado si el alcance se demuestra excesivo.
 
 ## 1. El reparto que el usuario decide
 
-- [ ] 1.1 `desktop/ui/src/lib/nav-split.ts` (módulo puro, cabecera SPDX):
+- [x] 1.1 `desktop/ui/src/lib/nav-split.ts` (módulo puro, cabecera SPDX):
   `MIN_NAV_PX`, `MIN_TREE_PX`, `STEP_PX`, `clampNavHeight` y `stepNavHeight`,
   con el caso apretado resuelto a favor de la navegación; `desktop/ui/tests/
   nav-split.test.ts` con `node --test` cubriendo suelo, techo, ventana apretada
