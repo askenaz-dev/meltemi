@@ -541,6 +541,11 @@ async fn run_turn(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             source: Some(resolved.source),
+            // No title: what reaches this function is a prompt the method
+            // composed, not a sentence the user typed, and naming a session
+            // after generated text would put words in the log that nobody
+            // wrote (titulo-de-sesion design D2, amended).
+            title: None,
         },
     );
 

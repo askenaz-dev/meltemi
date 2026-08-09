@@ -130,6 +130,7 @@ fn synthetic_session(
             agent_id: Some(agent.into()),
             profile: profile.map(String::from),
             source: None,
+            title: None,
         },
     )
     .expect("index record");

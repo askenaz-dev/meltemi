@@ -57,6 +57,12 @@ pub struct SessionRecord {
     /// agent that names one look identical (tablero-de-carrera design D2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<FleetResolutionSource>,
+    /// The title derived from the instruction that opened the session. Absent
+    /// for sessions that no user sentence started — a dispatched race lane —
+    /// and for every session recorded before titles existed
+    /// (titulo-de-sesion design D2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// Serde default for the level field (level 1).
@@ -159,6 +165,12 @@ fn merge_into(folded: &mut BTreeMap<String, SessionRecord>, record: SessionRecor
             if record.source.is_some() {
                 existing.source = record.source;
             }
+            // Same reason, and the one that bites hardest: the closing record
+            // carries no title, so without this the title would show while the
+            // session ran and vanish the moment it ended.
+            if record.title.is_some() {
+                existing.title = record.title;
+            }
         }
     }
 }
@@ -251,6 +263,9 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
         agent_session_id: None,
         supports_load: false,
         resumed_from: None,
+        // Recovered from the start event by task 2.2; until then a rebuilt
+        // record carries no title rather than a guessed one.
+        title: None,
         // Agent, subscription and HOW it resolved come from the resolution
         // event when the log recorded one; a log without it states nothing
         // rather than guessing.
@@ -298,7 +313,37 @@ mod tests {
             agent_id: None,
             profile: None,
             source: None,
+            title: None,
         }
+    }
+
+    // Scenario: El título sobrevive al cierre de la sesión
+    #[test]
+    fn the_title_survives_the_record_that_closes_the_session() {
+        let data = temp("title-fold");
+        let mut opening = started("s-title", "2026-08-09T10:00:00Z");
+        opening.title = Some("Corregir el login".into());
+        append(&data, "k", &opening).unwrap();
+
+        // The closing record carries no title — that is the ordinary shape, and
+        // it is exactly what would erase it without the fold's own branch.
+        let mut closing = started("s-title", "2026-08-09T10:00:00Z");
+        closing.ended_at = Some("2026-08-09T10:05:00Z".into());
+        closing.final_status = Some(TurnStatus::Completed);
+        assert!(closing.title.is_none(), "the closing record names nothing");
+        append(&data, "k", &closing).unwrap();
+
+        let folded = records_for_project(&data, "k");
+        let record = folded.iter().find(|r| r.session_id == "s-title").unwrap();
+        assert_eq!(
+            record.title.as_deref(),
+            Some("Corregir el login"),
+            "a title shown while the session ran must not vanish when it ends"
+        );
+        assert!(
+            record.ended_at.is_some(),
+            "and the end still won its fields"
+        );
     }
 
     #[test]

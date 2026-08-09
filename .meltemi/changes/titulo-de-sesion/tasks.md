@@ -24,7 +24,7 @@ tocado, y en `desktop/ui` además `npm run check`, `npm run lint:i18n`,
 
 ## 2. El índice y el contrato
 
-- [ ] 2.1 `SessionRecord` gana `title: Option<String>` con
+- [x] 2.1 `SessionRecord` gana `title: Option<String>` con
   `#[serde(default, skip_serializing_if = "Option::is_none")]`, y **`merge_into`
   gana su rama**: un registro sin título conserva el que había (design D4) —
   escenario «El título sobrevive al cierre de la sesión» — el test pliega inicio
@@ -39,16 +39,24 @@ tocado, y en `desktop/ui` además `npm run check`, `npm run lint:i18n`,
 
 ## 3. Los caminos que derivan
 
-- [ ] 3.1 La sesión libre deriva el título del **texto crudo** de la
+- [x] 3.1 La sesión libre deriva el título del **texto crudo** de la
   instrucción, antes de expandir referencias, y lo escribe en el registro de
-  inicio y en el evento (design D1, D2) — escenario «El título sale del texto
-  que se escribió»
-- [ ] 3.2 `propose` y el flujo SDD derivan de la idea que los inicia; el
-  **dispatch no deriva** y deja el campo ausente (design D2) — escenario «Sin
-  instrucción de usuario no hay título inventado»
-- [ ] 3.3 El resume hereda el título de la sesión que continúa, junto a
+  inicio (design D1, D2). El evento llega con 2.3 — escenario «El título sale
+  del texto que se escribió», que se enlaza al llegar su test e2e
+- [x] 3.2 `propose` deriva de la idea que lo inicia; el **dispatch no deriva** y
+  deja el campo ausente (design D2) — escenario «Sin instrucción de usuario no
+  hay título inventado»
+  <!-- 2026-08-09: el flujo SDD quedó **también sin título** y el design lo
+  registra como enmienda: a `run_turn` no llega la frase del usuario sino un
+  prompt que el método compone; nombrar la sesión con texto generado es el
+  mismo error que nombrarla con una referencia expandida. -->
+- [x] 3.3 El resume hereda el título de la sesión que continúa, junto a
   `resumed_from`, sin re-derivar (design D5) — escenario «Una sesión reanudada
-  conserva el título»
+  conserva el título», que se enlaza con su e2e al llegar el contrato
+  <!-- 2026-08-09, gotcha que costará tiempo si se repite: editar estos
+  archivos con un script de Python en Windows los reescribe en **CRLF**, y un
+  test de la analítica compara contra `\n` literal — la suite entera se pone
+  roja por un cambio de una línea. Normalizar a LF antes de correr nada. -->
 
 ## 4. Las superficies
 

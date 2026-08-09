@@ -155,6 +155,10 @@ pub async fn handle_propose(
         .set_state(&session_id, SessionState::Active)
         .await;
 
+    // The idea is this session's first instruction, so it names it — from the
+    // raw text, before `@` expansion (titulo-de-sesion design D1, D2).
+    let title = crate::title::derive(&params.idea);
+
     // Persist a start record in the session index; the matching end record is
     // appended below. A crash before the end leaves it as `interrupted`
     // (sesiones-reanudables D1).
@@ -178,6 +182,7 @@ pub async fn handle_propose(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             source: Some(resolved.source),
+            title: title.clone(),
         },
     );
 

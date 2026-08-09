@@ -61,11 +61,20 @@ Dos precisiones que el repositorio pagó caras antes:
 ### D2 — Solo tiene título quien tiene una primera instrucción
 
 - **Sesión libre** (`free_session.rs`): de `params.instruction`.
-- **Propose y SDD** (`propose.rs`, `sdd_flow.rs`): de la idea que las inicia.
+- **Propose** (`propose.rs`): de `params.idea`, que es literalmente la primera
+  frase que el usuario escribe para abrir esa change.
 - **Dispatch** (`server.rs:677`): **sin título**. Una calle de carrera no nace
   de una frase; su identidad es la change y la tarea, que las superficies ya
   muestran. Inventarle un título compuesto sería fabricar un dato que nadie
   escribió — y `title` es opcional precisamente para poder no tenerlo.
+- **Turnos de autoría SDD** (`sdd_flow.rs::run_turn`): **sin título, enmienda
+  del 2026-08-09 al implementar**. La propuesta suponía que aquí había una
+  idea del usuario; el código dice otra cosa — lo que llega es `prompt:
+  String`, un texto que **el método compone** para cada verbo. Titular con él
+  nombraría la sesión con palabras generadas, que es exactamente lo que D1
+  prohíbe para el prompt expandido. Se aplica el mismo criterio que al
+  dispatch. Si algún día un verbo SDD quiere pasar la frase del usuario, se
+  añade el parámetro y deriva; no se adivina desde aquí.
 
 ### D3 — El título viaja por el log, además del índice
 

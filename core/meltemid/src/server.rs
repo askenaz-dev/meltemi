@@ -795,6 +795,8 @@ async fn handle_worktree_dispatch(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             source: Some(resolved.source),
+            // A race lane is not born from a sentence (design D2).
+            title: None,
         }
     };
     let _ = crate::session_index::append(
@@ -2069,6 +2071,9 @@ async fn resume_with_instruction(
             agent_id: record.agent_id.clone(),
             profile: record.profile.clone(),
             source: record.source,
+            // And continues the same conversation, so it keeps its name rather
+            // than deriving a second one from the continuation (design D5).
+            title: record.title.clone(),
         },
     );
 

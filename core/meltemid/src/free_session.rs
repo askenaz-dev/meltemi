@@ -158,6 +158,12 @@ pub async fn handle_session_start(
         .set_state(&session_id, SessionState::Active)
         .await;
 
+    // The name the session goes by, derived from the instruction AS TYPED:
+    // `@` references are expanded further down, and a title quoting the
+    // contents of a file would not be what the user wrote (titulo-de-sesion
+    // design D1).
+    let title = crate::title::derive(&params.instruction);
+
     // The start record; the matching end record is written by the finalizer
     // below. A crash in between leaves it `interrupted`, which is what the word
     // means (sesiones-reanudables D1).
@@ -179,6 +185,7 @@ pub async fn handle_session_start(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             source: Some(resolved.source),
+            title: title.clone(),
         },
     );
 
