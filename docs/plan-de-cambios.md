@@ -146,25 +146,88 @@ push a `main` descargable como artefacto de la ejecución, jamás como release) 
 `vincular-suscripciones` (abierta 2026-08-08, planificada: el pedido
 fundacional — vincular N suscripciones por proveedor desde cualquier
 superficie, con la variable de contexto como dato del registro) ·
+`barra-de-estado-agentica` (abierta 2026-08-09, vía rápida candidata: la
+barra de estado existente aprende a decir el bucle agéntico; primer hallazgo
+capturado de la auditoría de intuitividad) ·
+`harness-global-y-por-agente` (abierta 2026-08-09: el harness de agentes —
+rules/skills/agents/hooks por ámbitos global → por-agente → proyecto,
+formatos FDH reutilizados, vista efectiva ×3; fase 1 = pilar Rules + vista) ·
+`sesion-que-espera` (abierta 2026-08-09: el borde del turno aprende a esperar
+— la sesión vive entre mensajes, como Claude Code/Codex) ·
+`pensamiento-a-la-vista` (abierta 2026-08-09, vía rápida candidata: destapar
+el pensamiento que la cadena ya transporta — GUI expandido en vivo, TUI
+conversacional) ·
+`modos-de-autonomia` (abierta 2026-08-09: Manual/Semi/Autónomo como posturas
+por sesión sobre el proxy; Bypass rechazado por §3 de entrada) ·
+`modelo-y-esfuerzo-por-sesion` (abierta 2026-08-09: modelo y esfuerzo como
+strings opacos por sesión y por perfil — la palanca de cuotas) ·
 `registro-agentes-en-superficie` · `menu-nativo-aplicacion` · `sandbox-propio` ·
 `hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` ·
 `metricas-sdd-locales` · `lsp-superficie-revision`.
 (`pulido-pre-anuncio`, la vía rápida del acabado pre-anuncio, quedó archivada
 el 2026-07-27.)
 
+### Orden de abordaje de las changes activas — declarado el 2026-08-09
+
+Diecisiete changes activas tras tres tandas del mismo día: la conversacional
+(`titulo-de-sesion`, `piel-de-pestanas`, `compositor-que-trabaja`,
+`redirigir-turno`, `preguntas-del-agente`), la del explore de intuitividad y
+harness (`barra-de-estado-agentica`, `harness-global-y-por-agente`) y la de
+la revisión del mantenedor con referencias visuales (`sesion-que-espera`,
+`pensamiento-a-la-vista`, `modos-de-autonomia`,
+`modelo-y-esfuerzo-por-sesion`). Criterios, en orden: cerrar el trabajo a
+medio camino antes de abrir más; dependencias declaradas
+(`preguntas-del-agente` exige `redirigir-turno`; `sesion-que-espera` toca el
+mismo borde del turno que `redirigir-turno` y van adyacentes); el bucle
+diario del mantenedor antes que las apuestas grandes; y lo bloqueado por
+eventos externos no gasta turno. Toda desviación se anota aquí.
+
+| Orden | Change | Estado (motor) | Por qué aquí |
+|---|---|---|---|
+| — | `lanzador-conversacional` | 52/52, verify 106/106 | **Espera solo la firma v1.5** (pendiente 1c del arquitecto, gate de archivo); no es trabajo de agente |
+| 1º | `artefactos-de-cada-push` | tasks 6/7, verify 9/9 | La tarea 4.2 solo espera **el primer push real a `main`** para anotar su evidencia; cerrarlo entrega el DMG descargable que motivó la change |
+| 2º | `piel-de-pestanas` | proposal | «El manejo de tabs está feo»: la anatomía de Chrome; GUI pura, vía rápida — primera del orden acordado con el mantenedor en la sesión que abrió la tanda |
+| 3º | `titulo-de-sesion` | proposal | El mayor salto de orientación diaria: las pestañas nombran el trabajo, no un hash; contrato aditivo chico, riesgo bajo (`piel` no toca rótulos: sin retrabajo) |
+| 4º | `compositor-que-trabaja` | proposal | El anillo de trabajo y ■ Detener donde se escribe; vía rápida cuyo gate carga la enmienda del design system |
+| 5º | `pensamiento-a-la-vista` | proposal | La misma experiencia que el 4º: la luz dice «trabajo», el transcript lo muestra — destapar el pensamiento ya transportado (GUI) y el pliegue conversacional de la TUI |
+| 6º | `barra-de-estado-agentica` | proposal | El cromo ambiental: proyecto, change+gate, sesiones por estado, tokens con frontera honesta |
+| ☆ | **Auditoría de intuitividad** | sesión dedicada, no change | Tras la tanda visual (2º–6º): barrido CDP sistemático → informe en `docs/qa/` + la siguiente tanda; correrla antes re-hallaría lo ya capturado |
+| 7º | `primer-arranque-del-home` | proposal | Vía rápida chica del comparativo: el chip advierte proactivamente; onboarding listo antes de cualquier anuncio |
+| 8º | `avisos-de-escritorio` | proposal | La atención cuando la app no tiene foco; `preguntas-del-agente` la da por presente en su experiencia |
+| 9º | `redirigir-turno` | proposal | El verbo del medio (interrumpir y relevar, atómico en el daemon); **prerrequisito declarado del 11º**; paridad ×3 servida en la change |
+| 10º | `sesion-que-espera` | proposal | El chat que no muere: el borde del turno espera en vez de cerrar — **mismo código que el 9º**, adyacentes para no reabrirlo dos veces; la evidencia que `eventos-para-tardios` dejó pedida |
+| 11º | `preguntas-del-agente` | proposal | La corona del bucle conversacional: AskUserQuestion contestada donde se escribe; depende del 9º y aprovecha el 8º |
+| 12º | `modos-de-autonomia` | proposal | Manual/Semi/Autónomo como posturas por sesión sobre el proxy existente; Bypass rechazado por §3 de entrada |
+| 13º | `modelo-y-esfuerzo-por-sesion` | proposal | La palanca de cuotas: modelo y esfuerzo opacos por sesión y por perfil; las palancas del lado Codex ya existen, apagadas a propósito |
+| 14º | `harness-global-y-por-agente` | proposal | La apuesta estratégica: fase 1 (Rules + vista efectiva) con design por delante; spec-full |
+| 15º | `motor-propio-byok` | proposal | La mayor de fase 2; entra tras el harness (la directiva más reciente manda) y con su rename terminológico ya hecho |
+| ⏳ | `procedencia-de-release` | tasks 6/8, verify 6/6 | Sus 2 tareas dependen de eventos externos — una corrida real disparada por tag (próxima release) y **la clave pública que entrega el mantenedor** — se cierra cuando ocurran, sin gastar turno |
+
+> Paralelizable sin romper el orden: 2º, 4º, 5º y 6º son solo `desktop/ui` (el
+> 5º suma el render de la TUI) y pueden avanzar mientras 3º toca daemon+proto,
+> commiteando por tarea (aviso de concurrencia del 2026-07-26). La auditoría ☆
+> corre en sesión aparte con la app viva. Las changes **nombradas sin abrir**
+> no cuentan aquí: `registro-agentes-en-superficie`, `menu-nativo-aplicacion`,
+> `sandbox-propio`, `hooks-eventos`, `plugins-skills-sdk`, `i18n-superficies`,
+> `metricas-sdd-locales`, `lsp-superficie-revision`, `harness-skills`,
+> `harness-hooks`, `harness-subagentes`, `ruteo-declarativo-de-perfiles`, el
+> `.rpm` de Fedora/RHEL y la extensión ACP de usage.
+
 ### `motor-propio-byok` — propuesta activa desde el 2026-07-25
 
 Nace de tres peticiones del mantenedor: una vía para **modelos autohospedados**
-(ollama y cualquier endpoint OpenAI-compatible), el **harness como concepto de
-primera clase con un default**, y una decisión sobre su proyecto **Forge
-Harnesses**. La forma la decidió meltemi.md D6: el motor propio entra a la flota
+(ollama y cualquier endpoint OpenAI-compatible), el **manifiesto del motor como
+concepto de primera clase con un default** (el pedido original lo llamaba
+«harness»; renombrado el 2026-08-09 — la palabra nombra ahora el harness de
+agentes de `harness-global-y-por-agente`), y una decisión sobre su proyecto
+**Forge Harnesses**. La forma la decidió meltemi.md D6: el motor propio entra a la flota
 como un agente ACP de nivel 1 (`core/meltemi-engine`), pilotado por stdio igual
 que cualquier agente externo — misma detección, mismo proxy de permisos, mismos
 worktrees y checkpoints, **jamás un canal privilegiado**. Todo el tráfico de red
 vive en el subproceso: `meltemid` no enlaza pila HTTP/TLS alguna, propiedad
 auditable que sostiene §3.
 
-Un harness es un manifiesto TOML v1 (dialecto, `base-url`, modelo, prompt,
+El manifiesto del motor es un TOML v1 (dialecto, `base-url`, modelo, prompt,
 política de herramientas, límites) que el daemon **valida y lista, nunca
 interpreta**; el default va embebido apuntando a `http://localhost:11434/v1`,
 el único que no privilegia a proveedor comercial alguno. Sin modelo alcanzable
@@ -623,6 +686,219 @@ del arrastre es otra conversación. Nota:
 > se persisten, la primera tarea de esa change es medir el arranque con ocho
 > pestañas. Sigue pendiente la **auditoría de intuitividad** que el mantenedor
 > pidió como barrido completo de la aplicación.
+
+### `harness-global-y-por-agente` — abierta el 2026-08-09
+
+La directiva del mantenedor: definir una sola vez el comportamiento base y las
+tecnologías —«el backend siempre es FastAPI y usa las tools xxx»— y ajustarlo
+por agente y por proyecto. La palabra «harness» queda para esto (rules,
+skills, agents, hooks); el TOML del motor propio pasa a llamarse **manifiesto
+del motor** (nota terminológica en `motor-propio-byok`). Fase 1: cuatro
+ámbitos con la precedencia vigente (global → global por-agente → proyecto →
+proyecto por-agente), pilar **Rules** con el formato de FDH tal cual
+(`RULE.md` con `scope` por glob — la fábrica del mantenedor, CLI Go v0.4.1 en
+producción, se reutiliza en vez de reinventarse), proyección de las capas
+nuevas por el único escritor (`meltemi project`, bloques gestionados; **lo
+global del usuario jamás entra a archivos del repo**) y la **vista efectiva**
+×3 al estilo `git config --show-origin`: por agente, qué le aplica y de qué
+capa viene cada pieza. Skills, Hooks y Subagentes quedan nombrados como
+changes futuras (`harness-skills`, `harness-hooks`, `harness-subagentes`) con
+sus pruebas §6 y §2 por delante; los bundles con nombre y la alineación del
+lado FDH, también. Capability nueva `agent-harness`; spec-full deliberado.
+
+### `barra-de-estado-agentica` — abierta el 2026-08-09, vía rápida candidata
+
+Primer hallazgo capturado de la auditoría de intuitividad: el mantenedor pidió
+«una barra inferior de estado como VS Code e IntelliJ» — y la barra **existe**
+(`StatusBar.svelte`, especificada en `gui-shell`), tan escueta que su propio
+mantenedor no la registró como tal. La change la hace hablar el idioma del
+dominio en vez del de un editor: proyecto activo, change activa con su gate
+(`gatePending` ya viaja en el contrato), sesiones por estado en vez del plano
+«N en curso», y consumo de tokens de las sesiones activas **donde esté
+medido** — con la frontera de honestidad de `analitica-consumo-local` a la
+vista, porque ACP no transporta usage (los niveles 1 y 2 leen «no reportado»
+hasta la extensión de usage ya nombrada en `motor-propio-byok`). Segmentos
+accionables (clic navega a la vista dueña), prioridad declarada al encoger, y
+las mismas verdades nuevas en el chrome de la TUI; el footer de atajos de la
+TUI no se toca. Exclusión escrita: Ln/Col, encoding y toda señal de editor que
+el rumbo excluye. Deltas ADDED-only sobre `gui-shell` y `tui-shell` (más
+`local-analytics` si el design pide la consulta por sesión), cero dependencias
+nuevas.
+
+### `piel-de-pestanas` — abierta el 2026-08-09, vía rápida
+
+Segunda captura de la auditoría de intuitividad, con la captura de Chrome al
+lado: «el manejo de tabs está feo». `pestanas-como-chrome` entregó la
+estructura (una fila, controles medidos, grupos) y la piel quedó en el mínimo.
+El diagnóstico tiene cinco causas leídas en el código: la tira no tiene capa
+propia de fondo (la activa no tiene de dónde levantarse), la activa se marca
+con borde de acento (se lee como input, no como pestaña), cero hover, cada
+pestaña carga su propia caja de 1 px con la X siempre visible, y el estado
+viaja como palabra repetida en las N pestañas. La change viste la anatomía de
+Chrome: capa de tira, activa unida al panel con curvas de unión
+(`radial-gradient`, dentro del presupuesto cross-webview), separadores solo
+entre inactivas, hover honesto, X revelada en hover/foco con `Delete` como
+camino de teclado vigente, estado comprimido a glifo con nombre accesible, y
+franja de color del grupo por pestaña. Medidas como constantes testeables en
+`tab-strip.ts`. ADDED-only sobre `gui-shell`; cero daemon, cero paridad.
+
+### `titulo-de-sesion` — abierta el 2026-08-09
+
+«Diferenciar qué agente y a qué pertenece»: una pestaña dice hoy
+`mock-agent 97040fb6` y con seis sesiones del mismo agente la tira es seis
+veces la misma palabra. El daemon deriva el título en local al iniciar
+(primera línea de la instrucción, truncado honesto) — en el daemon y no en un
+cliente, porque un título calculado en la GUI sería feature de una superficie
+(§4) y dos clientes no deben mostrar dos títulos para la misma sesión.
+`sessionInfo` gana `title` opcional (histórico sin migrar, degradación
+honesta), `session_started` lo lleva, el resume lo hereda. La pestaña pasa a
+avatar del agente + título, con el proyecto antepuesto **solo** cuando las
+pestañas abiertas cruzan más de un proyecto; la TUI lo adopta en su lista.
+Generarlo con modelo queda declarado como futuro opt-in de
+`motor-propio-byok`: inyectar un prompt oculto en la sesión de pago del
+usuario gastaría sus tokens en algo que no pidió y pondría en su log palabras
+que no escribió. Vía completa; ADDED sobre `acp-session`, `gui-shell`,
+`tui-shell`.
+
+### `compositor-que-trabaja` — abierta el 2026-08-09, vía rápida
+
+La referencia del mantenedor es Copilot: una luz que recorre el borde de la
+caja mientras se procesa. El gancho existe (`class:busy` sin CSS que lo use)
+y la señal falta donde el usuario va a escribir lo siguiente. El anillo corre
+con el degradado de marca (`--mel-aegean` → `--mel-wind`: el viento
+recorriendo el borde mientras las velas trabajan) por `transform: rotate()`
+sobre `conic-gradient` recortado — sin `@property`, sin `mask-composite` —,
+se enciende en el Home al enviar y en el detalle con
+`state ∈ {starting, active}`, y **se apaga en `waiting_permission`**:
+esperándote no es trabajando. Reduced-motion cae al fallback que el design
+system ya prescribe. Trae el ■ Detener al compositor con el **mismo**
+`ConfirmDialog` (decisión del mantenedor: la confirmación se queda). El gate
+único carga la enmienda al sistema de diseño que esto exige por escrito:
+Motion gana la clase «indicador ambiental de trabajo» (uno por vista, lento,
+jamás layout) y la reserva de marca gana su única excepción. ADDED-only sobre
+`gui-shell`.
+
+### `redirigir-turno` — abierta el 2026-08-09
+
+El gesto que falta entre detener y complementar: el Esc de Claude Code — «no
+sigas por ahí; haz esto» sin perder la sesión. No es hueco casual sino
+carrera cerrada a propósito: el cancel marca la cola cancelada
+(`session.rs`) para que ninguna instrucción tardía entre a un turno que no
+correrá, y el bucle ACP rompe incondicionalmente en `Cancelled`. Imitar la
+interrupción desde un cliente es exactamente esa carrera; la forma correcta
+es el verbo atómico: `session/direct` con `interrupt` — encolar primero,
+señalar después, y un borde de turno que distingue cancel de sesión (rompe,
+como hoy) de interrupción nuestra con relevo (drena a `Cancelled` y despacha
+lo encolado). ACP ya es por-turno; los adaptadores propios no se tocan (su
+spec ya exige drenar la cancelación con la verdad). Interrumpir en
+`waiting_permission` resuelve la petición como cancelada, registrada; el log
+debe distinguir «el agente se detuvo» de «el humano lo interrumpió». GUI:
+«Interrumpir y enviar» junto a «Encolar» cuando hay texto; TUI: el mismo
+gesto (paridad §4 servida en la change). Mock-agent gana el escenario e2e.
+Vía completa; deltas sobre `acp-session`, `gui-shell`, `tui-shell` y el
+schema `session-direct`.
+
+### `preguntas-del-agente` — abierta el 2026-08-09
+
+Cuando el agente pregunta con opciones, la pregunta debe contestar-se donde
+se escribe, como Claude/Codex/Copilot: listado con la recomendada visible y
+una salida de texto libre al final. Lo notable es cuánto existe:
+`request_permission` transporta N opciones con nombre, la bandeja y la
+conversación ya las pintan con botones sobre la misma cola. Faltan la
+presentación (acople al compositor en `waiting_permission`, aparición sin
+animación de layout — regla dura vigente) y el emisor real: el adaptador de
+Claude rehúsa `AskUserQuestion` como interactive-only con una premisa que
+caducó — Meltemi **es** la interfaz. Sus propios tests prueban que la
+pregunta llega por el canal con su `tool_use_id` y que la respuesta
+transporta `updatedInput`: el cable existe de punta a punta. La change
+levanta el rehúso solo para esa herramienta y escribe la excepción al
+principio de input-intacto con su fundamento (en `AskUserQuestion` el input
+**es** el formulario). Texto libre con la verdad de cada protocolo: por el
+canal de Claude viaja en `updatedInput`; por ACP nativo no viaja
+(`Selected | Cancelled`) y el escape es interrumpir-y-relevar — **depende de
+`redirigir-turno`**. El mock-agent aprende a preguntar para e2e y demos. Vía
+completa; ADDED sobre `own-adapters` y `gui-shell`.
+
+### `sesion-que-espera` — abierta el 2026-08-09
+
+El mantenedor lo mostró con una captura: turno terminado, compositor muerto.
+La causa, verificada: el borde del turno cierra la cola en cuanto queda vacía
+(`take_or_close`, `session.rs:88-101`), el crate ACP mata el subproceso al
+drop y `finalize_ok` deregistra — no existe estado «esperando instrucciones»,
+y toda la sesión vive dentro de un solo RPC síncrono. Lo que hoy parece
+persistencia es auto-resume (sesión nueva encadenada por `resumed_from`, que
+exige `loadSession` del agente y relanza el proceso por mensaje). La change:
+el borde espera en vez de cerrar (proceso vivo, encolar despierta), el
+arranque se desacopla del RPC por vía aditiva —la evidencia de uso que
+`eventos-para-tardios` dejó pedida—, política de idle explícita con finalize
+honesto (`reason: idle`, jamás `completed` fingido), y el estado
+«esperando instrucciones» visible en las tres superficies. Comparte borde con
+`redirigir-turno`: van adyacentes en el orden para no reabrir ese código dos
+veces. Vía completa; el riesgo nombrado son los subprocesos idle acumulados
+(la política es la mitigación y el QA mide el reposo).
+
+### `pensamiento-a-la-vista` — abierta el 2026-08-09, vía rápida candidata
+
+«Ver la ejecución y la cadena de pensamiento en vivo como Codex/Claude
+Code/Copilot» — y el hallazgo de la auditoría de código: **la cadena entera ya
+funciona**. Los dos adaptadores propios reenvían el pensamiento en streaming
+(claude `thinking_delta`→`AgentThoughtChunk` con dedup; codex deltas de
+reasoning), el daemon reenvía verbatim, y la GUI ya pinta burbujas que crecen
+chunk a chunk. Dos eslabones flojos, exactos: el `<details>` colapsado de la
+GUI (`SessionDetail.svelte:637-641`) —el stream vivo existe pero hay que
+expandirlo a mano— y la TUI que reduce todo evento a `[id] tipo`
+(`conn.rs:693-705`), sin prosa ni pensamiento. La change destapa: expandido
+en vivo durante el turno en la GUI, pliegue conversacional en el drill-in de
+la TUI (espejo del fold de `conversation.ts`, con tope y gemelos ASCII), y la
+honestidad de nivel 3 dicha (headless no mapea reasoning; sin chunk no hay
+sección). Deltas ADDED sobre `gui-shell` y `tui-shell`; cero daemon, cero
+contrato, cero dependencias.
+
+### `modos-de-autonomia` — abierta el 2026-08-09
+
+Pedido directo del mantenedor con la referencia de los productos vecinos
+(Manual / Accept edits / Plan / Auto / Bypass): saber por sesión «si pide más
+permisos para cada acción o actúa de forma independiente». El hallazgo que la
+abarata: el daemon **ya compone posturas por sesión** (`explore` corre
+`deny_all`, la autoría SDD `allow_all`, los interactivos cargan las reglas
+del disco; `sdd/implement` ya lleva `autonomous: bool` con «never autonomy by
+accident») — falta exponerlo. La change: campo `mode` aditivo que se traduce
+a un bundle sintético con ámbito propio, compuesto con las reglas del usuario
+en el punto único existente (la precedencia del motor es por ámbito, no por
+posición: el design extiende `evaluate`); Manual = todo pregunta, Semi =
+ediciones dentro del worktree pasan (contención por `path_prefix`;
+`is_out_of_tree` clasifica mando y red, no rutas), Autónomo =
+allow amplio salvo lo irreversible/fuera del árbol, **que escala en todos los
+modos** — §3 literal, y el deny sin clientes no se toca. **Bypass no
+existirá**: es frontera constitucional, no deuda. De paso se salda
+`allow_meltemi_writes()` (promete `.meltemi/`, devuelve `allow_all`). Chip de
+modo visible en las tres superficies y el modo escrito en el log y la
+bandeja. Vía completa: la matriz de composición modo×reglas tiene esquinas
+que el design enumera y pinea con tests.
+
+### `modelo-y-esfuerzo-por-sesion` — abierta el 2026-08-09
+
+La palanca de cuotas que el mantenedor pidió con sus capturas: elegir modelo
+y esfuerzo de razonamiento por sesión. Verificado: el app-server de Codex
+**ya expone `model`/`effort` por turno** y el adaptador propio los deja
+apagados a propósito citando §5; el de Claude no pasa `--model` pero el punto
+de inserción es limpio y ya lee el modelo que el CLI anuncia; los perfiles
+solo declaran agente+env; `agent_resolved` no registra el modelo (solo asoma
+por el meta `providerModel` del adaptador de Claude o por `usage_reported` de
+un nivel 3). Y ACP **sí trae el vehículo**: el esquema 1.4.0 del crate
+pineado define *session config options* (`Model`/`ThoughtLevel`) — la prueba
+§6 se endereza y la vía estándar se cablea. La change, gobernada entera por
+§5 y §6: `model`/`effort` como **strings opacos** en el contrato que el
+núcleo transporta sin interpretar y solo cada adaptador traduce (lo no
+soportado se rehúsa con diagnóstico); los perfiles ganan ambos campos
+(«perfil = agente + cuenta + modelo», la unidad de administración de cuotas);
+chip y picker en el compositor con ficha que muestra **solo lo que Meltemi
+sabe** —sin precios ni créditos, que son negocio de terceros—; cambio a mitad
+de sesión donde el proveedor lo soporta, con el aviso honesto de la
+referencia («reinicia la caché del proveedor y puede aumentar el costo»); y
+`agent_resolved` gana el modelo efectivo. El ruteo automático «mejor modelo
+por tarea» queda rechazado para el core y nombrado como change futura
+declarativa (`ruteo-declarativo-de-perfiles`).
 
 ### `sidebar-ajustable-y-pestanas` — abierta el 2026-08-08
 
