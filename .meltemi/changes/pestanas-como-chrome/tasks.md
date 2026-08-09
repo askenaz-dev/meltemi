@@ -20,7 +20,7 @@ crate tocado.
 
 ## 2. Los grupos
 
-- [ ] 2.1 `desktop/ui/src/lib/tab-groups.ts` (módulo puro, cabecera SPDX):
+- [x] 2.1 `desktop/ui/src/lib/tab-groups.ts` (módulo puro, cabecera SPDX):
   crear, unir, sacar, renombrar, plegar; una pestaña en a lo sumo un grupo; el
   grupo vacío se destruye; plegar mueve la actividad si hacía falta;
   `desktop/ui/tests/tab-groups.test.ts` con `node --test` cubriendo las cuatro
