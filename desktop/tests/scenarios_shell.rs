@@ -1172,6 +1172,53 @@ fn walk_ui_sources() -> Vec<std::path::PathBuf> {
     found
 }
 
+// Scenario: La lista es la primera pestaña y nunca se cierra
+// Scenario: El estado de cada pestaña se lee sin color
+#[test]
+fn the_list_is_the_first_tab_and_every_tab_states_its_condition_in_words() {
+    let tabs = read("desktop/ui/src/lib/components/SessionTabs.svelte");
+
+    // The list leads and cannot be closed: an empty selection is invalid in a
+    // tablist, and this is where Escape and the last close both land.
+    let items = tabs
+        .split("const items: TabItem[] = $derived([")
+        .nth(1)
+        .expect("the item list")
+        .split("]);")
+        .next()
+        .expect("body");
+    let list_first = items
+        .split("...tabs.map")
+        .next()
+        .expect("what comes before the sessions");
+    assert!(
+        list_first.contains("id: LIST") && list_first.contains("closable: false"),
+        "the list is the first item and has no close control: {list_first}"
+    );
+    assert!(
+        items.contains("closable: true"),
+        "every session tab can be closed: {items}"
+    );
+
+    // Symbol and word, never colour alone — the badge that already covers all
+    // five states, rather than a colour invented here.
+    assert!(
+        tabs.contains("<StatusBadge state={info.state} />"),
+        "a tab states its session's condition with the shared badge"
+    );
+    assert!(
+        tabs.contains("aria-label={$t(\"sessions.tabs.unread\""),
+        "the unread count is a number with a name, not a coloured dot"
+    );
+
+    // Resolved against the FULL listing: a tab holding a session from another
+    // project must not go blank after a project switch.
+    assert!(
+        tabs.contains("$allSessions.find("),
+        "a tab resolves its session against every session, not the scoped list"
+    );
+}
+
 // Scenario: La tira se recorre entera con el teclado
 #[test]
 fn the_tab_strip_is_traversable_by_arrow_keys() {

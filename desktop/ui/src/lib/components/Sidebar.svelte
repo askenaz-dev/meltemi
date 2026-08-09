@@ -309,7 +309,12 @@
   <!-- The line that divides the two zones is the control that moves them. It
        carries the hairline the projects header used to draw, because a rule
        that now divides should read as a divider and not as a heading. -->
+  <!-- A separator is non-interactive UNTIL it is focusable, and then it is the
+       ARIA window-splitter: a widget with a value and two bounds. The compiler
+       cannot tell those apart, so both rules are silenced here and only here,
+       and the pattern is asserted by test instead. -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
     class="split"
     role="separator"

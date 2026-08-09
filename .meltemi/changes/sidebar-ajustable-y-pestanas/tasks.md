@@ -58,7 +58,7 @@ bloque 3 es el punto de corte declarado si el alcance se demuestra excesivo.
   tabulación y se abre la excepción estrecha para `role="tab"`, con el test
   positivo que la cobra (design D8) — escenario «La tira se recorre entera con
   el teclado» — gates: suite de cableado
-- [ ] 3.3 `SessionTabs.svelte`: la lista como primera pestaña no cerrable, cada
+- [x] 3.3 `SessionTabs.svelte`: la lista como primera pestaña no cerrable, cada
   sesión resuelta contra el listado completo, estado con símbolo y palabra,
   contador de no leídos con nombre accesible; strings ES/EN (design D5) —
   escenarios «La lista es la primera pestaña y nunca se cierra» y «El estado de
