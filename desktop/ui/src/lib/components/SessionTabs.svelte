@@ -128,51 +128,6 @@
   {/snippet}
 </TabStrip>
 
-<style>
-  .dots {
-    padding: 0 4px;
-    line-height: 1;
-    color: var(--text-faint);
-  }
-  .scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-  }
-  .menu {
-    position: fixed;
-    top: 96px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 41;
-    display: grid;
-    gap: var(--sp-1);
-    min-width: 240px;
-    padding: var(--sp-2);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-panel);
-    box-shadow: var(--shadow-overlay);
-  }
-  .menu button {
-    justify-content: flex-start;
-    font-size: var(--fs-dense);
-  }
-  .newGroup {
-    display: flex;
-    gap: var(--sp-1);
-  }
-  .newGroup input {
-    flex: 1;
-    min-width: 0;
-  }
-  .unread {
-    /* The count is a number with a name, never a coloured dot alone. */
-    background: var(--tint-warn);
-    color: var(--surface);
-  }
-</style>
-
 {#if menuFor}
   {@const target = menuFor}
   <div
@@ -226,3 +181,48 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  .dots {
+    padding: 0 4px;
+    line-height: 1;
+    color: var(--text-faint);
+  }
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+  }
+  .menu {
+    position: fixed;
+    top: 96px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 41;
+    display: grid;
+    gap: var(--sp-1);
+    min-width: 240px;
+    padding: var(--sp-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--shadow-overlay);
+  }
+  .menu button {
+    justify-content: flex-start;
+    font-size: var(--fs-dense);
+  }
+  .newGroup {
+    display: flex;
+    gap: var(--sp-1);
+  }
+  .newGroup input {
+    flex: 1;
+    min-width: 0;
+  }
+  .unread {
+    /* The count is a number with a name, never a coloured dot alone. */
+    background: var(--tint-warn);
+    color: var(--surface);
+  }
+</style>

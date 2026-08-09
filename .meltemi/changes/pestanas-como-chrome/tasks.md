@@ -35,7 +35,7 @@ crate tocado.
 
 ## 3. Cierre
 
-- [ ] 3.1 `meltemi validate pestanas-como-chrome` limpio y `meltemi verify` con
+- [x] 3.1 `meltemi validate pestanas-como-chrome` limpio y `meltemi verify` con
   los siete escenarios enlazados (meta: cero marcas manuales); suite completa,
   clippy y fmt verdes; smoke conducido sobre el binario de release con captura
   —ocho pestañas en una sola fila, los controles apareciendo y deshabilitándose,
