@@ -44,9 +44,17 @@ crate tocado si lo hubiera.
   smoke (4.2): `--surface` y `--surface-2` están a un paso de tono en el tema
   oscuro y el design D1 ya declaró la palanca si no separan (hairline o la
   sombra de un nivel, jamás un color fuera de los tokens)
-- [ ] 2.2 La activa conserva marca bajo `forced-colors`, con el anillo de foco
+- [x] 2.2 La activa conserva marca bajo `forced-colors`, con el anillo de foco
   global y `aria-selected` intactos (design D2) — escenario «La selección
   sobrevive a la sustitución de colores»
+  <!-- 2026-08-09: `forced-colors` retira los rellenos y con ellos la costura,
+  así que la selección cae a un borde en color de sistema (`Highlight`). Los
+  otros dos portadores —`aria-selected` y el anillo `--focus`— son
+  independientes de la piel y el test los exige por separado, para que un
+  rediseño futuro no se lleve los tres de una vez. -->
+- [ ] 2.2b Comprobar la rama `forced-colors` en el smoke (4.2): un test de
+  fuente prueba que la regla existe, no que el sistema la aplique como se
+  espera
 - [ ] 2.3 Separador hairline entre inactivas contiguas por pseudo-elemento,
   oculto junto a la activa y junto a la pestaña bajo el puntero, sin desplazar
   nada al ocultarse (design D3) — escenario «Las inactivas comparten silueta»

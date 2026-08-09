@@ -310,6 +310,16 @@
       var(--surface) var(--tab-join)
     );
   }
+  /* When the system substitutes its own colours, surfaces and gradients go with
+     it — including the seam. Selection cannot ride on a fill the system is
+     free to replace, so it falls back to a border in a system colour. The
+     focus ring and aria-selected are separate carriers and are untouched
+     (design D2). */
+  @media (forced-colors: active) {
+    .tab.active {
+      border-color: Highlight;
+    }
+  }
   .nudge {
     flex: none;
     padding: 0 var(--sp-1);

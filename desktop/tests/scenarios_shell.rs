@@ -1639,6 +1639,31 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: La selección sobrevive a la sustitución de colores
+#[test]
+fn the_selected_tab_survives_forced_colors() {
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+    let styles = strip.split("<style>").nth(1).expect("the strip's styles");
+    let forced = styles
+        .split("@media (forced-colors: active)")
+        .nth(1)
+        .expect("a forced-colors branch: the seam is a fill the system removes");
+    assert!(
+        forced.contains(".tab.active") && forced.contains("border-color:"),
+        "selection falls back to a border when surfaces are substituted: {forced}"
+    );
+    // The other two carriers are independent of the skin and must stay.
+    assert!(
+        strip.contains("aria-selected={active}"),
+        "the selected state is still announced"
+    );
+    let app_css = read("desktop/ui/src/app.css");
+    assert!(
+        app_css.contains("--focus"),
+        "the surface keeps its own focus ring, which selection never replaces"
+    );
+}
+
 // Scenario: La hoja de estilo no repite lo que el módulo declara
 #[test]
 fn the_strips_measurements_have_a_single_owner() {
