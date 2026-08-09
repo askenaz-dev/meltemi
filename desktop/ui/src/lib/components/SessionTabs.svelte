@@ -9,7 +9,7 @@
   import { t } from "../i18n";
   import type { MessageKey } from "../messages";
   import { allSessions } from "../stores";
-  import { agentLabelOf } from "../tree";
+  import { agentLabelOf, projectName } from "../tree";
   import type { SessionTab } from "../session-tabs";
   import { groupOf, type GroupState } from "../tab-groups";
   import StatusBadge from "./StatusBadge.svelte";
@@ -52,6 +52,19 @@
     $allSessions.find((session) => session.sessionId === sessionId),
   );
 
+  /**
+   * Whether the open tabs cross more than one project. Only then does a label
+   * spend width saying which project it belongs to: with a single project the
+   * navigation already says it (titulo-de-sesion design D6).
+   */
+  const crossesProjects = $derived(
+    new Set(
+      tabs
+        .map((tab) => infoOf(tab.sessionId)?.projectRoot)
+        .filter((root): root is string => Boolean(root)),
+    ).size > 1,
+  );
+
   const items: TabItem[] = $derived([
     { id: LIST, label: $t("sessions.tabs.list"), closable: false },
     ...tabs.map((tab) => {
@@ -62,9 +75,14 @@
       // compressing the mark costs the label nothing and the tab still says
       // what it means (design D6).
       const state = info ? $t(("state." + info.state) as MessageKey) : undefined;
+      // What the session is about, when the daemon could name it; otherwise the
+      // agent and the short hash, exactly as before (design D6, D7).
+      const named = info?.title ?? `${agent} ${tab.sessionId.slice(0, 8)}`;
+      const scope =
+        crossesProjects && info?.projectRoot ? projectName(info.projectRoot) : undefined;
       return {
         id: tab.sessionId,
-        label: `${agent} ${tab.sessionId.slice(0, 8)}`,
+        label: scope ? `${scope} · ${named}` : named,
         state,
         // The full story the label had to shorten, project scope included, so
         // the strip never lies about where a session lives.

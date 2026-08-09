@@ -60,11 +60,11 @@ tocado, y en `desktop/ui` además `npm run check`, `npm run lint:i18n`,
 
 ## 4. Las superficies
 
-- [ ] 4.1 GUI: el rótulo de la pestaña pasa a ser el título con el hash en el
+- [x] 4.1 GUI: el rótulo de la pestaña pasa a ser el título con el hash en el
   emergente; lista, detalle, árbol y recientes lo muestran junto al id; sin
   título, lo de hoy (design D6, D7) — escenarios «La pestaña dice de qué trata
   la sesión» y «Una sesión sin título se nombra como antes»
-- [ ] 4.2 GUI: el proyecto se antepone al rótulo **solo** cuando las pestañas
+- [x] 4.2 GUI: el proyecto se antepone al rótulo **solo** cuando las pestañas
   abiertas cruzan más de un proyecto (design D6) — escenarios «El proyecto se
   antepone ante ambigüedad» y «Con un solo proyecto el rótulo no lo repite»
 - [ ] 4.3 TUI: `SessionRow` gana el campo y la lista lo muestra recortado al

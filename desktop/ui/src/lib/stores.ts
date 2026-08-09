@@ -34,6 +34,12 @@ export interface SessionInfo {
   agentId?: string;
   /** The launch profile — the subscription — by NAME only, never its env. */
   profile?: string;
+  /**
+   * What the session is about, derived by the daemon from the instruction that
+   * opened it. Absent when no user sentence started the session — a dispatched
+   * lane — and for sessions from before titles existed.
+   */
+  title?: string;
 }
 
 /** A known project (`project/list`): the registry, fed by real use. */

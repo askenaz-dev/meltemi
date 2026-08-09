@@ -1651,6 +1651,46 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: La pestaña dice de qué trata la sesión
+// Scenario: Una sesión sin título se nombra como antes
+// Scenario: El proyecto se antepone ante ambigüedad
+// Scenario: Con un solo proyecto el rótulo no lo repite
+#[test]
+fn a_tab_is_named_after_the_work_and_falls_back_when_it_cannot_be() {
+    let tabs = read("desktop/ui/src/lib/components/SessionTabs.svelte");
+    // The title when the daemon could derive one; the old agent-plus-hash when
+    // it could not. The fallback is the same expression it always was, so an
+    // untitled session reads exactly as before.
+    assert!(
+        tabs.contains("info?.title ?? `${agent} ${tab.sessionId.slice(0, 8)}`"),
+        "the tab is named after the work, and falls back to what it said before"
+    );
+    // The identifier does not disappear: the tooltip still carries it whole,
+    // with the project, which is what makes the strip unable to lie about
+    // where a session lives.
+    assert!(
+        tabs.contains("`${agent} · ${state} · ${tab.sessionId} · ${info.projectRoot}`"),
+        "the full id and the project stay in the tooltip"
+    );
+
+    // The project is prepended only when the open tabs cross more than one:
+    // with a single project the navigation already says it, and repeating it
+    // would spend width the name needs.
+    assert!(
+        tabs.contains("const crossesProjects = $derived("),
+        "the strip knows whether its tabs cross projects"
+    );
+    assert!(
+        tabs.contains(").size > 1"),
+        "more than one distinct project root is what makes it ambiguous"
+    );
+    assert!(
+        tabs.contains("crossesProjects && info?.projectRoot ? projectName(info.projectRoot)")
+            && tabs.contains("scope ? `${scope} · ${named}` : named"),
+        "the project is prepended only under ambiguity"
+    );
+}
+
 // Scenario: La pertenencia se ve en la pestaña, no solo en la etiqueta
 #[test]
 fn a_grouped_tab_wears_its_groups_colour_without_relying_on_it() {
