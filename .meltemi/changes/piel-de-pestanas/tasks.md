@@ -85,9 +85,18 @@ crate tocado si lo hubiera.
   por qué el hover no puede quedar en la regla global: si el botón interno
   dejara de ser sin borde, la explicación caducaría en silencio. -->
 - [ ] 3.1b Confirmar en el smoke (4.2) que hover y activa se distinguen
-- [ ] 3.2 La X se revela con puntero y con foco, permanece en la activa y
+- [x] 3.2 La X se revela con puntero y con foco, permanece en la activa y
   reserva su hueco siempre; `Delete` sigue cerrando (design D5) — escenario «El
   cierre se revela sin perder el camino de teclado»
+  <!-- 2026-08-09: se oculta con `visibility`, no con `display`, por dos
+  razones que se refuerzan: el hueco queda reservado (revelarla no encoge el
+  rótulo ni corre a las vecinas) y `visibility: hidden` **la saca del orden de
+  tabulación**, de modo que una X invisible no puede recibir el foco. El foco
+  del botón de la pestaña la revela vía `:focus-within` y solo entonces es
+  enfocable: el gesto nunca queda solo-puntero. `Delete` no se toca y el test
+  lo exige, porque es el camino que no depende de nada de esto. -->
+- [ ] 3.2b Comprobar en el smoke (4.2) que revelar la X no mueve las vecinas
+  ni recorta el rótulo, medido
 - [ ] 3.3 El estado se comprime a su glifo dentro de la pestaña y su palabra
   pasa al nombre accesible y al emergente, en `SessionTabs.svelte` (design D6)
   — escenario «El estado no gasta ancho en repetirse» — gates: `npm run

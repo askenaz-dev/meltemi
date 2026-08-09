@@ -1639,6 +1639,41 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: El cierre se revela sin perder el camino de teclado
+#[test]
+fn the_close_control_is_revealed_without_becoming_pointer_only() {
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+    let styles = strip.split("<style>").nth(1).expect("the strip's styles");
+    let hidden = styles
+        .split(".tab .x {")
+        .nth(1)
+        .expect("the close control's resting rule")
+        .split('}')
+        .next()
+        .expect("body");
+    // Hidden by visibility, never by display: the space stays reserved, so
+    // revealing the control cannot narrow the label or shift its neighbours.
+    assert!(
+        hidden.contains("visibility: hidden") && !hidden.contains("display:"),
+        "the close control keeps its space while hidden: {hidden}"
+    );
+    // Focus reveals it too — otherwise closing by pointer would be the only
+    // way to reach a control that exists.
+    assert!(
+        styles.contains(".tab:focus-within .x") && styles.contains(".tab:hover .x"),
+        "the control is revealed by focus as well as by the pointer"
+    );
+    assert!(
+        styles.contains(".tab.active .x"),
+        "the active tab keeps its close control visible"
+    );
+    // And the keyboard route that never depended on any of this still holds.
+    assert!(
+        strip.contains("event.key === \"Delete\"") && strip.contains("onClose(items[current].id)"),
+        "Delete still closes the focused tab"
+    );
+}
+
 // Scenario: La inactiva responde al puntero
 #[test]
 fn an_inactive_tab_answers_the_pointer() {

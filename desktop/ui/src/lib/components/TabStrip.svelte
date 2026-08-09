@@ -407,4 +407,18 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* N tabs showing N close buttons is N invitations to lose work. The control
+     is revealed under the pointer, revealed when the tab holds focus — so the
+     gesture is never pointer-only — and always present on the active tab. It
+     is hidden by `visibility`, which keeps its space: revealing it must not
+     narrow the label or shift the tabs beside it (design D5). `Delete` closes
+     regardless, by the keyboard pattern this change does not touch. */
+  .tab .x {
+    visibility: hidden;
+  }
+  .tab:hover .x,
+  .tab:focus-within .x,
+  .tab.active .x {
+    visibility: visible;
+  }
 </style>
