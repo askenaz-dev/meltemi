@@ -1429,6 +1429,76 @@ fn the_list_is_the_first_tab_and_every_tab_states_its_condition_in_words() {
     );
 }
 
+// Scenario: Muchas pestañas no producen un segundo renglón
+// Scenario: Los controles aparecen solo cuando sobran pestañas
+// Scenario: La pestaña activa nunca queda fuera de vista
+#[test]
+fn the_tab_strip_is_one_row_that_scrolls_when_it_has_to() {
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+    let styles = strip.split("<style>").nth(1).expect("styles");
+
+    // One row, always. A tab whose row changes with the count is a tab the eye
+    // cannot find again.
+    let tabs_rule = styles
+        .split("\n  .tabs {")
+        .nth(1)
+        .expect("the tabs rule")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        tabs_rule.contains("flex-wrap: nowrap"),
+        "the strip never wraps to a second row: {tabs_rule}"
+    );
+    assert!(
+        tabs_rule.contains("overflow-x: auto") && tabs_rule.contains("min-width: 0"),
+        "it scrolls instead, and can shrink below its content: {tabs_rule}"
+    );
+
+    // Shrink FIRST, scroll after: the tab keeps a floor so it still says
+    // something, and that floor is a number a test can read.
+    let tab_rule = styles
+        .split("\n  .tab {")
+        .nth(1)
+        .expect("the tab rule")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        tab_rule.contains("flex: 0 1 auto") && tab_rule.contains("min-width: 96px"),
+        "tabs shrink to a legible floor before the strip scrolls: {tab_rule}"
+    );
+    let numbers = read("desktop/ui/src/lib/tab-strip.ts");
+    assert!(
+        numbers.contains("MIN_TAB_PX = 96"),
+        "the floor lives in the module the CSS agrees with"
+    );
+
+    // The controls exist ONLY while there is something to scroll, and each is
+    // disabled at its end rather than vanishing under the pointer.
+    assert_eq!(
+        strip.matches("{#if overflowing}").count(),
+        2,
+        "both controls are conditional on real overflow"
+    );
+    assert!(
+        strip.contains("disabled={!reach.left}") && strip.contains("disabled={!reach.right}"),
+        "each control is disabled at its own end"
+    );
+    assert!(
+        strip.contains("new ResizeObserver"),
+        "overflow is measured, not assumed"
+    );
+
+    // The active tab is brought into view with `nearest`: it moves the minimum,
+    // so a visible tab does not jump. Without it the ARIA arrows move focus off
+    // screen and the user types into something they cannot see.
+    assert!(
+        strip.contains("scrollIntoView({ block: \"nearest\", inline: \"nearest\" })"),
+        "the active tab is brought into view, moving the minimum"
+    );
+}
+
 // Scenario: Varias suscripciones del mismo agente se leen juntas
 // Scenario: La suscripción sin agente conocido no desaparece
 // Scenario: La relación no depende de la sangría
@@ -1784,20 +1854,34 @@ fn the_surface_declares_a_thin_scrollbar_from_its_own_tokens() {
         "one colour declaration, carried by inheritance"
     );
 
-    // Scrollbar chrome is decided once, in the stylesheet — never per component.
+    // Scrollbar APPEARANCE is decided once, in the stylesheet — never per
+    // component. A component may still SUPPRESS the bar on one of its own
+    // scrollers, but only by paying for it: it has to offer another way to
+    // scroll. Hiding a bar and leaving no control is how a region becomes
+    // unreachable for anyone who does not have a wheel.
     let mut offenders = Vec::new();
     for path in walk_ui_sources() {
         if path.ends_with("app.css") {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        if text.contains("::-webkit-scrollbar") || text.contains("scrollbar-width") {
+        let touches_scrollbar =
+            text.contains("::-webkit-scrollbar") || text.contains("scrollbar-width");
+        if !touches_scrollbar {
+            continue;
+        }
+        let suppresses_only = text.contains("scrollbar-width: none")
+            && !text.contains("scrollbar-width: thin")
+            && !text.contains("scrollbar-color")
+            && !text.contains("::-webkit-scrollbar-thumb");
+        let offers_controls = text.contains("scrollBy(") && text.contains("aria-label={scroll");
+        if !(suppresses_only && offers_controls) {
             offenders.push(path.display().to_string());
         }
     }
     assert!(
         offenders.is_empty(),
-        "scrollbar chrome is decided once, in the stylesheet: {offenders:?}"
+        "scrollbar chrome is decided once, in the stylesheet — or suppressed          only by a component that offers its own controls: {offenders:?}"
     );
 
     // Narrowing the bar must not narrow a row: the tree still scrolls its

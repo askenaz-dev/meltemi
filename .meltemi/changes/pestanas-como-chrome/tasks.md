@@ -7,12 +7,12 @@ crate tocado.
 
 ## 1. Una sola fila
 
-- [ ] 1.1 `TabStrip.svelte`: la tira deja de envolver; las pestañas encogen
+- [x] 1.1 `TabStrip.svelte`: la tira deja de envolver; las pestañas encogen
   hasta un mínimo declarado en un módulo y luego la tira se desplaza; la forma
   se acerca a la de Chrome —contiguas, esquinas superiores redondeadas, la
   activa unida a su panel— (design D1) — escenario «Muchas pestañas no producen
   un segundo renglón» — gates: suite de cableado
-- [ ] 1.2 Controles `<` y `>` que solo existen mientras hay desbordamiento,
+- [x] 1.2 Controles `<` y `>` que solo existen mientras hay desbordamiento,
   deshabilitados en su extremo, medidos con `ResizeObserver`; y el efecto que
   trae la pestaña activa a la vista moviendo lo mínimo (design D2, D3) —
   escenarios «Los controles aparecen solo cuando sobran pestañas» y «La pestaña

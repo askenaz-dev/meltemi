@@ -64,6 +64,8 @@
   activeId={active ?? LIST}
   label={$t("sessions.tabs")}
   closeLabel={$t("sessions.tabs.close")}
+  scrollLeftLabel={$t("tabs.scrollLeft")}
+  scrollRightLabel={$t("tabs.scrollRight")}
   onSelect={(id) => onSelect(id === LIST ? null : id)}
   onClose={(id) => onClose(id)}
 >
