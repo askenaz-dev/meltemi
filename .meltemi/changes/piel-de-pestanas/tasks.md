@@ -97,10 +97,22 @@ crate tocado si lo hubiera.
   lo exige, porque es el camino que no depende de nada de esto. -->
 - [ ] 3.2b Comprobar en el smoke (4.2) que revelar la X no mueve las vecinas
   ni recorta el rótulo, medido
-- [ ] 3.3 El estado se comprime a su glifo dentro de la pestaña y su palabra
+- [x] 3.3 El estado se comprime a su glifo dentro de la pestaña y su palabra
   pasa al nombre accesible y al emergente, en `SessionTabs.svelte` (design D6)
   — escenario «El estado no gasta ancho en repetirse» — gates: `npm run
   lint:i18n`
+  <!-- 2026-08-09: `StatusBadge` gana una forma `compact` en vez de nacer un
+  segundo badge —el estado se dice en un solo sitio para las cinco
+  condiciones—, y `TabItem` gana `state` para que la palabra comprimida llegue
+  al nombre accesible de la **pestaña**, no solo del badge. La composición de
+  ese nombre salió a `accessibleName()`: antes vivía inline y solo sabía del
+  grupo; ahora suma lo que la pestaña comprima, y devuelve `undefined` cuando
+  no hay nada que añadir para no repetir el contenido. Hubo que enmendar dos
+  aserciones vecinas que pineaban la forma literal (`<StatusBadge
+  state={info.state} />` y la expresión inline del `aria-label`); ambas
+  garantías siguen exigidas, ahora por su nueva forma. -->
+- [ ] 3.3b Comprobar en el smoke (4.2) que el rótulo recupera ancho real con
+  seis pestañas del mismo agente, medido
 - [ ] 3.4 Franja del color del grupo en cada pestaña miembro, con el nombre del
   grupo intacto en el nombre accesible (design D7) — escenario «La pertenencia
   se ve en la pestaña, no solo en la etiqueta»

@@ -23,6 +23,12 @@
     label: string;
     /** The full story the label had to shorten. */
     title?: string;
+    /**
+     * A word the tab shows as a glyph and must still say out loud — the
+     * session's state. It joins the accessible name so compressing the mark
+     * costs nothing to whoever cannot see it (design D6).
+     */
+    state?: string;
     closable: boolean;
     /** The group this tab belongs to, when it belongs to one. */
     group?: { id: string; name: string; color: string; collapsed: boolean; size: number };
@@ -147,6 +153,17 @@
     event.stopPropagation();
     focusTab(next);
   }
+
+  /**
+   * What the tab says to someone who cannot see it: everything the visible
+   * label carries, plus what the tab compressed into a glyph or a colour.
+   * Returns undefined when there is nothing to add, so the tab keeps deriving
+   * its name from its own content rather than repeating it.
+   */
+  function accessibleName(item: TabItem): string | undefined {
+    const carried = [item.state, item.group?.name].filter(Boolean);
+    return carried.length > 0 ? [item.label, ...carried].join(" — ") : undefined;
+  }
 </script>
 
 <!-- The strip's numbers have one owner: the module declares them, the element
@@ -204,7 +221,7 @@
         aria-selected={active}
         tabindex={active ? 0 : -1}
         title={item.title ?? item.label}
-        aria-label={item.group ? `${item.label} — ${item.group.name}` : undefined}
+        aria-label={accessibleName(item)}
         onclick={() => onSelect(item.id)}
         onkeydown={onKeys}
       >

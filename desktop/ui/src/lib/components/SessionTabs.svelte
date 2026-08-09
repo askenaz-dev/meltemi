@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import { t } from "../i18n";
+  import type { MessageKey } from "../messages";
   import { allSessions } from "../stores";
   import { agentLabelOf } from "../tree";
   import type { SessionTab } from "../session-tabs";
@@ -57,14 +58,19 @@
       const info = infoOf(tab.sessionId);
       const agent = info ? agentLabelOf(info) : $t("sessions.tabs.gone");
       const group = groupOf(groups, tab.sessionId);
+      // The state shows as a glyph inside the tab; its word travels here, so
+      // compressing the mark costs the label nothing and the tab still says
+      // what it means (design D6).
+      const state = info ? $t(("state." + info.state) as MessageKey) : undefined;
       return {
         id: tab.sessionId,
         label: `${agent} ${tab.sessionId.slice(0, 8)}`,
+        state,
         // The full story the label had to shorten, project scope included, so
         // the strip never lies about where a session lives.
         title: info?.projectRoot
-          ? `${agent} · ${tab.sessionId} · ${info.projectRoot}`
-          : `${agent} · ${tab.sessionId}`,
+          ? `${agent} · ${state} · ${tab.sessionId} · ${info.projectRoot}`
+          : `${agent} · ${state ?? ""} · ${tab.sessionId}`,
         closable: true,
         group: group
           ? {
@@ -114,7 +120,7 @@
     {#if item.id !== LIST}
       {@const info = infoOf(item.id)}
       {#if info}
-        <StatusBadge state={info.state} />
+        <StatusBadge state={info.state} compact />
       {/if}
       {#if unreadOf(item.id) > 0}
         <span

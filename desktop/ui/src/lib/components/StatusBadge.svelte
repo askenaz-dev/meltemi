@@ -4,7 +4,18 @@
   import type { MessageKey } from "../messages";
   import type { SessionState } from "../stores";
 
-  let { state }: { state: SessionState } = $props();
+  let {
+    state,
+    /**
+     * Compact form: the glyph alone, with the word carried as the accessible
+     * name. For places where the word would be repeated once per row and eat
+     * the width the row's own label needs — a tab strip of six sessions of the
+     * same agent (piel-de-pestanas design D6). The rule is symbol plus label,
+     * visible OR accessible; never colour alone, which the glyph already
+     * prevents.
+     */
+    compact = false,
+  }: { state: SessionState; compact?: boolean } = $props();
 
   const glyphs: Record<SessionState, string> = {
     starting: "◌",
@@ -23,10 +34,20 @@
 </script>
 
 <!-- Symbol + word, never color alone (design system). -->
-<span class="badge tone-{tones[state]}">
-  <span aria-hidden="true">{glyphs[state]}</span>
-  {$t(("state." + state) as MessageKey)}
-</span>
+{#if compact}
+  <span
+    class="badge tone-{tones[state]}"
+    aria-label={$t(("state." + state) as MessageKey)}
+    title={$t(("state." + state) as MessageKey)}
+  >
+    <span aria-hidden="true">{glyphs[state]}</span>
+  </span>
+{:else}
+  <span class="badge tone-{tones[state]}">
+    <span aria-hidden="true">{glyphs[state]}</span>
+    {$t(("state." + state) as MessageKey)}
+  </span>
+{/if}
 
 <style>
   .badge {

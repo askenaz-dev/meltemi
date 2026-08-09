@@ -1415,10 +1415,17 @@ fn the_list_is_the_first_tab_and_every_tab_states_its_condition_in_words() {
     );
 
     // Symbol and word, never colour alone — the badge that already covers all
-    // five states, rather than a colour invented here.
+    // five states, rather than a colour invented here. Inside a tab it runs
+    // compact: the glyph shows, the word travels in the accessible name (see
+    // `the_tab_spends_its_width_on_the_label`), which is the icon rule the
+    // design system states as label visible OR accessible.
     assert!(
-        tabs.contains("<StatusBadge state={info.state} />"),
+        tabs.contains("<StatusBadge state={info.state} compact />"),
         "a tab states its session's condition with the shared badge"
+    );
+    assert!(
+        tabs.contains("state,") && tabs.contains("$t((\"state.\" + info.state)"),
+        "and the word it compressed is handed to the strip, not dropped"
     );
     assert!(
         tabs.contains("aria-label={$t(\"sessions.tabs.unread\""),
@@ -1453,10 +1460,15 @@ fn a_tab_group_says_its_name_and_collapsing_never_closes_anything() {
 
     let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
     // Colour identifies; the NAME is what the accessible name carries, so the
-    // membership means something to whoever does not separate these hues.
+    // membership means something to whoever does not separate these hues. The
+    // composition moved into `accessibleName` when the state's word joined it;
+    // the guarantee did not move.
     assert!(
-        strip
-            .contains("aria-label={item.group ? `${item.label} — ${item.group.name}` : undefined}"),
+        strip.contains("aria-label={accessibleName(item)}"),
+        "the tab's accessible name is composed in one place"
+    );
+    assert!(
+        strip.contains("[item.state, item.group?.name].filter(Boolean)"),
         "a grouped tab carries its group's name in its accessible name"
     );
     assert!(
@@ -1636,6 +1648,48 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
             && !code.contains("mask-composite")
             && !code.contains("@property"),
         "the curve stays inside the cross-webview budget"
+    );
+}
+
+// Scenario: El estado no gasta ancho en repetirse
+#[test]
+fn the_tab_spends_its_width_on_the_label() {
+    // Six sessions of one agent used to print the same state word six times,
+    // eating the width the name needed. The glyph stays; the word moves to the
+    // accessible name, which is the icon rule the design system already allows.
+    let badge = read("desktop/ui/src/lib/components/StatusBadge.svelte");
+    assert!(
+        badge.contains("compact = false"),
+        "the shared badge grew a compact form rather than a second badge"
+    );
+    let compact = badge
+        .split("{#if compact}")
+        .nth(1)
+        .expect("the compact branch")
+        .split("{:else}")
+        .next()
+        .expect("body");
+    assert!(
+        compact.contains("aria-label={$t((\"state.\" + state)") && compact.contains("title="),
+        "compact keeps the word as the accessible name and as the tooltip: {compact}"
+    );
+    // Exactly two uses of the word — the accessible name and the tooltip — so
+    // none of them is the visible content the glyph replaced.
+    assert!(
+        compact.contains("aria-hidden=\"true\"") && compact.matches("$t((\"state.\"").count() == 2,
+        "the glyph is what shows; the word is named, not printed: {compact}"
+    );
+
+    // The strip is what says it out loud, so the tab's own name carries it.
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+    assert!(
+        strip.contains("state?: string;"),
+        "a tab item can carry a word it shows as a glyph"
+    );
+    assert!(
+        strip.contains("[item.state, item.group?.name].filter(Boolean)")
+            && strip.contains("carried.length > 0 ? [item.label, ...carried]"),
+        "the accessible name is the label plus whatever the tab compressed"
     );
 }
 
