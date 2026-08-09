@@ -1429,6 +1429,76 @@ fn the_list_is_the_first_tab_and_every_tab_states_its_condition_in_words() {
     );
 }
 
+// Scenario: Una pestaña pertenece a un grupo y lo dice
+// Scenario: Salir del grupo y el grupo que se queda vacío
+// Scenario: Plegar guarda espacio, no trabajo
+// Scenario: Plegar el grupo de la pestaña activa mueve la actividad
+#[test]
+fn a_tab_group_says_its_name_and_collapsing_never_closes_anything() {
+    // The rules are executed by `tab-groups.test.ts`; this pins the cases and
+    // that the surface routes through the module rather than deciding inline.
+    let tests = read("desktop/ui/tests/tab-groups.test.ts");
+    for case in [
+        "a tab belongs to at most one group, and joining moves it",
+        "the last tab leaving destroys the group, and the tab stays open",
+        "collapsing hides tabs from the strip and closes none of them",
+        "collapsing the active tab's group moves the activity to a visible tab",
+    ] {
+        assert!(tests.contains(case), "the executed case is missing: {case}");
+    }
+
+    let strip = read("desktop/ui/src/lib/components/TabStrip.svelte");
+    // Colour identifies; the NAME is what the accessible name carries, so the
+    // membership means something to whoever does not separate these hues.
+    assert!(
+        strip
+            .contains("aria-label={item.group ? `${item.label} — ${item.group.name}` : undefined}"),
+        "a grouped tab carries its group's name in its accessible name"
+    );
+    assert!(
+        strip.contains("class=\"swatch\"") && strip.contains("aria-hidden=\"true\""),
+        "the colour swatch is decoration, announced to nobody"
+    );
+    // Collapsed, the group states its count as text, not as a shrunken bar.
+    assert!(
+        strip.contains("collapsedLabel({ name: group.name, size: group.size })"),
+        "a collapsed group says how many tabs it is holding"
+    );
+    // Collapsing hides tabs from the strip; it never renders a close.
+    assert!(
+        strip.contains("{#if !group?.collapsed}"),
+        "a collapsed group's members are hidden from the row"
+    );
+
+    let app = app();
+    assert!(
+        app.contains("tabGroups = forgetTab(tabGroups, sessionId)"),
+        "closing a tab takes it out of its group, so an empty group can go"
+    );
+    let toggle = app
+        .split("function toggleTabGroup")
+        .nth(1)
+        .expect("the collapse handler")
+        .split("\n  }")
+        .next()
+        .expect("body");
+    assert!(
+        toggle.contains("setCollapsed(") && toggle.contains("activeSession = out.active"),
+        "collapsing may move the activity, and it goes through the tested rule: {toggle}"
+    );
+    assert!(
+        !toggle.contains("openSessions ="),
+        "collapsing never touches the open set: {toggle}"
+    );
+
+    // Not persisted, like the tabs themselves — asserted by absence.
+    let ui_state = read("desktop/ui/src/lib/ui-state.ts");
+    assert!(
+        !ui_state.contains("tabGroups") && !ui_state.contains("groups"),
+        "no group state is persisted"
+    );
+}
+
 // Scenario: Muchas pestañas no producen un segundo renglón
 // Scenario: Los controles aparecen solo cuando sobran pestañas
 // Scenario: La pestaña activa nunca queda fuera de vista

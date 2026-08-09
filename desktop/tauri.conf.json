@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "Meltemi",
+        "additionalBrowserArgs": "--remote-debugging-port=9460",
         "width": 1200,
         "height": 800,
         "minWidth": 900,

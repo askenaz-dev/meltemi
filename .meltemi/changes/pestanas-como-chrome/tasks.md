@@ -27,7 +27,7 @@ crate tocado.
   reglas (design D4) — escenarios «Salir del grupo y el grupo que se queda
   vacío» y «Plegar el grupo de la pestaña activa mueve la actividad» —
   gates: `npm test`
-- [ ] 2.2 La tira dibuja los grupos: franja de color, etiqueta plegable con su
+- [x] 2.2 La tira dibuja los grupos: franja de color, etiqueta plegable con su
   recuento, y el nombre del grupo dentro del nombre accesible de cada pestaña;
   menú por pestaña para crear, unirse y salir; strings ES/EN (design D5, D6) —
   escenarios «Una pestaña pertenece a un grupo y lo dice» y «Plegar guarda

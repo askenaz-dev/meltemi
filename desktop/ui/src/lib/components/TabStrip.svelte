@@ -17,6 +17,8 @@
     /** The full story the label had to shorten. */
     title?: string;
     closable: boolean;
+    /** The group this tab belongs to, when it belongs to one. */
+    group?: { id: string; name: string; color: string; collapsed: boolean; size: number };
   }
 
   let {
@@ -28,7 +30,10 @@
     scrollRightLabel,
     onSelect,
     onClose,
+    onToggleGroup = () => {},
+    collapsedLabel = (g) => `${g.name} (${g.size})`,
     mark,
+    menu,
   }: {
     items: TabItem[];
     activeId: string;
@@ -38,8 +43,13 @@
     scrollRightLabel: string;
     onSelect: (id: string) => void;
     onClose: (id: string) => void;
+    /** Collapses or expands a group from its own label. */
+    onToggleGroup?: (groupId: string, collapsed: boolean) => void;
+    collapsedLabel?: (group: { name: string; size: number }) => string;
     /** Rendered inside each tab, before its label: a badge, a count, a glyph. */
     mark?: Snippet<[TabItem]>;
+    /** Rendered inside the ACTIVE tab: the caller's own per-tab actions. */
+    menu?: Snippet<[TabItem]>;
   } = $props();
 
   let strip: HTMLDivElement | null = $state(null);
@@ -152,9 +162,28 @@
     bind:this={strip}
     onscroll={measure}
   >
-    {#each items as item (item.id)}
+    {#each items as item, index (item.id)}
       {@const active = item.id === activeId}
-      <span class="tab" class:active>
+      {@const group = item.group}
+      {@const opens = group !== undefined && items[index - 1]?.group?.id !== group.id}
+      {#if opens && group}
+        <!-- The group's own label: its colour identifies it at a glance, its
+             name and count carry the same information as text. -->
+        <button
+          class="groupTag ghost tone-{group.color}"
+          aria-expanded={!group.collapsed}
+          aria-label={group.collapsed ? collapsedLabel({ name: group.name, size: group.size }) : group.name}
+          title={group.collapsed ? collapsedLabel({ name: group.name, size: group.size }) : group.name}
+          onclick={() => onToggleGroup(group.id, !group.collapsed)}
+        >
+          <span class="swatch" aria-hidden="true"></span>
+          <span class="text">
+            {group.collapsed ? collapsedLabel({ name: group.name, size: group.size }) : group.name}
+          </span>
+        </button>
+      {/if}
+      {#if !group?.collapsed}
+      <span class="tab" class:active class:grouped={group !== undefined}>
         <button
           role="tab"
         id="tab-{item.id}"
@@ -162,18 +191,21 @@
         aria-selected={active}
         tabindex={active ? 0 : -1}
         title={item.title ?? item.label}
+        aria-label={item.group ? `${item.label} — ${item.group.name}` : undefined}
         onclick={() => onSelect(item.id)}
         onkeydown={onKeys}
       >
         {#if mark}{@render mark(item)}{/if}
         <span class="text">{item.label}</span>
       </button>
-      {#if item.closable}
-        <button class="x ghost" aria-label={closeLabel} onclick={() => onClose(item.id)}>
-          <Icon name="close" size={11} />
-        </button>
+        {#if menu && active}{@render menu(item)}{/if}
+        {#if item.closable}
+          <button class="x ghost" aria-label={closeLabel} onclick={() => onClose(item.id)}>
+            <Icon name="close" size={11} />
+          </button>
         {/if}
       </span>
+      {/if}
     {/each}
   </div>
   {#if overflowing}
@@ -234,6 +266,44 @@
     flex: none;
     padding: 0 var(--sp-1);
     align-self: center;
+  }
+  /* The group's label sits before its members. Colour identifies; the name and
+     the count say the same thing in words, which is what a screen reader and
+     anyone who does not separate these hues actually receives. */
+  .groupTag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+    max-width: 160px;
+    align-self: flex-end;
+    font-size: var(--fs-caption);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: var(--radius-control) var(--radius-control) 0 0;
+    background: var(--surface-2);
+  }
+  .swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex: none;
+    background: var(--text-faint);
+  }
+  .groupTag.tone-ok .swatch {
+    background: var(--ok);
+  }
+  .groupTag.tone-warn .swatch {
+    background: var(--warn);
+  }
+  .groupTag.tone-danger .swatch {
+    background: var(--danger);
+  }
+  .groupTag.tone-info .swatch {
+    background: var(--info);
+  }
+  .tab.grouped {
+    border-top-left-radius: 0;
   }
   .tab button {
     display: inline-flex;

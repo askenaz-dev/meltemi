@@ -20,6 +20,15 @@
   import { loadUiState, setLastView } from "./lib/ui-state";
   import { dirtyFiles, requestSaveAll } from "./lib/editor/dirty";
   import {
+    EMPTY_GROUPS,
+    createGroup,
+    forgetTab,
+    joinGroup,
+    leaveGroup,
+    setCollapsed,
+    type GroupState,
+  } from "./lib/tab-groups";
+  import {
     MAX_SESSION_TABS,
     clearUnread,
     closeTab,
@@ -68,6 +77,11 @@
    */
   let openSessions: SessionTab[] = $state([]);
   let activeSession: string | null = $state(null);
+  /**
+   * Tab groups. Not persisted, for the same reason the tabs are not: a group of
+   * tabs that no longer exist has nothing to restore (D7 of the tab change).
+   */
+  let tabGroups: GroupState = $state(EMPTY_GROUPS);
   /** The shell only speaks of a session while the sessions view is on screen. */
   const inSession = $derived(view === "sessions" && activeSession !== null);
 
@@ -90,6 +104,20 @@
     const next = closeTab(openSessions, activeSession, sessionId);
     openSessions = next.tabs;
     activeSession = next.active;
+    // A closed tab leaves its group, and a group left empty stops existing.
+    tabGroups = forgetTab(tabGroups, sessionId);
+  }
+
+  function toggleTabGroup(groupId: string, collapsed: boolean) {
+    const out = setCollapsed(
+      tabGroups,
+      groupId,
+      collapsed,
+      activeSession,
+      openSessions.map((t) => t.sessionId),
+    );
+    tabGroups = out.state;
+    activeSession = out.active;
   }
   let reviewOpen = $state(false);
   let editorContext: {
@@ -454,6 +482,11 @@
             <SessionTabs
               tabs={openSessions}
               active={activeSession}
+              groups={tabGroups}
+              onToggleGroup={toggleTabGroup}
+              onCreateGroup={(id, name) => (tabGroups = createGroup(tabGroups, id, name))}
+              onJoinGroup={(id, groupId) => (tabGroups = joinGroup(tabGroups, id, groupId))}
+              onLeaveGroup={(id) => (tabGroups = leaveGroup(tabGroups, id))}
               onSelect={(id) => {
                 activeSession = id;
                 if (id !== null) openSessions = clearUnread(openSessions, id);
