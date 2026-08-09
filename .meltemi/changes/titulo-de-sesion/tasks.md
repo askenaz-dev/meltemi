@@ -73,11 +73,18 @@ tocado, y en `desktop/ui` además `npm run check`, `npm run lint:i18n`,
 
 ## 5. Cierre
 
-- [ ] 5.1 `meltemi validate titulo-de-sesion` limpio y `meltemi verify` con los
-  nueve escenarios enlazados (meta: cero marcas manuales); suite completa,
+- [x] 5.1 `meltemi validate titulo-de-sesion` limpio y `meltemi verify` con los
+  once escenarios enlazados (meta: cero marcas manuales); suite completa,
   clippy, fmt y los gates del frontend verdes; `docs/paridad-nucleo.md`
   revisado (esta change no añade métodos: se comprueba que no haga falta fila
   nueva)
+  <!-- 2026-08-09: **verify 11/11, sin una sola marca manual**. Tres escenarios
+  —el orden de derivación frente a la expansión, la ausencia de título donde no
+  hay frase del usuario, y la herencia en el resume— se pinean contra el código
+  que decide, porque tratan de ORDEN y de AUSENCIA: un e2e vería el resultado
+  pero no que el título se tomó antes de expandir. La confirmación conducida es
+  el smoke de 5.2, y se dice aquí para que la fuerza de cada prueba se lea sin
+  averiguarla. -->
 - [ ] 5.2 Smoke conducido sobre el binario de release con la receta de
   `docs/qa/2026-08-09-piel-de-pestanas-smoke.md` (patch de puerto + user data
   folder propio y nuevo + revertir el patch): seis sesiones con instrucciones
