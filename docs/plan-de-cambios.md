@@ -185,9 +185,9 @@ eventos externos no gasta turno. Toda desviación se anota aquí.
 | Orden | Change | Estado (motor) | Por qué aquí |
 |---|---|---|---|
 | — | `lanzador-conversacional` | 52/52, verify 106/106 | **Espera solo la firma v1.5** (pendiente 1c del arquitecto, gate de archivo); no es trabajo de agente |
-| 1º | `artefactos-de-cada-push` | tasks 6/7, verify 9/9 | La tarea 4.2 solo espera **el primer push real a `main`** para anotar su evidencia; cerrarlo entrega el DMG descargable que motivó la change |
-| 2º | `piel-de-pestanas` | proposal | «El manejo de tabs está feo»: la anatomía de Chrome; GUI pura, vía rápida — primera del orden acordado con el mantenedor en la sesión que abrió la tanda |
-| 3º | `titulo-de-sesion` | proposal | El mayor salto de orientación diaria: las pestañas nombran el trabajo, no un hash; contrato aditivo chico, riesgo bajo (`piel` no toca rótulos: sin retrabajo) |
+| 1º | ✅ `artefactos-de-cada-push` | 7/7, verify 9/9 | Verificada en runner real con el artefacto descargado y abierto. **Espera review** |
+| 2º | ✅ `piel-de-pestanas` | 8/8 verify, smoke hecho | «El manejo de tabs está feo»: la anatomía de Chrome. **Espera review** |
+| 3º | ✅ `titulo-de-sesion` | 13/13, 11/11 verify, smoke hecho | Las pestañas nombran el trabajo, no un hash. **Espera review** |
 | 4º | `compositor-que-trabaja` | proposal | El anillo de trabajo y ■ Detener donde se escribe; vía rápida cuyo gate carga la enmienda del design system |
 | 5º | `pensamiento-a-la-vista` | proposal | La misma experiencia que el 4º: la luz dice «trabajo», el transcript lo muestra — destapar el pensamiento ya transportado (GUI) y el pliegue conversacional de la TUI |
 | 6º | `barra-de-estado-agentica` | proposal | El cromo ambiental: proyecto, change+gate, sesiones por estado, tokens con frontera honesta |
@@ -779,6 +779,40 @@ capa viene cada pieza. Skills, Hooks y Subagentes quedan nombrados como
 changes futuras (`harness-skills`, `harness-hooks`, `harness-subagentes`) con
 sus pruebas §6 y §2 por delante; los bundles con nombre y la alineación del
 lado FDH, también. Capability nueva `agent-harness`; spec-full deliberado.
+
+### `titulo-de-sesion` — abierta e implementada el 2026-08-09
+
+Nace de lo que el smoke de `piel-de-pestanas` fotografió sin buscarlo: seis
+pestañas diciendo `mock a296f430`, `mock 929240ed`, `mock 39597c6f` — la misma
+palabra y ocho caracteres de hex, seis veces. El daemon deriva ahora el nombre
+de la frase que abrió la sesión, en local y sin modelo (§5: pedirle a la sesión
+de pago del usuario que se nombre gastaría sus tokens y pondría en su log
+palabras que no escribió).
+
+**Leer el código antes de escribir el design encontró dos trampas que la
+propuesta no podía conocer.** La primera es la que más habría dolido: el índice
+pliega last-wins y `merge_into` **solo copia los campos que enumera**; el
+registro de cierre no lleva título, así que sin su propia rama el nombre se
+habría visto mientras la sesión corría y **desaparecido al terminar** — un
+defecto de datos con el disfraz de uno de pintado. La segunda: la instrucción
+existe dos veces, como se escribió y con las referencias `@` expandidas; el
+título sale de la primera, y se corta por caracteres y jamás por bytes (el pozo
+de `texto-intacto-al-agente`).
+
+Dos decisiones que la propuesta dejaba abiertas quedaron cerradas: una calle de
+carrera **no recibe título** —no nace de una frase— y reanudar **conserva** el
+suyo en vez de re-derivarlo. Y una tercera se enmendó al implementar: los
+turnos de autoría SDD tampoco lo reciben, porque a `run_turn` no llega la frase
+del usuario sino un prompt que **compone el método**; nombrar con texto
+generado es el mismo error que nombrar con una referencia expandida.
+
+**Cerrada 13/13 tareas, verify 11/11 sin marcas manuales.** Los tres escenarios
+de **orden** y **ausencia** (que el título se tome antes de expandir, que las
+rutas sin frase no lo inventen, que el resume herede) se pinean contra el
+código que decide, porque un e2e vería el resultado y no el orden; la
+confirmación conducida es el smoke, que además midió la regla de ambigüedad en
+sus dos sentidos. Nota:
+`docs/qa/2026-08-09-titulo-de-sesion-smoke.md`.
 
 ### `barra-de-estado-agentica` — abierta el 2026-08-09, vía rápida candidata
 
