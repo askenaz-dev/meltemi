@@ -1186,14 +1186,34 @@ fn the_sidebar_folds_to_a_rail_without_losing_a_single_entry() {
 
     // Folded, the words go and the reach stays: every entry keeps an
     // accessible name, and the rules hide labels — never the entries.
+    // Every navigation entry, not just the ones the loop emits: the settings
+    // entry lives outside it, and a smoke run on the real binary found it
+    // nameless while a check written against the loop alone passed.
+    let entries: Vec<&str> = sidebar.split("class=\"item ghost\"").skip(1).collect();
     assert!(
-        sidebar.contains("aria-label={$t((\"nav.\" + item.id) as never)}"),
-        "each entry carries its accessible name, folded or not"
+        entries.len() >= 2,
+        "the bar has entries inside the loop and outside it"
     );
+    for entry in &entries {
+        // Up to the icon it renders: the attribute region. Not `split('>')` —
+        // an arrow function in an `onclick` carries a `>` of its own.
+        let attrs = entry.split("<Icon").next().expect("the attribute region");
+        assert!(
+            attrs.contains("aria-label="),
+            "a folded entry is an icon; every entry needs its own name: {attrs}"
+        );
+    }
     let styles = sidebar.split("<style>").nth(1).expect("styles").to_string();
     assert!(
         styles.contains("aside.folded .label") && styles.contains("display: none"),
         "folding hides the words"
+    );
+    // The tree goes as a whole rather than reflowing into a column of single
+    // letters — a smoke run on the real binary showed exactly that. Nothing is
+    // lost with it: its content stays reachable from entries that remain.
+    assert!(
+        styles.contains("aside.folded .tree"),
+        "folding retires the project tree instead of squeezing it into 52px"
     );
     for kept in [".item", ".counter"] {
         assert!(

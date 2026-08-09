@@ -200,7 +200,14 @@
       </button>
   </div>
 
-  <button class="project ghost" onclick={onPickProject}>
+  <!-- Folded, this is a caret alone: it says what it opens, and its title says
+       which project it is standing for. -->
+  <button
+    class="project ghost"
+    onclick={onPickProject}
+    aria-label={$t("projects.switch")}
+    title={projectName ?? $t("nav.noProject")}
+  >
     <span class="name">{projectName ?? $t("nav.noProject")}</span>
     <Icon name="chevronDown" size={14} />
   </button>
@@ -333,6 +340,8 @@
       class:current={view === "settings"}
       aria-current={view === "settings" ? "page" : undefined}
       onclick={() => onNavigate("settings")}
+      aria-label={$t("nav.settings")}
+      title={$t("nav.settings")}
     >
       <Icon name="settings" size={16} />
       <span class="label">{$t("nav.settings")}</span>
@@ -365,12 +374,35 @@
   aside.folded .section {
     display: none;
   }
-  aside.folded .item {
+  /* The project tree is a panel of content, not a navigation entry: at 52px it
+     would be text broken into single-letter columns. It goes as a whole, and
+     nothing goes with it — its projects and sessions stay reachable through the
+     Sessions entry and the project switcher, both of which remain on the rail. */
+  aside.folded .tree {
+    display: none;
+  }
+  aside.folded .item,
+  aside.folded .project {
     justify-content: center;
   }
   aside.folded .identity {
     flex-direction: column;
     gap: var(--sp-1);
+    align-items: center;
+    padding-inline: 0;
+  }
+  aside.folded .project {
+    padding-inline: 0;
+  }
+  /* The auto margin that pushes the control to the far end of the header row
+     would push it off-centre once the header becomes a column. */
+  aside.folded .fold {
+    margin-left: 0;
+  }
+  /* Without the tree there is nothing to take the leftover height, so the
+     settings entry is pushed to the foot where it sits when unfolded. */
+  aside.folded nav {
+    flex: 1;
   }
   .fold {
     margin-left: auto;
