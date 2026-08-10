@@ -26,6 +26,14 @@ marks: the app icon and the onboarding lockup. UI chrome never paints the
 gradient; interactive accents use the solid tokens below. Per brand rules: no
 glow, no shadows-as-decoration, no circular containers around the mark.
 
+**One exception, and only one** (`compositor-que-trabaja`, 2026-08-09): the
+**working indicator** may wear the gradient. It is not chrome — it is *the*
+state signal of this product, the one moment where the interface says an agent
+is working right now, and the brand's own image is what it says: the wind
+running along the edge while the sails work. Nothing else in the surface may
+claim this exception; a second thing wearing the gradient makes both of them
+decoration.
+
 ## Color tokens
 
 Semantic tokens as CSS custom properties; both themes ship from day one and
@@ -180,6 +188,26 @@ A lower-priority signal never occludes a higher one.
 - `prefers-reduced-motion: reduce` suppresses every non-essential animation
   (spinners become static glyphs with a textual "working…" label).
 - Never animate layout of the permission tray or signal banners.
+
+### Ambient working indicator
+
+A class of its own, added because the rule above is about *transitions* and
+this is not one (`compositor-que-trabaja`, 2026-08-09). An ambient indicator
+says an agent is working right now, and it may run a slow loop — 2–3 s — for as
+long as that is true. Its constraints, which are what keep it from becoming a
+licence to animate:
+
+- **One per view.** Two ambient loops on one screen are decoration, not signal.
+- **Transform or opacity only, and never layout.** Nothing may move because
+  something is working.
+- **It runs only while an agent works**, and stops when the session is waiting
+  on the user: waiting is not working, and an indicator that keeps moving while
+  the agent is stopped lies about who has to act next.
+- **Under `prefers-reduced-motion` it is removed, not frozen.** The global
+  kill-switch shortens durations; it does not clear a painted background, so an
+  animation left to it stays visible, stopped, in an arbitrary position — a
+  state nobody designed and nobody asked to see. The indicator withdraws and
+  its static equivalent, with a word, carries the state.
 
 ## Cross-webview CSS budget
 
