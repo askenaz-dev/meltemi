@@ -189,7 +189,7 @@ async fn serve_connection(
                     let _ = updates.send(Update::Notice("permiso vencido: denegado por plazo".into()));
                 }
                 Some(Incoming::Notification { method, params }) if method == methods::SESSION_EVENT => {
-                    if let Some(line) = summarize_event(&params) {
+                    if let Some(line) = summarize_event(&params, lang) {
                         let session_id = params
                             .get("sessionId")
                             .and_then(Value::as_str)
@@ -691,17 +691,68 @@ fn init_params() -> InitializeParams {
 }
 
 /// A one-line summary of a session event for the transcript.
-fn summarize_event(params: &Value) -> Option<String> {
+///
+/// Events that carry something the user came to read say it; the rest keep
+/// their type line, which is what they are (pensamiento-a-la-vista design D2).
+fn summarize_event(params: &Value, lang: Lang) -> Option<String> {
     let session = params
         .get("sessionId")
         .and_then(Value::as_str)
         .unwrap_or("?");
-    let kind = params
-        .get("event")
+    let event = params.get("event");
+    let kind = event
         .and_then(|e| e.get("type"))
         .and_then(Value::as_str)
         .unwrap_or("event");
-    Some(format!("[{session}] {kind}"))
+    let said = event
+        .and_then(|e| e.get("payload"))
+        .and_then(|p| said_by_agent(p, lang));
+    Some(match said {
+        Some(text) => format!("[{session}] {text}"),
+        None => format!("[{session}] {kind}"),
+    })
+}
+
+/// What an `agent_update` payload says, if it says anything.
+///
+/// The update travels verbatim from ACP, so this reads its own vocabulary. The
+/// thinking is prefixed with a WORD and not a colour: a terminal that renders
+/// no colour at all must still separate what the agent said from what it
+/// thought (design D3). Nothing is invented for an update that carries no text
+/// — an agent that reports no reasoning has a transcript without it, not one
+/// with an empty marker (design D4).
+fn said_by_agent(payload: &Value, lang: Lang) -> Option<String> {
+    let update = payload.get("update")?;
+    let kind = update.get("sessionUpdate").and_then(Value::as_str)?;
+    let text = || {
+        update
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned)
+    };
+    let (thought, tool) = match lang {
+        Lang::Es => ("piensa", "herramienta"),
+        Lang::En => ("thinking", "tool"),
+    };
+    match kind {
+        "agent_message_chunk" => text(),
+        "agent_thought_chunk" => text().map(|t| format!("{thought}: {t}")),
+        "tool_call" | "tool_call_update" => {
+            let title = update
+                .get("title")
+                .and_then(Value::as_str)
+                .or_else(|| update.get("toolCallId").and_then(Value::as_str))?;
+            let status = update.get("status").and_then(Value::as_str);
+            Some(match status {
+                Some(status) => format!("{tool}: {title} ({status})"),
+                None => format!("{tool}: {title}"),
+            })
+        }
+        _ => None,
+    }
 }
 
 /// A labeled notice for an incoming permission request.
@@ -773,5 +824,95 @@ mod tests {
             notice.contains("s-9") && notice.contains("meltemi sessions"),
             "the diagnosis and the remedy are the daemon's, and both survive: {notice}"
         );
+    }
+
+    // Scenario: El transcript dice lo que el agente dijo
+    // Scenario: El pensamiento se distingue de la prosa
+    // Scenario: Un evento sin contenido sigue diciendo su tipo
+    #[test]
+    fn the_transcript_says_what_the_agent_said_and_marks_what_it_thought() {
+        let event = |update: serde_json::Value| {
+            serde_json::json!({
+                "sessionId": "s-1",
+                "event": { "type": "agent_update", "payload": { "update": update } }
+            })
+        };
+
+        // Prose reaches the line instead of the event's type name.
+        let spoke = summarize_event(
+            &event(serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "text": "Voy a revisar el login" }
+            })),
+            Lang::Es,
+        )
+        .expect("a line");
+        assert!(
+            spoke.contains("Voy a revisar el login") && !spoke.contains("agent_update"),
+            "the transcript shows what was said: {spoke}"
+        );
+
+        // Thinking is separated by a WORD, so a colourless terminal still
+        // tells it apart from prose.
+        let thought = summarize_event(
+            &event(serde_json::json!({
+                "sessionUpdate": "agent_thought_chunk",
+                "content": { "text": "el fallo esta en la validacion" }
+            })),
+            Lang::Es,
+        )
+        .expect("a line");
+        assert!(
+            thought.contains("piensa:") && thought.contains("el fallo esta en la validacion"),
+            "thinking is marked with a word: {thought}"
+        );
+        let english = summarize_event(
+            &event(serde_json::json!({
+                "sessionUpdate": "agent_thought_chunk",
+                "content": { "text": "checking" }
+            })),
+            Lang::En,
+        )
+        .expect("a line");
+        assert!(
+            english.contains("thinking:"),
+            "and in both languages: {english}"
+        );
+
+        // A tool call says which tool and how it went.
+        let tool = summarize_event(
+            &event(serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "title": "read src/lib.rs",
+                "status": "completed"
+            })),
+            Lang::Es,
+        )
+        .expect("a line");
+        assert!(
+            tool.contains("read src/lib.rs") && tool.contains("completed"),
+            "a tool call says which and how: {tool}"
+        );
+
+        // An update with nothing to read invents nothing, and an event with no
+        // content at all keeps the type line, which is what it is.
+        let empty = summarize_event(
+            &event(serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "text": "   " }
+            })),
+            Lang::Es,
+        )
+        .expect("a line");
+        assert!(
+            empty.contains("agent_update"),
+            "an empty chunk falls back to the type rather than printing nothing: {empty}"
+        );
+        let plain = summarize_event(
+            &serde_json::json!({ "sessionId": "s-1", "event": { "type": "checkpoint_created" } }),
+            Lang::Es,
+        )
+        .expect("a line");
+        assert_eq!(plain, "[s-1] checkpoint_created");
     }
 }

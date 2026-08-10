@@ -1651,6 +1651,53 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: El pensamiento se ve mientras el turno corre
+// Scenario: Plegarlo a mano no se deshace solo
+// Scenario: Sin pensamiento no hay sección
+#[test]
+fn the_thinking_of_a_turn_in_flight_is_shown_while_it_happens() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    // Open while the turn runs, folded when it closes.
+    assert!(
+        detail.contains("<details class=\"thought\" open={!item.closed}>"),
+        "the thinking is open while its turn is in flight"
+    );
+    // And folding it by hand survives the next chunk, because the expression
+    // does not change while the turn runs and Svelte only writes an attribute
+    // when its value changes. If that ever became a boolean recomputed per
+    // chunk, a user who folded it would have it reopened under their eyes.
+    assert!(
+        !detail.contains("open={thoughtOpen") && !detail.contains("open={true}"),
+        "the open state follows the turn, not a per-chunk recomputation"
+    );
+
+    // Nothing is drawn for a turn that emitted no thinking: the block only
+    // exists inside the branch that has a thought part.
+    let branch = detail
+        .split("part.kind === \"thought\"")
+        .nth(1)
+        .expect("the thought branch")
+        .split("{:else if")
+        .next()
+        .expect("its body");
+    assert!(
+        branch.contains("part.text"),
+        "the block renders the thought it was given: {branch}"
+    );
+    assert!(
+        !detail.contains("conv.thinkingPlaceholder") && !detail.contains("conv.noThought"),
+        "no placeholder stands in for thinking that never arrived"
+    );
+
+    // The chain that feeds it is the one that already streams: chunks of the
+    // same kind accumulate rather than replacing each other.
+    let fold = read("desktop/ui/src/lib/conversation.ts");
+    assert!(
+        fold.contains("last.text += part.text"),
+        "consecutive chunks grow the same part, which is what makes it live"
+    );
+}
+
 // Scenario: Detener desde el compositor
 // Scenario: Un verbo, dos accesos
 #[test]

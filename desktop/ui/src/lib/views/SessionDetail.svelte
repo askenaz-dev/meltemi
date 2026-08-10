@@ -646,7 +646,13 @@
                 {#if part.kind === "text"}
                   <p class="prose">{part.text}</p>
                 {:else if part.kind === "thought"}
-                  <details class="thought">
+                  <!-- Open while the turn is in flight: the thinking is worth
+                       seeing as it happens, not one click per turn. Svelte only
+                       writes the attribute when the expression changes, so a
+                       user who folds it mid-turn does not get it reopened by
+                       the next chunk; the one automatic move is the fold when
+                       the turn closes (pensamiento-a-la-vista design D1). -->
+                  <details class="thought" open={!item.closed}>
                     <summary>{$t("conv.thought")}</summary>
                     <p class="prose">{part.text}</p>
                   </details>

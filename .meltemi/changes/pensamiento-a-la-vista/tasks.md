@@ -1,0 +1,44 @@
+# Tareas — pensamiento-a-la-vista
+
+Vía rápida: gate único al final. Un commit atómico por tarea, con referencia
+`(pensamiento-a-la-vista N.M)` y sin trailers de co-autoría. Gates: los del
+frontend en `desktop/ui` y la suite del crate tocado.
+
+## 1. La GUI
+
+- [x] 1.1 El bloque de pensamiento se abre mientras el turno está en vuelo y se
+  pliega al cerrarse (`open={!item.closed}`), sin deshacer el plegado manual
+  del usuario (design D1) — escenarios «El pensamiento se ve mientras el turno
+  corre», «Plegarlo a mano no se deshace solo» y «Sin pensamiento no hay
+  sección»
+  <!-- 2026-08-09: `open={!item.closed}` y nada más, porque Svelte solo escribe
+  el atributo cuando la expresión cambia: mientras el turno corre sigue siendo
+  `true`, así que plegarlo a mano NO se deshace en el siguiente fragmento. El
+  único movimiento automático es el plegado al cerrar. El test lo pinea por el
+  lado negativo —ninguna forma recalculada por fragmento— porque ese sería el
+  modo de romperlo sin darse cuenta. -->
+
+## 2. El terminal
+
+- [x] 2.1 `summarize_event` rinde lo que los eventos dicen —prosa, pensamiento
+  marcado con palabra y gemelo ASCII, herramientas con su estado— y conserva la
+  línea de tipo para los eventos sin contenido (design D2, D3, D4) —
+  escenarios «El transcript dice lo que el agente dijo», «El pensamiento se
+  distingue de la prosa» y «Un evento sin contenido sigue diciendo su tipo»
+  <!-- 2026-08-09: los rótulos pasan por el `match Lang` que `conn.rs` ya usa
+  para los textos compuestos (§11), no por literales sueltos. Un fragmento vacío
+  cae a la línea de tipo en vez de imprimir nada, y un evento sin contenido la
+  conserva: no se inventa nada para lo que no llegó. No se reconstruyó el
+  pliegue por turnos de `conversation.ts` — agrupar en el shell es estructura
+  nueva con su propio estado, y lo que faltaba era que las líneas dijeran algo. -->
+
+## 3. Cierre
+
+- [x] 3.1 `meltemi validate pensamiento-a-la-vista` limpio y `meltemi verify`
+  con los seis escenarios enlazados (meta: cero marcas manuales); suite,
+  clippy, fmt y gates del frontend verdes
+- [ ] 3.2 Smoke sobre el binario de release con una sesión que emita
+  pensamiento: el bloque abierto en vuelo y plegado al cerrar, y el transcript
+  del terminal leyendo prosa y pensamiento distinguidos. **El mock-agent no
+  emite pensamiento hoy**: si el escenario lo necesita, se le añade al fixture
+  (sigue sin red y sin agentes reales). Nota en `docs/qa/`
