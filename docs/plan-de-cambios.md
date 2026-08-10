@@ -188,7 +188,7 @@ eventos externos no gasta turno. Toda desviación se anota aquí.
 | 1º | ✅ `artefactos-de-cada-push` | 7/7, verify 9/9 | Verificada en runner real con el artefacto descargado y abierto. **Espera review** |
 | 2º | ✅ `piel-de-pestanas` | 8/8 verify, smoke hecho | «El manejo de tabs está feo»: la anatomía de Chrome. **Espera review** |
 | 3º | ✅ `titulo-de-sesion` | 13/13, 11/11 verify, smoke hecho | Las pestañas nombran el trabajo, no un hash. **Espera review** |
-| 4º | `compositor-que-trabaja` | proposal | El anillo de trabajo y ■ Detener donde se escribe; vía rápida cuyo gate carga la enmienda del design system |
+| 4º | ✅ `compositor-que-trabaja` | 7/7, verify 5/5, smoke hecho | El anillo de trabajo y ■ Detener donde se escribe. **Espera review**, que además ratifica la enmienda del design system |
 | 5º | `pensamiento-a-la-vista` | proposal | La misma experiencia que el 4º: la luz dice «trabajo», el transcript lo muestra — destapar el pensamiento ya transportado (GUI) y el pliegue conversacional de la TUI |
 | 6º | `barra-de-estado-agentica` | proposal | El cromo ambiental: proyecto, change+gate, sesiones por estado, tokens con frontera honesta |
 | ☆ | **Auditoría de intuitividad** | sesión dedicada, no change | Tras la tanda visual (2º–6º): barrido CDP sistemático → informe en `docs/qa/` + la siguiente tanda; correrla antes re-hallaría lo ya capturado |
@@ -779,6 +779,36 @@ capa viene cada pieza. Skills, Hooks y Subagentes quedan nombrados como
 changes futuras (`harness-skills`, `harness-hooks`, `harness-subagentes`) con
 sus pruebas §6 y §2 por delante; los bundles con nombre y la alineación del
 lado FDH, también. Capability nueva `agent-harness`; spec-full deliberado.
+
+### `compositor-que-trabaja` — abierta e implementada el 2026-08-09
+
+`Home.svelte` llevaba `class:busy` desde el día que se escribió y **no había
+una sola regla que lo pintara**. Ahora la tiene: el viento de la marca
+recorriendo el borde del compositor mientras un agente trabaja, y ■ Detener
+junto al envío, con la misma confirmación y el mismo verbo que el acceso del
+encabezado, que se conserva.
+
+Es la primera change que **enmienda el sistema de diseño**, y lo hace por
+escrito en vez de contradecirlo: Motion gana la clase «indicador ambiental de
+trabajo» (uno por vista, bucle lento, solo transform u opacidad, jamás layout,
+solo mientras un agente trabaja) y la reserva de marca gana **una** excepción,
+redactada con su propio tope — «nada más en la superficie puede reclamarla; una
+segunda cosa vistiendo el degradado convierte a las dos en decoración».
+
+Tres hallazgos del código cambiaron decisiones. El **kill-switch global de
+movimiento reducido no apaga: acorta duraciones**, y habría dejado la luz
+pintada y detenida en una posición cualquiera — el smoke lo midió
+(`display: none` **y** `animation: 1e-05s`), así que la regla propia está
+probada y no argumentada. **`LIVE` incluye `waiting_permission`**, de modo que
+reutilizarlo habría encendido la luz justo donde la change quiere apagarla: una
+luz girando mientras el agente espera al humano miente sobre quién debe actuar.
+Y la acción primaria pintaba el degradado con un **literal suelto** teniendo
+`--mel-wind` declarado, lo que se corrigió aquí porque escribir la excepción de
+marca y dejar el literal sería enmendar la regla y romperla la misma tarde.
+
+Nota: `docs/qa/2026-08-09-compositor-que-trabaja-smoke.md`, que incluye la
+trampa de método que estuvo a punto de convertirse en un falso defecto — un
+driver que **inyecta** nodos contamina toda medición posterior.
 
 ### `titulo-de-sesion` — abierta e implementada el 2026-08-09
 
