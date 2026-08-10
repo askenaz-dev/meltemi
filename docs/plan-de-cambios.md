@@ -749,6 +749,15 @@ del arrastre es otra conversación. Nota:
 > pestañas. Sigue pendiente la **auditoría de intuitividad** que el mantenedor
 > pidió como barrido completo de la aplicación.
 
+> **Flake conocido (2026-08-09)**: `with_no_clients_the_constitutional_deny_
+> fires_after_the_grace` (`core/meltemid/tests/e2e_permisos.rs:369`) falló una
+> vez **solo en Windows** tras siete runs verdes. No es una regresión: su
+> espera es un sondeo de 200 × 50 ms —diez segundos— a que la sesión llegue a
+> `ended`, y en un runner cargado eso se agota. Reejecutado, pasó. Si reincide,
+> el arreglo no es reintentar sino **ensanchar el margen del sondeo**, que es
+> lo único que la prueba mide de más: el escenario es la denegación
+> constitucional, no la velocidad del runner.
+
 > **Hallazgo del smoke de `piel-de-pestanas` (2026-08-09), anotado y no
 > colado**: el CLI guarda la raíz del proyecto **tal como se la escriben**.
 > `meltemi session "…" .` deja sesiones cuyo `projectRoot` es el literal `.`,
