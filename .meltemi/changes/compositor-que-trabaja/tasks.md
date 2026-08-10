@@ -55,13 +55,24 @@ co-autoría. Gates en cada tarea de `desktop/ui`: `npm run check`,
 
 ## 5. Cierre
 
-- [ ] 5.1 `meltemi validate compositor-que-trabaja` limpio y `meltemi verify`
+- [x] 5.1 `meltemi validate compositor-que-trabaja` limpio y `meltemi verify`
   con los cinco escenarios enlazados (meta: cero marcas manuales); gates del
   frontend y de Rust verdes
-- [ ] 5.2 Smoke conducido sobre el binario de release (receta de
+- [x] 5.2 Smoke conducido sobre el binario de release (receta de
   `docs/qa/2026-08-09-piel-de-pestanas-smoke.md`): la luz encendida con una
   sesión activa, **apagada** con una esperando permiso, **retirada** con
   movimiento reducido forzado, el detener del compositor abriendo la misma
   confirmación, y el tono nuevo de la acción primaria. Medir además el reposo:
   si el bucle no es marginal, el dial es la duración del ciclo (design D1).
   Nota en `docs/qa/`
+  <!-- 2026-08-09: confirmado en `docs/qa/2026-08-09-compositor-que-trabaja-smoke.md`.
+  La medida que vale por todo el argumento: bajo movimiento reducido la luz
+  queda en `display: none` **y** la animación en `1e-05s` — o sea, el
+  kill-switch global hizo lo único que sabe hacer (acortar la duración) y
+  habría dejado el degradado pintado y detenido si la change se hubiera apoyado
+  en él. La regla propia era necesaria, y ahora está probada y no argumentada.
+  **Trampa de método anotada**: una versión del driver inyectaba un `<span
+  class="wind">` para leer la rama fuera de la ventana de trabajo; ese nodo, sin
+  la clase de ámbito de Svelte, sobrevivió a las mediciones siguientes y estuvo
+  a punto de reportarse como defecto. Recargar antes de medir y no inyectar DOM
+  propio. -->
