@@ -254,7 +254,10 @@ button.ghost:hover:not(:disabled) {
 }
 
 button.primary {
-  background: linear-gradient(135deg, var(--mel-aegean), #0891b2);
+  /* The token, not a literal beside it: the doctrine two lines up names this
+     gradient, and leaving a loose hex here while amending that doctrine would
+     be writing the rule and breaking it the same afternoon. */
+  background: linear-gradient(135deg, var(--mel-aegean), var(--mel-wind));
   border-color: transparent;
   color: #fff;
   font-weight: 500;

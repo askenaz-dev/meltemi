@@ -23,27 +23,33 @@ co-autoría. Gates en cada tarea de `desktop/ui`: `npm run check`,
 
 ## 2. La luz
 
-- [ ] 2.1 El anillo en los dos compositores: capa propia con `conic-gradient`
+- [x] 2.1 El anillo en los dos compositores: capa propia con `conic-gradient`
   de marca girando por `transform`, encendida con `running` en el Home y con
   `state ∈ {starting, active}` en el detalle — **nunca con `LIVE`**, que
   incluye la espera de permiso (design D1, D2) — escenarios «El compositor se
   enciende mientras el agente trabaja» y «La luz se apaga cuando la sesión
   espera una decisión»
-- [ ] 2.2 Movimiento reducido: regla propia que **retira** la luz en vez de
+  <!-- 2026-08-09: la técnica es una capa recortada DETRÁS de un compositor
+  opaco, así que solo se ven los dos píxeles que desbordan su marco — eso es la
+  luz del borde, sin `mask-composite`. El gradiente cónico va sobredimensionado
+  y cuadrado (200%, `aspect-ratio: 1`) para que la rotación no descubra una
+  esquina. El detalle enciende con un `working` propio y no con `LIVE`, y el
+  test lo exige por el lado negativo. -->
+- [x] 2.2 Movimiento reducido: regla propia que **retira** la luz en vez de
   dejar que el kill-switch la congele visible, con el borde de acento y el
   texto de estado sosteniendo la señal (design D3) — escenario «Sin
   movimiento, el estado se sigue diciendo»
 
 ## 3. Detener
 
-- [ ] 3.1 ■ Detener junto al envío en el detalle, visible mientras la sesión
+- [x] 3.1 ■ Detener junto al envío en el detalle, visible mientras la sesión
   está viva (aquí sí `LIVE`), abriendo el **mismo** `ConfirmDialog` contra el
   mismo `session/cancel`; el acceso del encabezado se conserva (design D5) —
   escenarios «Detener desde el compositor» y «Un verbo, dos accesos»
 
 ## 4. La deuda de marca que la enmienda deja a la vista
 
-- [ ] 4.1 `app.css`: la acción primaria deja de pintar `#0891b2` suelto y usa
+- [x] 4.1 `app.css`: la acción primaria deja de pintar `#0891b2` suelto y usa
   `--mel-wind`, que existe y es lo que la doctrina nombra (design D7). Cambia
   el tono del degradado: es el único cambio visual colateral y se declara aquí
 

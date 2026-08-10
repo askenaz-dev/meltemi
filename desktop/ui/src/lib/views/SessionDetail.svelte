@@ -423,6 +423,17 @@
     session !== undefined && !LIVE.includes(session.state) && session.resumable,
   );
 
+  /**
+   * Whether the agent is working RIGHT NOW, which is not the same as the
+   * session being alive: `LIVE` includes `waiting_permission`, and a session
+   * waiting on the user is a session whose agent has stopped. Reusing `LIVE`
+   * here would light the composer exactly where it must go dark
+   * (compositor-que-trabaja design D2).
+   */
+  const working = $derived(
+    session?.state === "active" || session?.state === "starting",
+  );
+
   // Arriving at a conversation puts the caret where the next instruction goes —
   // once per session, so a state change mid-read never steals the focus back.
   let focusedFor: string | null = null;
@@ -747,7 +758,10 @@
 
   <!-- The persistent composer: the conversation is where the next instruction
        is written, not a round trip through a modal. -->
-  <div class="composer">
+  <div class="composer" class:busy={working}>
+    <!-- Decorative to a screen reader: the state it signals is spoken by the
+         status row below and by the badge in the header. -->
+    {#if working}<span class="wind" aria-hidden="true"></span>{/if}
     {#if canSend}
       <textarea
         bind:this={field}
@@ -777,6 +791,21 @@
           <span class="faint">{$t("conv.closed")}</span>
         {/if}
       </span>
+
+      <!-- Stopping belongs beside the box you are typing in, not only in the
+           header's tool corner. Same verb, same confirmation, two ways to
+           reach it — and offered while the session waits on a decision too,
+           because stopping there is legitimate and common
+           (compositor-que-trabaja design D5). -->
+      {#if session && LIVE.includes(session.state)}
+        <button
+          class="ghost destructive stop"
+          title={$t("sessions.cancel")}
+          onclick={() => (confirmCancel = true)}
+        >
+          ■ {$t("sessions.cancelShort")}
+        </button>
+      {/if}
 
       {#if canSend}
         <button
@@ -1058,9 +1087,55 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-panel);
     padding: var(--sp-2);
+    /* So the working light can sit behind the frame. */
+    position: relative;
   }
   .composer:focus-within {
     border-color: var(--accent);
+  }
+  /* The ambient working indicator (design-system.md, "Ambient working
+     indicator"): a clipped layer behind an opaque composer, so only the pixels
+     that overflow its frame are seen. */
+  .wind {
+    position: absolute;
+    inset: -2px;
+    z-index: -1;
+    border-radius: inherit;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .wind::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 200%;
+    aspect-ratio: 1;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      var(--mel-aegean) 60deg,
+      var(--mel-wind) 110deg,
+      transparent 170deg
+    );
+    animation: composer-wind 2.4s linear infinite;
+  }
+  @keyframes composer-wind {
+    from {
+      transform: translate(-50%, -50%) rotate(0turn);
+    }
+    to {
+      transform: translate(-50%, -50%) rotate(1turn);
+    }
+  }
+  /* Removed, not frozen (design D3). */
+  @media (prefers-reduced-motion: reduce) {
+    .wind {
+      display: none;
+    }
+    .composer.busy {
+      border-color: var(--accent);
+    }
   }
   .composer textarea {
     border: 0;

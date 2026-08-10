@@ -1651,6 +1651,127 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: Detener desde el compositor
+// Scenario: Un verbo, dos accesos
+#[test]
+fn stopping_is_within_reach_of_the_box_you_type_in() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    let row = detail
+        .split("<div class=\"composerRow\">")
+        .nth(1)
+        .expect("the composer's row")
+        .split("</div>")
+        .next()
+        .expect("its body");
+    assert!(
+        row.contains("class=\"ghost destructive stop\"") && row.contains("confirmCancel = true"),
+        "the composer offers stopping beside the send: {row}"
+    );
+    // Offered while the session is alive — `LIVE`, which includes waiting on a
+    // decision, because stopping there is legitimate. Unlike the light, whose
+    // condition is narrower on purpose.
+    assert!(
+        row.contains("LIVE.includes(session.state)"),
+        "stopping stays offered while a session waits on a decision: {row}"
+    );
+
+    // One verb, two accesses: both open the SAME confirmation, and the
+    // header's access is not removed in the process.
+    assert_eq!(
+        detail.matches("confirmCancel = true").count(),
+        2,
+        "the header keeps its access and the composer gains one"
+    );
+    assert_eq!(
+        detail.matches("<ConfirmDialog").count(),
+        1,
+        "and both go through a single confirmation, not one each"
+    );
+    assert!(
+        detail.contains("method: \"session/cancel\""),
+        "against the verb that already exists"
+    );
+}
+
+// Scenario: El compositor se enciende mientras el agente trabaja
+// Scenario: La luz se apaga cuando la sesión espera una decisión
+// Scenario: Sin movimiento, el estado se sigue diciendo
+#[test]
+fn the_composer_says_an_agent_is_working_and_stops_saying_it_when_it_is_not() {
+    for view in [
+        "desktop/ui/src/lib/views/Home.svelte",
+        "desktop/ui/src/lib/views/SessionDetail.svelte",
+    ] {
+        let source = read(view);
+        let styles = source.split("<style>").nth(1).unwrap_or(&source);
+
+        // Transform only, and its own layer: nothing moves because something
+        // is working.
+        assert!(
+            styles.contains("animation: composer-wind")
+                && styles.contains("@keyframes composer-wind"),
+            "{view} runs the ambient indicator"
+        );
+        let frames = styles
+            .split("@keyframes composer-wind")
+            .nth(1)
+            .expect("the keyframes")
+            .split("\n  }\n")
+            .next()
+            .expect("body");
+        for animated in ["width:", "height:", "margin", "padding", "top:", "left:"] {
+            assert!(
+                !frames.contains(animated),
+                "{view} animates layout through {animated}: {frames}"
+            );
+        }
+        assert!(
+            frames.matches("transform:").count() == 2,
+            "the loop turns and does nothing else: {frames}"
+        );
+
+        // Removed under reduced motion, not left frozen: the global switch
+        // shortens durations and cannot clear a painted background.
+        let reduced = styles
+            .split("@media (prefers-reduced-motion: reduce)")
+            .nth(1)
+            .unwrap_or_else(|| panic!("{view} has no reduced-motion branch of its own"))
+            .split("\n  }\n")
+            .next()
+            .expect("body");
+        assert!(
+            reduced.contains(".wind") && reduced.contains("display: none"),
+            "{view} withdraws the light rather than freezing it: {reduced}"
+        );
+
+        // It wears the brand, which the design system now allows for this one
+        // thing, and nothing else in the file claims that exception.
+        assert!(
+            styles.contains("var(--mel-aegean)") && styles.contains("var(--mel-wind)"),
+            "{view} paints the gradient from the brand tokens"
+        );
+    }
+
+    // And the condition: the detail lights on work, never on `LIVE`, which
+    // includes waiting on the user.
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    assert!(
+        detail.contains("session?.state === \"active\" || session?.state === \"starting\"")
+            && detail.contains("class:busy={working}"),
+        "the light follows the agent working, not the session being alive"
+    );
+    assert!(
+        !detail.contains("class:busy={canSend}") && !detail.contains("class:busy={LIVE"),
+        "a session waiting on a decision must not look like one that is working"
+    );
+    // The amendment that allows all this is written down, not assumed.
+    let system = read("docs/ux/design-system.md");
+    assert!(
+        system.contains("### Ambient working indicator") && system.contains("removed, not frozen"),
+        "the design system carries the amendment this change relies on"
+    );
+}
+
 // Scenario: La pestaña dice de qué trata la sesión
 // Scenario: Una sesión sin título se nombra como antes
 // Scenario: El proyecto se antepone ante ambigüedad

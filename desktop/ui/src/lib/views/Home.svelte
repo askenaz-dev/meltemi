@@ -253,6 +253,10 @@
     <p class="promise">{$t("home.promise")}</p>
 
     <div class="composer" class:busy={running}>
+      <!-- The wind along the edge while the sails work. Decorative to a screen
+           reader: the state it signals is already spoken by the send button's
+           label and by the row below (compositor-que-trabaja design D1). -->
+      {#if running}<span class="wind" aria-hidden="true"></span>{/if}
       <textarea
         bind:this={box}
         bind:value={text}
@@ -457,9 +461,60 @@
     border-radius: var(--radius-panel);
     padding: var(--sp-2);
     box-shadow: var(--shadow-overlay);
+    /* So the working light can sit behind the frame. */
+    position: relative;
   }
   .composer:focus-within {
     border-color: var(--accent);
+  }
+  /* The ambient working indicator (design-system.md, "Ambient working
+     indicator"). A clipped layer behind the opaque composer: only the couple
+     of pixels that overflow its frame are seen, which is the edge light. */
+  .wind {
+    position: absolute;
+    inset: -2px;
+    z-index: -1;
+    border-radius: inherit;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .wind::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 200%;
+    aspect-ratio: 1;
+    /* Oversized and square so a rotation never uncovers a corner; the sweep
+       itself is a conic gradient turned by transform — no @property, no
+       mask-composite, no scroll-driven animation. */
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      var(--mel-aegean) 60deg,
+      var(--mel-wind) 110deg,
+      transparent 170deg
+    );
+    animation: composer-wind 2.4s linear infinite;
+  }
+  @keyframes composer-wind {
+    from {
+      transform: translate(-50%, -50%) rotate(0turn);
+    }
+    to {
+      transform: translate(-50%, -50%) rotate(1turn);
+    }
+  }
+  /* Removed, not frozen: the global kill-switch shortens durations and does not
+     clear a painted background, so leaving it to that would strand a stopped
+     glow on the edge. The accent frame carries the state instead (design D3). */
+  @media (prefers-reduced-motion: reduce) {
+    .wind {
+      display: none;
+    }
+    .composer.busy {
+      border-color: var(--accent);
+    }
   }
   .composer textarea {
     border: 0;
