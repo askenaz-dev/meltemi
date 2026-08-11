@@ -189,7 +189,7 @@ eventos externos no gasta turno. Toda desviación se anota aquí.
 | 2º | ✅ `piel-de-pestanas` | 8/8 verify, smoke hecho | «El manejo de tabs está feo»: la anatomía de Chrome. **Espera review** |
 | 3º | ✅ `titulo-de-sesion` | 13/13, 11/11 verify, smoke hecho | Las pestañas nombran el trabajo, no un hash. **Espera review** |
 | 4º | ✅ `compositor-que-trabaja` | 7/7, verify 5/5, smoke hecho | El anillo de trabajo y ■ Detener donde se escribe. **Espera review**, que además ratifica la enmienda del design system |
-| 5º | `pensamiento-a-la-vista` | proposal | La misma experiencia que el 4º: la luz dice «trabajo», el transcript lo muestra — destapar el pensamiento ya transportado (GUI) y el pliegue conversacional de la TUI |
+| 5º | 🔸 `pensamiento-a-la-vista` | 3/4, verify 6/6 | La misma experiencia que el 4º: la luz dice «trabajo», el transcript lo muestra — destapar el pensamiento ya transportado (GUI) y el pliegue conversacional de la TUI |
 | 6º | `barra-de-estado-agentica` | proposal | El cromo ambiental: proyecto, change+gate, sesiones por estado, tokens con frontera honesta |
 | ☆ | **Auditoría de intuitividad** | sesión dedicada, no change | Tras la tanda visual (2º–6º): barrido CDP sistemático → informe en `docs/qa/` + la siguiente tanda; correrla antes re-hallaría lo ya capturado |
 | 7º | `primer-arranque-del-home` | proposal | Vía rápida chica del comparativo: el chip advierte proactivamente; onboarding listo antes de cualquier anuncio |
@@ -203,6 +203,11 @@ eventos externos no gasta turno. Toda desviación se anota aquí.
 | 15º | `motor-propio-byok` | proposal | La mayor de fase 2; entra tras el harness (la directiva más reciente manda) y con su rename terminológico ya hecho |
 | ⏳ | `procedencia-de-release` | tasks 6/8, verify 6/6 | Sus 2 tareas dependen de eventos externos — una corrida real disparada por tag (próxima release) y **la clave pública que entrega el mantenedor** — se cierra cuando ocurran, sin gastar turno |
 
+> **Estado al 2026-08-10**: hechas 1º–4º (esperan review); la 5ª solo espera su
+> smoke. **Diez changes del orden siguen con proposal y nada más** (6º–15º), y
+> la auditoría ☆ no ha corrido. Lo que falta es la mayor parte del trabajo, no
+> el remate.
+>
 > Paralelizable sin romper el orden: 2º, 4º, 5º y 6º son solo `desktop/ui` (el
 > 5º suma el render de la TUI) y pueden avanzar mientras 3º toca daemon+proto,
 > commiteando por tarea (aviso de concurrencia del 2026-07-26). La auditoría ☆
