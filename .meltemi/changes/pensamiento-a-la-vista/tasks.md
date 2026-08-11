@@ -42,3 +42,8 @@ frontend en `desktop/ui` y la suite del crate tocado.
   del terminal leyendo prosa y pensamiento distinguidos. **El mock-agent no
   emite pensamiento hoy**: si el escenario lo necesita, se le añade al fixture
   (sigue sin red y sin agentes reales). Nota en `docs/qa/`
+  <!-- 2026-08-10: el mock aprendió a pensar detrás de `--think`, y **apagado
+  por defecto a propósito**: un mock que piensa siempre cambiaría lo que leen
+  todos los tests de transcript que ya existen. La bandera sigue el patrón de
+  `--load-session` y `--mcp`, que es como este binario declara lo que sabe
+  hacer. Sin red y sin agentes reales, como manda la regla de CI. -->

@@ -21,7 +21,7 @@ crate tocado si lo hubiera.
   duplicación. Hubo que enmendar la aserción vecina de `pestanas-como-chrome`,
   que exigía `min-width: 96px` **literal** —es decir, exigía la duplicación—;
   su escenario sigue cubierto, ahora a través del elemento. -->
-- [ ] 1.2 Las medidas nuevas de la piel (alto de pestaña, radio superior, ancho
+- [x] 1.2 Las medidas nuevas de la piel (alto de pestaña, radio superior, ancho
   de la franja de grupo) nacen en `tab-strip.ts` con el mismo trato, cada una
   en la tarea que la usa (design D8) — mismo escenario, cubierto por derivación
   <!-- 2026-08-09: `TAB_JOIN_PX` entró con 2.1, que es quien la usa. Las
@@ -40,7 +40,7 @@ crate tocado si lo hubiera.
   buscaba esos nombres en el texto del bloque. Se retiran los comentarios antes
   de comprobar; el comentario útil se queda donde el próximo lector lo
   necesita. -->
-- [ ] 2.1b El contraste real entre la capa de la tira y el panel se mide en el
+- [x] 2.1b El contraste real entre la capa de la tira y el panel se mide en el
   smoke (4.2): `--surface` y `--surface-2` están a un paso de tono en el tema
   oscuro y el design D1 ya declaró la palanca si no separan (hairline o la
   sombra de un nivel, jamás un color fuera de los tokens)
@@ -52,7 +52,7 @@ crate tocado si lo hubiera.
   otros dos portadores —`aria-selected` y el anillo `--focus`— son
   independientes de la piel y el test los exige por separado, para que un
   rediseño futuro no se lleve los tres de una vez. -->
-- [ ] 2.2b Comprobar la rama `forced-colors` en el smoke (4.2): un test de
+- [x] 2.2b Comprobar la rama `forced-colors` en el smoke (4.2): un test de
   fuente prueba que la regla existe, no que el sistema la aplique como se
   espera
 - [x] 2.3 Separador hairline entre inactivas contiguas por pseudo-elemento,
@@ -65,7 +65,7 @@ crate tocado si lo hubiera.
   posterior cada vez que el puntero cruza la tira—. Se apaga también tras una
   etiqueta de grupo, donde el separador dibujaría una línea contra el borde de
   la etiqueta. -->
-- [ ] 2.4 La franja de color del grupo (design D7) queda con 3.4, que es su
+- [x] 2.4 La franja de color del grupo (design D7) queda con 3.4, que es su
   tarea; se anota aquí para que la anatomía no se dé por cerrada sin ella
 
 ## 3. El puntero, el cierre y el ancho
@@ -84,7 +84,7 @@ crate tocado si lo hubiera.
   en la paleta con sus dos temas, no un color suelto aquí. El test pinea además
   por qué el hover no puede quedar en la regla global: si el botón interno
   dejara de ser sin borde, la explicación caducaría en silencio. -->
-- [ ] 3.1b Confirmar en el smoke (4.2) que hover y activa se distinguen
+- [x] 3.1b Confirmar en el smoke (4.2) que hover y activa se distinguen
 - [x] 3.2 La X se revela con puntero y con foco, permanece en la activa y
   reserva su hueco siempre; `Delete` sigue cerrando (design D5) — escenario «El
   cierre se revela sin perder el camino de teclado»
@@ -95,7 +95,7 @@ crate tocado si lo hubiera.
   del botón de la pestaña la revela vía `:focus-within` y solo entonces es
   enfocable: el gesto nunca queda solo-puntero. `Delete` no se toca y el test
   lo exige, porque es el camino que no depende de nada de esto. -->
-- [ ] 3.2b Comprobar en el smoke (4.2) que revelar la X no mueve las vecinas
+- [x] 3.2b Comprobar en el smoke (4.2) que revelar la X no mueve las vecinas
   ni recorta el rótulo, medido
 - [x] 3.3 El estado se comprime a su glifo dentro de la pestaña y su palabra
   pasa al nombre accesible y al emergente, en `SessionTabs.svelte` (design D6)
@@ -111,7 +111,7 @@ crate tocado si lo hubiera.
   aserciones vecinas que pineaban la forma literal (`<StatusBadge
   state={info.state} />` y la expresión inline del `aria-label`); ambas
   garantías siguen exigidas, ahora por su nueva forma. -->
-- [ ] 3.3b Comprobar en el smoke (4.2) que el rótulo recupera ancho real con
+- [x] 3.3b Comprobar en el smoke (4.2) que el rótulo recupera ancho real con
   seis pestañas del mismo agente, medido
 - [x] 3.4 Franja del color del grupo en cada pestaña miembro, con el nombre del
   grupo intacto en el nombre accesible (design D7) — escenario «La pertenencia
@@ -125,12 +125,12 @@ crate tocado si lo hubiera.
   swatch ya vive en esta hoja de estilo, y el guardián de la tarea 1.1 —que
   prohíbe el literal de cualquier medida del módulo— habría disparado con
   razón. -->
-- [ ] 3.4b Comprobar los cuatro tonos de grupo en el smoke (4.2), en los dos
+- [x] 3.4b Comprobar los cuatro tonos de grupo en el smoke (4.2), en los dos
   temas
 
 ## 4. Cierre
 
-- [ ] 4.1 `meltemi validate piel-de-pestanas` limpio y `meltemi verify` con los
+- [x] 4.1 `meltemi validate piel-de-pestanas` limpio y `meltemi verify` con los
   ocho escenarios enlazados (meta: cero marcas manuales); gates del frontend
   verdes y `cargo clippy`/`fmt` limpios
 - [x] 4.2 Smoke visual CDP sobre el **binario de release** con capturas y
@@ -151,18 +151,13 @@ crate tocado si lo hubiera.
   de método en la nota (la receta CDP necesita patch **y** user data folder
   propio) y un hallazgo ajeno anotado en el backlog (el CLI no canonicaliza la
   raíz del proyecto). -->
-- [x] 2.1b El contraste real entre la capa de la tira y el panel se mide en el
-  smoke — **medido: 1.142:1 (oscuro), 1.124:1 (claro); no separan**; palanca
-  D1 aplicada
-- [x] 2.2b Comprobar la rama `forced-colors` en el smoke — presente en la hoja
-  cargada: `.tab.active { border-color: highlight; }`
-- [x] 3.1b Confirmar que hover y activa se distinguen — resuelto por la línea
-  de base: la activa es la única sin ella
-- [x] 3.2b Comprobar que revelar la X no mueve las vecinas ni recorta el
-  rótulo — medido idéntico al píxel (134.725 / 87.575 / 474.325)
-- [x] 3.3b Confirmar que el rótulo recupera ancho real con seis pestañas del
-  mismo agente — 87–91 px, ninguno truncado; el estado viaja en el nombre
-  accesible
-- [x] 3.4b Comprobar los cuatro tonos de grupo en el smoke, en los dos temas —
-  banda `--ok` medida sobre grupo creado por la vía real; ancho reservado en
-  todas las pestañas
+
+> **Medido en el smoke (2026-08-09)**, para que cada marca de arriba diga qué
+> la sostiene: contraste de capas **1.142:1 oscuro / 1.124:1 claro** (no
+> separan → palanca D1 aplicada como línea de base); `forced-colors` presente
+> en la hoja cargada (`.tab.active { border-color: highlight }`); hover contra
+> activa resuelto **por la línea de base**, que solo la activa pierde; revelar
+> la X deja las medidas idénticas al píxel (134.725 / 87.575 / 474.325);
+> rótulos de 87–91 px sin truncar con seis pestañas del mismo agente; y la
+> banda de grupo medida sobre un grupo creado por la vía real, con su ancho
+> reservado en todas las pestañas.

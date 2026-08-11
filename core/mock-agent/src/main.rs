@@ -98,6 +98,19 @@ async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
         tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
     }
 
+    // 0. `--think` streams a thought chunk before speaking, so the surfaces
+    // that show an agent's reasoning can be exercised without a real agent
+    // (pensamiento-a-la-vista). Off by default: a mock that thinks by default
+    // would change what every existing transcript test reads.
+    if thinks() {
+        let _ = cx.send_notification(SessionNotification::new(
+            session_id.clone(),
+            SessionUpdate::AgentThoughtChunk(ContentChunk::new(ContentBlock::Text(
+                TextContent::new("Reading the proposal before writing it."),
+            ))),
+        ));
+    }
+
     // 1. Stream a chunk of the agent's "response".
     let _ = cx.send_notification(SessionNotification::new(
         session_id.clone(),
@@ -139,6 +152,12 @@ async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
 
 /// Reads the optional `--turn-delay-ms <N>` argument (milliseconds to hold each
 /// turn open before scripting it).
+/// Whether `--think` was passed: the mock streams a thought chunk before it
+/// speaks.
+fn thinks() -> bool {
+    std::env::args().any(|a| a == "--think")
+}
+
 fn turn_delay_ms() -> Option<u64> {
     let mut args = std::env::args();
     while let Some(arg) = args.next() {

@@ -211,8 +211,12 @@
           {#each rows as session (session.sessionId)}
             <tr>
               <td>
-                <button class="link" onclick={() => onOpen(session.sessionId)}>
+                <!-- Title AND id, never one instead of the other: the title
+                     says what the work is, the id is what gets copied and
+                     pasted (titulo-de-sesion design D6). -->
+                <button class="link named" onclick={() => onOpen(session.sessionId)}>
                   <code>{session.sessionId.slice(0, 8)}</code>
+                  {#if session.title}<span class="title">{session.title}</span>{/if}
                 </button>
               </td>
               <td>
@@ -348,6 +352,22 @@
     letter-spacing: 0.5px;
     color: var(--text-faint);
     padding: 0;
+  }
+  /* The id keeps its monospace identity; the title follows it in the row's own
+     voice and yields first when the column is narrow. */
+  .named {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+    min-width: 0;
+    max-width: 100%;
+    text-align: left;
+  }
+  .named .title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
   }
   .agent {
     display: inline-flex;

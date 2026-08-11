@@ -69,6 +69,14 @@ tocado, y en `desktop/ui` además `npm run check`, `npm run lint:i18n`,
   emergente; lista, detalle, árbol y recientes lo muestran junto al id; sin
   título, lo de hoy (design D6, D7) — escenarios «La pestaña dice de qué trata
   la sesión» y «Una sesión sin título se nombra como antes»
+  <!-- 2026-08-10, corregido tras encontrarlo conduciendo el binario: esta
+  tarea se marcó hecha con **solo las pestañas** implementadas. La tabla de
+  sesiones seguía mostrando el hash y nada más, que es justo lo que la change
+  existe para arreglar; se vio al buscar una sesión por su título en la lista y
+  no encontrarla. Ahora la celda lleva id **y** título —nunca uno en lugar del
+  otro, porque el id es lo que se copia—, con el título cediendo primero cuando
+  la columna estrecha. Lección: un escenario cubierto por un test de la pestaña
+  no prueba que las otras superficies del mismo requisito estén hechas. -->
 - [x] 4.2 GUI: el proyecto se antepone al rótulo **solo** cuando las pestañas
   abiertas cruzan más de un proyecto (design D6) — escenarios «El proyecto se
   antepone ante ambigüedad» y «Con un solo proyecto el rótulo no lo repite»
