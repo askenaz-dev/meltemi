@@ -62,6 +62,79 @@ fn readme_and_docs_are_present_with_their_sections() {
     }
 }
 
+// Scenario: Los cuatro cuadrantes usan el mismo camino
+// Scenario: La malla del usuario no es una dependencia de Meltemi
+// Scenario: Lo de fase 3 está anotado y no prometido
+#[test]
+fn the_rendezvous_pattern_is_documented_with_its_boundary() {
+    let doc = read(&repo_root(), "docs/acceso-remoto.md");
+    // Prose wraps: a sentence split across lines is the same sentence, so the
+    // whitespace is normalised before any phrase is looked for.
+    let lower = doc
+        .to_ascii_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    // The bridge: the last metre, with its exact command.
+    assert!(
+        doc.contains("meltemi bridge") && lower.contains("último metro"),
+        "the bridge is documented as the last metre, with its command"
+    );
+
+    // Both ends dial OUT — the rule that makes the four quadrants one path.
+    assert!(
+        lower.contains("hacia afuera"),
+        "the rule is stated: nobody receives connections"
+    );
+    for quadrant in ["En casa | Fuera", "Fuera | En casa", "Fuera | Fuera"] {
+        assert!(
+            doc.contains(quadrant),
+            "the quadrant `{quadrant}` is covered by the same path"
+        );
+    }
+    // And the cost of the rendezvous is said, not hidden.
+    assert!(
+        lower.contains("apagado significa sin acceso remoto"),
+        "the availability cost of the rendezvous is declared"
+    );
+
+    // BYO-network with its licences AND its boundary: the mesh is the user's,
+    // never a dependency of the workspace.
+    assert!(
+        lower.contains("byo-network") && doc.contains("BSD-3") && doc.contains("Apache-2.0"),
+        "the mesh variant names its pieces and their licences"
+    );
+    assert!(
+        lower.contains("no se empaqueta") || lower.contains("no es dependencia"),
+        "the boundary is explicit: none of that infrastructure is Meltemi's"
+    );
+    assert!(
+        lower.contains("no exige cuenta ni red"),
+        "compiling and testing Meltemi needs no account and no network"
+    );
+
+    // Phase 3 is annotated, never promised.
+    let phase3 = doc
+        .split("## Notas para el compañero móvil")
+        .nth(1)
+        .expect("the phase-3 notes section exists");
+    assert!(
+        phase3.contains("no existe todavía"),
+        "the phase-3 notes say plainly that none of it exists yet"
+    );
+    for note in ["BYO-identity", "Selector de máquinas", "Aviso de espera"] {
+        assert!(
+            phase3.contains(note),
+            "the design note `{note}` is recorded"
+        );
+    }
+    assert!(
+        phase3.contains("companero-movil"),
+        "the notes name the change that will consume them"
+    );
+}
+
 #[test]
 fn the_remote_access_frontier_is_documented() {
     // Scenario: La frontera está documentada como postura

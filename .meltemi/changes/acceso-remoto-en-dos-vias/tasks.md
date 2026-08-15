@@ -38,7 +38,7 @@ entre pasos.
 
 ## 2. El patrón
 
-- [ ] 2.1 `docs/acceso-remoto.md`: sección del puente; el punto de encuentro
+- [x] 2.1 `docs/acceso-remoto.md`: sección del puente; el punto de encuentro
   en dos vías (todos marcan hacia afuera, matriz de cuadrantes, túnel inverso
   permanente y precauciones del bastión); la variante BYO-network con la tabla
   de licencias verificada; la frontera (infraestructura del usuario, jamás
