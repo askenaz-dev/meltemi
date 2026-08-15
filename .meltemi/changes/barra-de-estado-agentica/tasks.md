@@ -66,8 +66,16 @@ co-autoría.
 - [x] 5.1 `meltemi validate barra-de-estado-agentica` limpio y `meltemi verify`
   con los nueve escenarios enlazados (meta: cero marcas manuales); suite,
   clippy, fmt y gates del frontend verdes
-- [ ] 5.2 Smoke conducido sobre el binario de release (receta de
+- [x] 5.2 Smoke conducido sobre el binario de release (receta de
   `docs/qa/2026-08-09-piel-de-pestanas-smoke.md`): la barra con proyecto y
   compuerta reales, el desglose de sesiones, el consumo callando donde ACP no
   reporta, y **la ventana mínima de 900 px** para ver qué cede. Nota en
-  `docs/qa/`
+  `docs/qa/2026-08-10-barra-de-estado-agentica-smoke.md`
+  <!-- 2026-08-10: **la prioridad de ceder ancho, medida en el binario**: a 900
+  px caen versión, endpoint y proyecto, y la conexión y los dos recuentos
+  permanecen — que era lo que el design señalaba como imposible de comprobar
+  desde una hoja de estilos. **Dos ramas quedaron sin ejercitar y se dicen**:
+  la de la compuerta (ninguna change del fixture tenía `gatePending`, así que
+  se vio la otra rama, la correcta para ese estado) y la del consumo (sin
+  sesiones medidas, que es el caso mayoritario que la change decidió tratar con
+  silencio). Ambas quedan probadas por sus tests de fuente. -->
