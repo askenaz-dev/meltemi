@@ -7,6 +7,7 @@
 //! pushes [`live::Update`]s; a dedicated blocking thread reads terminal input
 //! and forwards it, so the async loop never blocks on either source.
 
+pub mod bell;
 pub mod conn;
 pub mod glyphs;
 pub mod keymap;
@@ -53,6 +54,8 @@ pub async fn run(endpoint: &str) -> io::Result<()> {
     }
 
     // The connection actor keeps a live, reconnecting connection.
+    // Read once: the switch is the environment the shell was started in.
+    let bell_on = bell::enabled(std::env::var("MELTEMI_BELL").ok().as_deref());
     let (cmd_tx, cmd_rx) = unbounded_channel::<Command>();
     let (upd_tx, mut upd_rx) = unbounded_channel();
     tokio::spawn(connection_actor(
@@ -95,6 +98,16 @@ pub async fn run(endpoint: &str) -> io::Result<()> {
             }
             update = upd_rx.recv() => {
                 if let Some(update) = update {
+                    // Ring BEFORE applying: the decision compares against the
+                    // gate the shell still holds, so the same gate reported
+                    // twice is one moment and not two bells.
+                    if bell_on && bell::rings(&update, live.gate.as_ref()) {
+                        // The emulator's own attention mechanism; the guide
+                        // says which honour it and nothing is promised that an
+                        // emulator does not give (design D4).
+                        print!("");
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                    }
                     live.apply(update);
                 }
             }

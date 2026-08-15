@@ -1651,6 +1651,89 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: Se pide atención cuando un permiso queda esperando
+// Scenario: Con la ventana al frente no se pide atención
+// Scenario: Una compuerta que espera pide atención
+// Scenario: Una sesión que termina pide atención
+// Scenario: Lo mismo no se pide dos veces
+// Scenario: El motivo viaja, el contenido no
+// Scenario: El permiso se pide cuando hay algo que decir
+// Scenario: Sin permiso, se dice y no se finge
+// Scenario: El aviso se puede apagar
+#[test]
+fn the_surface_claims_attention_and_says_what_happened() {
+    // The rules are executed by `attention.test.ts`; this pins the cases and
+    // that the surface routes through the module rather than deciding inline.
+    let cases = read("desktop/ui/tests/attention.test.ts");
+    for case in [
+        "with the window in front nothing is raised",
+        "a waiting permission is raised when the window is behind",
+        "a gate and a session end are raised too, not only permissions",
+        "the same moment is not announced twice",
+        "a burst becomes one moment with a count",
+        "switched off, nothing is raised",
+        "no turn text ever leaves the window",
+    ] {
+        assert!(cases.contains(case), "the executed case is missing: {case}");
+    }
+
+    // The module cannot leak turn text because it never receives any: what it
+    // takes is a reason, a count and a subject the surface composes. Pinned by
+    // shape, which is stronger than a promise not to pass prose.
+    let module = read("desktop/ui/src/lib/attention.ts");
+    assert!(
+        module.contains("export type Reason = \"permission\" | \"gate\" | \"session\""),
+        "the three moments are the module's whole vocabulary"
+    );
+    assert!(
+        !module.contains("prompt") && !module.contains("transcript"),
+        "the module has no notion of turn text at all"
+    );
+
+    let stores = read("desktop/ui/src/lib/stores.ts");
+    // All three moments route through it.
+    for moment in [
+        "reason: \"permission\"",
+        "reason: \"gate\"",
+        "reason: \"session\"",
+    ] {
+        assert!(stores.contains(moment), "the surface announces {moment}");
+    }
+    // Asked at the first real moment, not at startup.
+    assert!(
+        stores.contains("if (!granted) granted = (await requestPermission())"),
+        "the OS permission is requested when there is something to say"
+    );
+    assert!(
+        !stores.contains("void requestPermission()"),
+        "and never eagerly on boot"
+    );
+    // A refusal or a missing service is recorded as what it is, and nothing is
+    // logged as notified that the system did not deliver.
+    assert!(
+        stores.contains("noticesBlocked.set(\"denied\")")
+            && stores.contains("noticesBlocked.set(\"unavailable\")"),
+        "silence is declared with its reason"
+    );
+    let denied = stores
+        .split("noticesBlocked.set(\"denied\");")
+        .nth(1)
+        .expect("the denied branch")
+        .split('}')
+        .next()
+        .expect("its body");
+    assert!(
+        denied.contains("return"),
+        "a denied permission stops before sending: {denied}"
+    );
+    // And the switch is persisted, so turning it off stays off.
+    let ui = read("desktop/ui/src/lib/ui-state.ts");
+    assert!(
+        ui.contains("noticesEnabled: boolean") && ui.contains("setNoticesEnabled"),
+        "the notices can be turned off and stay off"
+    );
+}
+
 // Scenario: La flota vacía se dice antes de fallar
 // Scenario: El menú vacío abre la flota
 // Scenario: El reconocimiento se dice una vez

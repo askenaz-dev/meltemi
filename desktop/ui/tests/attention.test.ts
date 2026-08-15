@@ -9,6 +9,7 @@ const translate = (key: string, vars: Record<string, string> = {}) =>
 
 const base = { focused: false, last: null, enabled: true, translate };
 
+// Scenario: Con la ventana al frente no se pide atención
 test("with the window in front nothing is raised: the tray already is the notice", () => {
   const out = decide({ reason: "permission", count: 1 }, { ...base, focused: true });
   assert.equal(out.notice, null);
@@ -16,12 +17,15 @@ test("with the window in front nothing is raised: the tray already is the notice
   assert.match(out.title, /window\.title\.pending/);
 });
 
+// Scenario: Se pide atención cuando un permiso queda esperando
 test("a waiting permission is raised when the window is behind", () => {
   const out = decide({ reason: "permission", count: 1 }, base);
   assert.ok(out.notice);
   assert.match(out.notice!.title, /attention\.permission/);
 });
 
+// Scenario: Una compuerta que espera pide atención
+// Scenario: Una sesión que termina pide atención
 test("a gate and a session end are raised too, not only permissions", () => {
   for (const reason of ["gate", "session"] as const) {
     const out = decide({ reason, count: 1, subject: "x" }, base);
@@ -29,6 +33,7 @@ test("a gate and a session end are raised too, not only permissions", () => {
   }
 });
 
+// Scenario: Lo mismo no se pide dos veces
 test("the same moment is not announced twice", () => {
   const moment = { reason: "permission" as const, count: 2 };
   const first = decide(moment, base);
@@ -50,12 +55,14 @@ test("nothing waiting is not a moment", () => {
   assert.match(out.title, /window\.title$/);
 });
 
+// Scenario: El aviso se puede apagar
 test("switched off, nothing is raised and the title still tells the truth", () => {
   const out = decide({ reason: "permission", count: 3 }, { ...base, enabled: false });
   assert.equal(out.notice, null);
   assert.match(out.title, /window\.title\.pending/);
 });
 
+// Scenario: El motivo viaja, el contenido no
 test("no turn text ever leaves the window", () => {
   const secret = "el token es sk-live-abcdef y la clave del cliente";
   const out = decide(

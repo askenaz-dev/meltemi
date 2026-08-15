@@ -24,7 +24,7 @@ co-autoría.
 - [x] 1.3 El fin o la interrupción de una sesión dispara atención, en la
   transición y no en el estado (design D2) — escenario «Una sesión que termina
   pide atención»
-- [ ] 1.4 Los dos escenarios de foco quedan cubiertos por test sobre el
+- [x] 1.4 Los dos escenarios de foco quedan cubiertos por test sobre el
   mecanismo existente, que ya los implementa — escenarios «Se pide atención
   cuando un permiso queda esperando» y «Con la ventana al frente no se pide
   atención»
@@ -47,13 +47,21 @@ co-autoría.
 
 ## 3. El terminal
 
-- [ ] 3.1 Campana opt-in por configuración ante los mismos momentos, apagada
+- [x] 3.1 Campana opt-in por configuración ante los mismos momentos, apagada
   por defecto (design D4) — escenarios «Sin activar, el terminal no suena» y
   «Activada, el terminal suena en los mismos momentos»
+  <!-- 2026-08-10: la decisión es un módulo puro (`bell.rs`) y la emisión vive
+  en el bucle, **antes** de aplicar el update: así la comparación se hace contra
+  la compuerta que el shell todavía sostiene y la misma compuerta reportada dos
+  veces es un momento, no dos campanas. El interruptor se lee **una vez** al
+  arrancar, siguiendo `MELTEMI_ASCII`: una variable de entorno que cambia a
+  mitad de ejecución no es una cosa, y releerla por update sería fingir que sí.
+  Cualquier valor que no sea vacío ni `0` la enciende — adivinar ortografías
+  solo produce una campana que ignora a la mitad de quienes la pidieron. -->
 
 ## 4. Cierre
 
-- [ ] 4.1 `meltemi validate avisos-de-escritorio` limpio y `meltemi verify` con
+- [x] 4.1 `meltemi validate avisos-de-escritorio` limpio y `meltemi verify` con
   los once escenarios enlazados; suite, clippy, fmt y gates del frontend verdes
 - [ ] 4.2 Comprobación manual documentada de que el sistema honra la petición
   en cada plataforma —parpadeo, rebote, *urgency hint*— **y de que el aviso del
