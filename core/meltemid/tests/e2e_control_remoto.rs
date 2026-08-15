@@ -145,6 +145,24 @@ async fn log_event_types(peer: &Peer, root: &str, session_id: &str) -> Vec<Strin
         .collect()
 }
 
+/// Waits until a turn is actually IN FLIGHT — the prompt reached the agent —
+/// rather than merely until the session exists. An interruption asked for
+/// before the turn starts has no turn to stop, and the daemon now answers
+/// `queued` for it, which is the truth and not what this test is about.
+async fn wait_for_turn_in_flight(peer: &Peer, root: &str, session_id: &str) {
+    for _ in 0..400 {
+        if log_event_types(peer, root, session_id)
+            .await
+            .iter()
+            .any(|t| t == "prompt_sent")
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("no turn reached the agent for {session_id}");
+}
+
 #[tokio::test]
 async fn directing_an_active_session_dispatches_as_the_next_turn() {
     // Scenario: Instrucción a una sesión activa se despacha como siguiente turno
@@ -380,6 +398,11 @@ async fn directing_a_live_non_directable_session_says_it_is_active() {
 #[tokio::test]
 async fn cancelling_with_a_queued_instruction_leaves_it_undispatched() {
     // Scenario: Dirigir no interrumpe ni cancela
+    // Scenario: Una cancelación sigue terminando la sesión
+    //
+    // The prudence interrupting was added ALONGSIDE, never in place of:
+    // cancelling still ends the session, and a queue that is not empty is not a
+    // reason to keep going (redirigir-turno design D5).
     let root = fixture("cancel", &["--turn-delay-ms", "3000"]);
     let root_str = root.display().to_string();
     let (endpoint, daemon) = spawn_daemon("cancel").await;
@@ -443,6 +466,258 @@ async fn cancelling_with_a_queued_instruction_leaves_it_undispatched() {
     assert!(!still_active, "the session is no longer active");
 
     peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn interrupting_relays_the_turn_and_the_session_keeps_going() {
+    // Scenario: La instrucción releva al turno interrumpido
+    // Scenario: El registro dice quién detuvo el turno
+    //
+    // `--honor-cancel` is what makes this a real interruption rather than a
+    // race the mock would have won anyway: without it the mock ignores
+    // `session/cancel` and the turn ends on its own schedule, which proves
+    // nothing about who stopped it.
+    let root = fixture("relay", &["--turn-delay-ms", "5000", "--honor-cancel"]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("relay").await;
+    let peer = init_client(&endpoint).await;
+
+    let propose = {
+        let peer = peer.clone();
+        let root = root_str.clone();
+        tokio::spawn(async move {
+            peer.request(
+                methods::PROPOSE,
+                &json!({ "idea": "add dark mode", "projectRoot": root }),
+            )
+            .await
+        })
+    };
+
+    let session_id = wait_for_active_session(&peer, &root_str).await;
+    wait_for_turn_in_flight(&peer, &root_str, &session_id).await;
+    let directed = peer
+        .request(
+            methods::SESSION_DIRECT,
+            &json!({
+                "sessionId": session_id,
+                "instruction": "stop, do the light theme first",
+                "projectRoot": root_str,
+                "interrupt": true,
+            }),
+        )
+        .await
+        .expect("session/direct");
+    assert_eq!(directed["disposition"], "relayed", "{directed:#}");
+
+    let result = tokio::time::timeout(Duration::from_secs(30), propose)
+        .await
+        .expect("propose returned")
+        .expect("join")
+        .expect("propose ok");
+
+    let types = log_event_types(&peer, &root_str, &session_id).await;
+
+    // The session did NOT end at the interruption: a second prompt ran, and it
+    // ran the instruction that relayed it.
+    let prompts = types.iter().filter(|t| *t == "prompt_sent").count();
+    assert_eq!(
+        prompts, 2,
+        "the relay ran as the next turn instead of ending the session: {types:?}"
+    );
+
+    // And the history says who stopped it. This is the whole point of the event:
+    // `turn_completed { cancelled }` would read the same whether the agent gave
+    // up or a human redirected it.
+    assert!(
+        types.iter().any(|t| t == "turn_interrupted"),
+        "the interruption is distinguishable from an agent that stopped itself: {types:?}"
+    );
+    assert!(
+        types.iter().position(|t| t == "turn_interrupted")
+            < types
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| *t == "prompt_sent")
+                .nth(1)
+                .map(|(i, _)| i),
+        "recorded before the relay was dispatched: {types:?}"
+    );
+    assert_eq!(result["status"], "completed", "{result:#}");
+
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn interrupting_resolves_the_permission_left_hanging() {
+    // Scenario: El permiso en vuelo se resuelve al interrumpir
+    //
+    // The fixture deliberately carries NO allow rule: the mock's permission
+    // escalates to the client, the client never answers, and the turn sits
+    // there. That wait is the one an interruption has to be able to end —
+    // the agent is blocked on OUR answer, so it cannot honour a cancel it
+    // never gets to read.
+    let root = fixture("perm-relay", &["--honor-cancel"]);
+    let _ = std::fs::remove_file(root.join(".meltemi").join("permissions.toml"));
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("perm-relay").await;
+    let peer = init_client(&endpoint).await;
+
+    let propose = {
+        let peer = peer.clone();
+        let root = root_str.clone();
+        tokio::spawn(async move {
+            peer.request(
+                methods::PROPOSE,
+                &json!({ "idea": "add dark mode", "projectRoot": root }),
+            )
+            .await
+        })
+    };
+
+    let session_id = wait_for_active_session(&peer, &root_str).await;
+    wait_for_turn_in_flight(&peer, &root_str, &session_id).await;
+
+    // Wait until the request is actually pending: interrupting before it exists
+    // would pass for the wrong reason.
+    let mut waited = false;
+    for _ in 0..200 {
+        let pending = peer
+            .request(methods::PERMISSION_PENDING, &json!({}))
+            .await
+            .expect("permission/pending");
+        if pending["pending"].as_array().is_some_and(|p| !p.is_empty()) {
+            waited = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(waited, "the permission reached the tray");
+
+    let directed = peer
+        .request(
+            methods::SESSION_DIRECT,
+            &json!({
+                "sessionId": session_id,
+                "instruction": "never mind, do the light theme",
+                "projectRoot": root_str,
+                "interrupt": true,
+            }),
+        )
+        .await
+        .expect("session/direct");
+    assert_eq!(directed["disposition"], "relayed", "{directed:#}");
+
+    // The wait ended, and it is recorded with its ending. Deliberately NOT by
+    // awaiting the propose: the relay is a whole new turn that asks its own
+    // permission, and a test that waited for the flow to finish would be
+    // measuring the SECOND wait, not the one the interruption was meant to end.
+    let mut interrupted_decision = None;
+    for _ in 0..400 {
+        let log = peer
+            .request(
+                methods::SESSION_LOG,
+                &json!({ "sessionId": session_id, "projectRoot": root_str }),
+            )
+            .await
+            .expect("session/log");
+        interrupted_decision = log["lines"]
+            .as_array()
+            .expect("lines")
+            .iter()
+            .filter_map(|l| serde_json::from_str::<Value>(l.as_str().unwrap()).ok())
+            .find(|e| {
+                e["type"] == "permission_decided" && e["payload"]["decidedBy"] == "interrupted"
+            });
+        if interrupted_decision.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let decision = interrupted_decision
+        .expect("the hanging permission was resolved by the interruption, not left to expire");
+    // `Cancelled` is what went back to the agent, and it still counts as a
+    // denial: an unanswered request that stopped counting would let a turn a
+    // human cut short report "no denials".
+    assert_eq!(
+        decision["payload"]["outcome"]["outcome"], "cancelled",
+        "{decision:#}"
+    );
+    assert_eq!(decision["payload"]["denied"], true, "{decision:#}");
+
+    propose.abort();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn a_turn_the_agent_cancelled_by_itself_still_ends_the_session() {
+    // Scenario: Un turno cancelado por el agente no continúa
+    //
+    // `--cancel-turn` makes the mock report `Cancelled` with nobody having
+    // asked for it. That is NOT an invitation to keep sending it work: an agent
+    // that gave up on a turn is a different fact from a human redirecting one,
+    // and the older prudence stays exactly as it was.
+    // The delay is only so the instruction can be queued WHILE the turn runs:
+    // without it the session ends before there is anything to queue into.
+    let root = fixture("self-cancel", &["--turn-delay-ms", "3000", "--cancel-turn"]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("self-cancel").await;
+    let peer = init_client(&endpoint).await;
+
+    let propose = {
+        let peer = peer.clone();
+        let root = root_str.clone();
+        tokio::spawn(async move {
+            peer.request(
+                methods::PROPOSE,
+                &json!({ "idea": "add dark mode", "projectRoot": root }),
+            )
+            .await
+        })
+    };
+
+    let session_id = wait_for_active_session(&peer, &root_str).await;
+    wait_for_turn_in_flight(&peer, &root_str, &session_id).await;
+
+    // Queue an instruction WITHOUT asking to interrupt. The agent cancels its
+    // own turn; the queued instruction must not be dispatched into a session
+    // that is ending.
+    let directed = peer
+        .request(
+            methods::SESSION_DIRECT,
+            &json!({
+                "sessionId": session_id,
+                "instruction": "and a light theme",
+                "projectRoot": root_str,
+            }),
+        )
+        .await
+        .expect("session/direct");
+    assert_eq!(directed["disposition"], "queued", "{directed:#}");
+
+    let _ = tokio::time::timeout(Duration::from_secs(30), propose)
+        .await
+        .expect("the session ended rather than continuing");
+
+    let types = log_event_types(&peer, &root_str, &session_id).await;
+    assert_eq!(
+        types.iter().filter(|t| *t == "prompt_sent").count(),
+        1,
+        "the queued instruction was never dispatched into a cancelled turn: {types:?}"
+    );
+    assert!(
+        !types.iter().any(|t| t == "turn_interrupted"),
+        "nobody interrupted anything: the agent stopped itself: {types:?}"
+    );
+    assert!(
+        types.iter().any(|t| t == "session_ended"),
+        "and the session ended, as it always did: {types:?}"
+    );
+
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }

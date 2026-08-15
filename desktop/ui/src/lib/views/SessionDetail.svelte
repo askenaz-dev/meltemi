@@ -61,6 +61,7 @@
     mcp_injected: { glyph: "·", tone: "faint" },
     mcp_not_delivered: { glyph: "▲", tone: "warn" },
     turn_completed: { glyph: "■", tone: "ok" },
+    turn_interrupted: { glyph: "⤳", tone: "accent" },
     checkpoint_created: { glyph: "·", tone: "info" },
     checkpoint_restored: { glyph: "·", tone: "info" },
     agent_resolved: { glyph: "·", tone: "faint" },
@@ -364,13 +365,19 @@
   // ---- the persistent composer -------------------------------------------
 
   const LIVE = ["active", "starting", "waiting_permission"];
+  /**
+   * Narrower than LIVE on purpose: a turn you can interrupt is a turn that is
+   * running. A session stopped on your own decision has no turn of its own to
+   * relay — answering the permission is what moves it, not interrupting it.
+   */
+  const WORKING = ["active", "starting"];
 
   let draft = $state("");
   let sending = $state(false);
   /** The daemon's own diagnosis when it refused to take direction. */
   let refused: { detail: string; remedy: string | null } | null = $state(null);
   /** What became of the last instruction, in the daemon's terms, never ours. */
-  let outcome: { queuePosition: number } | null = $state(null);
+  let outcome: { queuePosition?: number; relayed?: boolean } | null = $state(null);
   let field: HTMLTextAreaElement | undefined = $state();
 
   /** The permission this session is stopped on, when it is stopped on one. */
@@ -447,7 +454,7 @@
     field.focus();
   });
 
-  async function direct() {
+  async function direct(interrupt = false) {
     const instruction = draft.trim();
     if (!instruction || sending || !canSend || !session) return;
     sending = true;
@@ -472,12 +479,17 @@
         projectRoot: session.projectRoot,
         sessionId,
         instruction,
+        ...(interrupt ? { interrupt: true } : {}),
       });
       draft = "";
       if (result.disposition === "queued") {
         // Queued is NOT attended: say so with its position and let the
         // transcript show it arrive.
         outcome = { queuePosition: result.queuePosition ?? 0 };
+      } else if (result.disposition === "relayed") {
+        // A different fact, and it gets its own sentence: a turn was stopped,
+        // and the user is the one who asked for it.
+        outcome = { relayed: true };
       }
     } catch (raw) {
       const e = raw as { message?: string; detail?: string | null; remedy?: string | null };
@@ -789,8 +801,10 @@
           {/if}
         {:else if waitingOn}
           <span class="waiting">{$t("conv.waiting", { tool: waitingOn.tool })}</span>
+        {:else if outcome?.relayed}
+          <span class="queued">{$t("conv.relayed")}</span>
         {:else if outcome}
-          <span class="queued">{$t("conv.queued", { n: String(outcome.queuePosition) })}</span>
+          <span class="queued">{$t("conv.queued", { n: String(outcome.queuePosition ?? 0) })}</span>
         {:else if resumes}
           <span class="faint">{$t("conv.resumeHint")}</span>
         {:else if !canSend}
@@ -810,6 +824,25 @@
           onclick={() => (confirmCancel = true)}
         >
           ■ {$t("sessions.cancelShort")}
+        </button>
+      {/if}
+
+      <!-- Interrupting is a THIRD verb, between queueing and stopping: it ends
+           the turn, not the session. Offered only while a turn is actually
+           running (WORKING, narrower than LIVE — a session already waiting on
+           your decision has no turn of its own to relay) and only with text,
+           because there is nothing to relay with an empty box. It carries no
+           confirmation on purpose: what it costs is the turn in flight, the
+           session survives, and the label says so
+           (redirigir-turno design D2). -->
+      {#if canSend && session && WORKING.includes(session.state) && draft.trim() !== ""}
+        <button
+          class="ghost relay"
+          disabled={sending}
+          title={$t("conv.relayHint")}
+          onclick={() => void direct(true)}
+        >
+          ⤳ {$t("conv.relay")}
         </button>
       {/if}
 

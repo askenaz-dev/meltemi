@@ -843,6 +843,7 @@ async fn handle_worktree_dispatch(
         log: log.clone(),
         cancel: reg.cancel,
         cancelled: reg.cancelled,
+        in_flight: reg.in_flight,
         wait: config.autonomous_wait(),
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
@@ -1749,6 +1750,7 @@ async fn handle_sdd_implement(
             log: log.clone(),
             cancel: reg.cancel.clone(),
             cancelled: reg.cancelled.clone(),
+            in_flight: reg.in_flight.clone(),
             wait: config.autonomous_wait(),
             no_client_grace: config.no_client_grace(),
             clients: state.clients.clone(),
@@ -1927,7 +1929,12 @@ async fn handle_session_direct(
             // in that order: the boundary must never see the queue empty
             // between the halves (redirigir-turno design D1). Then the cancel
             // is signalled, which is what makes the turn drain.
-            let queued = if params.interrupt {
+            // Nothing in flight means nothing to interrupt, and saying
+            // "relayed" would report an interruption that did not happen. It
+            // queues, and it says so.
+            let interrupting =
+                params.interrupt && state.sessions.turn_in_flight(&params.session_id).await;
+            let queued = if interrupting {
                 let position = queue.interrupt_with(params.instruction.clone(), &log).await;
                 if position.is_some() {
                     state.sessions.interrupt(&params.session_id).await;
@@ -1938,7 +1945,7 @@ async fn handle_session_direct(
             };
             if let Some(position) = queued {
                 let result = SessionDirectResult {
-                    disposition: if params.interrupt {
+                    disposition: if interrupting {
                         DirectDisposition::Relayed
                     } else {
                         DirectDisposition::Queued
@@ -2120,6 +2127,7 @@ async fn resume_with_instruction(
         log: log.clone(),
         cancel: reg.cancel,
         cancelled: reg.cancelled,
+        in_flight: reg.in_flight,
         wait: config.interactive_wait(),
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),

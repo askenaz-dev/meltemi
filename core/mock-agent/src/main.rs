@@ -14,18 +14,27 @@
 //! filling in the proposal. Real agents ignore the marker line.
 
 use agent_client_protocol::schema::v1::{
-    AgentCapabilities, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
-    LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse,
-    PermissionOption, PermissionOptionKind, PromptRequest, PromptResponse,
+    AgentCapabilities, CancelNotification, ContentBlock, ContentChunk, InitializeRequest,
+    InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
+    NewSessionResponse, PermissionOption, PermissionOptionKind, PromptRequest, PromptResponse,
     RequestPermissionOutcome, RequestPermissionRequest, SessionId, SessionNotification,
     SessionUpdate, StopReason, TextContent, ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Result, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Fixed session id the scripted agent hands back from `session/new`.
 const SESSION_ID: &str = "mock-session";
 /// Option id the agent offers (and checks for) to allow the file write.
 const ALLOW_OPTION: &str = "allow";
+
+/// Set when the client sends `session/cancel` AND `--honor-cancel` was passed.
+///
+/// Off by default on purpose: a mock that honoured cancel unconditionally would
+/// change the stop reason every existing cancellation test reads, and those
+/// tests assert what the daemon does when an agent *ignores* the cancel — which
+/// is the case the daemon has to survive (redirigir-turno design D6).
+static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -35,10 +44,25 @@ async fn main() -> Result<()> {
     // `--mcp` makes the mock announce MCP support, so the passthrough injection
     // path can be exercised end to end.
     let supports_mcp = std::env::args().any(|a| a == "--mcp");
+    let honors_cancel = std::env::args().any(|a| a == "--honor-cancel");
+    // `--cancel-turn` makes the mock end its turn `Cancelled` with nobody having
+    // asked: the agent giving up on its own, which the daemon must keep treating
+    // as the end of the session (redirigir-turno).
+    let cancels_itself = std::env::args().any(|a| a == "--cancel-turn");
 
     Agent
         .builder()
         .name("mock-agent")
+        .on_receive_notification(
+            async move |cancel: CancelNotification, _cx| {
+                let _ = cancel;
+                if honors_cancel {
+                    CANCEL_REQUESTED.store(true, Ordering::SeqCst);
+                }
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
         .on_receive_request(
             async move |initialize: InitializeRequest, responder, _cx| {
                 let mut capabilities = AgentCapabilities::new();
@@ -75,7 +99,16 @@ async fn main() -> Result<()> {
                     let cx = cx.clone();
                     async move {
                         run_scripted_turn(&prompt, &cx).await;
-                        responder.respond(PromptResponse::new(StopReason::EndTurn))
+                        // The stop reason is read AFTER the turn, and reset, so a
+                        // session that keeps going reports the next turn on its
+                        // own merits rather than inheriting this one's ending.
+                        let stop =
+                            if cancels_itself || CANCEL_REQUESTED.swap(false, Ordering::SeqCst) {
+                                StopReason::Cancelled
+                            } else {
+                                StopReason::EndTurn
+                            };
+                        responder.respond(PromptResponse::new(stop))
                     }
                 })?;
                 Ok(())
@@ -95,7 +128,13 @@ async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
     // any work, so a test can race a `session/direct` into an active turn
     // (control-remoto-asistido). Default: no delay.
     if let Some(ms) = turn_delay_ms() {
-        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < deadline {
+            if CANCEL_REQUESTED.load(Ordering::SeqCst) {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
     }
 
     // 0. `--think` streams a thought chunk before speaking, so the surfaces

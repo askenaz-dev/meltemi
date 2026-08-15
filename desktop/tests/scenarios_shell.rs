@@ -1948,6 +1948,75 @@ fn the_thinking_of_a_turn_in_flight_is_shown_while_it_happens() {
 
 // Scenario: Detener desde el compositor
 // Scenario: Un verbo, dos accesos
+// Scenario: Interrumpir y enviar se ofrece con texto y sesión trabajando
+// Scenario: Sin texto no hay nada que relevar
+#[test]
+fn interrupting_and_sending_sits_beside_the_send_that_queues() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    let row = detail
+        .split("<div class=\"composerRow\">")
+        .nth(1)
+        .expect("the composer's row")
+        .split("</div>")
+        .next()
+        .expect("its body");
+
+    let relay = row
+        .split("{#if canSend && session && WORKING")
+        .nth(1)
+        .expect("the relay control and its guard")
+        .split("{/if}")
+        .next()
+        .expect("the guard closes");
+    assert!(
+        row.contains("class=\"ghost relay\""),
+        "interrupting is offered in the composer, beside the send: {row}"
+    );
+    // With text, and only with text: an empty box has nothing to relay with,
+    // and offering it there would promise an action the daemon must refuse.
+    assert!(
+        relay.contains("draft.trim() !== \"\""),
+        "not offered with an empty composer: {relay}"
+    );
+    // While a turn is RUNNING — narrower than the stop beside it, which stays
+    // offered while the session waits on a decision.
+    assert!(
+        row.contains("{#if canSend && session && WORKING.includes(session.state)"),
+        "offered while a turn runs, not merely while the session is alive: {row}"
+    );
+    assert!(
+        detail.contains("const WORKING = [\"active\", \"starting\"]"),
+        "and `working` excludes waiting on your own decision"
+    );
+
+    // It is a different verb from stopping the session, which keeps its
+    // confirmation. Interrupting has none: what it costs is the turn, and the
+    // session survives.
+    assert!(
+        !relay.contains("confirmCancel"),
+        "interrupting is not stopping and does not borrow its confirmation: {relay}"
+    );
+    assert!(
+        row.contains("class=\"ghost destructive stop\""),
+        "stopping is still there, unchanged: {row}"
+    );
+
+    // The three outcomes read differently. Relayed says a turn was stopped;
+    // queued still says the turn was left alone.
+    assert!(
+        detail.contains("conv.relayed") && detail.contains("conv.queued"),
+        "queued and relayed are told apart in the composer's own words"
+    );
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    for key in ["conv.relay", "conv.relayHint", "conv.relayed"] {
+        assert_eq!(
+            messages.matches(&format!("\"{key}\":")).count(),
+            2,
+            "`{key}` is written in both languages"
+        );
+    }
+}
+
 #[test]
 fn stopping_is_within_reach_of_the_box_you_type_in() {
     let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
@@ -4119,7 +4188,7 @@ fn the_conversation_composer_states_what_the_daemon_answered() {
     );
     // Sending never cancels: cancelling is its own control, behind confirmation.
     let send = detail
-        .split("async function direct()")
+        .split("async function direct(")
         .nth(1)
         .expect("the composer directs")
         .split("\n  }")
@@ -4128,6 +4197,13 @@ fn the_conversation_composer_states_what_the_daemon_answered() {
     assert!(
         !send.contains("session/cancel"),
         "sending must not touch the running turn: {send}"
+    );
+    // Interrupting, added later, does stop the turn in flight — but through
+    // `session/direct` with a flag the user armed, never through
+    // `session/cancel`, which ends the session (redirigir-turno).
+    assert!(
+        detail.contains("onclick={() => void direct()}"),
+        "the primary send carries no interruption: it queues, as it always did"
     );
     assert!(
         detail.contains("confirmCancel = true") && detail.contains("<ConfirmDialog"),

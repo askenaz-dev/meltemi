@@ -143,6 +143,22 @@ impl InstructionQueue {
     /// Loop side: whether the turn that just drained was interrupted by the user
     /// with a relay waiting. Clears the flag, so it governs one turn and not the
     /// next.
+    /// The instruction at the head of the queue, without removing it. The
+    /// record of an interruption names what relayed it, and naming it must not
+    /// be what consumes it.
+    pub async fn peek(&self) -> Option<String> {
+        self.inner.lock().await.items.front().cloned()
+    }
+
+    /// Whether an interruption is in flight, WITHOUT consuming it.
+    ///
+    /// The boundary is the one that consumes; this is for the code that has to
+    /// decide what to do *during* the turn — a permission still waiting on a
+    /// human when the turn it belongs to is being relayed away.
+    pub async fn is_interrupted(&self) -> bool {
+        self.inner.lock().await.interrupted
+    }
+
     pub async fn take_interrupted(&self) -> bool {
         let mut inner = self.inner.lock().await;
         std::mem::take(&mut inner.interrupted)
@@ -181,6 +197,14 @@ struct Entry {
     state: SessionState,
     /// Fired to ask the owning ACP task to cancel and terminate the agent.
     cancel: Arc<Notify>,
+    /// Whether a prompt is in flight right now.
+    ///
+    /// `Notify::notify_waiters` wakes only waiters already registered, so an
+    /// interruption signalled before the turn starts wakes nobody and is lost —
+    /// and answering `relayed` for it would report an interruption that never
+    /// happened. Asking this first is what makes the answer true
+    /// (redirigir-turno).
+    in_flight: Arc<AtomicBool>,
     /// Set when cancellation is requested, so the multi-turn loop stops
     /// dispatching queued instructions at the next turn boundary even if the
     /// agent reports a non-cancelled stop reason.
@@ -202,6 +226,9 @@ pub struct Registration {
     pub cancel: Arc<Notify>,
     /// Observed at turn boundaries by the multi-turn loop.
     pub cancelled: Arc<AtomicBool>,
+    /// Raised by the loop while a prompt is in flight, so an interruption can
+    /// tell "there is a turn to stop" from "there is not".
+    pub in_flight: Arc<AtomicBool>,
 }
 
 /// Thread-safe registry of active sessions.
@@ -217,6 +244,7 @@ impl SessionRegistry {
     pub async fn register(&self, session_id: &str, agent_command: Vec<String>) -> Registration {
         let cancel = Arc::new(Notify::new());
         let cancelled = Arc::new(AtomicBool::new(false));
+        let in_flight = Arc::new(AtomicBool::new(false));
         self.inner.lock().await.insert(
             session_id.to_string(),
             Entry {
@@ -224,11 +252,16 @@ impl SessionRegistry {
                 state: SessionState::Starting,
                 cancel: Arc::clone(&cancel),
                 cancelled: Arc::clone(&cancelled),
+                in_flight: Arc::clone(&in_flight),
                 direction: None,
                 waiting: 0,
             },
         );
-        Registration { cancel, cancelled }
+        Registration {
+            cancel,
+            cancelled,
+            in_flight,
+        }
     }
 
     /// Opt a session into remote direction: create its instruction queue and
@@ -344,6 +377,30 @@ impl SessionRegistry {
             }
             None => false,
         }
+    }
+
+    /// Whether a prompt is in flight for this session — that is, whether there
+    /// is a turn an interruption could actually stop.
+    pub async fn turn_in_flight(&self, session_id: &str) -> bool {
+        self.inner
+            .lock()
+            .await
+            .get(session_id)
+            .is_some_and(|e| e.in_flight.load(Ordering::SeqCst))
+    }
+
+    /// Whether this session has an interruption in flight. Answered without
+    /// consuming it: the turn boundary is what consumes, and asking must never
+    /// be what makes the answer disappear.
+    pub async fn is_interrupting(&self, session_id: &str) -> bool {
+        let queue = {
+            let guard = self.inner.lock().await;
+            match guard.get(session_id).and_then(|e| e.direction.as_ref()) {
+                Some(direction) => direction.queue.clone(),
+                None => return false,
+            }
+        };
+        queue.is_interrupted().await
     }
 
     /// Signals cancellation for every session (used by shutdown).
@@ -544,6 +601,58 @@ mod tests {
             queue.take_or_close().await.as_deref(),
             Some("seguir por aqui"),
             "the relay runs as the next turn"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn an_interrupt_that_lands_on_a_turn_already_ending_does_not_haunt_the_next() {
+        // The signal can arrive microseconds after the turn ended on its own.
+        // Nothing was interrupted, and the flag must not survive to make a
+        // LATER turn look interrupted — the boundary consumes it either way.
+        let (queue, log, dir) = queue_fixture("late").await;
+        queue
+            .interrupt_with("llego tarde".into(), &log)
+            .await
+            .expect("enqueued");
+
+        assert!(
+            queue.take_interrupted().await,
+            "the boundary consumes it, whatever the turn's stop reason was"
+        );
+        assert!(
+            !queue.take_interrupted().await,
+            "and it is gone: a later turn is not an interrupted one"
+        );
+        // The instruction is not lost by any of that: it runs as the next turn,
+        // which is what the user asked for either way.
+        assert_eq!(
+            queue.take_or_close().await.as_deref(),
+            Some("llego tarde"),
+            "a lost interruption degrades to a queue, never to a dropped instruction"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn two_interruptions_in_a_row_relay_once_and_queue_the_rest() {
+        // Impatience is not a protocol error. Both instructions are kept, in
+        // order, and the flag is one fact rather than a counter: there is one
+        // turn to stop, however many times it was asked for.
+        let (queue, log, dir) = queue_fixture("twice").await;
+        assert_eq!(queue.interrupt_with("primero".into(), &log).await, Some(1));
+        assert_eq!(queue.interrupt_with("segundo".into(), &log).await, Some(2));
+
+        assert!(queue.take_interrupted().await);
+        assert!(
+            !queue.take_interrupted().await,
+            "one interruption stops one turn, no matter how often it was asked"
+        );
+        assert_eq!(queue.take_or_close().await.as_deref(), Some("primero"));
+        assert_eq!(
+            queue.take_or_close().await.as_deref(),
+            Some("segundo"),
+            "the second is not discarded: it is simply next"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

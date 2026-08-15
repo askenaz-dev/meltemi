@@ -274,6 +274,7 @@ pub async fn handle_session_start(
         log: log.clone(),
         cancel: reg.cancel,
         cancelled: reg.cancelled,
+        in_flight: reg.in_flight,
         // A human is at the composer: the interactive wait, not the autonomous
         // one.
         wait: config.interactive_wait(),

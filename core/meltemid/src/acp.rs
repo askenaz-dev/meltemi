@@ -68,6 +68,9 @@ pub struct SessionParams {
     /// multi-turn loop stops dispatching queued instructions even if the agent
     /// reports a non-cancelled stop reason (control-remoto-asistido).
     pub cancelled: Arc<AtomicBool>,
+    /// Raised while a prompt is in flight, so `session/direct` can tell a turn
+    /// that can be interrupted from one that has not started (redirigir-turno).
+    pub in_flight: Arc<AtomicBool>,
     /// How long an escalated request waits for a human decision
     /// (espera-humana D2).
     pub wait: WaitPolicy,
@@ -130,6 +133,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         log,
         cancel,
         cancelled,
+        in_flight,
         wait,
         no_client_grace,
         clients,
@@ -172,6 +176,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         no_client_grace,
         clients: clients.clone(),
         sessions: sessions.clone(),
+        cancel: Arc::clone(&cancel),
     };
     let perm = HandlerState {
         peer: peer.clone(),
@@ -185,6 +190,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         no_client_grace,
         clients,
         sessions,
+        cancel: Arc::clone(&cancel),
     };
 
     let result = Client
@@ -282,6 +288,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                 );
                 let prompt_future = connection.send_request(prompt_request).block_task();
                 tokio::pin!(prompt_future);
+                in_flight.store(true, Ordering::SeqCst);
                 if let Some(scope) = &edit_scope {
                     scope.begin_turn();
                 }
@@ -296,6 +303,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                 if let Some(scope) = &edit_scope {
                     scope.end_turn();
                 }
+                in_flight.store(false, Ordering::SeqCst);
                 let response = response?;
                 let status = map_stop_reason(response.stop_reason);
 
@@ -311,11 +319,14 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                 // with no interruption asked for — still ends the session, and
                 // that prudence is untouched: an agent that cancels itself is
                 // not an invitation to keep sending it work.
+                // Consumed unconditionally: a flag raised against a turn that
+                // ended on its own before the signal landed must not survive to
+                // govern a later one.
+                let relayed = match &instruction_queue {
+                    Some(queue) => queue.take_interrupted().await,
+                    None => false,
+                };
                 if cancelled.load(Ordering::SeqCst) || matches!(status, TurnStatus::Cancelled) {
-                    let relayed = match &instruction_queue {
-                        Some(queue) => queue.take_interrupted().await,
-                        None => false,
-                    };
                     if !relayed {
                         if let Some(queue) = &instruction_queue {
                             queue.close().await;
@@ -325,6 +336,20 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                     // Interrupted with a relay: the session continues. The flag
                     // was consumed above, so it governs this turn and not the
                     // next one.
+                    //
+                    // The history says so in its own event. `TurnCompleted
+                    // { cancelled }` reads identically whether the agent stopped
+                    // itself or a human stopped it, and a record that cannot tell
+                    // those apart misreports who decided (design D4). The
+                    // instruction that relayed it travels with it, because
+                    // "interrupted" without "in favour of what" is half a fact.
+                    if let Some(queue) = &instruction_queue {
+                        let next = queue.peek().await;
+                        let mut log = log.lock().await;
+                        let _ = log.append(SessionEventKind::TurnInterrupted {
+                            instruction: next.unwrap_or_default(),
+                        });
+                    }
                 }
                 match &instruction_queue {
                     Some(queue) => match queue.take_or_close().await {
@@ -377,6 +402,26 @@ struct HandlerState {
     clients: crate::clients::ClientRegistry,
     /// The session registry, to declare the session blocked while it waits.
     sessions: crate::session::SessionRegistry,
+    /// The same signal the prompt races. A permission waiting on a human is the
+    /// one place where a turn can be stopped and nobody would notice: the agent
+    /// is blocked on our answer, so it cannot honour a cancel it never gets to
+    /// read (redirigir-turno design D3).
+    cancel: Arc<Notify>,
+}
+
+/// The resolution of a permission whose turn was interrupted.
+///
+/// `Cancelled` is what goes back to the agent, and `Interrupted` is who is
+/// recorded as having decided it. `denied: true` is not bookkeeping pedantry: an
+/// unanswered request that stops counting as a denial would let a propose report
+/// "no denials" for a turn a human cut short (design D3).
+fn cancelled_resolution() -> Resolution {
+    Resolution {
+        outcome: PermissionOutcome::Cancelled,
+        decided_by: PermissionDecidedBy::Interrupted,
+        rule: None,
+        denied: true,
+    }
 }
 
 /// Logs an agent update, which is what forwards it to every interested
@@ -509,8 +554,27 @@ async fn escalate(
     let no_clients = no_clients_sustained(state.clients.watch(), state.no_client_grace);
     tokio::pin!(no_clients);
 
+    // Already signalled before this request even arrived: there is no waiter to
+    // wake, so asking is the only way to find out. Without this the turn would
+    // sit here until the deadline, which is precisely the wait the interruption
+    // was meant to end.
+    if state.sessions.is_interrupting(&state.session_id).await {
+        state.pending.drop_request(&request_id).await;
+        state.sessions.end_waiting(&state.session_id).await;
+        return cancelled_resolution();
+    }
+
     let resolution = tokio::select! {
         r = &mut rx => r.ok(),
+        _ = state.cancel.notified() => {
+            // The request leaves the tray outright — no grace, because there is
+            // no longer a turn for an answer to belong to. `Cancelled` already
+            // counts as a denial in the ledger, so interrupting does not open a
+            // hole in the audit (design D3).
+            state.pending.drop_request(&request_id).await;
+            state.sessions.end_waiting(&state.session_id).await;
+            return cancelled_resolution();
+        }
         _ = &mut bounded => {
             state.pending.expire(&request_id).await;
             state.peer.notify(

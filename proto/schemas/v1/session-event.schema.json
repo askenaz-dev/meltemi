@@ -127,8 +127,8 @@
                 },
                 "decidedBy": {
                   "type": "string",
-                  "enum": ["client", "default_deny", "timeout", "rule"],
-                  "description": "client: the connected client answered; default_deny: no client connected; timeout: the client did not answer in time; rule: a persistent rule resolved it before escalation."
+                  "enum": ["client", "default_deny", "timeout", "rule", "interrupted"],
+                  "description": "client: the connected client answered; default_deny: no client connected; timeout: the client did not answer in time; rule: a persistent rule resolved it before escalation; interrupted: the turn it belonged to was interrupted, so there was no turn left for an answer to belong to."
                 },
                 "rule": {
                   "type": "object",
@@ -174,6 +174,21 @@
               "required": ["stopReason"],
               "properties": {
                 "stopReason": { "$ref": "#/$defs/turnStatus" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "turn_interrupted" },
+            "payload": {
+              "type": "object",
+              "required": ["instruction"],
+              "properties": {
+                "instruction": {
+                  "type": "string",
+                  "description": "The instruction that relayed the interrupted turn."
+                }
               }
             }
           }

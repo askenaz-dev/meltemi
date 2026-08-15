@@ -1511,6 +1511,11 @@ pub enum PermissionDecidedBy {
     Timeout,
     /// A persistent rule resolved it before escalation.
     Rule,
+    /// The turn the request belonged to was interrupted, so there was no longer
+    /// a turn for an answer to belong to. Recorded as its own decider because
+    /// the alternatives would each be a lie: no client was absent and no clock
+    /// ran out — a human redirected the work (redirigir-turno).
+    Interrupted,
 }
 
 /// The effect of a permission rule: grant or refuse the matched request.
@@ -1728,6 +1733,15 @@ pub enum SessionEventKind {
     TurnCompleted {
         /// Mapped ACP stop reason.
         stop_reason: TurnStatus,
+    },
+    /// The turn in flight was interrupted by the user and relayed by an
+    /// instruction. Its own event, because `TurnCompleted { cancelled }` reads
+    /// identically whether the agent stopped itself or a human stopped it, and
+    /// a history that cannot tell those apart is a history that misreports who
+    /// decided (redirigir-turno).
+    TurnInterrupted {
+        /// The instruction that relayed the interrupted turn.
+        instruction: String,
     },
     /// A pre-task checkpoint of the worktree was created (checkpoints-rollback).
     CheckpointCreated {

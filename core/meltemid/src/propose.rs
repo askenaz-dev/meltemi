@@ -226,6 +226,7 @@ pub async fn handle_propose(
         log: log.clone(),
         cancel: reg.cancel,
         cancelled: reg.cancelled,
+        in_flight: reg.in_flight,
         wait: config.interactive_wait(),
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
