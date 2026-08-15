@@ -71,6 +71,18 @@ pub async fn dispatch(
             );
             ExitCode::Success.code()
         }
+        Action::Run(Command::Bridge) => {
+            // stdout is a byte channel here, not a rendering, so nothing human
+            // may be written to it — and the bytes go through the very guard
+            // this process locked (see `run::bridge`).
+            match run::bridge(endpoint, out).await {
+                Ok(()) => ExitCode::Success.code(),
+                Err(error) => {
+                    let _ = writeln!(err, "meltemi: {}", error.message);
+                    error.exit.code()
+                }
+            }
+        }
         Action::Run(command) => {
             // `validate` findings are a result, not an error: render to stdout,
             // but exit `14` so CI distinguishes clean from findings (its `clean`

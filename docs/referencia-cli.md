@@ -88,6 +88,9 @@ SUBCOMMANDS:
     tunnel [user@host] [--exec]
                         compose the `ssh` command that reverse-forwards this
                         daemon's endpoint to a remote host; `--exec` runs it
+    bridge              pump this daemon's local endpoint over stdio: the last
+                        metre of remote access (`ssh <pc> meltemi bridge` is a
+                        complete channel, named pipes included)
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
