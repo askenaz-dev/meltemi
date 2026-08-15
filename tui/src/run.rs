@@ -36,7 +36,6 @@ use meltemi_proto::{
 };
 
 use crate::cli::Command;
-use crate::exit::ExitCode;
 use crate::output::{CliError, Outcome};
 
 /// Executes an RPC-backed subcommand against the daemon at `endpoint`.
@@ -139,7 +138,11 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
         } => direct(session, instruction, project_root, endpoint).await,
         // `tunnel` is a local formatter: it never touches the daemon.
         Command::Tunnel { target, exec } => tunnel(target, exec),
-        Command::Bridge => bridge(endpoint).await,
+        // The bridge writes the daemon's bytes to the process's own locked
+        // stdout, so the dispatcher handles it where that writer lives.
+        Command::Bridge => Err(CliError::internal(
+            "`bridge` is dispatched with the process writer, not through `execute`",
+        )),
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -1352,11 +1355,21 @@ fn render_direct(value: &serde_json::Value) -> String {
 /// user's own `ssh` and never touches the daemon (control-remoto-asistido D3).
 /// The last metre of remote access: connects THIS machine's daemon endpoint
 /// and pumps it against stdio until either side closes, so
-/// `ssh <pc> "meltemi bridge"` is a complete JSON-RPC channel — including on
+/// `ssh <pc> meltemi bridge` is a complete JSON-RPC channel — including on
 /// Windows, whose named pipe no form of SSH forwarding can reach
 /// (acceso-remoto-en-dos-vias D1). No TTY, no prompts: it is built to run
 /// under a non-interactive `ssh` exec.
-async fn bridge(endpoint: &str) -> Result<Outcome, CliError> {
+///
+/// `out` is the writer the process already locked, and taking it is not a
+/// stylistic choice. Rust's stdout lock is a per-process reentrant mutex:
+/// `main` holds its guard for the whole dispatch, and an async write through
+/// `tokio::io::stdout()` lands on a blocking-pool thread, where the lock is no
+/// longer reentrant. Measured against a real daemon: the request crossed, the
+/// response was read back from the endpoint, and the write to stdout never
+/// returned. Writing through the guard we were given cannot deadlock.
+pub async fn bridge(endpoint: &str, out: &mut impl std::io::Write) -> Result<(), CliError> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
     // Deliberately NOT `connect_or_start`: a remote connection must not boot
     // daemons implicitly, and the far side of an ssh exec has nobody watching
     // a spinner — refuse immediately with the remedy instead of waiting.
@@ -1364,33 +1377,43 @@ async fn bridge(endpoint: &str) -> Result<Outcome, CliError> {
         .await
         .map_err(|e| {
             CliError::unreachable(format!(
-                "the local endpoint `{endpoint}` is not accepting connections ({e}); start                  the daemon on this machine first (any `meltemi` command boots it, e.g.                  `meltemi status`) and run the bridge again"
+                "the local endpoint `{endpoint}` is not accepting connections ({e});                  start the daemon on this machine first (any `meltemi` command boots                  it, e.g. `meltemi status`) and run the bridge again"
             ))
         })?;
 
     let (mut from_daemon, mut to_daemon) = tokio::io::split(stream);
     let mut stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
+    let mut inbound = vec![0u8; 16 * 1024];
+    let mut outbound = vec![0u8; 16 * 1024];
 
-    // Two pumps, and the FIRST to finish ends the bridge. Waiting for both
-    // would lean on half-close semantics that named pipes do not honour; the
-    // process exit below is what guarantees nothing lingers.
-    let pumped = tokio::select! {
-        r = tokio::io::copy(&mut stdin, &mut to_daemon) => r,
-        r = tokio::io::copy(&mut from_daemon, &mut stdout) => r,
-    };
-    use tokio::io::AsyncWriteExt;
-    let _ = stdout.flush().await;
-
-    // stdout carried the daemon's bytes; nothing human may follow them, so the
-    // bridge exits here instead of returning an Outcome for the renderer.
-    match pumped {
-        Ok(_) => std::process::exit(ExitCode::Success.code()),
-        Err(e) => {
-            eprintln!("bridge error: {e}");
-            std::process::exit(ExitCode::Internal.code());
+    // Every chunk is flushed as it arrives. `tokio::io::copy` would be shorter
+    // and wrong: it flushes only at EOF, so a request/response protocol stalls
+    // waiting for a buffer that fills only when the conversation continues —
+    // which it cannot, because the answer is what is being withheld.
+    loop {
+        tokio::select! {
+            read = stdin.read(&mut inbound) => {
+                let read = read.map_err(CliError::internal)?;
+                if read == 0 {
+                    break;
+                }
+                to_daemon
+                    .write_all(&inbound[..read])
+                    .await
+                    .map_err(CliError::internal)?;
+                to_daemon.flush().await.map_err(CliError::internal)?;
+            }
+            read = from_daemon.read(&mut outbound) => {
+                let read = read.map_err(CliError::internal)?;
+                if read == 0 {
+                    break;
+                }
+                out.write_all(&outbound[..read]).map_err(CliError::internal)?;
+                out.flush().map_err(CliError::internal)?;
+            }
         }
     }
+    Ok(())
 }
 
 fn tunnel(target: Option<String>, exec: bool) -> Result<Outcome, CliError> {

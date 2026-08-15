@@ -9,12 +9,26 @@ entre pasos.
 
 ## 1. El puente
 
-- [ ] 1.1 Verbo `meltemi bridge` en el cliente: conecta el endpoint local
+- [x] 1.1 Verbo `meltemi bridge` en el cliente: conecta el endpoint local
   (named pipe / socket Unix) y bombea stdio↔endpoint en ambas direcciones;
   sin TTY; rehúso inmediato con diagnóstico y remedio si el daemon no está;
   cierre ordenado cuando un extremo cierra; cero dependencias nuevas (design
   D1) — escenarios «Un canal remoto completo sobre el puente», «Sin daemon,
   el puente rehúsa sin colgarse» y «El cierre de un extremo cierra el puente»
+  <!-- 2026-08-15: dos hallazgos, y el segundo es el que importaba. (a)
+  `tokio::io::copy` era el atajo natural y era el equivocado: vacía el búfer
+  solo al EOF, de modo que un protocolo de petición/respuesta espera un búfer
+  que solo se llena si la conversación sigue. Se copia con vaciado por trozo.
+  (b) **La causa real del bloqueo era un abrazo mortal del candado de stdout**:
+  `main` toma `io::stdout().lock()` y lo retiene durante todo el `dispatch`; el
+  candado de Rust es reentrante **por hilo**, y `tokio::io::stdout()` escribe
+  desde un hilo del pool de bloqueo, donde ya no lo es. Instrumentado contra un
+  daemon real: `read 120 / wrote 120` en la ida, `read 129` en la vuelta y
+  ningún `wrote` — la escritura a stdout no volvía jamás. El puente escribe
+  ahora por el escritor que el proceso ya bloqueó, así que `bridge` se despacha
+  desde `dispatch` (donde ese escritor vive) y no desde `execute`. Arreglo (a)
+  solo no bastó: quedó porque un puente que agrupa respuestas es igual de
+  incorrecto, y su comentario lo explica. -->
   — gates: suite del crate + e2e contra daemon de fixture (en Windows ejercita
   el pipe real)
 - [ ] 1.2 El remedio del rehúso de Windows en `meltemi tunnel` nombra el

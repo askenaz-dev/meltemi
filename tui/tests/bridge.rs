@@ -30,6 +30,10 @@ fn spawn_bridge(endpoint: &str) -> tokio::process::Child {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        // A failing assertion must not leave a bridge running: an orphan holds
+        // the built binary open and the next `cargo build` fails with a file
+        // lock that looks like anything but the real cause.
+        .kill_on_drop(true)
         .spawn()
         .expect("spawn meltemi bridge")
 }
