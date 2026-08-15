@@ -29,34 +29,48 @@ atención, no solo uno; que el motivo se lea sin volver a la ventana; y que nada
 del contenido del turno salga del log gobernado.
 
 **Non-Goals**: el aviso remoto del Agent Boss; avisos de progreso; badges de
-dock; sonidos propios.
+dock; sonidos propios; historial o centro de avisos propio.
 
 ## Decisions
 
-### D1 — Se extiende lo que existe; el plugin no entra todavía
+### D1 — El plugin entra ahora, sobre lo que ya existe
 
-La propuesta pedía el plugin oficial de notificaciones de Tauri. **Se aplaza,
-con su condición escrita**, y esta change extiende `request_attention` a los
-tres disparadores.
+Decisión del mantenedor (2026-08-10): «vamos con el plugin desde ya, no dejemos
+cosas a medias». Un primer borrador de este design proponía aplazarlo y
+extender solo `request_attention`; se descarta. Los dos mecanismos **no
+compiten, se complementan**, y esa es la razón por la que la decisión sale
+bien:
 
-El motivo es que el plugin no es gratis y lo que compra ya está a medias
-resuelto: trae una dependencia nueva, permiso del SO que pedir, y tres riesgos
-por plataforma que la propia propuesta enumera —bundle firmado en macOS,
-identidad de aplicación en Windows, daemon DBus en Linux—. Lo que compra a
-cambio es que el aviso **diga texto** y **persista** en el centro de
-notificaciones. Y esa segunda propiedad es justamente la que roza §2: el centro
-del SO guarda fuera del log gobernado.
+- `request_user_attention` **reclama** (parpadeo, rebote, *urgency hint*) y no
+  dice nada. Se ve si vuelves a la máquina.
+- La notificación **dice qué pasó** y sobrevive en el centro del sistema. Se ve
+  aunque no vuelvas.
 
-Con lo que ya existe, quien vuelve al ordenador ve el icono reclamando atención
-y el título diciendo por qué. Eso responde el caso que motiva la change —«dejé
-un turno largo y volví a mi editor»— sin dependencia y sin riesgo por
-plataforma.
+La change hace las dos: pide atención **y** notifica, con la misma regla de
+foco y el mismo contenido mínimo.
 
-**Condición para la fase 2, escrita para que no se relitigue por gusto**: si el
-uso demuestra que el parpadeo se pierde —porque la ventana está minimizada y el
-título no se lee, o porque el usuario dejó el escritorio—, el plugin entra en su
-propia change con su justificación §10, su medición del presupuesto de
-instalador y sus tres verificaciones manuales por plataforma.
+**Justificación §10 de la dependencia**: `tauri-plugin-notification`, pineada
+igual que el resto del stack y confinada al cliente GUI — el mismo patrón que
+`tauri-plugin-dialog` (`=2.7.2`), que `lanzador-conversacional` introdujo para
+el selector de carpeta. El daemon no la enlaza: sigue sin red y sin
+dependencias nuevas.
+
+**Los tres riesgos por plataforma, declarados y no descubiertos**:
+
+- **macOS**: una app sin bundle firmado puede no mostrar avisos en desarrollo.
+  Se prueba sobre el bundle, y la guía lo dice.
+- **Windows**: el toast exige identidad de aplicación, que da el MSI. El
+  ejecutable suelto **se declara** como caso sin aviso, no se finge.
+- **Linux**: depende de un daemon DBus de notificaciones presente. Su ausencia
+  **degrada a silencio declarado en Ajustes**, jamás a error fatal.
+
+En los tres, la petición de atención sigue funcionando: por eso el plugin se
+suma a lo que hay en vez de sustituirlo. Si el sistema no entrega el aviso, la
+superficie lo dice con su remedio y **nunca finge que avisó**.
+
+**El permiso del SO se pide en el primer aviso real**, no al arrancar: pedir
+permiso antes de tener nada que decir es la forma más rápida de que lo
+denieguen.
 
 ### D2 — Tres disparadores, una transición cada uno
 
@@ -92,6 +106,7 @@ emuladores la honran y no se promete lo que el emulador no dé.
 
 ## Migration / Rollout
 
-`desktop/` (extender el mando existente y sus llamadas) y `tui/` (campana
-opt-in). **Cero dependencias nuevas** — el cambio que la propuesta preveía como
-mayor riesgo desaparece. Cero contrato, cero daemon.
+`desktop/` (el plugin, el mando existente y sus llamadas, la sección de
+Ajustes) y `tui/` (campana opt-in). **Una dependencia nueva**, pineada y
+confinada al cliente GUI; pasa por cargo-deny y **el gate de tamaño de
+instalador se re-mide, no se supone**. Cero contrato, cero daemon.

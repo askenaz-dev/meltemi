@@ -72,3 +72,30 @@ momentos, y SHALL estar desactivada mientras no se active por configuración.
 - **WHILE** la campana está activada por configuración
 - **WHEN** ocurre uno de los momentos que piden atención
 - **THEN** el shell SHALL emitirla
+
+### Requirement: La superficie notifica, y jamás finge que avisó
+
+Además de pedir atención, la superficie de escritorio SHALL emitir un aviso del
+sistema en los mismos momentos y bajo la misma regla de foco. El permiso del
+sistema SHALL solicitarse ante el primer aviso real y no al arrancar. Cuando el
+sistema no puede entregar avisos —permiso denegado, o ausencia del servicio que
+los muestra— la superficie SHALL declararlo con su remedio y NO SHALL
+comportarse como si hubiera avisado. El aviso SHALL poder desactivarse.
+
+#### Scenario: El permiso se pide cuando hay algo que decir
+
+- **WHEN** llega el primer momento que merece aviso
+- **THEN** SHALL solicitarse el permiso del sistema
+- **AND** NO SHALL solicitarse durante el arranque
+
+#### Scenario: Sin permiso, se dice y no se finge
+
+- **WHEN** el sistema no puede entregar avisos
+- **THEN** la superficie SHALL declararlo con su remedio
+- **AND** NO SHALL registrar el aviso como emitido
+
+#### Scenario: El aviso se puede apagar
+
+- **WHEN** el usuario desactiva los avisos
+- **THEN** NO SHALL emitirse ninguno
+- **AND** la petición de atención SHALL seguir su propia regla

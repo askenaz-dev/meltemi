@@ -32,6 +32,10 @@ export interface UiState {
    * (primer-arranque-del-home design D3).
    */
   fleetGreeted: boolean;
+  /** Whether OS notices are on. Absent means on: the surface asks for the
+      permission at the first real moment, so the default costs nothing until
+      there is something to say (avisos-de-escritorio design D1). */
+  noticesEnabled: boolean;
 }
 
 const EMPTY: UiState = {
@@ -46,6 +50,7 @@ const EMPTY: UiState = {
   navCollapsed: false,
   navSplit: null,
   fleetGreeted: false,
+  noticesEnabled: true,
 };
 
 const store = writable<UiState>(EMPTY);
@@ -118,6 +123,11 @@ export function setNavSplit(px: number | null): void {
 
 export function setActiveProject(root: string | null): void {
   persist({ ...get(store), activeProject: root });
+}
+
+/** Turns OS notices on or off; the attention request keeps its own rule. */
+export function setNoticesEnabled(on: boolean): void {
+  persist({ ...get(store), noticesEnabled: on });
 }
 
 /** Marks the fleet acknowledgement as said, so it is never said twice. */

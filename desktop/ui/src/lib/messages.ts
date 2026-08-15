@@ -428,6 +428,10 @@ const es = {
   "transcript.collapse": "resumir",
   "transcript.empty": "sin eventos todavía",
 
+  "attention.permission": "{n} permiso(s) esperan tu decisión",
+  "attention.gate": "una compuerta espera tu decisión",
+  "attention.session": "una sesión terminó",
+  "attention.body": "Meltemi te espera",
   "status.sessions": "{n} en curso",
   "status.working": "{n} trabajando",
   "status.waiting": "{n} esperando",
@@ -1029,6 +1033,10 @@ const en: Record<MessageKey, string> = {
   "transcript.collapse": "collapse",
   "transcript.empty": "no events yet",
 
+  "attention.permission": "{n} permission(s) await your decision",
+  "attention.gate": "a gate awaits your decision",
+  "attention.session": "a session ended",
+  "attention.body": "Meltemi is waiting for you",
   "status.sessions": "{n} running",
   "status.working": "{n} working",
   "status.waiting": "{n} waiting",

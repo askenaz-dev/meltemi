@@ -205,6 +205,11 @@ pub fn run() {
         // Initialized for the host, never handed to the webview: the front has
         // no `dialog:` permission and cannot call the plugin directly.
         .plugin(tauri_plugin_dialog::init())
+        // The OS notice that says WHAT happened, beside the attention request
+        // that only claims (avisos-de-escritorio design D1). The webview reaches
+        // it through the capability below, which is deny-by-default like the
+        // rest of this surface.
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let endpoint = meltemi_client::paths::endpoint();
             let (command_tx, command_rx) = mpsc::unbounded_channel();

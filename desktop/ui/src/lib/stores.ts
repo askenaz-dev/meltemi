@@ -9,7 +9,13 @@ import { onIncoming, request } from "./daemon";
 // Imported, not only re-exported below: `export … from` creates no local
 // binding, so the push handlers in this module need the name in scope.
 import { pushNotice } from "./notices";
-import { setActiveProject } from "./ui-state";
+import { setActiveProject, uiState } from "./ui-state";
+import { decide, type Announced, type Moment } from "./attention";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
 
 // ---- contract shapes (camelCase mirror of meltemi-proto) -------------------
 
@@ -165,6 +171,20 @@ export const changes = writable<ChangeInfo[]>([]);
  * treats it that way (barra-de-estado-agentica design D3).
  */
 export const usageToday = writable<{ total?: number; unreported: number } | null>(null);
+/**
+ * Why the OS is not delivering notices, when it is not: `denied` (the user said
+ * no) or `unavailable` (nothing to deliver them). `null` means they work. The
+ * settings view shows this with its remedy — silence is declared, never faked.
+ */
+export const noticesBlocked = writable<"denied" | "unavailable" | null>(null);
+
+/**
+ * Set by the incoming router once it is running: announcing needs the surface's
+ * message catalogue, which only the router is handed. Until then a gate found
+ * at startup does not ring — the router seeds within milliseconds, and ringing
+ * without words would be worse than ringing late.
+ */
+let announceGate: (change: string) => void = () => {};
 
 // Notices live in their own pure module so their policy is driven by an
 // executed test; re-exported here because every view already imports them from
@@ -288,6 +308,9 @@ export async function refreshChanges(): Promise<void> {
       projectRoot: root,
     });
     changes.set(result.changes);
+    // A gate waiting is one of the three moments a person is needed.
+    const gate = gateWaiting(result.changes);
+    if (gate) announceGate(gate.name);
   } catch {
     // A project that cannot answer leaves the bar without a change segment,
     // never with a wrong one.
@@ -375,15 +398,54 @@ export function startIncomingRouter(
     vars: Record<string, string>,
   ) => string,
 ): Promise<() => void> {
-  const attention = (count: number) => {
-    // The OS title is user-visible text, so it comes from the catalog here and
-    // not from the host (§11).
-    const title =
-      count > 0
-        ? translate("window.title.pending", { n: String(count) })
-        : translate("window.title", {});
-    void invoke("request_attention", { pending: count, title }).catch(() => {});
+  // The last moment announced, so a repaint cannot ring twice.
+  let announced: Announced | null = null;
+
+  /**
+   * Claims attention AND says what happened: the flash is seen if you come
+   * back, the notice is seen even if you do not (avisos-de-escritorio D1).
+   * Whether the OS actually delivers is asked, never assumed — a denied
+   * permission leaves the flash doing its job and says so rather than
+   * pretending it notified (D1, "nunca finge que avisó").
+   */
+  const announce = async (moment: Moment) => {
+    const focused = document.hasFocus();
+    const plan = decide(moment, {
+      focused,
+      last: announced,
+      enabled: get(uiState).noticesEnabled !== false,
+      // The announcer composes its key from the reason; the router's
+      // signature is narrowed to the keys IT uses, so widen here and
+      // nowhere else.
+      translate: (key, vars) =>
+        (translate as (k: string, v: Record<string, string>) => string)(key, vars ?? {}),
+    });
+    void invoke("request_attention", {
+      pending: moment.count,
+      title: plan.title,
+    }).catch(() => {});
+    if (!plan.notice) return;
+    announced = { reason: moment.reason, count: moment.count, subject: moment.subject };
+    try {
+      let granted = await isPermissionGranted();
+      // Asked at the first real moment, never at startup: asking before there
+      // is anything to say is the fastest way to be refused.
+      if (!granted) granted = (await requestPermission()) === "granted";
+      if (!granted) {
+        noticesBlocked.set("denied");
+        return;
+      }
+      noticesBlocked.set(null);
+      sendNotification({ title: plan.notice.title, body: plan.notice.body });
+    } catch {
+      // No notification service at all (a Linux box without DBus, say). The
+      // attention request still stands; the surface declares the silence.
+      noticesBlocked.set("unavailable");
+    }
   };
+  const attention = (count: number) => void announce({ reason: "permission", count });
+  announceGate = (change: string) =>
+    void announce({ reason: "gate", count: 1, subject: change });
   return onIncoming((message) => {
     const params = (message.params ?? {}) as Record<string, unknown>;
     switch (message.method) {
@@ -438,7 +500,10 @@ export function startIncomingRouter(
         for (const handler of sessionEventHandlers) handler(event);
         // A session ending is the moment the day's total can have moved; it is
         // also the only moment worth asking, which is why there is no timer.
-        if (event.event?.type === "session_ended") void refreshUsage().catch(() => {});
+        if (event.event?.type === "session_ended") {
+          void refreshUsage().catch(() => {});
+          void announce({ reason: "session", count: 1 });
+        }
         return;
       }
       default:

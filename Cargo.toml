@@ -61,6 +61,10 @@ tauri-build = "=2.6.3"
 # command, so `capabilities/default.json` stays at `core:default` and the daemon
 # gains no dependency and no window of its own.
 tauri-plugin-dialog = "=2.7.2"
+# Desktop notifications (avisos-de-escritorio design D1): the OS notice that
+# says WHAT happened, beside the attention request that only claims. Pinned and
+# confined to the GUI client; the daemon links neither.
+tauri-plugin-notification = "=2.3.3"
 thiserror = "=2.0.18"
 tokio = "=1.52.3"
 toml = "=1.1.2"
