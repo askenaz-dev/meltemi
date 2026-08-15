@@ -695,6 +695,50 @@ pushes — `nanoid <3.3.17` (**high**, GHSA-2v37-7h3g-55p8) y `postcss`
 solo protege si corre; conviene mirar que corrió antes de dar una tanda por
 cerrada.
 
+### `acceso-remoto-en-dos-vias` — abierta el 2026-08-09, vía rápida
+
+Nace de una exploración con el mantenedor sobre el compañero móvil, y de tres
+frases suyas: la combinación debe funcionar «en dos vías» (PC o CEL fuera de
+casa, el trabajo sigue), varios Meltemi en varios equipos con varios teléfonos,
+e idealmente PC↔móvil directo con el hub como respaldo aceptable.
+
+Dos hallazgos la definen. El agujero con nombre: **Windows no podía ser el
+extremo servido**, porque su endpoint es un named pipe y **ninguna forma de
+reenvío SSH lo alcanza** — toda ruta termina en algo que corre dentro de esa
+máquina. Ese último metro era un verbo que faltaba, `meltemi bridge`, que
+conecta el endpoint local con su propio stdio; `ssh <pc> meltemi bridge` es
+entonces un canal JSON-RPC completo en las tres plataformas, y la limitación de
+Windows queda arrinconada donde no molesta. El patrón sin dueño: «en dos vías»
+se resuelve con una sola regla — nadie recibe conexiones, ambos extremos marcan
+hacia afuera a un punto de encuentro del usuario. El túnel inverso reenvía el
+puerto TCP del sshd del PC, que el OpenSSH de Windows sí reenvía, así que el
+pipe no viaja por ningún túnel.
+
+Todo lo que va más allá del verbo es infraestructura **del usuario** —bastión,
+malla WireGuard con plano de control autohospedado, identidad— y por eso se
+documenta como frontera en vez de implementarse: licencias verificadas, nada
+entra al workspace, el daemon sigue ciego y el transporte final sigue siendo el
+SSH del usuario hacia el socket local. Ningún requisito vivo se modifica.
+
+**Dos defectos que solo la medición encontró**, ambos en la vuelta
+daemon→cliente: `tokio::io::copy` vacía solo al EOF (un protocolo de
+petición/respuesta se ahoga esperando un búfer que solo llena la respuesta que
+se retiene); y —la causa real— un **abrazo mortal del candado de stdout**,
+porque `main` retiene `io::stdout().lock()` durante todo el `dispatch` y el
+candado de Rust es reentrante por hilo, mientras `tokio::io::stdout()` escribe
+desde el pool de bloqueo. El puente escribe ahora por el escritor que el proceso
+ya bloqueó. Nota:
+`docs/qa/2026-08-15-acceso-remoto-en-dos-vias-smoke.md`.
+
+**Deuda declarada**: el tramo `sshd → bridge` no se ejercitó — el servidor
+OpenSSH de Windows está `NotPresent` en la máquina del mantenedor e instalarlo
+exige privilegios y toca su superficie de seguridad. Queda por medir que el
+shell por defecto de sshd no altere el flujo de bytes. **Notas de fase 3
+capturadas** para `companero-movil`: identidad BYO por certificados SSH de vida
+corta emitidos por el IdP del usuario, selector multi-máquina como concepto de
+la app (cada `meltemid` sigue siendo de su máquina), y el aviso de espera
+autohospedado.
+
 ### `cromo-que-no-estorba` — abierta el 2026-08-08, vía rápida
 
 Tres frases del mantenedor sobre una captura: el scroll del panel derecho, los

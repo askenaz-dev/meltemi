@@ -50,7 +50,7 @@ entre pasos.
 
 ## 3. Cierre
 
-- [ ] 3.1 `meltemi validate acceso-remoto-en-dos-vias` limpio y `meltemi
+- [x] 3.1 `meltemi validate acceso-remoto-en-dos-vias` limpio y `meltemi
   verify` con los siete escenarios enlazados (meta: cero marcas manuales);
   suite completa, clippy y fmt verdes; smoke manual del tramo
   `ssh → meltemi bridge → pipe` sobre el binario de release con sshd real de
