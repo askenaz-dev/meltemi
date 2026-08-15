@@ -1651,6 +1651,49 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: La flota vacía se dice antes de fallar
+// Scenario: El menú vacío abre la flota
+// Scenario: El reconocimiento se dice una vez
+#[test]
+fn the_first_arrival_says_what_the_fleet_has_before_a_send_refuses() {
+    let home = read("desktop/ui/src/lib/views/Home.svelte");
+
+    // Proactive, not reactive: the face of the chip warns before the send is
+    // refused, the same treatment the project chip gives a missing folder.
+    assert!(
+        home.contains("const noFleet = $derived($fleet.length > 0 && launchable.length === 0)")
+            && home.contains("home.agent.none"),
+        "an empty fleet is said on the chip's face"
+    );
+    // And the unresolvable default stops being offered as a choice.
+    assert!(
+        home.contains("{:else if !noFleet}"),
+        "the default is not offered when nothing can resolve it"
+    );
+
+    // The hint named the fleet; now it opens it.
+    assert!(
+        home.contains("home.agent.seeFleet") && home.contains("onOpenFleet?.()"),
+        "the empty menu can go where it points"
+    );
+    let app = read("desktop/ui/src/App.svelte");
+    assert!(
+        app.contains("onOpenFleet={() => navigate(\"fleet\")}"),
+        "and the shell wires that exit to its own navigation"
+    );
+
+    // Said once and remembered, so it is a greeting rather than a badge.
+    assert!(
+        home.contains("home.agent.detected") && home.contains("markFleetGreeted()"),
+        "the recognition is said on the first arrival that has something to launch"
+    );
+    let state = read("desktop/ui/src/lib/ui-state.ts");
+    assert!(
+        state.contains("fleetGreeted: boolean") && state.contains("fleetGreeted: false"),
+        "and it is remembered, so the next window does not repeat it"
+    );
+}
+
 // Scenario: El consumo medido se muestra
 // Scenario: Sin medición no se inventa un cero
 #[test]

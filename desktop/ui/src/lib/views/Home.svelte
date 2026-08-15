@@ -25,6 +25,7 @@
     scopedTo,
   } from "../stores";
   import { agentLabelOf, projectName } from "../tree";
+  import { markFleetGreeted, uiState } from "../ui-state";
   import Avatar from "../components/Avatar.svelte";
   import Chip from "../components/Chip.svelte";
   import Icon from "../components/Icon.svelte";
@@ -35,10 +36,14 @@
 
   let {
     onOpenSession,
+    onOpenFleet,
     initialMode = "free",
     initialProject = null,
   }: {
     onOpenSession: (sessionId: string) => void;
+    /** Opens the fleet view: the empty menu names it, so it must be able to go
+        there (primer-arranque-del-home design D2). */
+    onOpenFleet?: () => void;
     /** The mode the caller asked for: Propose routes here with it chosen. */
     initialMode?: Mode;
     /** The project the caller named, e.g. the quick action of a nav node. */
@@ -85,12 +90,37 @@
 
   const chosen = $derived(launchable.find((entry) => entry.id === agent));
 
+  /**
+   * Nothing launchable at all. The face of the chip says so BEFORE the send is
+   * refused, the same treatment the project chip already gives to a missing
+   * folder — promising a default that cannot resolve is the asymmetry this
+   * change removes (design D1).
+   */
+  const noFleet = $derived($fleet.length > 0 && launchable.length === 0);
+
+  /**
+   * Said once, on the first arrival that has something to launch, and then
+   * never again — a greeting, not a badge. The flag is persisted, so it does
+   * not come back with the next window (design D3).
+   */
+  let greeting = $state(false);
+  $effect(() => {
+    if (launchable.length === 0) return;
+    if (get(uiState).fleetGreeted) return;
+    greeting = true;
+    markFleetGreeted();
+  });
+
   const agentLabel = $derived(
     refusal
       ? $t("home.agent.unresolved")
       : chosen
         ? (chosen.displayName ?? chosen.id)
-        : $t("home.agent.default"),
+        : noFleet
+          ? $t("home.agent.none")
+          : greeting
+            ? $t("home.agent.detected", { n: launchable.length })
+            : $t("home.agent.default"),
   );
 
   /** One row of the agent menu, whichever list it came from. */
@@ -326,7 +356,7 @@
               {#if refusal.remedy}
                 <p class="none">{refusal.remedy}</p>
               {/if}
-            {:else}
+            {:else if !noFleet}
               <button
                 class="item"
                 aria-current={agent === "" ? "true" : undefined}
@@ -342,6 +372,20 @@
             {#if offered.length === 0}
               <p class="none">{$t("session.new.noAgents")}</p>
               <p class="none">{$t("fleet.remedy.hint")}</p>
+              <!-- The hint named the fleet view; now it opens it. A paragraph
+                   that names a place without going there leaves the gesture to
+                   the reader (design D2). -->
+              {#if onOpenFleet}
+                <button
+                  class="item"
+                  onclick={() => {
+                    close();
+                    onOpenFleet?.();
+                  }}
+                >
+                  <span class="itemName">{$t("home.agent.seeFleet")}</span>
+                </button>
+              {/if}
             {/if}
             {#each offered as entry (entry.id)}
               <button

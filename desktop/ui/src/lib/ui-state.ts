@@ -26,6 +26,12 @@ export interface UiState {
   navCollapsed: boolean;
   /** Navigation height in px; null means "as the browser lays it out". */
   navSplit: number | null;
+  /**
+   * Whether the composer has already acknowledged the detected fleet once.
+   * Once said, never again: the recognition is a greeting, not a badge
+   * (primer-arranque-del-home design D3).
+   */
+  fleetGreeted: boolean;
 }
 
 const EMPTY: UiState = {
@@ -39,6 +45,7 @@ const EMPTY: UiState = {
   activeProject: null,
   navCollapsed: false,
   navSplit: null,
+  fleetGreeted: false,
 };
 
 const store = writable<UiState>(EMPTY);
@@ -111,6 +118,11 @@ export function setNavSplit(px: number | null): void {
 
 export function setActiveProject(root: string | null): void {
   persist({ ...get(store), activeProject: root });
+}
+
+/** Marks the fleet acknowledgement as said, so it is never said twice. */
+export function markFleetGreeted(): void {
+  persist({ ...get(store), fleetGreeted: true });
 }
 
 /** Records a palette invocation: recency + count drive the frecency order. */

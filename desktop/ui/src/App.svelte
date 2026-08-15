@@ -473,6 +473,7 @@
           initialMode={composerMode}
           initialProject={composerProject}
           onOpenSession={(sessionId) => openSessionTab(sessionId)}
+          onOpenFleet={() => navigate("fleet")}
         />
       {:else if view === "sessions"}
         <!-- The list and every open session are peers here: the list is the
