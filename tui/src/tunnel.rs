@@ -60,9 +60,11 @@ pub fn compose(
             reason: "this daemon's endpoint is a Windows named pipe, which standard OpenSSH \
                      cannot forward"
                 .to_string(),
-            remedy: "Run the daemon on a macOS/Linux host to tunnel it, or reach this machine \
-                     another way. A Windows machine can still be the client that runs the \
-                     printed command against a remote Unix daemon."
+            remedy: "Reach this machine with the bridge instead: from the remote side run \
+                     `ssh <this-host> meltemi bridge`, which carries the endpoint over the \
+                     ssh connection's own stdio and needs no forwarding at all. Forwarding \
+                     itself only works from a macOS/Linux daemon; a Windows machine can \
+                     still be the client that runs the printed command against one."
                 .to_string(),
         });
     }
@@ -147,8 +149,16 @@ mod tests {
         let refusal = compose(true, r"\\.\pipe\meltemid-S-1-5-21", Some("me@server"))
             .expect_err("a Windows named pipe cannot be forwarded");
         assert!(refusal.reason.contains("named pipe"));
-        // A remedy, never a command that cannot work.
+        // The refusal STANDS: forwarding a named pipe is still impossible, and
+        // no command that cannot work is ever printed.
         assert!(refusal.remedy.to_lowercase().contains("linux") || refusal.remedy.contains("Unix"));
+        // What improved is the remedy: it names the way that DOES work on this
+        // platform, with its exact command (acceso-remoto-en-dos-vias 1.2).
+        assert!(
+            refusal.remedy.contains("meltemi bridge"),
+            "the remedy names the bridge and its command: {}",
+            refusal.remedy
+        );
     }
 
     #[test]

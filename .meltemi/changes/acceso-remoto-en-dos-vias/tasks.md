@@ -31,7 +31,7 @@ entre pasos.
   incorrecto, y su comentario lo explica. -->
   — gates: suite del crate + e2e contra daemon de fixture (en Windows ejercita
   el pipe real)
-- [ ] 1.2 El remedio del rehúso de Windows en `meltemi tunnel` nombra el
+- [x] 1.2 El remedio del rehúso de Windows en `meltemi tunnel` nombra el
   puente con el comando exacto; el test del rehúso se extiende a pinear el
   remedio nuevo sin aflojar el rehúso (design D1) — escenario «El puente en la
   plataforma sin reenvío estándar» — gates: suite del crate
