@@ -153,6 +153,12 @@ export const allSessions = writable<SessionInfo[]>([]);
 export const projects = writable<ProjectInfo[]>([]);
 export const pending = writable<PendingPermission[]>([]);
 export const fleet = writable<FleetAgent[]>([]);
+/**
+ * The active project's changes. Lifted out of the Project view so the status
+ * bar can name the gate that is waiting without opening a view to find it
+ * (barra-de-estado-agentica design D4). One source, two readers.
+ */
+export const changes = writable<ChangeInfo[]>([]);
 
 // Notices live in their own pure module so their policy is driven by an
 // executed test; re-exported here because every view already imports them from
@@ -254,6 +260,40 @@ export async function forgetProject(root: string): Promise<boolean> {
   const result = await request<{ forgotten: boolean }>("project/forget", { root });
   await refreshProjects().catch(() => {});
   return result.forgotten;
+}
+
+/**
+ * Refreshes the active project's changes. A directory without `.meltemi/`
+ * answers with empty lists, so emptiness is not evidence of absence — the same
+ * guard the Project view already applied is kept here, at the one place that
+ * asks.
+ */
+export async function refreshChanges(): Promise<void> {
+  const root = get(activeProject);
+  if (!root) {
+    changes.set([]);
+    return;
+  }
+  try {
+    const result = await request<{ changes: ChangeInfo[] }>("change/list", {
+      projectRoot: root,
+    });
+    changes.set(result.changes);
+  } catch {
+    // A project that cannot answer leaves the bar without a change segment,
+    // never with a wrong one.
+    changes.set([]);
+  }
+}
+
+/**
+ * The change the bar names: the one asking for a decision, because that is the
+ * one a person can act on. `change/list` does not declare an "active" change,
+ * so the criterion lives here and is written down rather than guessed at each
+ * call site (design D2).
+ */
+export function gateWaiting(all: ChangeInfo[]): ChangeInfo | undefined {
+  return all.find((change) => change.gatePending);
 }
 
 export async function refreshPending(): Promise<void> {

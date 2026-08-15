@@ -1651,6 +1651,90 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: La barra nombra el proyecto y la compuerta que espera
+// Scenario: Sin compuerta pendiente, la barra dice cuántas changes hay
+// Scenario: Las sesiones que trabajan se distinguen de las que esperan
+// Scenario: Un segmento lleva a su vista
+// Scenario: Al estrecharse, lo último que se cae
+#[test]
+fn the_status_bar_says_what_is_being_worked_on_and_what_waits() {
+    let bar = read("desktop/ui/src/lib/components/StatusBar.svelte");
+
+    // Context: the project, by its short name, with the full path in the
+    // tooltip — the pattern the sidebar already uses.
+    assert!(
+        bar.contains("projectName($activeProject)") && bar.contains("title={$activeProject}"),
+        "the bar names the project and keeps its path within reach"
+    );
+
+    // The gate is a property of a CHANGE. The bar names the one asking for a
+    // decision, and falls back to the count when none is.
+    assert!(
+        bar.contains("gateWaiting($changes)") && bar.contains("status.gate"),
+        "the bar names the change that asks for a decision"
+    );
+    assert!(
+        bar.contains("status.changes"),
+        "and says how many are active when none asks"
+    );
+    // Pinned by the negative: a gate must never be dressed as a session state,
+    // which the contract does not have.
+    assert!(
+        !bar.contains("waiting_gate") && !bar.contains("\"gate\" as SessionState"),
+        "the gate is never a session state"
+    );
+
+    // Two counts, because working and waiting-on-you are different facts.
+    assert!(
+        bar.contains("status.working") && bar.contains("status.waiting"),
+        "sessions that work are counted apart from those waiting on a decision"
+    );
+    assert!(
+        bar.contains("s.state === \"waiting_permission\"")
+            .then_some(true)
+            .is_some(),
+        "and the split uses the states the contract actually has"
+    );
+
+    // Segments lead somewhere, through the shell's own navigation.
+    assert!(
+        bar.contains("onNavigate")
+            && bar.contains("go(\"sessions\")")
+            && bar.contains("go(\"project\")"),
+        "a segment leads to the view that owns what it names"
+    );
+    let app = read("desktop/ui/src/App.svelte");
+    assert!(
+        app.contains("<StatusBar onNavigate={navigate} />"),
+        "and the shell hands it its own navigation"
+    );
+
+    // The declared order of yielding width, and what never yields.
+    let styles = bar.split("<style>").nth(1).expect("the bar's styles");
+    let order: Vec<usize> = [
+        ".endpoint {\n      display: none",
+        ".version {\n      display: none",
+        ".project {\n      display: none",
+    ]
+    .iter()
+    .map(|needle| {
+        styles
+            .find(needle)
+            .unwrap_or_else(|| panic!("missing rule: {needle}"))
+    })
+    .collect();
+    assert!(
+        order[0] < order[1] && order[1] < order[2],
+        "width is given up in the declared order: endpoint, version, project"
+    );
+    for never in [".ok {\n      display: none", ".warn {\n      display: none"] {
+        assert!(
+            !styles.contains(never),
+            "connection and pending decisions never yield: {never}"
+        );
+    }
+}
+
 // Scenario: El pensamiento se ve mientras el turno corre
 // Scenario: Plegarlo a mano no se deshace solo
 // Scenario: Sin pensamiento no hay sección

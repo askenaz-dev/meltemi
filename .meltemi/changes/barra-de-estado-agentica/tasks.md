@@ -7,21 +7,26 @@ co-autoría.
 
 ## 1. La fuente de las changes
 
-- [ ] 1.1 El listado de changes sube de `Project.svelte` a un store propio en
+- [x] 1.1 El listado de changes sube de `Project.svelte` a un store propio en
   `stores.ts`, conservando la guarda `isMeltemiProject`, y la vista Proyecto
   pasa a consumirlo en vez de su copia local (design D4) — una fuente, dos
   lectores
 
 ## 2. Los segmentos
 
-- [ ] 2.1 Proyecto (nombre corto con la ruta en el emergente) y change con su
+- [x] 2.1 Proyecto (nombre corto con la ruta en el emergente) y change con su
   compuerta —la que reclama decisión, o el número de activas si ninguna—
   (design D1, D2) — escenarios «La barra nombra el proyecto y la compuerta que
   espera» y «Sin compuerta pendiente, la barra dice cuántas changes hay»
-- [ ] 2.2 El recuento de sesiones se desglosa en las que trabajan y las que
+- [x] 2.2 El recuento de sesiones se desglosa en las que trabajan y las que
   esperan una decisión; **la compuerta no se disfraza de estado de sesión**
   (design D2) — escenario «Las sesiones que trabajan se distinguen de las que
   esperan»
+  <!-- 2026-08-10: la cuenta única «N en curso» plegaba trabajar y esperar en
+  el mismo número, que es como una barra llena de sesiones «en curso» podía
+  significar que nadie estaba haciendo nada. El test pinea además por el lado
+  negativo que la compuerta **no** se disfrace de estado de sesión: el contrato
+  no tiene ese estado y no debe inventarse uno. -->
 - [ ] 2.3 Consumo medido del proyecto en el día, con **silencio o motivo** en
   vez de un cero cuando no hay medición, y refresco al cambiar de proyecto y al
   terminar una sesión —nunca por temporizador— (design D3) — escenarios «El
@@ -29,9 +34,9 @@ co-autoría.
 
 ## 3. Comportamiento de la barra
 
-- [ ] 3.1 Cada segmento lleva a su vista, con nombre accesible y camino de
+- [x] 3.1 Cada segmento lleva a su vista, con nombre accesible y camino de
   teclado (design D5) — escenario «Un segmento lleva a su vista»
-- [ ] 3.2 Prioridad declarada al estrecharse: endpoint, versión, consumo,
+- [x] 3.2 Prioridad declarada al estrecharse: endpoint, versión, consumo,
   proyecto; conexión y permisos jamás (design D6) — escenario «Al estrecharse,
   lo último que se cae». **Sin mover las expresiones que los guardianes
   vigentes leen literalmente** (`$conn.endpoint`, las tres palabras de

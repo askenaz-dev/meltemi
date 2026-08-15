@@ -12,6 +12,7 @@
     initProjectScope,
     pending,
     pushNotice,
+    refreshChanges,
     refreshPending,
     refreshProjects,
     refreshSessions,
@@ -220,6 +221,7 @@
       void refreshPending().catch(() => {});
       void refreshProjects().catch(() => {});
       void refreshSessions().catch(() => {});
+      void refreshChanges().catch(() => {});
     });
 
     return () => {
@@ -542,7 +544,7 @@
       {/if}
     </main>
 
-    <StatusBar />
+    <StatusBar onNavigate={navigate} />
   </div>
 </div>
 

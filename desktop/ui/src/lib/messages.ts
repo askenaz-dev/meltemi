@@ -426,6 +426,12 @@ const es = {
   "transcript.empty": "sin eventos todavía",
 
   "status.sessions": "{n} en curso",
+  "status.working": "{n} trabajando",
+  "status.waiting": "{n} esperando",
+  "status.gate": "compuerta: {artifact}",
+  "status.changes": "{n} change(s)",
+  "status.usage": "{tokens} tokens hoy",
+  "status.usage.unreported": "consumo no reportado",
   "status.permissions": "{n} permiso(s)",
 
   "permissions.waitingWord": "esperando",
@@ -1018,6 +1024,12 @@ const en: Record<MessageKey, string> = {
   "transcript.empty": "no events yet",
 
   "status.sessions": "{n} running",
+  "status.working": "{n} working",
+  "status.waiting": "{n} waiting",
+  "status.gate": "gate: {artifact}",
+  "status.changes": "{n} change(s)",
+  "status.usage": "{tokens} tokens today",
+  "status.usage.unreported": "usage not reported",
   "status.permissions": "{n} permission(s)",
 
   "permissions.waitingWord": "waiting",

@@ -4,7 +4,7 @@
   import { get } from "svelte/store";
   import { request } from "../daemon";
   import { t } from "../i18n";
-  import { activeProject, type ChangeInfo, type SpecInfo } from "../stores";
+  import { activeProject, changes, refreshChanges, type SpecInfo } from "../stores";
   import EmptyState from "../components/EmptyState.svelte";
 
   let {
@@ -18,7 +18,6 @@
     onPropose: () => void;
   } = $props();
 
-  let changes: ChangeInfo[] = $state([]);
   let specs: SpecInfo[] = $state([]);
   let isProject = $state(true);
   let loading = $state(true);
@@ -39,17 +38,16 @@
       const initialized = await isMeltemiProject(root);
       if (!initialized) {
         isProject = false;
-        changes = [];
+        changes.set([]);
         specs = [];
         return;
       }
-      const [changesResult, specsResult] = await Promise.all([
-        request<{ changes: ChangeInfo[] }>("change/list", {
-          projectRoot: root,
-        }),
+      // The changes come from the shared store, which the status bar reads
+      // too: one source, two readers (barra-de-estado-agentica design D4).
+      const [, specsResult] = await Promise.all([
+        refreshChanges(),
         request<{ specs: SpecInfo[] }>("spec/list", { projectRoot: root }),
       ]);
-      changes = changesResult.changes;
       specs = specsResult.specs;
       isProject = true;
     } catch {
@@ -131,7 +129,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each changes as change (change.name + String(change.archived))}
+          {#each $changes as change (change.name + String(change.archived))}
             <tr>
               <td><code>{change.name}</code></td>
               <td class:muted={change.archived}>
