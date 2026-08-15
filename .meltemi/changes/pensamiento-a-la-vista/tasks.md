@@ -37,7 +37,7 @@ frontend en `desktop/ui` y la suite del crate tocado.
 - [x] 3.1 `meltemi validate pensamiento-a-la-vista` limpio y `meltemi verify`
   con los seis escenarios enlazados (meta: cero marcas manuales); suite,
   clippy, fmt y gates del frontend verdes
-- [ ] 3.2 Smoke sobre el binario de release con una sesión que emita
+- [x] 3.2 Smoke sobre el binario de release con una sesión que emita
   pensamiento: el bloque abierto en vuelo y plegado al cerrar, y el transcript
   del terminal leyendo prosa y pensamiento distinguidos. **El mock-agent no
   emite pensamiento hoy**: si el escenario lo necesita, se le añade al fixture
@@ -47,3 +47,12 @@ frontend en `desktop/ui` y la suite del crate tocado.
   todos los tests de transcript que ya existen. La bandera sigue el patrón de
   `--load-session` y `--mcp`, que es como este binario declara lo que sabe
   hacer. Sin red y sin agentes reales, como manda la regla de CI. -->
+  <!-- 2026-08-10, conducido: el pensamiento **se ve desplegado** con su rótulo
+  y separado de la prosa (`docs/qa/2026-08-10-pensamiento-a-la-vista-smoke.md`)
+  — que es el caso que la change existe para servir. **El plegado en reposo no
+  se pudo confirmar**, y no por la regla: en una sesión histórica el turno nunca
+  llega marcado como cerrado, así que `open={!item.closed}` obedece a un dato en
+  falso. Defecto del camino que reconstruye desde el log, anterior a esta change
+  (afecta igual al indicador de fin de turno) y anotado en el backlog en vez de
+  arreglado aquí. La TUI queda probada por su unitario: conducirla exige un pty
+  que hoy no tenemos, y se dice en vez de insinuar que se condujo. -->

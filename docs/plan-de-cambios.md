@@ -754,6 +754,17 @@ del arrastre es otra conversación. Nota:
 > pestañas. Sigue pendiente la **auditoría de intuitividad** que el mantenedor
 > pidió como barrido completo de la aplicación.
 
+> **Hallazgo del smoke de `pensamiento-a-la-vista` (2026-08-10), anotado y no
+> colado**: al reconstruir una conversación **desde el log**, el turno de una
+> sesión ya terminada **no se marca como cerrado**. Medido con veinte segundos
+> de espera activa sobre el binario: no se renderiza el indicador de fin de
+> turno y, en consecuencia, el pensamiento queda desplegado en reposo. El log
+> contiene `turn_completed` y el pliegue tiene su rama para marcarlo
+> (`conversation.ts:301-308`), así que el defecto está en el camino que
+> reconstruye desde el log, no en el dato ni en la regla nueva — y afecta igual
+> al indicador de fin de turno, que es anterior. Candidata a vía rápida sobre
+> `gui-shell`. Evidencia en `docs/qa/2026-08-10-pensamiento-a-la-vista-smoke.md`.
+
 > **Flake conocido (2026-08-09)**: `with_no_clients_the_constitutional_deny_
 > fires_after_the_grace` (`core/meltemid/tests/e2e_permisos.rs:369`) falló una
 > vez **solo en Windows** tras siete runs verdes. No es una regresión: su
