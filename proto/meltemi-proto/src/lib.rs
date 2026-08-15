@@ -1376,12 +1376,19 @@ pub struct SessionDirectParams {
     /// project resolution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_root: Option<String>,
+    /// Interrupt the turn in flight and let this instruction relay it, instead
+    /// of queueing behind it. Absent means false — the behaviour every caller
+    /// had before this existed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub interrupt: bool,
 }
 
 /// How `session/direct` handled the instruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DirectDisposition {
+    /// The turn in flight was interrupted and this instruction relays it.
+    Relayed,
     /// The session was active: the instruction was queued and will be dispatched
     /// as the next turn of the same agent session when the current turn ends —
     /// unless the session is cancelled first, in which case it is dropped

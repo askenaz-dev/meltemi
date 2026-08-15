@@ -6,17 +6,22 @@ N.M)` y sin trailers de co-autoría. Gates del repo en cada tarea.
 
 ## 1. La cola y su atomicidad
 
-- [ ] 1.1 `InstructionQueue` gana la bandera turn-scoped y una operación que
+- [x] 1.1 `InstructionQueue` gana la bandera turn-scoped y una operación que
   **encola el relevo y señala la interrupción bajo el mismo lock**, en ese
   orden (design D1) — escenario «La instrucción releva al turno interrumpido»
-- [ ] 1.2 El guardián vigente se enmienda con su gemelo: una cola **cancelada**
+- [x] 1.2 El guardián vigente se enmienda con su gemelo: una cola **cancelada**
   sigue sin despachar nada, una cola **interrumpida** despacha su relevo y solo
   ese; los dos tests se escriben juntos para que la diferencia se lea (design
   D5) — escenario «Una cancelación sigue terminando la sesión»
+  <!-- 2026-08-10: los dos gemelos quedan **uno junto al otro** en
+  `session.rs`, que era el punto: leer el archivo enseña la diferencia sin
+  buscarla. Se añadió además el tercero que faltaba —interrumpir una sesión que
+  ya dejó de aceptar devuelve `None` y **no señala nada**—, porque una
+  interrupción sin relevo sería una cancelación que nadie pidió. -->
 
 ## 2. El borde del turno
 
-- [ ] 2.1 El borde distingue por bandera y no por estado: cancelación cierra y
+- [x] 2.1 El borde distingue por bandera y no por estado: cancelación cierra y
   rompe; interrupción con relevo consume y sigue, limpiando la bandera; un
   `Cancelled` espontáneo **rompe como hoy** (design D2) — escenario «Un turno
   cancelado por el agente no continúa»
@@ -36,7 +41,7 @@ N.M)` y sin trailers de co-autoría. Gates del repo en cada tarea.
 
 ## 4. El contrato
 
-- [ ] 4.1 `session/direct` gana `interrupt` opcional en `meltemi-proto` y su
+- [x] 4.1 `session/direct` gana `interrupt` opcional en `meltemi-proto` y su
   schema, con la conformidad de tres vías y `gen:forms` commiteado; el
   resultado dice cuál de los dos desenlaces ocurrió
 

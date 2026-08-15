@@ -289,6 +289,11 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
         "name": "projectRoot",
         "kind": "string",
         "required": false
+      },
+      {
+        "name": "interrupt",
+        "kind": "boolean",
+        "required": false
       }
     ]
   },

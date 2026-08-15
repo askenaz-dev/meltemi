@@ -646,7 +646,33 @@ fn session_direct_conforms() {
             session_id: "sess-1".into(),
             instruction: "also add a dark theme".into(),
             project_root: Some("C:\\repos\\fixture".into()),
+            interrupt: false,
         },
+    );
+    // The additive flag, the three ways tablero-de-carrera fixed in writing:
+    // present, omitted, and the omitted shape byte-identical to what callers
+    // sent before it existed.
+    let asking = SessionDirectParams {
+        session_id: "sess-1".into(),
+        instruction: "no sigas por ahi".into(),
+        project_root: None,
+        interrupt: true,
+    };
+    assert_conforms("session-direct", "params", &asking);
+    let plain = SessionDirectParams {
+        interrupt: false,
+        ..asking.clone()
+    };
+    assert_conforms("session-direct", "params", &plain);
+    assert!(
+        !serde_json::to_string(&plain).unwrap().contains("interrupt"),
+        "a caller that does not ask sends exactly what it sent before"
+    );
+    assert!(
+        serde_json::to_string(&asking)
+            .unwrap()
+            .contains("\"interrupt\":true"),
+        "and one that asks says so"
     );
     // Queued: an active session accepted the instruction as its next turn.
     assert_conforms(

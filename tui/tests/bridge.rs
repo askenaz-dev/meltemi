@@ -93,7 +93,10 @@ async fn the_bridge_carries_jsonrpc_lines_both_ways() {
         .await
         .expect("the bridge ends when the endpoint closes")
         .expect("wait");
-    assert!(status.success(), "an orderly close is a success: {status:?}");
+    assert!(
+        status.success(),
+        "an orderly close is a success: {status:?}"
+    );
 }
 
 // Scenario: El cierre de un extremo cierra el puente
@@ -116,7 +119,10 @@ async fn closing_stdin_closes_the_bridge() {
         .await
         .expect("stdin closing ends the bridge")
         .expect("wait");
-    assert!(status.success(), "an orderly close is a success: {status:?}");
+    assert!(
+        status.success(),
+        "an orderly close is a success: {status:?}"
+    );
 }
 
 // Scenario: Sin daemon, el puente rehúsa sin colgarse

@@ -1923,9 +1923,26 @@ async fn handle_session_direct(
     // (log-before-enqueue), so the audit trail is always queued-then-sent.
     match state.sessions.direct_target(&params.session_id).await {
         Some((queue, log)) => {
-            if let Some(position) = queue.enqueue(params.instruction.clone(), &log).await {
+            // Asking to interrupt enqueues the relay and signals in one lock,
+            // in that order: the boundary must never see the queue empty
+            // between the halves (redirigir-turno design D1). Then the cancel
+            // is signalled, which is what makes the turn drain.
+            let queued = if params.interrupt {
+                let position = queue.interrupt_with(params.instruction.clone(), &log).await;
+                if position.is_some() {
+                    state.sessions.interrupt(&params.session_id).await;
+                }
+                position
+            } else {
+                queue.enqueue(params.instruction.clone(), &log).await
+            };
+            if let Some(position) = queued {
                 let result = SessionDirectResult {
-                    disposition: DirectDisposition::Queued,
+                    disposition: if params.interrupt {
+                        DirectDisposition::Relayed
+                    } else {
+                        DirectDisposition::Queued
+                    },
                     session_id: params.session_id.clone(),
                     resumed_from: None,
                     queue_position: Some(position as u32),

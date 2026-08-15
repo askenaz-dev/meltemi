@@ -1016,7 +1016,10 @@ mod tests {
 
     #[test]
     fn bridge_takes_no_arguments() {
-        assert_eq!(plan_of(&["bridge"], false).action, Action::Run(Command::Bridge));
+        assert_eq!(
+            plan_of(&["bridge"], false).action,
+            Action::Run(Command::Bridge)
+        );
         // Anything after the verb is a usage error, not a silent ignore: the
         // far side of an ssh exec has nobody to notice a typo.
         assert!(matches!(

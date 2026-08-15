@@ -304,11 +304,27 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                 // does a cancelled turn: a directed instruction that arrives late
                 // must take the resume path, never queue into a turn that will
                 // not run. Otherwise dispatch the next queued instruction.
+                // A stopped turn means two different things, and the queue is
+                // what knows which (redirigir-turno design D2): the user
+                // cancelled the SESSION, or interrupted the TURN and left a
+                // relay behind. A `Cancelled` the agent reported on its own —
+                // with no interruption asked for — still ends the session, and
+                // that prudence is untouched: an agent that cancels itself is
+                // not an invitation to keep sending it work.
                 if cancelled.load(Ordering::SeqCst) || matches!(status, TurnStatus::Cancelled) {
-                    if let Some(queue) = &instruction_queue {
-                        queue.close().await;
+                    let relayed = match &instruction_queue {
+                        Some(queue) => queue.take_interrupted().await,
+                        None => false,
+                    };
+                    if !relayed {
+                        if let Some(queue) = &instruction_queue {
+                            queue.close().await;
+                        }
+                        break status;
                     }
-                    break status;
+                    // Interrupted with a relay: the session continues. The flag
+                    // was consumed above, so it governs this turn and not the
+                    // next one.
                 }
                 match &instruction_queue {
                     Some(queue) => match queue.take_or_close().await {

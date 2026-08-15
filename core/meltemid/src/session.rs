@@ -37,6 +37,12 @@ struct QueueInner {
     /// no queued instruction is dispatched, however the turn's stop reason came
     /// back.
     cancelled: bool,
+    /// Set when the user interrupted the turn AND left a relay behind. Distinct
+    /// from `cancelled` on purpose: a cancellation ends the session, an
+    /// interruption ends the TURN and the session continues with what was
+    /// enqueued. Both live under this lock, so the boundary reads one truth
+    /// (redirigir-turno design D1, D2).
+    interrupted: bool,
 }
 
 impl InstructionQueue {
@@ -46,6 +52,7 @@ impl InstructionQueue {
                 items: VecDeque::new(),
                 accepting: true,
                 cancelled: false,
+                interrupted: false,
             })),
         }
     }
@@ -100,6 +107,47 @@ impl InstructionQueue {
         }
     }
 
+    /// Enqueue a relay AND signal the interruption, under one lock and in that
+    /// order.
+    ///
+    /// The order is the whole point. `cancel` signals first and marks after,
+    /// which is fine because a cancellation leaves nothing to dispatch. An
+    /// interruption does leave something, and signalling before enqueuing is
+    /// exactly the window the turn boundary would use to break instead of
+    /// continuing (design D1).
+    ///
+    /// Returns the 1-based position, or `None` when the session no longer
+    /// accepts turns — in which case nothing was signalled either: an
+    /// interruption without a relay is just a cancellation someone did not ask
+    /// for.
+    pub async fn interrupt_with(
+        &self,
+        instruction: String,
+        log: &Arc<Mutex<SessionLog>>,
+    ) -> Option<usize> {
+        let mut inner = self.inner.lock().await;
+        if !inner.accepting || inner.cancelled {
+            return None;
+        }
+        {
+            let mut log = log.lock().await;
+            let _ = log.append(SessionEventKind::InstructionQueued {
+                instruction: instruction.clone(),
+            });
+        }
+        inner.items.push_back(instruction);
+        inner.interrupted = true;
+        Some(inner.items.len())
+    }
+
+    /// Loop side: whether the turn that just drained was interrupted by the user
+    /// with a relay waiting. Clears the flag, so it governs one turn and not the
+    /// next.
+    pub async fn take_interrupted(&self) -> bool {
+        let mut inner = self.inner.lock().await;
+        std::mem::take(&mut inner.interrupted)
+    }
+
     /// Mark the session cancelled: no queued instruction is dispatched afterward,
     /// even one already sitting in the queue. Set under the queue lock so it is
     /// atomic with `take_or_close`'s decision to pop.
@@ -107,6 +155,9 @@ impl InstructionQueue {
         let mut inner = self.inner.lock().await;
         inner.cancelled = true;
         inner.accepting = false;
+        // Cancel wins over a concurrent interrupt: it is the stronger gesture
+        // and the only irreversible one (design D1, "Cancelar gana").
+        inner.interrupted = false;
     }
 
     /// Stop accepting further turns without draining (used when the loop ends a
@@ -276,6 +327,25 @@ impl SessionRegistry {
         true
     }
 
+    /// Signals an interruption of the turn in flight, WITHOUT ending the
+    /// session.
+    ///
+    /// The relay is already in the queue and the interruption flag already set
+    /// — `interrupt_with` did both under one lock before this is called. What
+    /// remains is waking the prompt's `select!` so the turn drains, and the
+    /// session-wide `cancelled` flag is deliberately NOT set: that flag is what
+    /// ends a session, and this ends a turn (redirigir-turno design D1, D2).
+    pub async fn interrupt(&self, session_id: &str) -> bool {
+        let guard = self.inner.lock().await;
+        match guard.get(session_id) {
+            Some(entry) => {
+                entry.cancel.notify_waiters();
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Signals cancellation for every session (used by shutdown).
     pub async fn cancel_all(&self) {
         for entry in self.inner.lock().await.values() {
@@ -431,6 +501,89 @@ mod tests {
         // And nothing new can be queued.
         assert_eq!(queue.enqueue("late".into(), &log).await, None);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A queue with its log, in a temp dir the caller does not have to name.
+    async fn queue_fixture(
+        tag: &str,
+    ) -> (InstructionQueue, Arc<Mutex<SessionLog>>, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("meltemi-queue-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let log = SessionLog::create(&dir, "proj", "sess").expect("log");
+        (InstructionQueue::new(), Arc::new(Mutex::new(log)), dir)
+    }
+
+    // Scenario: La instrucción releva al turno interrumpido
+    #[tokio::test]
+    async fn an_interrupted_queue_dispatches_the_relay_it_enqueued() {
+        // The twin of the test above, written beside it so the difference is
+        // visible: a CANCELLED queue dispatches nothing, an INTERRUPTED one
+        // dispatches the relay the interruption left, and only that one
+        // (redirigir-turno design D5).
+        let (queue, log, dir) = queue_fixture("interrupted").await;
+
+        let position = queue
+            .interrupt_with("seguir por aqui".into(), &log)
+            .await
+            .expect("the session accepts the relay");
+        assert_eq!(position, 1);
+
+        // The boundary asks whether the turn it drained was interrupted…
+        assert!(
+            queue.take_interrupted().await,
+            "the interruption is reported"
+        );
+        // …and the flag governs one turn, not the next.
+        assert!(
+            !queue.take_interrupted().await,
+            "the flag is cleared once read"
+        );
+        // …and the relay is there to run.
+        assert_eq!(
+            queue.take_or_close().await.as_deref(),
+            Some("seguir por aqui"),
+            "the relay runs as the next turn"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Scenario: Cancelar gana a interrumpir
+    #[tokio::test]
+    async fn cancelling_beats_a_concurrent_interrupt() {
+        let (queue, log, dir) = queue_fixture("cancel-wins").await;
+        queue
+            .interrupt_with("relevo".into(), &log)
+            .await
+            .expect("enqueued");
+
+        queue.mark_cancelled().await;
+
+        assert!(
+            !queue.take_interrupted().await,
+            "a cancellation clears the interruption: it is the stronger gesture"
+        );
+        assert_eq!(
+            queue.take_or_close().await,
+            None,
+            "and nothing queued is dispatched, relay included"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn an_interrupt_is_refused_once_the_session_stopped_accepting() {
+        let (queue, log, dir) = queue_fixture("closed").await;
+        queue.close().await;
+        assert_eq!(
+            queue.interrupt_with("tarde".into(), &log).await,
+            None,
+            "no relay, and therefore no interruption signalled"
+        );
+        assert!(
+            !queue.take_interrupted().await,
+            "an interruption without a relay would be a cancellation nobody asked for"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

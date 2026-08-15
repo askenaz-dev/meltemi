@@ -6,24 +6,45 @@
   "$defs": {
     "params": {
       "type": "object",
-      "required": ["sessionId", "instruction"],
+      "required": [
+        "sessionId",
+        "instruction"
+      ],
       "properties": {
-        "sessionId": { "type": "string", "minLength": 1 },
-        "instruction": { "type": "string", "minLength": 1 },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1
+        },
         "projectRoot": {
           "type": "string",
           "minLength": 1,
           "description": "The project the session belongs to; locates its log and, on resume, the repository the agent runs in."
+        },
+        "interrupt": {
+          "type": "boolean",
+          "description": "Interrupt the turn in flight and let this instruction relay it. Absent means false: queue behind the turn, which is what every caller did before this existed."
         }
       }
     },
     "result": {
       "type": "object",
-      "required": ["disposition", "sessionId", "deniedPermissions"],
+      "required": [
+        "disposition",
+        "sessionId",
+        "deniedPermissions"
+      ],
       "properties": {
         "disposition": {
           "type": "string",
-          "enum": ["queued", "resumed"],
+          "enum": [
+            "queued",
+            "resumed",
+            "relayed"
+          ],
           "description": "queued: the active session accepted the instruction as its next turn; resumed: a terminated resumable session was resumed with it."
         },
         "sessionId": {
@@ -43,7 +64,13 @@
         },
         "status": {
           "type": "string",
-          "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"],
+          "enum": [
+            "completed",
+            "cancelled",
+            "refused",
+            "max_tokens",
+            "max_turn_requests"
+          ],
           "description": "The final turn status, when the instruction ran a turn (on resume)."
         },
         "deniedPermissions": {
