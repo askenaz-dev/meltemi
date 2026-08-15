@@ -50,14 +50,20 @@ co-autoría.
 
 ## 4. El terminal
 
-- [ ] 4.1 `LiveData` gana la change y su compuerta, y el header las muestra con
+- [x] 4.1 `LiveData` gana la change y su compuerta, y el header las muestra con
   la prioridad de señales vigente; **el consumo no entra al header** y se queda
   en su vista (design D7) — escenarios «El chrome nombra la compuerta que
   espera» y «La compuerta cede antes que la conexión»
+  <!-- 2026-08-10: el umbral con el que la compuerta cede es **medido**, no un
+  número elegido a mano: se suman las longitudes de la conexión, la compuerta y
+  la bandeja y se compara con el ancho real. Un umbral fijo habría sido erróneo
+  para todo terminal menos uno — y el primero que puse (72) no se activaba
+  nunca, porque el suelo de tamaño ya exige 80 columnas. Lo descubrió el test al
+  ver la compuerta todavía presente en el ancho mínimo. -->
 
 ## 5. Cierre
 
-- [ ] 5.1 `meltemi validate barra-de-estado-agentica` limpio y `meltemi verify`
+- [x] 5.1 `meltemi validate barra-de-estado-agentica` limpio y `meltemi verify`
   con los nueve escenarios enlazados (meta: cero marcas manuales); suite,
   clippy, fmt y gates del frontend verdes
 - [ ] 5.2 Smoke conducido sobre el binario de release (receta de

@@ -212,11 +212,31 @@ fn render_header(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx)
         }
     );
     let left = format!("{} {}", glyph.text(&ctx.present), word);
-    let line = Line::from(vec![
-        Span::raw(left),
-        Span::raw("   "),
-        Span::styled(perms, ctx.emphasis()),
-    ]);
+    // The gate the method is waiting on. It yields before the connection and
+    // before pending decisions, which is the priority the size floor already
+    // applies (barra-de-estado-agentica design D6, D7).
+    let gate = live.gate.as_ref().map(|gate| {
+        let word = if ctx.lang == Lang::Es {
+            "compuerta"
+        } else {
+            "gate"
+        };
+        format!("{} · {word}: {}", gate.change, gate.artifact)
+    });
+    let mut spans = vec![Span::raw(left.clone())];
+    if let Some(gate) = gate {
+        // Measured, not a magic width: the gate is shown only when it fits
+        // beside the two signals that never yield. A threshold picked by hand
+        // would be wrong for every terminal but one.
+        let needed = left.chars().count() + gate.chars().count() + perms.chars().count() + 6;
+        if needed <= area.width as usize {
+            spans.push(Span::raw("   "));
+            spans.push(Span::styled(gate, ctx.emphasis()));
+        }
+    }
+    spans.push(Span::raw("   "));
+    spans.push(Span::styled(perms, ctx.emphasis()));
+    let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), area);
 }
 
@@ -2280,5 +2300,42 @@ mod tests {
         // A bounded entry keeps today's countdown.
         let bounded = super::tray_timing(5, Some(100), false, Lang::En);
         assert!(bounded.contains("expires in 100s"), "{bounded}");
+    }
+
+    // Scenario: El chrome nombra la compuerta que espera
+    // Scenario: La compuerta cede antes que la conexión
+    #[test]
+    fn the_chrome_names_the_gate_and_gives_it_up_before_the_connection() {
+        let mut live = LiveData::new();
+        live.conn = ConnState::Connected {
+            version: "0.1.1".into(),
+            uptime_s: 3,
+            sessions: 1,
+        };
+        live.pending_permissions = 2;
+        live.gate = Some(crate::shell::live::GateRow {
+            change: "barra-de-estado-agentica".into(),
+            artifact: "specs".into(),
+        });
+        let state = ShellState::new();
+        let ctx = ctx(Presentation::resolve(&PresentationEnv::default()));
+
+        // Wide enough: the gate is named with the artifact that awaits.
+        let wide = draw(&state, &live, &ctx, 120, 24);
+        assert!(
+            wide.contains("barra-de-estado-agentica") && wide.contains("specs"),
+            "the chrome names the change and its artifact: {wide}"
+        );
+
+        // Narrow: the gate yields, and the two signals that never yield stay.
+        let narrow = draw(&state, &live, &ctx, 80, 24);
+        assert!(
+            !narrow.contains("barra-de-estado-agentica"),
+            "the gate is the first of the three to go: {narrow}"
+        );
+        assert!(
+            narrow.contains("daemon") && narrow.contains('2'),
+            "connection and pending decisions survive the squeeze: {narrow}"
+        );
     }
 }

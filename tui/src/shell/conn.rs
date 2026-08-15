@@ -16,15 +16,15 @@ use tokio::time::interval;
 use meltemi_client::bootstrap;
 use meltemi_client::rpc::{Incoming, Peer, RpcError};
 use meltemi_proto::{
-    ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
-    PROTOCOL_VERSION, PeerInfo, PermissionChangedParams, PermissionDecideParams,
-    PermissionPendingResult, PermissionRule, SessionCancelParams, SessionDirectParams,
-    SessionListParams, SessionListResult, SessionLogParams, SessionLogResult, StatusResult,
-    WorktreeDiffResult, methods,
+    ChangeListParams, ChangeListResult, ContextProjectParams, ContextProjectResult,
+    FleetListParams, FleetListResult, InitializeParams, PROTOCOL_VERSION, PeerInfo,
+    PermissionChangedParams, PermissionDecideParams, PermissionPendingResult, PermissionRule,
+    SessionCancelParams, SessionDirectParams, SessionListParams, SessionListResult,
+    SessionLogParams, SessionLogResult, StatusResult, WorktreeDiffResult, methods,
 };
 
 use crate::shell::live::{
-    FleetRow, FleetSnapshot, ProjectRow, RaceBoard, RaceLane, SessionRow, Update,
+    FleetRow, FleetSnapshot, GateRow, ProjectRow, RaceBoard, RaceLane, SessionRow, Update,
 };
 use crate::shell::messages::{Lang, Msg, text};
 use crate::shell::render::ConnState;
@@ -162,6 +162,7 @@ async fn serve_connection(
     // The project every scoped call is made against; `None` means the working
     // directory the surface was started in.
     let mut scope: Option<String> = None;
+    refresh_gate(&peer, updates, scope.as_ref()).await;
     loop {
         tokio::select! {
             message = incoming.recv() => match message {
@@ -272,6 +273,7 @@ async fn serve_connection(
                     scope = root;
                     // The scope changed: re-answer what depends on it.
                     refresh_fleet(&peer, updates, scope.as_deref()).await;
+                    refresh_gate(&peer, updates, scope.as_ref()).await;
                 }
                 Some(Command::ProjectContext) => {
                     project_context(&peer, updates, scope.as_deref()).await
@@ -383,6 +385,34 @@ async fn refresh_status(peer: &Peer, updates: &UnboundedSender<Update>) {
 
 /// Populates the Sessions table from `session/list` (active and historical) for
 /// the current project, so the table shows history and survives reconnection.
+/// Queries `change/list` for the scope and pushes the change awaiting a
+/// decision, so the chrome can say it without opening a view. A directory
+/// without `.meltemi/` answers with an empty list, which resolves to no gate —
+/// the honest outcome, not an error.
+async fn refresh_gate(peer: &Peer, updates: &UnboundedSender<Update>, scope: Option<&String>) {
+    let Some(root) = scope else {
+        let _ = updates.send(Update::Gate(None));
+        return;
+    };
+    let params = ChangeListParams {
+        project_root: root.clone(),
+        limit: None,
+    };
+    if let Ok(value) = peer.request(methods::CHANGE_LIST, &params).await
+        && let Ok(result) = serde_json::from_value::<ChangeListResult>(value)
+    {
+        let gate = result
+            .changes
+            .into_iter()
+            .find(|change| change.gate_pending)
+            .map(|change| GateRow {
+                change: change.name,
+                artifact: change.gate_artifact.unwrap_or_default(),
+            });
+        let _ = updates.send(Update::Gate(gate));
+    }
+}
+
 async fn refresh_sessions(peer: &Peer, updates: &UnboundedSender<Update>) {
     // Unfiltered on purpose (multiproyecto-suscripciones D7): one query brings
     // every session with its own root, and the shell groups by project.

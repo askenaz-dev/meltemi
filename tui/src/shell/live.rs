@@ -189,6 +189,15 @@ pub struct RaceBoard {
     pub selected: usize,
 }
 
+/// The change asking for a decision, for the chrome. The gate belongs to a
+/// change and not to a session — the contract has no such session state
+/// (barra-de-estado-agentica design D2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GateRow {
+    pub change: String,
+    pub artifact: String,
+}
+
 /// An update pushed from the connection actor to the UI.
 #[derive(Debug, Clone)]
 pub enum Update {
@@ -208,6 +217,8 @@ pub enum Update {
     PermissionQueue(Vec<PendingPermission>),
     /// The count of pending permission requests changed.
     Pending(usize),
+    /// The change awaiting a decision, or `None` when none is.
+    Gate(Option<GateRow>),
     /// A streamed transcript line, with the session it belongs to: the daemon
     /// can now stream more than one session to a connection, so the line says
     /// whose it is (eventos-para-tardios D7).
@@ -241,6 +252,8 @@ pub struct LiveData {
     /// Selection index within the permission tray.
     pub permission_selected: usize,
     pub pending_permissions: usize,
+    /// The change awaiting a decision, when the project carries the method.
+    pub gate: Option<GateRow>,
     pub transcript: Vec<String>,
     /// Whether the transcript auto-follows its tail.
     pub follow_tail: bool,
@@ -278,6 +291,7 @@ impl LiveData {
             permission_queue: Vec::new(),
             permission_selected: 0,
             pending_permissions: 0,
+            gate: None,
             transcript: Vec::new(),
             follow_tail: true,
             scroll: 0,
@@ -341,6 +355,7 @@ impl LiveData {
                     self.permission_queue.iter().filter(|p| !p.expired).count();
             }
             Update::Pending(n) => self.pending_permissions = n,
+            Update::Gate(gate) => self.gate = gate,
             Update::TranscriptLine { session_id, line } => {
                 // A detail view showing one live session takes only its lines.
                 if self
