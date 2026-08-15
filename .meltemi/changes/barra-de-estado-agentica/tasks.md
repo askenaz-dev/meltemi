@@ -27,10 +27,16 @@ co-autoría.
   significar que nadie estaba haciendo nada. El test pinea además por el lado
   negativo que la compuerta **no** se disfrace de estado de sesión: el contrato
   no tiene ese estado y no debe inventarse uno. -->
-- [ ] 2.3 Consumo medido del proyecto en el día, con **silencio o motivo** en
+- [x] 2.3 Consumo medido del proyecto en el día, con **silencio o motivo** en
   vez de un cero cuando no hay medición, y refresco al cambiar de proyecto y al
   terminar una sesión —nunca por temporizador— (design D3) — escenarios «El
   consumo medido se muestra» y «Sin medición no se inventa un cero»
+  <!-- 2026-08-10: el store distingue **`null` de cero**, que es el punto
+  entero: ACP no transporta usage para los niveles 1 y 2, así que la mayoría de
+  las sesiones no mide nada y un cero sería una afirmación sobre ellas. La
+  condición de la primera rama es la veracidad del total, de modo que un cero
+  tampoco entra por ahí. Refresco por evento (`session_ended`) y al cambiar de
+  proyecto; el test prohíbe por el lado negativo un temporizador. -->
 
 ## 3. Comportamiento de la barra
 

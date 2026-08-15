@@ -8,7 +8,14 @@
 <script lang="ts">
   import { conn } from "../daemon";
   import { t } from "../i18n";
-  import { activeProject, changes, gateWaiting, pending, sessions } from "../stores";
+  import {
+    activeProject,
+    changes,
+    gateWaiting,
+    pending,
+    sessions,
+    usageToday,
+  } from "../stores";
   import { projectName } from "../tree";
   import type { ViewId } from "../registry";
 
@@ -63,6 +70,20 @@
   {/if}
 
   <span class="right muted">
+    <!-- Measured or silent. A zero here would be a claim about an agent that
+         does not count its tokens, and ACP carries no usage for levels 1 and 2
+         — which is most of the fleet (design D3). -->
+    {#if $usageToday?.total}
+      <button class="seg usage" onclick={() => go("analytics")}>
+        {$t("status.usage", { tokens: String($usageToday.total) })}
+      </button>
+      ·
+    {:else if $usageToday && $usageToday.unreported > 0}
+      <button class="seg usage faint" onclick={() => go("analytics")}>
+        {$t("status.usage.unreported")}
+      </button>
+      ·
+    {/if}
     <button class="seg" onclick={() => go("sessions")}>
       {$t("status.working", { n: working })}
       {#if waiting > 0}
@@ -132,6 +153,11 @@
       display: none;
     }
   }
+  @media (max-width: 940px) {
+    .usage {
+      display: none;
+    }
+  }
   @media (max-width: 900px) {
     .project {
       display: none;
@@ -151,5 +177,8 @@
   }
   .muted {
     color: var(--text-muted);
+  }
+  .faint {
+    color: var(--text-faint);
   }
 </style>

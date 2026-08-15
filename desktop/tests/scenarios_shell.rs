@@ -1651,6 +1651,44 @@ fn the_active_tab_joins_its_panel_instead_of_wearing_an_accent() {
     );
 }
 
+// Scenario: El consumo medido se muestra
+// Scenario: Sin medición no se inventa un cero
+#[test]
+fn the_bar_reports_measured_consumption_or_none_at_all() {
+    let bar = read("desktop/ui/src/lib/components/StatusBar.svelte");
+    // Measured: shown. The condition is the total's truthiness, so a zero
+    // total never reaches the first branch.
+    assert!(
+        bar.contains("{#if $usageToday?.total}") && bar.contains("status.usage"),
+        "measured consumption is shown"
+    );
+    // Unmeasured: the reason, not a number. And nothing at all when there is
+    // no answer to give.
+    assert!(
+        bar.contains("$usageToday.unreported > 0") && bar.contains("status.usage.unreported"),
+        "what was not reported says so instead of showing a figure"
+    );
+
+    let store = read("desktop/ui/src/lib/stores.ts");
+    // The store keeps `null` distinct from zero, which is the whole point:
+    // ACP carries no usage for levels 1 and 2, so most sessions measure
+    // nothing and a zero would be a claim about them.
+    assert!(
+        store.contains("usageToday = writable<{ total?: number; unreported: number } | null>"),
+        "nothing-to-say is a state of its own, not a zero"
+    );
+    assert!(
+        store.contains("granularity: \"day\"") && store.contains("coverage.unreportedSessions"),
+        "the day's totals come with the coverage that qualifies them"
+    );
+    // Refreshed by events, never by a clock.
+    assert!(
+        store.contains("event.event?.type === \"session_ended\"")
+            && !store.contains("setInterval(() => void refreshUsage"),
+        "the figure refreshes when a session ends, not on a timer"
+    );
+}
+
 // Scenario: La barra nombra el proyecto y la compuerta que espera
 // Scenario: Sin compuerta pendiente, la barra dice cuántas changes hay
 // Scenario: Las sesiones que trabajan se distinguen de las que esperan

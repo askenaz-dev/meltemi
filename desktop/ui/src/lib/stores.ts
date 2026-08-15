@@ -159,6 +159,12 @@ export const fleet = writable<FleetAgent[]>([]);
  * (barra-de-estado-agentica design D4). One source, two readers.
  */
 export const changes = writable<ChangeInfo[]>([]);
+/**
+ * What the project has spent today, as far as anything measured it. `null`
+ * means there is nothing to say — which is not the same as zero, and the bar
+ * treats it that way (barra-de-estado-agentica design D3).
+ */
+export const usageToday = writable<{ total?: number; unreported: number } | null>(null);
 
 // Notices live in their own pure module so their policy is driven by an
 // executed test; re-exported here because every view already imports them from
@@ -194,6 +200,9 @@ export function switchProject(root: string): void {
   // switching is instant, then refetch for the authoritative answer.
   sessions.set(scopedTo(root, get(allSessions)));
   void refreshSessions().catch(() => {});
+  // The bar's context segments belong to the project, so they follow it.
+  void refreshChanges().catch(() => {});
+  void refreshUsage().catch(() => {});
 }
 
 // ---- refreshers --------------------------------------------------------------
@@ -294,6 +303,32 @@ export async function refreshChanges(): Promise<void> {
  */
 export function gateWaiting(all: ChangeInfo[]): ChangeInfo | undefined {
   return all.find((change) => change.gatePending);
+}
+
+/**
+ * Today's measured consumption for the active project. Refreshed when the
+ * project changes and when a session ends — never on a timer, because a
+ * counter that refreshes itself is a counter that spends battery to tell you
+ * nothing new.
+ */
+export async function refreshUsage(): Promise<void> {
+  const root = get(activeProject);
+  if (!root) {
+    usageToday.set(null);
+    return;
+  }
+  try {
+    const result = await request<{
+      totals: { tokens?: { total?: number }; coverage: { unreportedSessions: number } };
+    }>("analytics/usage", { projectRoot: root, granularity: "day" });
+    usageToday.set({
+      total: result.totals.tokens?.total,
+      unreported: result.totals.coverage.unreportedSessions,
+    });
+  } catch {
+    // Nothing to say beats saying something wrong.
+    usageToday.set(null);
+  }
 }
 
 export async function refreshPending(): Promise<void> {
@@ -401,6 +436,9 @@ export function startIncomingRouter(
       case "session/event": {
         const event = message.params as SessionEventMessage;
         for (const handler of sessionEventHandlers) handler(event);
+        // A session ending is the moment the day's total can have moved; it is
+        // also the only moment worth asking, which is why there is no timer.
+        if (event.event?.type === "session_ended") void refreshUsage().catch(() => {});
         return;
       }
       default:
