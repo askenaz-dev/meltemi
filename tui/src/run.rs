@@ -36,6 +36,7 @@ use meltemi_proto::{
 };
 
 use crate::cli::Command;
+use crate::exit::ExitCode;
 use crate::output::{CliError, Outcome};
 
 /// Executes an RPC-backed subcommand against the daemon at `endpoint`.
@@ -138,6 +139,7 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
         } => direct(session, instruction, project_root, endpoint).await,
         // `tunnel` is a local formatter: it never touches the daemon.
         Command::Tunnel { target, exec } => tunnel(target, exec),
+        Command::Bridge => bridge(endpoint).await,
         Command::Stop => stop(endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
@@ -1348,6 +1350,49 @@ fn render_direct(value: &serde_json::Value) -> String {
 /// `tunnel`: compose (or, with `--exec`, run) the `ssh` reverse-forward that
 /// exposes this daemon's endpoint to a remote host. Entirely local — it uses the
 /// user's own `ssh` and never touches the daemon (control-remoto-asistido D3).
+/// The last metre of remote access: connects THIS machine's daemon endpoint
+/// and pumps it against stdio until either side closes, so
+/// `ssh <pc> "meltemi bridge"` is a complete JSON-RPC channel — including on
+/// Windows, whose named pipe no form of SSH forwarding can reach
+/// (acceso-remoto-en-dos-vias D1). No TTY, no prompts: it is built to run
+/// under a non-interactive `ssh` exec.
+async fn bridge(endpoint: &str) -> Result<Outcome, CliError> {
+    // Deliberately NOT `connect_or_start`: a remote connection must not boot
+    // daemons implicitly, and the far side of an ssh exec has nobody watching
+    // a spinner — refuse immediately with the remedy instead of waiting.
+    let stream = meltemi_client::transport::connect(endpoint)
+        .await
+        .map_err(|e| {
+            CliError::unreachable(format!(
+                "the local endpoint `{endpoint}` is not accepting connections ({e}); start                  the daemon on this machine first (any `meltemi` command boots it, e.g.                  `meltemi status`) and run the bridge again"
+            ))
+        })?;
+
+    let (mut from_daemon, mut to_daemon) = tokio::io::split(stream);
+    let mut stdin = tokio::io::stdin();
+    let mut stdout = tokio::io::stdout();
+
+    // Two pumps, and the FIRST to finish ends the bridge. Waiting for both
+    // would lean on half-close semantics that named pipes do not honour; the
+    // process exit below is what guarantees nothing lingers.
+    let pumped = tokio::select! {
+        r = tokio::io::copy(&mut stdin, &mut to_daemon) => r,
+        r = tokio::io::copy(&mut from_daemon, &mut stdout) => r,
+    };
+    use tokio::io::AsyncWriteExt;
+    let _ = stdout.flush().await;
+
+    // stdout carried the daemon's bytes; nothing human may follow them, so the
+    // bridge exits here instead of returning an Outcome for the renderer.
+    match pumped {
+        Ok(_) => std::process::exit(ExitCode::Success.code()),
+        Err(e) => {
+            eprintln!("bridge error: {e}");
+            std::process::exit(ExitCode::Internal.code());
+        }
+    }
+}
+
 fn tunnel(target: Option<String>, exec: bool) -> Result<Outcome, CliError> {
     let local_endpoint = meltemi_client::paths::endpoint();
     let plan = crate::tunnel::compose(cfg!(windows), &local_endpoint, target.as_deref())

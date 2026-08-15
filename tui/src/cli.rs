@@ -92,6 +92,9 @@ SUBCOMMANDS:
     tunnel [user@host] [--exec]
                         compose the `ssh` command that reverse-forwards this
                         daemon's endpoint to a remote host; `--exec` runs it
+    bridge              pump this daemon's local endpoint over stdio: the last
+                        metre of remote access (`ssh <pc> meltemi bridge` is a
+                        complete channel, named pipes included)
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
@@ -256,6 +259,8 @@ pub enum Command {
     /// Compose (or, with `--exec`, run) the `ssh` reverse-forward that exposes
     /// this daemon's endpoint to a remote host. Local: touches no daemon.
     Tunnel { target: Option<String>, exec: bool },
+    /// Pump the local daemon endpoint over stdio (acceso-remoto-en-dos-vias).
+    Bridge,
     /// Request an orderly daemon shutdown.
     Stop,
     /// A reserved subcommand recognized by the grammar but not yet implemented.
@@ -730,6 +735,8 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool, agent: Option<St
             }),
             _ => Action::Usage("`tunnel` takes at most a `user@host` target".into()),
         },
+        "bridge" if rest.is_empty() => Action::Run(Command::Bridge),
+        "bridge" => Action::Usage("`bridge` takes no arguments".into()),
         "stop" if rest.is_empty() => Action::Run(Command::Stop),
         "stop" => Action::Usage("`stop` takes no arguments".into()),
         "propose" => match rest {
@@ -1003,6 +1010,17 @@ mod tests {
         );
         assert!(matches!(
             plan_of(&["direct", "sess-1"], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn bridge_takes_no_arguments() {
+        assert_eq!(plan_of(&["bridge"], false).action, Action::Run(Command::Bridge));
+        // Anything after the verb is a usage error, not a silent ignore: the
+        // far side of an ssh exec has nobody to notice a typo.
+        assert!(matches!(
+            plan_of(&["bridge", "extra"], false).action,
             Action::Usage(_)
         ));
     }
