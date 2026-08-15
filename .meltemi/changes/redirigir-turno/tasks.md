@@ -55,8 +55,14 @@ N.M)` y sin trailers de co-autoría. Gates del repo en cada tarea.
 - [ ] 5.3 GUI: interrumpir y enviar junto al envío, solo con texto (design D2)
   — escenarios «Interrumpir y enviar se ofrece con texto y sesión trabajando» y
   «Sin texto no hay nada que relevar»
-- [ ] 5.4 TUI: el mismo gesto sobre su flujo de dirección, diciendo cuál de los
+- [x] 5.4 TUI: el mismo gesto sobre su flujo de dirección, diciendo cuál de los
   dos desenlaces ocurrió — escenario «El shell dice si encoló o relevó»
+  <!-- 2026-08-15: el keymap no admite modificadores por diseño y dentro de un
+  campo toda letra es texto, así que el gesto es **Tab**, la única tecla que ni
+  escribe ni navega. El campo dice cuál de los dos envíos está armado antes de
+  pulsar Enter, y el verbo `interrumpir` de la paleta abre ese mismo campo ya
+  armado. Interrumpir solo se ofrece con un turno corriendo: una sesión
+  terminada no tiene turno que relevar. -->
 
 ## 6. Cierre
 

@@ -55,6 +55,7 @@ pub enum Command {
     /// Steer a session with an instruction (`session/direct`): queued as the
     /// next turn of a live session, or resumed when it has ended and can be.
     Direct {
+        interrupt: bool,
         session_id: String,
         project_root: String,
         instruction: String,
@@ -281,7 +282,7 @@ async fn serve_connection(
                 Some(Command::FetchSessionLog { session_id, project_root }) => {
                     fetch_session_log(&peer, updates, &session_id, &project_root).await;
                 }
-                Some(Command::Direct { session_id, project_root, instruction }) => {
+                Some(Command::Direct { session_id, project_root, instruction, interrupt }) => {
                     // Not awaited here, and the reason is the resume branch:
                     // directing an ended session runs a whole turn before it
                     // answers, and this loop is what keeps the shell breathing —
@@ -294,6 +295,7 @@ async fn serve_connection(
                             session_id,
                             instruction,
                             project_root: Some(project_root),
+                            interrupt,
                         };
                         let notice = match peer.request(methods::SESSION_DIRECT, &params).await {
                             Ok(value) => direct_notice(&value, lang),
@@ -661,10 +663,12 @@ async fn refresh_pending(peer: &Peer, updates: &UnboundedSender<Update>) {
     }
 }
 
-/// What became of a directed instruction, in the surface's own words. Both
+/// What became of a directed instruction, in the surface's own words. The three
 /// dispositions are told apart out loud: a queued instruction has NOT been
-/// attended yet, and saying otherwise would be the shell inventing progress.
-fn direct_notice(value: &Value, lang: Lang) -> String {
+/// attended yet, and saying otherwise would be the shell inventing progress; a
+/// relayed one stopped a turn that was running, which is a different fact and
+/// the user is the one who asked for it.
+pub(super) fn direct_notice(value: &Value, lang: Lang) -> String {
     use meltemi_proto::{DirectDisposition, SessionDirectResult};
     let Ok(result) = serde_json::from_value::<SessionDirectResult>(value.clone()) else {
         return format!("session/direct: {value}");
@@ -676,6 +680,9 @@ fn direct_notice(value: &Value, lang: Lang) -> String {
             result.queue_position.unwrap_or(0),
             result.session_id
         ),
+        DirectDisposition::Relayed => {
+            format!("{} — {}", text(Msg::DirectRelayed, lang), result.session_id)
+        }
         DirectDisposition::Resumed => {
             let mut notice = format!("{} — {}", text(Msg::DirectResumed, lang), result.session_id);
             if result.denied_permissions > 0 {

@@ -59,7 +59,12 @@ pub enum ConfirmAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputPurpose {
     /// An instruction aimed at the selected session (`session/direct`).
-    DirectInstruction,
+    ///
+    /// `relay` is which of the two sends Enter will perform: queued behind the
+    /// turn in flight (the default, unchanged) or relayed by interrupting it.
+    /// Tab flips it and the field says which one is armed, so the choice is made
+    /// before the send and never guessed after it.
+    DirectInstruction { relay: bool },
     /// A project root to add to the registry (`project/register`).
     RegisterProject,
     /// A project root to drop from the listing (`project/forget`).
@@ -116,7 +121,12 @@ pub enum Effect {
     RefreshProjects,
     /// Steer the selected session with this instruction (`session/direct`),
     /// carried exactly as it was typed.
-    DirectSession(String),
+    DirectSession {
+        instruction: String,
+        /// Whether the turn in flight is to be interrupted so this instruction
+        /// becomes the next one, instead of waiting behind it.
+        interrupt: bool,
+    },
     /// Add this root to the project registry (`project/register`), as typed.
     RegisterProject(String),
     /// Drop this root from the registry's listing (`project/forget`), as typed.
@@ -392,7 +402,18 @@ impl ShellState {
                 // prefix would be read as a filter and the order decides which
                 // wins (design D10).
                 for (verbs, purpose) in [
-                    (&["direct", "dirigir"][..], InputPurpose::DirectInstruction),
+                    (
+                        &["direct", "dirigir"][..],
+                        InputPurpose::DirectInstruction { relay: false },
+                    ),
+                    // The same field, arriving already armed. Two verbs for one
+                    // gesture is not duplication here: the palette is where a
+                    // user looks for a verb by name, and "interrupt" is the name
+                    // of the thing they want when the turn is going the wrong way.
+                    (
+                        &["interrupt", "interrumpir"][..],
+                        InputPurpose::DirectInstruction { relay: true },
+                    ),
                     (&["link", "vincular"][..], InputPurpose::LinkSubscription),
                     (
                         &["projects register", "proyectos alta"][..],
@@ -527,6 +548,19 @@ impl ShellState {
                 self.overlays.pop();
                 None
             }
+            // Flipping which send is armed, without touching the text. The field
+            // is left open on purpose: the toggle is a statement of intent, and
+            // the user still has to press Enter to act on it.
+            Action::ToggleRelay => {
+                if let Some(Overlay::Input {
+                    purpose: InputPurpose::DirectInstruction { relay },
+                    ..
+                }) = self.overlays.last_mut()
+                {
+                    *relay = !*relay;
+                }
+                None
+            }
             Action::Submit => {
                 let Some(Overlay::Input { purpose, input }) = self.overlays.last().cloned() else {
                     return None;
@@ -540,7 +574,10 @@ impl ShellState {
                 self.overlays.pop();
                 let value = input.trim().to_string();
                 match purpose {
-                    InputPurpose::DirectInstruction => Some(Effect::DirectSession(input)),
+                    InputPurpose::DirectInstruction { relay } => Some(Effect::DirectSession {
+                        instruction: input,
+                        interrupt: relay,
+                    }),
                     // A path is trimmed of the whitespace around it and of
                     // nothing else: its case and its separators are what the
                     // filesystem was told to look for.
@@ -971,7 +1008,7 @@ mod tests {
             matches!(
                 s.top_overlay(),
                 Some(Overlay::Input {
-                    purpose: InputPurpose::DirectInstruction,
+                    purpose: InputPurpose::DirectInstruction { relay: false },
                     ..
                 })
             ),
@@ -992,7 +1029,10 @@ mod tests {
         );
         assert_eq!(
             press(&mut s, Key::Enter),
-            Some(Effect::DirectSession("Arregla el Build 2 ahora".into())),
+            Some(Effect::DirectSession {
+                instruction: "Arregla el Build 2 ahora".into(),
+                interrupt: false,
+            }),
             "the instruction leaves exactly as it was typed"
         );
         assert!(s.top_overlay().is_none());

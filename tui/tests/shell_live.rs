@@ -142,6 +142,7 @@ async fn a_refused_direction_comes_back_with_the_daemons_diagnosis_and_remedy() 
             session_id: "11111111-2222-3333-4444-555555555555".into(),
             project_root: std::env::temp_dir().display().to_string(),
             instruction: "Arregla el build".into(),
+            interrupt: false,
         })
         .expect("the actor is listening");
 

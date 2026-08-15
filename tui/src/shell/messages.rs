@@ -62,6 +62,10 @@ pub enum Msg {
     DirectResumed,
     DirectRefused,
     DirectWillQueue,
+    DirectWillRelay,
+    InterruptTitle,
+    InterruptHint,
+    DirectRelayed,
     DirectWillResume,
     DirectNotResumable,
     RegisterTitle,
@@ -170,10 +174,10 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         (Msg::DirectTitle, Lang::Es) => "Dirigir la sesión",
         (Msg::DirectTitle, Lang::En) => "Direct the session",
         (Msg::DirectHint, Lang::Es) => {
-            "el texto viaja tal cual se escribe | Enter envía - Esc cancela"
+            "el texto viaja tal cual se escribe | Tab interrumpe el turno - Enter envía"
         }
         (Msg::DirectHint, Lang::En) => {
-            "the text travels exactly as typed | Enter sends - Esc cancels"
+            "the text travels exactly as typed | Tab interrupts the turn - Enter sends"
         }
         (Msg::DirectNoSession, Lang::Es) => {
             "ninguna sesión seleccionada: elige una en Sesiones y vuelve a dirigir"
@@ -192,6 +196,25 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         // What directing will do, said before the instruction is written.
         (Msg::DirectWillQueue, Lang::Es) => "se encolará como siguiente turno de esta sesión",
         (Msg::DirectWillQueue, Lang::En) => "it will be queued as this session's next turn",
+        // Said in the order it happens, and naming what is lost: the turn in
+        // flight stops where it is. Work already done stays done — the session
+        // does not end and nothing is rolled back — but the turn does not finish.
+        (Msg::DirectWillRelay, Lang::Es) => {
+            "interrumpirá el turno en curso y lo relevará con esta instrucción;              la sesión sigue viva"
+        }
+        (Msg::DirectWillRelay, Lang::En) => {
+            "it will interrupt the turn in flight and relay it with this instruction;              the session stays alive"
+        }
+        (Msg::InterruptTitle, Lang::Es) => "Interrumpir y relevar",
+        (Msg::InterruptTitle, Lang::En) => "Interrupt and relay",
+        (Msg::InterruptHint, Lang::Es) => {
+            "Tab vuelve a encolar sin interrumpir | Enter envía - Esc cancela"
+        }
+        (Msg::InterruptHint, Lang::En) => {
+            "Tab goes back to queueing without interrupting | Enter sends - Esc cancels"
+        }
+        (Msg::DirectRelayed, Lang::Es) => "turno interrumpido y relevado por la instrucción",
+        (Msg::DirectRelayed, Lang::En) => "turn interrupted and relayed by the instruction",
         (Msg::DirectWillResume, Lang::Es) => "reanudará esta sesión con la instrucción",
         (Msg::DirectWillResume, Lang::En) => "it will resume this session with the instruction",
         (Msg::DirectNotResumable, Lang::Es) => {

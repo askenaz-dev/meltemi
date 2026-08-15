@@ -889,9 +889,13 @@ fn render_sessions(
 /// What directing this session would do, in the surface's words — said before
 /// the instruction is written rather than after it is sent. A session that
 /// ended and cannot be resumed has no send to offer, and says that instead.
-pub(crate) fn direction_prospect(row: Option<&SessionRow>) -> Msg {
+pub(crate) fn direction_prospect(row: Option<&SessionRow>, relay: bool) -> Msg {
     match row {
         None => Msg::DirectNoSession,
+        // Interrupting is only on offer while a turn is running: an ended
+        // session has no turn to relay, and arming it there would promise
+        // something the daemon would have to refuse.
+        Some(row) if !row.is_historical() && relay => Msg::DirectWillRelay,
         Some(row) if !row.is_historical() => Msg::DirectWillQueue,
         Some(row) if row.resumable => Msg::DirectWillResume,
         Some(_) => Msg::DirectNotResumable,
@@ -944,7 +948,7 @@ fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &S
     // decides, so it is where the consequence belongs.
     let prospect = format!(
         ": direct — {}",
-        ctx.msg(direction_prospect(live.selected_session()))
+        ctx.msg(direction_prospect(live.selected_session(), false))
     );
 
     let mut lines = vec![
@@ -1244,18 +1248,29 @@ fn render_overlay(
         // it will become rather than making the user remember.
         Overlay::Input { purpose, input } => {
             let (title, hint) = match purpose {
-                InputPurpose::DirectInstruction => (Msg::DirectTitle, Msg::DirectHint),
+                InputPurpose::DirectInstruction { relay } => (
+                    if *relay {
+                        Msg::InterruptTitle
+                    } else {
+                        Msg::DirectTitle
+                    },
+                    if *relay {
+                        Msg::InterruptHint
+                    } else {
+                        Msg::DirectHint
+                    },
+                ),
                 InputPurpose::RegisterProject => (Msg::RegisterTitle, Msg::ProjectPathHint),
                 InputPurpose::ForgetProject => (Msg::ForgetTitle, Msg::ProjectPathHint),
                 InputPurpose::LinkSubscription => (Msg::LinkTitle, Msg::LinkHint),
             };
             let context = match purpose {
-                InputPurpose::DirectInstruction => match live.selected_session() {
+                InputPurpose::DirectInstruction { relay } => match live.selected_session() {
                     Some(row) => format!(
                         "{} {} — {}",
                         row.id,
                         row.agent_label(),
-                        ctx.msg(direction_prospect(Some(row)))
+                        ctx.msg(direction_prospect(Some(row), *relay))
                     ),
                     None => ctx.msg(Msg::DirectNoSession).to_string(),
                 },

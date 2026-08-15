@@ -73,6 +73,11 @@ pub enum Action {
     DeleteBack,
     /// Submit the current text-input context (Enter).
     Submit,
+    /// Toggle what submitting will do, in the contexts that offer two outcomes
+    /// (Tab inside a field). The keymap admits no modifiers by design, and every
+    /// printable character is text inside a field — Tab is the one key left that
+    /// neither types nor navigates (redirigir-turno design D2).
+    ToggleRelay,
     /// A key with no effect in the current context.
     Ignored,
 }
@@ -98,6 +103,7 @@ fn resolve_text_input(key: Key) -> Action {
         Key::Backspace => Action::DeleteBack,
         Key::Enter => Action::Submit,
         Key::Esc => Action::Back,
+        Key::Tab => Action::ToggleRelay,
         _ => Action::Ignored,
     }
 }

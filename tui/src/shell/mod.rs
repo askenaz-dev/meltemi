@@ -293,7 +293,10 @@ fn handle_action(
                 });
             }
         }
-        Some(Effect::DirectSession(instruction)) => match live.selected_session() {
+        Some(Effect::DirectSession {
+            instruction,
+            interrupt,
+        }) => match live.selected_session() {
             // Nothing to aim at: say so. Dropping the text would be the silent
             // no-op the tui-shell delta forbids.
             None => live
@@ -313,6 +316,7 @@ fn handle_action(
                     session_id: row.id.clone(),
                     project_root: row.project_root.clone(),
                     instruction,
+                    interrupt,
                 });
             }
         },
@@ -441,10 +445,12 @@ mod tests {
                 session_id,
                 project_root,
                 instruction,
+                interrupt,
             }) => {
                 assert_eq!(session_id, "s-1");
                 assert_eq!(project_root, "/repo");
                 assert_eq!(instruction, "Arregla el Build");
+                assert!(!interrupt, "the plain verb never interrupts a turn");
             }
             other => panic!("the instruction must reach `session/direct`, got {other:?}"),
         }
@@ -512,6 +518,84 @@ mod tests {
             handle_action(state, live, Action::InsertChar(c), Lang::Es, tx);
         }
         handle_action(state, live, Action::Submit, Lang::Es, tx);
+    }
+
+    #[test]
+    fn interrupting_from_the_shell_travels_as_an_interruption_not_a_queue() {
+        // Scenario: El shell dice si encoló o relevó
+        let (tx, mut rx) = unbounded_channel();
+        let mut state = ShellState::new();
+        let mut live = LiveData::new();
+        live.apply(Update::Sessions(vec![SessionRow {
+            id: "s-1".into(),
+            agent: "mock".into(),
+            state: SessionState::Active,
+            project_root: "/repo".into(),
+            resumable: false,
+            agent_id: None,
+            profile: None,
+            title: None,
+        }]));
+        handle_action(&mut state, &mut live, Action::DrillIn, Lang::Es, &tx);
+        while rx.try_recv().is_ok() {}
+
+        // The palette verb arrives already armed, and Tab is what would disarm
+        // it: the two roads reach the same field and the field says which.
+        handle_action(&mut state, &mut live, Action::OpenPalette, Lang::Es, &tx);
+        for c in "interrumpir".chars() {
+            handle_action(&mut state, &mut live, Action::InsertChar(c), Lang::Es, &tx);
+        }
+        handle_action(&mut state, &mut live, Action::Submit, Lang::Es, &tx);
+        for c in "Para y haz esto".chars() {
+            handle_action(&mut state, &mut live, Action::InsertChar(c), Lang::Es, &tx);
+        }
+        handle_action(&mut state, &mut live, Action::Submit, Lang::Es, &tx);
+
+        match rx.try_recv() {
+            Ok(Command::Direct {
+                instruction,
+                interrupt,
+                ..
+            }) => {
+                assert_eq!(instruction, "Para y haz esto");
+                assert!(interrupt, "the verb the user named is the one that travels");
+            }
+            other => panic!("expected an interrupting Direct, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_shell_tells_the_three_outcomes_apart_rather_than_conflating_two() {
+        // Scenario: El shell dice si encoló o relevó
+        use meltemi_proto::{DirectDisposition, SessionDirectResult};
+        let say = |disposition| {
+            conn::direct_notice(
+                &serde_json::to_value(SessionDirectResult {
+                    disposition,
+                    session_id: "s-1".into(),
+                    resumed_from: None,
+                    queue_position: Some(2),
+                    status: None,
+                    denied_permissions: 0,
+                })
+                .expect("result serializes"),
+                Lang::Es,
+            )
+        };
+        let queued = say(DirectDisposition::Queued);
+        let relayed = say(DirectDisposition::Relayed);
+        assert_ne!(
+            queued, relayed,
+            "queued and relayed are different facts and must read differently"
+        );
+        assert!(
+            queued.contains("sin interrumpir"),
+            "queueing still says the turn was left alone: {queued}"
+        );
+        assert!(
+            relayed.contains("interrumpido"),
+            "relaying says a turn was stopped, because the user asked for it: {relayed}"
+        );
     }
 
     #[test]
