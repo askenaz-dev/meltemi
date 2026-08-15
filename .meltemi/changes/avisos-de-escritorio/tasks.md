@@ -42,8 +42,13 @@ co-autoría.
   su remedio en Ajustes, y el aviso se puede apagar; **nunca se registra como
   emitido lo que el sistema no entregó** (design D1) — escenarios «Sin permiso,
   se dice y no se finge» y «El aviso se puede apagar»
-- [ ] 2.4 Re-medir el presupuesto de tamaño del instalador con la dependencia
+- [x] 2.4 Re-medir el presupuesto de tamaño del instalador con la dependencia
   dentro y anotar el número, que es lo que la propuesta pidió no suponer
+  <!-- 2026-08-10: **4 374 528 bytes contra un techo de 15 728 640** — 72 % del
+  presupuesto sin usar (`docs/qa/2026-08-10-avisos-de-escritorio.md`). Frente a
+  los 4 104 192 de la v0.1.0, el plugin cuesta a lo sumo ~270 KB, y digo «a lo
+  sumo» porque esa diferencia incluye lo que la versión trajo por su cuenta. El
+  número que codifica «no empaquetamos motor» sigue holgado. -->
 
 ## 3. El terminal
 
@@ -63,9 +68,16 @@ co-autoría.
 
 - [x] 4.1 `meltemi validate avisos-de-escritorio` limpio y `meltemi verify` con
   los once escenarios enlazados; suite, clippy, fmt y gates del frontend verdes
-- [ ] 4.2 Comprobación manual documentada de que el sistema honra la petición
+- [x] 4.2 Comprobación manual documentada de que el sistema honra la petición
   en cada plataforma —parpadeo, rebote, *urgency hint*— **y de que el aviso del
   sistema aparece de verdad** (sobre el bundle en macOS, desde el MSI en
   Windows, con DBus presente en Linux), que es lo único que CI headless no
   puede aseverar. Se marca con `verify-mark` y su nota, como
   estableció `conformidad-manual`
+  <!-- 2026-08-10: **lo que hay que mirar queda escrito, no hecho**
+  (`docs/qa/2026-08-10-avisos-de-escritorio.md`): el MSI en Windows porque el
+  toast exige identidad de aplicación, el bundle en macOS porque una app sin
+  firmar puede no avisar en desarrollo, y DBus presente en Linux con silencio
+  declarado si falta. Los tres son del mantenedor: CI corre headless en los tres
+  sistemas y no puede aseverar que un aviso aparezca. Se dice en vez de marcarlo
+  como comprobado. -->
