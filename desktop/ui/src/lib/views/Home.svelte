@@ -209,7 +209,12 @@
     const instruction = text.trim();
     const params: Record<string, unknown> =
       mode === "free"
-        ? { projectRoot: root, instruction }
+        ? // The surface is staying: it declares so, which is what makes the
+          // daemon answer as soon as the session exists AND keep the session
+          // alive between turns for the next instruction. The two are one
+          // question — is anyone still here to talk to — and this is the answer
+          // (sesion-que-espera design D2).
+          { projectRoot: root, instruction, detach: true }
         : mode === "propose"
           ? { projectRoot: root, idea: instruction }
           : { projectRoot: root, topic: instruction };
@@ -227,12 +232,13 @@
     }
     running = true;
     const dispatched = mode;
-    // Every start verb blocks until its turn ends, so waiting for the result to
-    // navigate would leave the user staring at the composer for a whole turn.
-    // The daemon publishes `session_started` to the connection that launched —
-    // no subscription asked for — and it carries the identifier before the
-    // agent's first token (design D3). That is what we walk in on; the request
-    // stays in flight and still reports its outcome from inside the session.
+    // A free session now answers as soon as it exists, because this surface
+    // declared it is staying. The other two verbs still block until their turn
+    // ends, so waiting for the result to navigate would leave the user staring
+    // at the composer for a whole turn. Either way the daemon publishes
+    // `session_started` to the connection that launched — no subscription asked
+    // for — and it carries the identifier before the agent's first token
+    // (lanzador-conversacional design D3). That is what we walk in on.
     let entered = false;
     const stop = onSessionEvent((message) => {
       if (message.event.type !== "session_started") return;

@@ -273,6 +273,10 @@ async fn session(
         .request(
             methods::SESSION_START,
             &meltemi_proto::SessionStartParams {
+                // The scriptable verb waits for the outcome, so it is not
+                // staying: the session ends with its turn, exactly as before
+                // (sesion-que-espera design D3).
+                detach: false,
                 project_root,
                 instruction,
                 agent,
@@ -296,10 +300,16 @@ async fn session(
 /// absence with the remedy that fits the cause, never the other cause's.
 fn render_session(result: &meltemi_proto::SessionStartResult) -> String {
     use meltemi_proto::CheckpointUnavailable;
+    // A status is printed only when there is one. The CLI never detaches, so in
+    // practice this is always the reassuring branch; the other exists so that a
+    // result without a status prints "started" rather than a word invented for
+    // a turn that has not happened (sesion-que-espera design D3).
     let mut out = format!(
         "session {} [{}]\n{}",
         result.session_id,
-        status_word(result.status),
+        result
+            .status
+            .map_or_else(|| "started".to_string(), status_word),
         result.agent_command.join(" ")
     );
     match (&result.checkpoint_ref, result.checkpoint_unavailable) {

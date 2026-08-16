@@ -844,6 +844,10 @@ async fn handle_worktree_dispatch(
         cancel: reg.cancel,
         cancelled: reg.cancelled,
         in_flight: reg.in_flight,
+        // A dispatched task has a destination: parking it between turns
+        // would hold an agent for a flow with nothing more to say.
+        idle_timeout: std::time::Duration::ZERO,
+        max_idle_sessions: 0,
         wait: config.autonomous_wait(),
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),
@@ -1751,6 +1755,8 @@ async fn handle_sdd_implement(
             cancel: reg.cancel.clone(),
             cancelled: reg.cancelled.clone(),
             in_flight: reg.in_flight.clone(),
+            idle_timeout: std::time::Duration::ZERO,
+            max_idle_sessions: 0,
             wait: config.autonomous_wait(),
             no_client_grace: config.no_client_grace(),
             clients: state.clients.clone(),
@@ -2128,6 +2134,11 @@ async fn resume_with_instruction(
         cancel: reg.cancel,
         cancelled: reg.cancelled,
         in_flight: reg.in_flight,
+        // A resumed session IS the conversation continuing, so it waits
+        // like any other: resuming to answer once and die would put the
+        // user back where this change started.
+        idle_timeout: config.idle_timeout(),
+        max_idle_sessions: config.max_idle_sessions(),
         wait: config.interactive_wait(),
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),

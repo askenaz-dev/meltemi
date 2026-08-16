@@ -32,17 +32,17 @@
 
 ## 2. El borde del turno espera
 
-- [ ] 2.1 El bucle de `run_session` espera en vez de romper cuando la cola queda
+- [x] 2.1 El bucle de `run_session` espera en vez de romper cuando la cola queda
   vacía, dentro del scope de `connect_with` — porque retornar *es* matar al
   agente (design D1) — escenario «La sesión sobrevive al turno y espera»
-- [ ] 2.2 La espera compone en un `select!` con las tres salidas: instrucción
+- [x] 2.2 La espera compone en un `select!` con las tres salidas: instrucción
   nueva, cancelación (el mismo `cancel` que ya usa el apagado ordenado), y las
   cotas de la 4 — escenario «La sesión en espera se cancela como cualquier otra»
 - [ ] 2.3 El estado se declara **después** de que la espera humana haya
   terminado, nunca antes: `end_waiting` restituye a `Active`
   incondicionalmente y pisaría el estado nuevo (design D7). Test que pinea el
   orden
-- [ ] 2.4 Una sesión sin cola de instrucciones (`instruction_queue: None`) sigue
+- [x] 2.4 Una sesión sin cola de instrucciones (`instruction_queue: None`) sigue
   siendo de un solo turno, sin esperar: el arranque de autoría no gana una
   espera que nadie pidió
 
@@ -52,12 +52,20 @@
   JSON Schemas que duplican el enum, con el test que los compara — hoy nada lo
   guarda, aunque el idioma de ese test ya está escrito dos veces en el repo
   (design D6)
-- [ ] 3.2 `session/start` gana el parámetro aditivo de desacople, con la
+- [x] 3.2 `session/start` gana el parámetro aditivo de desacople, con la
   conformidad de tres vías (presente, omitido, y la forma omitida byte a byte
   idéntica) y `gen:forms` commiteado (design D2) — escenarios «Arranque
   desacoplado responde con el identificador» y «Sin pedirlo, el arranque
   responde como siempre»
-- [ ] 3.3 El handler responde temprano copiando la forma que **ya existe en el
+  <!-- 2026-08-15: el test `the_free_session_verb_maps_to_session_start` colgó a
+  los 30 s en cuanto el bucle aprendió a esperar, y eso **corrigió el design**:
+  yo había separado «cuándo respondes» y «la sesión se aparca» en dos decisiones
+  (D2 y D3) cuando son **una sola pregunta** —¿queda alguien con quien hablar?—.
+  Por eso `detach` gobierna las dos cosas: quien espera el resultado pidió un
+  turno y su desenlace, y aparcarle la sesión colgaría justamente la llamada que
+  quería la respuesta. La CLI no desacopla y por tanto no espera: su test volvió
+  a pasar sin tocarlo. -->
+- [x] 3.3 El handler responde temprano copiando la forma que **ya existe en el
   mismo archivo**: la rama `queued`/`relayed` de `session/direct` responde con
   `status: null` y difiere el desenlace al stream (design D2)
 - [ ] 3.4 `session/direct` sobre una sesión en espera despacha de inmediato en
@@ -66,20 +74,20 @@
 
 ## 4. Las cotas, y el final honesto
 
-- [ ] 4.1 `idle-timeout` y `max-idle-sessions` en la config, con el idioma que
+- [x] 4.1 `idle-timeout` y `max-idle-sessions` en la config, con el idioma que
   el repositorio ya usa —`Option<T>` crudo, default en el accesor con
   `unwrap_or`, diagnóstico con remedio que **conserva el default**, como
   `no-client-grace`— y defaults conservadores (design D4)
-- [ ] 4.2 La tercera cota **no se escribe**: `no_clients_sustained` ya existe y
+- [x] 4.2 La tercera cota **no se escribe**: `no_clients_sustained` ya existe y
   se compone en el mismo `select!` (design D4) — escenario «Sin clientes
   sostenidamente, la espera termina»
-- [ ] 4.3 Al vencer, finalize con `reason` estable en inglés (`idle_timeout`),
+- [x] 4.3 Al vencer, finalize con `reason` estable en inglés (`idle_timeout`),
   jamás `completed` fingido — escenario «La espera vencida termina con su
   motivo»
-- [ ] 4.4 El tope cierra la espera **más antigua** y lo dice; el arranque nuevo
+- [x] 4.4 El tope cierra la espera **más antigua** y lo dice; el arranque nuevo
   no se rehúsa, porque rehusar castiga al usuario por sesiones que ya no mira
   (design D4) — escenario «El tope de esperas cierra la más antigua»
-- [ ] 4.5 El motivo se **traduce en cada superficie**, con su clave ES/EN: la
+- [x] 4.5 El motivo se **traduce en cada superficie**, con su clave ES/EN: la
   GUI hoy imprime el string crudo del payload en el transcript y la constitución
   §11 obliga a internacionalizar (design D5). El lint de i18n es el guardián
 
@@ -105,14 +113,14 @@
   de la TUI pasó a ser la negación de esa respuesta. La barra de estado ganó una
   **tercera** cifra en vez de doblar el significado de una existente: una sesión
   entre turnos también te espera, pero no te debe nada. -->
-- [ ] 5.4 El compositor de la GUI queda vivo y sin rótulo de reanudación en
+- [x] 5.4 El compositor de la GUI queda vivo y sin rótulo de reanudación en
   espera — escenario «El compositor no muere al terminar el turno»
-- [ ] 5.5 Se comprueba que el anillo **sigue oscuro sin tocarlo**: lo gobierna
+- [x] 5.5 Se comprueba que el anillo **sigue oscuro sin tocarlo**: lo gobierna
   una comparación literal con su test, así que el estado nuevo queda apagado por
   construcción — escenario «Esperar no enciende el indicador de trabajo»
 - [ ] 5.6 TUI: estado con símbolo y palabra, y dirección ofrecida como sobre una
   activa — escenario «El shell dice que la sesión espera»
-- [ ] 5.7 CLI: el default sigue bloqueando, y la ayuda dice qué **no** se verá al
+- [x] 5.7 CLI: el default sigue bloqueando, y la ayuda dice qué **no** se verá al
   desacoplar, porque `session/watch` y `session/log` son huecos declarados de la
   superficie scriptable (design D3) — escenario «Arrancar desde la CLI sigue
   mostrando el desenlace»

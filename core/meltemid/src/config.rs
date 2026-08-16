@@ -126,6 +126,16 @@ pub struct Config {
     pub no_client_grace: Option<u64>,
     /// Diagnostics for invalid `[permissions]` values (default kept).
     pub permission_diagnostics: Vec<String>,
+    /// `[sessions] idle-timeout`: seconds a session waits for its next
+    /// instruction, holding its agent subprocess, before ending. `None` keeps
+    /// the default (900 = fifteen minutes).
+    pub idle_timeout: Option<u64>,
+    /// `[sessions] max-idle`: how many sessions may wait at once. `None` keeps
+    /// the default (3). Reaching it closes the OLDEST wait, never refuses a new
+    /// session.
+    pub max_idle_sessions: Option<usize>,
+    /// Diagnostics for invalid `[sessions]` values (default kept).
+    pub session_diagnostics: Vec<String>,
 }
 
 impl Config {
@@ -145,6 +155,22 @@ impl Config {
     pub fn no_client_grace(&self) -> Duration {
         Duration::from_secs(self.no_client_grace.unwrap_or(30))
     }
+
+    /// How long a session waits for its next instruction before ending.
+    ///
+    /// The default is deliberately conservative because the resource is real:
+    /// a waiting session holds a live agent subprocess, which is memory and a
+    /// process of the user's provider. Fifteen minutes is long enough to think
+    /// and short enough that a forgotten window does not become a leak
+    /// (sesion-que-espera design D4).
+    pub fn idle_timeout(&self) -> Duration {
+        Duration::from_secs(self.idle_timeout.unwrap_or(900))
+    }
+
+    /// How many sessions may wait at once.
+    pub fn max_idle_sessions(&self) -> usize {
+        self.max_idle_sessions.unwrap_or(3)
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -157,6 +183,19 @@ struct RawConfig {
     mcp: RawMcp,
     #[serde(default)]
     permissions: RawPermissions,
+    #[serde(default)]
+    sessions: RawSessions,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawSessions {
+    /// Non-negative seconds (0 = do not wait at all: a turn ends its session,
+    /// which is the behaviour before sesion-que-espera).
+    #[serde(default, rename = "idle-timeout")]
+    idle_timeout: Option<i64>,
+    /// Non-negative count (0 = do not keep any session waiting).
+    #[serde(default, rename = "max-idle")]
+    max_idle: Option<i64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -367,6 +406,24 @@ impl Config {
                 self.permission_diagnostics.push(format!(
                     "permissions.no-client-grace `{grace}` must be zero or more seconds \
                      (default kept)"
+                ));
+            }
+        }
+        if let Some(seconds) = raw.sessions.idle_timeout {
+            if seconds >= 0 {
+                self.idle_timeout = Some(seconds as u64);
+            } else {
+                self.session_diagnostics.push(format!(
+                    "sessions.idle-timeout `{seconds}` must be zero or more seconds                      (default kept)"
+                ));
+            }
+        }
+        if let Some(count) = raw.sessions.max_idle {
+            if count >= 0 {
+                self.max_idle_sessions = Some(count as usize);
+            } else {
+                self.session_diagnostics.push(format!(
+                    "sessions.max-idle `{count}` must be zero or more (default kept)"
                 ));
             }
         }

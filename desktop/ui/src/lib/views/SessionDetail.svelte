@@ -4,6 +4,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { conn, request } from "../daemon";
   import { locale, t } from "../i18n";
+  import type { MessageKey } from "../messages";
   import { absoluteTime, clockTime, durationLabel } from "../time";
   import { binaryName } from "../agents";
   import {
@@ -112,6 +113,24 @@
    * the count the invariant is about.
    */
   const events = $derived(lines.filter((line) => !line.cut));
+
+  /**
+   * A system line's own words, translated where the payload carries an
+   * identifier rather than prose.
+   *
+   * `session_ended` carries a stable English reason — `idle_timeout`,
+   * `no_client`, `completed` — because the contract needs one word that does
+   * not change with the reader's language. Printing it raw is what the
+   * transcript did before there was more than one reason, and §11 asks for
+   * better (sesion-que-espera design D5). An unknown reason falls through
+   * verbatim: an untranslated fact beats a swallowed one.
+   */
+  function systemText(type: string, text: string): string {
+    if (type !== "session_ended" || !text) return text;
+    const key = `end.${text}` as MessageKey;
+    const translated = $t(key);
+    return translated === key ? text : translated;
+  }
 
   /** The conversational reading of exactly the events the log holds. */
   const conversation = $derived(
@@ -733,7 +752,7 @@
           <div class="sysLine tone-{style.tone}">
             <span class="glyph" aria-hidden="true">{style.glyph}</span>
             <span class="kind">{item.type}</span>
-            <span class="text">{item.text}</span>
+            <span class="text">{systemText(item.type, item.text)}</span>
           </div>
         {/if}
       {/each}

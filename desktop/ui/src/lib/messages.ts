@@ -31,6 +31,10 @@ const es = {
   "state.active": "activa",
   "state.waiting_permission": "esperando permiso",
   "state.waiting_instruction": "esperando instrucción",
+  "end.completed": "terminada",
+  "end.idle_timeout": "cerrada por inactividad: nadie envió otra instrucción",
+  "end.no_client": "cerrada porque no quedó ningún cliente conectado",
+  "end.idle_disabled": "terminada al concluir el turno (la espera está desactivada)",
   "state.ended": "finalizada",
   "state.interrupted": "interrumpida",
 
@@ -642,6 +646,10 @@ const en: Record<MessageKey, string> = {
   "state.active": "active",
   "state.waiting_permission": "waiting permission",
   "state.waiting_instruction": "waiting for instruction",
+  "end.completed": "ended",
+  "end.idle_timeout": "closed after sitting idle: no further instruction arrived",
+  "end.no_client": "closed because no client was left connected",
+  "end.idle_disabled": "ended when its turn finished (waiting is switched off)",
   "state.ended": "ended",
   "state.interrupted": "interrupted",
 

@@ -265,79 +265,140 @@ pub async fn handle_session_start(
     }
 
     let edit_scope = state.edits.enter(&project_root, &session_id, log.clone());
-    let outcome = acp::run_session(SessionParams {
-        agent_command: agent_command.clone(),
-        project_root: project_root.clone(),
-        prompt,
-        meltemi_session_id: session_id.clone(),
-        peer: peer.clone(),
-        log: log.clone(),
-        cancel: reg.cancel,
-        cancelled: reg.cancelled,
-        in_flight: reg.in_flight,
-        // A human is at the composer: the interactive wait, not the autonomous
-        // one.
-        wait: config.interactive_wait(),
-        no_client_grace: config.no_client_grace(),
-        clients: state.clients.clone(),
-        sessions: state.sessions.clone(),
-        rules,
-        pending: state.pending.clone(),
-        // A free session always opens fresh; resuming one is `session/direct`.
-        load_session_id: None,
-        mcp_servers: config.mcp_servers.clone(),
-        env: resolved.env.clone(),
-        instruction_queue,
-        edit_scope: Some(edit_scope.handle()),
-    })
-    .await;
 
-    // Closing through `session_finalize` is not decoration: skipping it is
-    // exactly the defect `gui-acabado-y-cierre-sdd` D3 fixed — the index never
-    // received `ended_at`, so every completed session listed as interrupted
-    // forever and its active time counted as nothing.
-    let project_root_str = project_root.display().to_string();
-    let ctx = crate::session_finalize::SessionContext {
-        data_dir: &state.data_dir,
-        sessions: &state.sessions,
-        log: &log,
-        project_key: &project_key,
-        session_id: &session_id,
-        agent_command: &agent_command,
-        project_root: &project_root_str,
-        level,
-        started_at: &started_at,
-        resumed_from: None,
-        agent_id: resolved.agent_id.clone(),
-        profile: resolved.profile.clone(),
-        source: Some(resolved.source),
-    };
-    match outcome {
-        Ok(session_outcome) => {
-            let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
-            let result = SessionStartResult {
-                session_id,
-                agent_command,
-                status: fin.status,
-                denied_permissions: fin.denied_permissions,
-                checkpoint_ref,
-                checkpoint_unavailable,
-                checkpoint_remedy,
+    // Everything the run needs, OWNED, so the same block can be awaited here or
+    // handed to a task. The session already exists at this point — registered,
+    // logged, its `session_started` published — which is what makes answering
+    // early truthful rather than optimistic.
+    let run = {
+        let state = Arc::clone(state);
+        let peer = peer.clone();
+        let log = log.clone();
+        let session_id = session_id.clone();
+        let agent_command = agent_command.clone();
+        let project_root = project_root.clone();
+        let project_key = project_key.clone();
+        let started_at = started_at.clone();
+        let checkpoint_ref = checkpoint_ref.clone();
+        let checkpoint_remedy = checkpoint_remedy.clone();
+        let detach = params.detach;
+        async move {
+            let outcome = acp::run_session(SessionParams {
+                agent_command: agent_command.clone(),
+                project_root: project_root.clone(),
+                prompt,
+                meltemi_session_id: session_id.clone(),
+                peer: peer.clone(),
+                log: log.clone(),
+                cancel: reg.cancel,
+                cancelled: reg.cancelled,
+                in_flight: reg.in_flight,
+                // Parking is for a caller who is staying. A caller that awaits the
+                // final result asked for one turn and its outcome, and parking on their
+                // behalf would hang the very call that wanted the answer
+                // (sesion-que-espera design D2, D3).
+                idle_timeout: if detach {
+                    config.idle_timeout()
+                } else {
+                    std::time::Duration::ZERO
+                },
+                max_idle_sessions: config.max_idle_sessions(),
+                // A human is at the composer: the interactive wait, not the autonomous
+                // one.
+                wait: config.interactive_wait(),
+                no_client_grace: config.no_client_grace(),
+                clients: state.clients.clone(),
+                sessions: state.sessions.clone(),
+                rules,
+                pending: state.pending.clone(),
+                // A free session always opens fresh; resuming one is `session/direct`.
+                load_session_id: None,
+                mcp_servers: config.mcp_servers.clone(),
+                env: resolved.env.clone(),
+                instruction_queue,
+                edit_scope: Some(edit_scope.handle()),
+            })
+            .await;
+
+            // Closing through `session_finalize` is not decoration: skipping it is
+            // exactly the defect `gui-acabado-y-cierre-sdd` D3 fixed — the index never
+            // received `ended_at`, so every completed session listed as interrupted
+            // forever and its active time counted as nothing.
+            let project_root_str = project_root.display().to_string();
+            let ctx = crate::session_finalize::SessionContext {
+                data_dir: &state.data_dir,
+                sessions: &state.sessions,
+                log: &log,
+                project_key: &project_key,
+                session_id: &session_id,
+                agent_command: &agent_command,
+                project_root: &project_root_str,
+                level,
+                started_at: &started_at,
+                resumed_from: None,
+                agent_id: resolved.agent_id.clone(),
+                profile: resolved.profile.clone(),
+                source: Some(resolved.source),
             };
-            Ok(serde_json::to_value(result).expect("SessionStartResult serializes"))
+            match outcome {
+                Ok(session_outcome) => {
+                    let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
+                    let result = SessionStartResult {
+                        session_id,
+                        agent_command,
+                        status: Some(fin.status),
+                        denied_permissions: fin.denied_permissions,
+                        checkpoint_ref,
+                        checkpoint_unavailable,
+                        checkpoint_remedy,
+                    };
+                    Ok(serde_json::to_value(result).expect("SessionStartResult serializes"))
+                }
+                Err(e) => {
+                    crate::session_finalize::finalize_err(
+                        &ctx,
+                        "agent_session_failed",
+                        e.to_string(),
+                    )
+                    .await;
+                    Err(RpcError::application(
+                        error_codes::AGENT_SPAWN_FAILED,
+                        "agent session failed",
+                        "agent_session_failed",
+                        e.to_string(),
+                        Some("Check that the resolved agent runs and speaks ACP.".into()),
+                    ))
+                }
+            }
         }
-        Err(e) => {
-            crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())
-                .await;
-            Err(RpcError::application(
-                error_codes::AGENT_SPAWN_FAILED,
-                "agent session failed",
-                "agent_session_failed",
-                e.to_string(),
-                Some("Check that the resolved agent runs and speaks ACP.".into()),
-            ))
-        }
+    };
+
+    if !params.detach {
+        // Attached: the caller asked for the outcome, so they wait for it. This
+        // is the path every scriptable client and every existing test takes,
+        // byte for byte as before.
+        return run.await;
     }
+
+    // Detached: the session runs on its own task and reports through the event
+    // stream, which is what the surfaces already live off. The result carries no
+    // `status` because the turn has not happened — the one thing a result must
+    // never invent (design D2).
+    tokio::spawn(async move {
+        if let Err(error) = run.await {
+            tracing::warn!(?error, "a detached session ended with an error");
+        }
+    });
+    let result = SessionStartResult {
+        session_id,
+        agent_command,
+        status: None,
+        denied_permissions: 0,
+        checkpoint_ref,
+        checkpoint_unavailable,
+        checkpoint_remedy,
+    };
+    Ok(serde_json::to_value(result).expect("SessionStartResult serializes"))
 }
 
 async fn append(log: &Arc<Mutex<SessionLog>>, kind: SessionEventKind) {

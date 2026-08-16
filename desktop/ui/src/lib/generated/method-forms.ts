@@ -93,6 +93,7 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
           "starting",
           "active",
           "waiting_permission",
+          "waiting_instruction",
           "ended",
           "interrupted"
         ]
@@ -314,6 +315,11 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
       {
         "name": "agent",
         "kind": "string",
+        "required": false
+      },
+      {
+        "name": "detach",
+        "kind": "boolean",
         "required": false
       }
     ]

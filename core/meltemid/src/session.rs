@@ -269,6 +269,9 @@ struct Entry {
     state: SessionState,
     /// Fired to ask the owning ACP task to cancel and terminate the agent.
     cancel: Arc<Notify>,
+    /// When this session started waiting for its next instruction, so the
+    /// oldest wait is the one that gives way when the cap is reached.
+    idle_since: Option<std::time::Instant>,
     /// Whether a prompt is in flight right now.
     ///
     /// `Notify::notify_waiters` wakes only waiters already registered, so an
@@ -324,6 +327,7 @@ impl SessionRegistry {
                 state: SessionState::Starting,
                 cancel: Arc::clone(&cancel),
                 cancelled: Arc::clone(&cancelled),
+                idle_since: None,
                 in_flight: Arc::clone(&in_flight),
                 direction: None,
                 waiting: 0,
@@ -448,6 +452,57 @@ impl SessionRegistry {
                 true
             }
             None => false,
+        }
+    }
+
+    /// Declares this session waiting for its next instruction and enforces the
+    /// cap, returning the id of the session evicted to make room, if any.
+    ///
+    /// The cap closes the OLDEST wait rather than refusing the new one. Refusing
+    /// would punish the user for sessions they have already stopped looking at,
+    /// and the thing being rationed — a live agent subprocess — is most wasted
+    /// exactly where it has been idle longest (sesion-que-espera design D4).
+    ///
+    /// A cap of zero means no session waits at all, which is the behaviour
+    /// before this change.
+    pub async fn begin_idle(&self, session_id: &str, max: usize) -> Option<String> {
+        let mut guard = self.inner.lock().await;
+        let now = std::time::Instant::now();
+        match guard.get_mut(session_id) {
+            Some(entry) => {
+                entry.idle_since = Some(now);
+                entry.state = SessionState::WaitingInstruction;
+            }
+            None => return None,
+        }
+        let mut idle: Vec<(std::time::Instant, String)> = guard
+            .iter()
+            .filter_map(|(id, entry)| entry.idle_since.map(|since| (since, id.clone())))
+            .collect();
+        if idle.len() <= max {
+            return None;
+        }
+        idle.sort_by_key(|(since, _)| *since);
+        let (_, evicted) = idle.first()?.clone();
+        // Cancelled, not merely un-marked: what is being reclaimed is the agent
+        // subprocess, and only cancellation reaches the loop that holds it.
+        if let Some(entry) = guard.get(&evicted) {
+            entry.cancelled.store(true, Ordering::SeqCst);
+            entry.cancel.notify_waiters();
+            let queue = entry.direction.as_ref().map(|d| d.queue.clone());
+            drop(guard);
+            if let Some(queue) = queue {
+                queue.mark_cancelled().await;
+            }
+        }
+        Some(evicted)
+    }
+
+    /// Ends this session's wait (an instruction arrived, or the session is
+    /// ending), so it stops counting against the cap.
+    pub async fn end_idle(&self, session_id: &str) {
+        if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
+            entry.idle_since = None;
         }
     }
 

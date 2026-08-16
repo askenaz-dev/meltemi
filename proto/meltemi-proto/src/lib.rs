@@ -1339,6 +1339,20 @@ pub struct SessionStartParams {
     /// agent, exactly as before this method existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// Whether the caller is STAYING: answer as soon as the session exists and
+    /// keep it alive between turns, with the event stream as the truth of what
+    /// happens next.
+    ///
+    /// One flag rather than two, because "when do you answer me" and "does the
+    /// session stay alive" are the same question asked twice — *is anyone still
+    /// here to talk to?* A caller that waits for the final result is asking for
+    /// one turn and its outcome, and parking a session on their behalf would
+    /// hang the very call that wanted the answer.
+    ///
+    /// Absent means exactly today's behaviour: one turn, answered when it ends
+    /// (sesion-que-espera design D2, D3).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub detach: bool,
 }
 
 /// Why a free session got no restore point. The two causes take different
@@ -1367,8 +1381,13 @@ pub struct SessionStartResult {
     pub session_id: String,
     /// The official agent binary and arguments (program first).
     pub agent_command: Vec<String>,
-    /// Final status of the agent turn.
-    pub status: TurnStatus,
+    /// Final status of the agent turn. Absent when the caller detached: the
+    /// turn has not happened yet, and a status invented before the fact is the
+    /// one thing a result must never carry. It arrives on the event stream as
+    /// `turn_completed` — the same way `session/direct` has always answered for
+    /// a queued instruction (sesion-que-espera design D2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<TurnStatus>,
     /// How many of the agent's permission requests were denied during the turn
     /// (by rule, by the human, or by timeout/default). Greater than zero means
     /// the work may be incomplete (honesty of result).

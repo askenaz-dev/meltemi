@@ -74,7 +74,14 @@ pub async fn finalize_ok(ctx: &SessionContext<'_>, outcome: SessionOutcome) -> F
     append(
         ctx.log,
         SessionEventKind::SessionEnded {
-            reason: "completed".into(),
+            // Whatever actually ended it. A session whose wait expired did not
+            // complete, and saying "completed" would be the record agreeing
+            // with a story nobody told it (sesion-que-espera design D5). The
+            // identifier is stable English; the surfaces translate it.
+            reason: outcome
+                .ended_reason
+                .clone()
+                .unwrap_or_else(|| "completed".to_string()),
         },
     )
     .await;

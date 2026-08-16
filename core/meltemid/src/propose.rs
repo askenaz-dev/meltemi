@@ -227,6 +227,11 @@ pub async fn handle_propose(
         cancel: reg.cancel,
         cancelled: reg.cancelled,
         in_flight: reg.in_flight,
+        // Not conversational: a proposal or an authoring turn has a
+        // destination, and parking one between turns would hold an agent for a
+        // flow that has nothing more to say (sesion-que-espera 2.4).
+        idle_timeout: std::time::Duration::ZERO,
+        max_idle_sessions: 0,
         wait: config.interactive_wait(),
         no_client_grace: config.no_client_grace(),
         clients: state.clients.clone(),

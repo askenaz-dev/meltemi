@@ -39,7 +39,7 @@ use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo};
 use meltemi_proto::{
     PermissionDecidedBy, PermissionOption, PermissionOptionKind, PermissionOutcome,
     PermissionRequestParams, PermissionRequestResult, PermissionTimeoutParams, SessionEventKind,
-    TurnStatus, methods,
+    SessionState, TurnStatus, methods,
 };
 
 use crate::config::WaitPolicy;
@@ -100,6 +100,12 @@ pub struct SessionParams {
     /// each turn — each queued instruction becomes the next prompt of the same
     /// agent session (control-remoto-asistido). `None` for single-turn runs.
     pub instruction_queue: Option<crate::session::InstructionQueue>,
+    /// How long the session waits for its next instruction before ending, and
+    /// how many sessions may wait at once (sesion-que-espera design D4). Zero
+    /// timeout restores the pre-change behaviour: a turn ends its session.
+    pub idle_timeout: Duration,
+    /// How many sessions may wait at once; reaching it closes the oldest wait.
+    pub max_idle_sessions: usize,
     /// Registration of this session over its tree (edit-surface soft lock):
     /// marks turns in flight and drains the human-edit notes into the next
     /// turn's prompt (gui-tauri-paridad design D4).
@@ -119,6 +125,11 @@ pub struct SessionOutcome {
     pub supports_load: bool,
     /// The agent's own session id (needed to resume this session later).
     pub agent_session_id: Option<String>,
+    /// Why the session ended, when it was not simply the work running out.
+    /// `None` means the ordinary completion the finalizer already reports;
+    /// `Some` carries a stable English identifier the surfaces translate, never
+    /// a sentence (sesion-que-espera design D5).
+    pub ended_reason: Option<String>,
 }
 
 /// Runs one ACP turn end to end and returns the mapped stop reason and the
@@ -144,6 +155,8 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         mcp_servers,
         env,
         instruction_queue,
+        idle_timeout,
+        max_idle_sessions,
         edit_scope,
     } = params;
 
@@ -188,8 +201,8 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         denials: denials.clone(),
         wait,
         no_client_grace,
-        clients,
-        sessions,
+        clients: clients.clone(),
+        sessions: sessions.clone(),
         cancel: Arc::clone(&cancel),
     };
 
@@ -263,6 +276,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
             // that does not accept direction (no queue) runs exactly one turn —
             // identical to the prior single-turn behavior.
             let mut current_prompt = prompt;
+            let mut idle_reason: Option<&'static str> = None;
             let final_status = loop {
                 // Human edits since the agent's last turn ride in the prompt
                 // itself (never a push outside ACP — design D4); the drain is
@@ -351,26 +365,77 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                         });
                     }
                 }
-                match &instruction_queue {
-                    Some(queue) => match queue.take_or_close().await {
-                        Some(next) => current_prompt = next,
-                        None => break status,
-                    },
-                    None => break status,
+                // The boundary. An empty queue no longer ends the session: it
+                // parks here, inside `connect_with`, which is the only place the
+                // agent subprocess can survive — returning from this closure IS
+                // killing it (design D1).
+                //
+                // A session with no queue is single-turn by construction and
+                // must NOT gain a wait nobody asked for: the authoring flows
+                // pass `None` and expect exactly one turn.
+                let Some(queue) = &instruction_queue else {
+                    break status;
+                };
+                match queue.try_take().await {
+                    Some(next) => current_prompt = next,
+                    None => {
+                        // Declared AFTER any human wait has ended, never before:
+                        // `end_waiting` restores `Active` unconditionally and
+                        // would overwrite this (design D7).
+                        if let Some(evicted) = sessions
+                            .begin_idle(&meltemi_session_id, max_idle_sessions)
+                            .await
+                        {
+                            tracing::info!(
+                                evicted,
+                                max = max_idle_sessions,
+                                "idle cap reached: closing the oldest waiting session"
+                            );
+                        }
+                        match wait_for_instruction(
+                            queue,
+                            &cancel,
+                            &clients,
+                            no_client_grace,
+                            idle_timeout,
+                        )
+                        .await
+                        {
+                            Waking::Instruction(next) => {
+                                sessions.end_idle(&meltemi_session_id).await;
+                                sessions
+                                    .set_state(&meltemi_session_id, SessionState::Active)
+                                    .await;
+                                current_prompt = next;
+                            }
+                            Waking::Ended(reason) => {
+                                sessions.end_idle(&meltemi_session_id).await;
+                                queue.close().await;
+                                idle_reason = Some(reason);
+                                break status;
+                            }
+                        }
+                    }
                 }
             };
 
-            Ok((final_status, supports_load, agent_session_id))
+            Ok((final_status, supports_load, agent_session_id, idle_reason))
         })
         .await;
 
-    let (status, supports_load, agent_session_id) =
+    let (status, supports_load, agent_session_id, idle_reason) =
         result.map_err(|e| anyhow::anyhow!("acp session failed: {e:?}"))?;
     Ok(SessionOutcome {
         status,
         denied_permissions: denials.load(Ordering::Relaxed),
         supports_load,
         agent_session_id,
+        // "cancelled" is not carried here: cancelling already has its own
+        // recorded ending, and reporting it twice in two vocabularies is how a
+        // log starts disagreeing with itself.
+        ended_reason: idle_reason
+            .filter(|reason| *reason != "cancelled")
+            .map(str::to_string),
     })
 }
 
@@ -407,6 +472,66 @@ struct HandlerState {
     /// is blocked on our answer, so it cannot honour a cancel it never gets to
     /// read (redirigir-turno design D3).
     cancel: Arc<Notify>,
+}
+
+/// What ended a session's wait for its next instruction.
+enum Waking {
+    /// An instruction arrived; it becomes the next turn.
+    Instruction(String),
+    /// The wait is over for a stated reason, and the session ends with it.
+    Ended(&'static str),
+}
+
+/// Parks the session between turns until something happens, and says what.
+///
+/// Four ways out, and every one of them is a fact rather than a timeout in
+/// disguise:
+///
+/// - an instruction arrived (the point of waiting at all);
+/// - the session was cancelled — `session/cancel`, or the daemon's ordered
+///   shutdown, which cancels every session and then waits for them to go;
+/// - nobody has been connected for the grace: a session waiting for an
+///   instruction with no client to send one is waiting for nobody. This reuses
+///   the future the constitutional deny already runs on, rather than inventing
+///   a second idea of "nobody is there" (design D4);
+/// - the idle timeout elapsed.
+///
+/// Correctness of the first rests on the queue's ordering contract: mutate,
+/// signal, and only then release the lock — so an instruction landing between
+/// the check and the await leaves a permit rather than being missed.
+async fn wait_for_instruction(
+    queue: &crate::session::InstructionQueue,
+    cancel: &Arc<Notify>,
+    clients: &crate::clients::ClientRegistry,
+    no_client_grace: Duration,
+    idle_timeout: Duration,
+) -> Waking {
+    // Zero means "do not wait", which is exactly the behaviour before this
+    // change existed. Kept reachable so the whole feature has an off switch
+    // that is one config line, not a rebuild.
+    if idle_timeout.is_zero() {
+        return Waking::Ended("idle_disabled");
+    }
+    let deadline = tokio::time::sleep(idle_timeout);
+    tokio::pin!(deadline);
+    let no_clients = no_clients_sustained(clients.watch(), no_client_grace);
+    tokio::pin!(no_clients);
+
+    loop {
+        // Check first, await second. The other order is the race.
+        if let Some(instruction) = queue.try_take().await {
+            return Waking::Instruction(instruction);
+        }
+        if !queue.accepting().await {
+            return Waking::Ended("cancelled");
+        }
+        tokio::select! {
+            () = queue.wait_for_work() => continue,
+            () = cancel.notified() => return Waking::Ended("cancelled"),
+            () = &mut no_clients => return Waking::Ended("no_client"),
+            () = &mut deadline => return Waking::Ended("idle_timeout"),
+        }
+    }
 }
 
 /// The resolution of a permission whose turn was interrupted.
