@@ -693,6 +693,7 @@ fn session_direct_conforms() {
             instruction: "also add a dark theme".into(),
             project_root: Some("C:\\repos\\fixture".into()),
             interrupt: false,
+            detach: false,
         },
     );
     // The additive flag, the three ways tablero-de-carrera fixed in writing:
@@ -703,10 +704,12 @@ fn session_direct_conforms() {
         instruction: "no sigas por ahi".into(),
         project_root: None,
         interrupt: true,
+        detach: false,
     };
     assert_conforms("session-direct", "params", &asking);
     let plain = SessionDirectParams {
         interrupt: false,
+        detach: false,
         ..asking.clone()
     };
     assert_conforms("session-direct", "params", &plain);
@@ -757,6 +760,7 @@ fn session_start_conforms() {
             project_root: "C:\\repos\\fixture".into(),
             instruction: "find out why the build is slow".into(),
             agent: Some("claude-code".into()),
+            detach: false,
         },
     );
     // No agent named: the project's configured one, exactly as everywhere else.
@@ -767,13 +771,46 @@ fn session_start_conforms() {
             project_root: "/repos/fixture".into(),
             instruction: "find out why the build is slow".into(),
             agent: None,
+            detach: false,
         },
     );
+
+    // The additive flag, three ways. Present is valid; omitted is valid; and the
+    // omitted shape is BYTE-IDENTICAL to what callers sent before the field
+    // existed — the only one of the three that can actually break somebody, and
+    // therefore the only one worth asserting on bytes.
+    let staying = SessionStartParams {
+        project_root: "/repos/fixture".into(),
+        instruction: "keep me alive".into(),
+        agent: None,
+        detach: true,
+    };
+    assert_conforms("session-start", "params", &staying);
+    assert_eq!(
+        serde_json::to_value(&staying).expect("serializes")["detach"],
+        serde_json::json!(true),
+        "asking to stay travels"
+    );
+    let one_shot = SessionStartParams {
+        detach: false,
+        ..staying.clone()
+    };
+    assert_eq!(
+        serde_json::to_string(&one_shot).expect("serializes"),
+        r#"{"projectRoot":"/repos/fixture","instruction":"keep me alive"}"#,
+        "not asking is not saying no: the field vanishes and the wire is what it always was"
+    );
+    // And a caller that never heard of the field still parses, with the
+    // behaviour it had.
+    let legacy: SessionStartParams =
+        serde_json::from_str(r#"{"projectRoot":"/repos/fixture","instruction":"keep me alive"}"#)
+            .expect("a pre-existing caller still parses");
+    assert!(!legacy.detach);
 
     let started = SessionStartResult {
         session_id: "sess-1".into(),
         agent_command: vec!["mock-agent".into(), "--acp".into()],
-        status: TurnStatus::Completed,
+        status: Some(TurnStatus::Completed),
         denied_permissions: 0,
         checkpoint_ref: Some("refs/meltemi/checkpoints/free/sess-1-mock".into()),
         checkpoint_unavailable: None,
@@ -792,7 +829,7 @@ fn session_start_conforms() {
             "session-start",
             "result",
             &SessionStartResult {
-                status,
+                status: Some(status),
                 denied_permissions: 2,
                 ..started.clone()
             },

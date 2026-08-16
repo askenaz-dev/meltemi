@@ -27,6 +27,10 @@
         "interrupt": {
           "type": "boolean",
           "description": "Interrupt the turn in flight and let this instruction relay it. Absent means false: queue behind the turn, which is what every caller did before this existed."
+        },
+        "detach": {
+          "type": "boolean",
+          "description": "Whether the caller is STAYING, for the branch that resumes an ended session: keep the resumed session alive between turns instead of ending it with the turn it was resumed for. The same flag `session/start` carries, for the same reason. No effect on the queueing branch, which answers immediately either way. Absent means the previous behaviour: the resumed session ends with its turn."
         }
       }
     },

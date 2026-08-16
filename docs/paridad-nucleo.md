@@ -76,6 +76,25 @@ travels verbatim under `--json` because it is part of the contract. A field
 visible in one surface only is a §4 break even when the method itself is
 registered everywhere.
 
+### `detach`, and why one surface declines it
+
+`session/start` and `session/direct` both accept `detach`: the caller declares
+it is staying, so the daemon answers as soon as the session exists and keeps the
+session alive between turns. Every surface **can** send it — it is a parameter of
+a method already registered in all three, so it needs no row of its own.
+
+The desktop surface sends it. The scriptable one does not, and the reason is in
+the two rows above rather than in a preference: `session/log` and `session/watch`
+are `—` for the CLI. A detached start there would print an identifier and exit,
+having shown the user nothing of the turn, and — worse — a client that leaves
+takes the session's permissions with it, since zero clients for the grace is the
+constitutional deny (§3).
+
+So this is **not** a §4 break: the capability is reachable from every surface,
+and the one that declines it declines it for a stated reason, in its own help.
+It becomes a break the day the CLI gains a way to read the stream and still does
+not offer this (sesion-que-espera design D3).
+
 ## Infrastructure
 
 | Method | Role |

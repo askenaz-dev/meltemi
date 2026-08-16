@@ -295,6 +295,11 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
         "name": "interrupt",
         "kind": "boolean",
         "required": false
+      },
+      {
+        "name": "detach",
+        "kind": "boolean",
+        "required": false
       }
     ]
   },

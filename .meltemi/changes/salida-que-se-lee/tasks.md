@@ -10,8 +10,8 @@ commitear en cuanto cada tarea cierre, nunca dejar el árbol sucio entre pasos.
 
 - [ ] 1.1 `Format { Human, Json, Yaml }` sustituye al booleano en
   `render_outcome`/`render_error`; `--yaml` en la gramática y el rehúso de
-  usarlo junto a `--json`; la dependencia YAML pineada y justificada en el
-  design, auditada por `cargo-deny` (design D1, D2) — escenarios «YAML emite un
+  usarlo junto a `--json`; el emisor YAML propio, con las cadenas
+  siempre entre comillas (design D1, D2) — escenarios «YAML emite un
   documento y nada más», «El error en YAML también es un documento» y «Dos
   formatos de máquina a la vez se rehúsan» — gates: suite del crate,
   `cargo deny check`

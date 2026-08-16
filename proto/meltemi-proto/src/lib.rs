@@ -1426,6 +1426,16 @@ pub struct SessionDirectParams {
     /// had before this existed.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub interrupt: bool,
+    /// Whether the caller is STAYING, for the branch that resumes an ended
+    /// session: keep the resumed session alive between turns rather than
+    /// letting it end with the turn it was resumed for.
+    ///
+    /// The same flag `session/start` carries and for the same reason. It has no
+    /// effect on the queueing branch, which answers immediately either way —
+    /// there the session's fate was decided when it started
+    /// (sesion-que-espera design D2).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub detach: bool,
 }
 
 /// How `session/direct` handled the instruction.

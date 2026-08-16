@@ -909,6 +909,90 @@ fn map_stop_reason(reason: StopReason) -> TurnStatus {
 mod tests {
     use super::*;
 
+    /// A queue with a log, for the waiting tests.
+    async fn wait_fixture(tag: &str) -> (crate::session::InstructionQueue, std::path::PathBuf) {
+        let dir =
+            std::env::temp_dir().join(format!("meltemi-acp-wait-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let registry = crate::session::SessionRegistry::default();
+        registry.register("s-1", vec!["mock".into()]).await;
+        let log = Arc::new(Mutex::new(
+            SessionLog::create(&dir, "proj", "s-1").expect("a log to write to"),
+        ));
+        let queue = registry
+            .enable_direction("s-1", log.clone())
+            .await
+            .expect("the session takes direction");
+        (queue, dir)
+    }
+
+    // Scenario: Sin clientes sostenidamente, la espera termina
+    #[tokio::test]
+    async fn a_wait_with_nobody_connected_ends_rather_than_holding_an_agent() {
+        // A session waiting for an instruction with no client to send one is
+        // waiting for nobody, and what it is holding is a live agent
+        // subprocess. This reuses the very future the constitutional deny runs
+        // on, rather than inventing a second idea of "nobody is there".
+        let (queue, dir) = wait_fixture("no-clients").await;
+        let clients = crate::clients::ClientRegistry::default();
+        let cancel = Arc::new(Notify::new());
+
+        let waking = tokio::time::timeout(
+            Duration::from_secs(5),
+            wait_for_instruction(
+                &queue,
+                &cancel,
+                &clients,
+                Duration::from_millis(20),
+                Duration::from_secs(600),
+            ),
+        )
+        .await
+        .expect("the wait ended long before the idle timeout");
+        assert!(
+            matches!(waking, Waking::Ended("no_client")),
+            "and it says which of the four ways out it took"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_client_that_stays_keeps_the_wait_open_until_the_instruction_arrives() {
+        // The other side of the same rule: with someone connected, the wait is
+        // for them, and it ends when they say something.
+        let (queue, dir) = wait_fixture("with-client").await;
+        let clients = crate::clients::ClientRegistry::default();
+        let _attending = clients.register();
+        let cancel = Arc::new(Notify::new());
+
+        let log = Arc::new(Mutex::new(
+            SessionLog::create(&dir, "proj", "s-1").expect("a log"),
+        ));
+        let sender = queue.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            sender.enqueue("here you go".into(), &log).await;
+        });
+
+        let waking = tokio::time::timeout(
+            Duration::from_secs(5),
+            wait_for_instruction(
+                &queue,
+                &cancel,
+                &clients,
+                Duration::from_millis(20),
+                Duration::from_secs(600),
+            ),
+        )
+        .await
+        .expect("the wait ended");
+        match waking {
+            Waking::Instruction(text) => assert_eq!(text, "here you go"),
+            Waking::Ended(reason) => panic!("a connected client is somebody: got `{reason}`"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn option(id: &str, kind: PermissionOptionKind) -> PermissionOption {
         PermissionOption {
             option_id: id.into(),

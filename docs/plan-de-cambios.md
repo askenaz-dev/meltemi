@@ -194,8 +194,8 @@ eventos externos no gasta turno. Toda desviación se anota aquí.
 | ☆ | **Auditoría de intuitividad** | sesión dedicada, no change | Tras la tanda visual (2º–6º): barrido CDP sistemático → informe en `docs/qa/` + la siguiente tanda; correrla antes re-hallaría lo ya capturado |
 | 7º | `primer-arranque-del-home` | proposal | Vía rápida chica del comparativo: el chip advierte proactivamente; onboarding listo antes de cualquier anuncio |
 | 8º | `avisos-de-escritorio` | proposal | La atención cuando la app no tiene foco; `preguntas-del-agente` la da por presente en su experiencia |
-| 9º | `redirigir-turno` | proposal | El verbo del medio (interrumpir y relevar, atómico en el daemon); **prerrequisito declarado del 11º**; paridad ×3 servida en la change |
-| 10º | `sesion-que-espera` | proposal | El chat que no muere: el borde del turno espera en vez de cerrar — **mismo código que el 9º**, adyacentes para no reabrirlo dos veces; la evidencia que `eventos-para-tardios` dejó pedida |
+| 9º | `redirigir-turno` | **implementada** (12/12, verify 9/9) | El verbo del medio (interrumpir y relevar, atómico en el daemon); **prerrequisito declarado del 11º**; paridad ×3 servida en la change |
+| 10º | `sesion-que-espera` | **implementada** (verify 19/19) | El chat que no muere: el borde del turno espera en vez de cerrar — **mismo código que el 9º**, adyacentes para no reabrirlo dos veces; la evidencia que `eventos-para-tardios` dejó pedida |
 | 11º | `preguntas-del-agente` | proposal | La corona del bucle conversacional: AskUserQuestion contestada donde se escribe; depende del 9º y aprovecha el 8º |
 | 12º | `modos-de-autonomia` | proposal | Manual/Semi/Autónomo como posturas por sesión sobre el proxy existente; Bypass rechazado por §3 de entrada |
 | 13º | `modelo-y-esfuerzo-por-sesion` | proposal | La palanca de cuotas: modelo y esfuerzo opacos por sesión y por perfil; las palancas del lado Codex ya existen, apagadas a propósito |
@@ -203,10 +203,16 @@ eventos externos no gasta turno. Toda desviación se anota aquí.
 | 15º | `motor-propio-byok` | proposal | La mayor de fase 2; entra tras el harness (la directiva más reciente manda) y con su rename terminológico ya hecho |
 | ⏳ | `procedencia-de-release` | tasks 6/8, verify 6/6 | Sus 2 tareas dependen de eventos externos — una corrida real disparada por tag (próxima release) y **la clave pública que entrega el mantenedor** — se cierra cuando ocurran, sin gastar turno |
 
-> **Estado al 2026-08-10**: hechas 1º–4º (esperan review); la 5ª solo espera su
-> smoke. **Diez changes del orden siguen con proposal y nada más** (6º–15º), y
-> la auditoría ☆ no ha corrido. Lo que falta es la mayor parte del trabajo, no
-> el remate.
+> **Estado al 2026-08-16**: hechas 1º–4º y 8º–10º (esperan review); la 5ª solo
+> espera su smoke. **Cinco changes del orden siguen con proposal y nada más**
+> (11º–15º), y la auditoría ☆ no ha corrido.
+>
+> Lo que 9º y 10º cerraron juntas —adyacentes a propósito, sobre el mismo borde
+> del turno— es el bucle conversacional del daemon: se puede **interrumpir** un
+> turno y relevarlo, y la sesión **ya no muere** al terminarlo. El 10º trajo
+> además la evidencia que `eventos-para-tardios` dejó pedida para desacoplar un
+> RPC que bloquea el turno entero, y la trajo con su prueba: sin el desacople la
+> espera es imposible, porque la petición que posee la sesión nunca respondería.
 >
 > Paralelizable sin romper el orden: 2º, 4º, 5º y 6º son solo `desktop/ui` (el
 > 5º suma el render de la TUI) y pueden avanzar mientras 3º toca daemon+proto,

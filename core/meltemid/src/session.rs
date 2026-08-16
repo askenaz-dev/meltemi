@@ -567,6 +567,74 @@ impl SessionRegistry {
 mod tests {
     use super::*;
 
+    // Scenario: El tope de esperas cierra la más antigua
+    #[tokio::test]
+    async fn the_idle_cap_closes_the_oldest_wait_and_never_refuses_a_new_one() {
+        let registry = SessionRegistry::default();
+        for id in ["first", "second", "third"] {
+            registry.register(id, vec!["mock".into()]).await;
+        }
+
+        // Entered in order, so "oldest" is unambiguous. A cap of two.
+        assert_eq!(registry.begin_idle("first", 2).await, None, "under the cap");
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        assert_eq!(registry.begin_idle("second", 2).await, None, "at the cap");
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+        // Over it. What gives way is the one that has been idle longest — not
+        // the arriving session, because refusing would punish the user for
+        // sessions they have already stopped looking at.
+        assert_eq!(
+            registry.begin_idle("third", 2).await.as_deref(),
+            Some("first"),
+            "the oldest wait is what is reclaimed"
+        );
+        let states: std::collections::HashMap<String, SessionState> = registry
+            .summaries()
+            .await
+            .into_iter()
+            .map(|s| (s.session_id, s.state))
+            .collect();
+        assert_eq!(
+            states.get("third"),
+            Some(&SessionState::WaitingInstruction),
+            "and the new one is waiting, not refused"
+        );
+        assert_eq!(
+            states.get("second"),
+            Some(&SessionState::WaitingInstruction),
+            "the one still within the cap is untouched"
+        );
+
+        // Reclaimed means CANCELLED: what is being freed is an agent
+        // subprocess, and only cancellation reaches the loop that holds it.
+        let cancelled = registry.inner.lock().await["first"]
+            .cancelled
+            .load(Ordering::SeqCst);
+        assert!(
+            cancelled,
+            "un-marking it would leave the subprocess alive, which is the whole resource"
+        );
+    }
+
+    #[tokio::test]
+    async fn ending_a_wait_takes_it_out_of_the_reckoning() {
+        // A session that got its instruction is no longer idle, so it must stop
+        // competing for the cap — otherwise the busiest session in the fleet
+        // would be evicted for having started waiting earliest.
+        let registry = SessionRegistry::default();
+        for id in ["a", "b"] {
+            registry.register(id, vec!["mock".into()]).await;
+        }
+        registry.begin_idle("a", 1).await;
+        registry.end_idle("a").await;
+        assert_eq!(
+            registry.begin_idle("b", 1).await,
+            None,
+            "with `a` back at work there is room, and nothing was evicted"
+        );
+    }
+
     #[tokio::test]
     async fn register_report_and_deregister() {
         let registry = SessionRegistry::default();

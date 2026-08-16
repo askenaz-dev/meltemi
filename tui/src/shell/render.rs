@@ -895,7 +895,11 @@ pub(crate) fn direction_prospect(row: Option<&SessionRow>, relay: bool) -> Msg {
         // Interrupting is only on offer while a turn is running: an ended
         // session has no turn to relay, and arming it there would promise
         // something the daemon would have to refuse.
-        Some(row) if !row.is_historical() && relay => Msg::DirectWillRelay,
+        // Interrupting needs a turn to interrupt. A session waiting for its
+        // next instruction is alive but idle, and offering to stop it would
+        // promise something the daemon truthfully answers `queued` to
+        // (sesion-que-espera).
+        Some(row) if row.is_working() && relay => Msg::DirectWillRelay,
         Some(row) if !row.is_historical() => Msg::DirectWillQueue,
         Some(row) if row.resumable => Msg::DirectWillResume,
         Some(_) => Msg::DirectNotResumable,
@@ -1462,6 +1466,57 @@ mod tests {
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+
+    // Scenario: El shell dice que la sesión espera
+    #[test]
+    fn a_waiting_session_is_declared_with_symbol_and_word_and_stays_directable() {
+        // Symbol AND word, never colour alone — and a symbol of its own rather
+        // than one borrowed from a state that means something else.
+        let (glyph, word) = session_state_label(SessionState::WaitingInstruction, Lang::Es);
+        assert_eq!(word, "esperando-instruccion");
+        let (working, _) = session_state_label(SessionState::Active, Lang::Es);
+        let (permission, _) = session_state_label(SessionState::WaitingPermission, Lang::Es);
+        let (ended, _) = session_state_label(SessionState::Ended, Lang::Es);
+        for (other, name) in [
+            (working, "active"),
+            (permission, "waiting-permission"),
+            (ended, "ended"),
+        ] {
+            assert_ne!(
+                glyph.unicode, other.unicode,
+                "waiting borrows no glyph from `{name}`: a shared symbol is a state the reader cannot tell apart"
+            );
+        }
+        // Both languages, because the word is the accessible half of the pair.
+        let (_, en) = session_state_label(SessionState::WaitingInstruction, Lang::En);
+        assert_eq!(en, "waiting-instruction");
+
+        // Directable like an active one: an instruction queues as the next turn,
+        // and nothing is resumed. What is NOT offered is interrupting — there is
+        // no turn to stop.
+        let waiting = SessionRow {
+            id: "s-1".into(),
+            agent: "mock".into(),
+            state: SessionState::WaitingInstruction,
+            project_root: "/repo".into(),
+            resumable: false,
+            agent_id: None,
+            profile: None,
+            title: None,
+        };
+        assert!(!waiting.is_historical(), "alive, not history");
+        assert!(waiting.accepts_instruction(), "and it takes an instruction");
+        assert!(!waiting.is_working(), "but nothing is running in it");
+        assert_eq!(
+            direction_prospect(Some(&waiting), false),
+            Msg::DirectWillQueue
+        );
+        assert_eq!(
+            direction_prospect(Some(&waiting), true),
+            Msg::DirectWillQueue,
+            "asking to interrupt a session with no turn still queues, and says so"
+        );
+    }
 
     fn ctx(present: Presentation) -> ShellCtx {
         ShellCtx {

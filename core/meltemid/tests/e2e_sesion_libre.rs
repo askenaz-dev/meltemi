@@ -799,3 +799,316 @@ async fn a_repository_with_no_history_starts_and_gets_the_other_remedy() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Waits until a session reports the given state, or gives up saying what it
+/// found instead.
+async fn wait_for_state(
+    peer: &Peer,
+    root: &str,
+    session_id: &str,
+    want: &str,
+) -> serde_json::Value {
+    let mut last = serde_json::Value::Null;
+    for _ in 0..400 {
+        let list = peer
+            .request(methods::SESSION_LIST, &json!({ "projectRoot": root }))
+            .await
+            .expect("session/list ok");
+        if let Some(found) = list["sessions"]
+            .as_array()
+            .and_then(|all| all.iter().find(|s| s["sessionId"] == session_id))
+        {
+            if found["state"] == want {
+                return found.clone();
+            }
+            last = found.clone();
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("session never reached `{want}`; last seen: {last:#}");
+}
+
+// Scenario: La sesión sobrevive al turno y espera
+// Scenario: La instrucción despierta la espera sin reanudar
+// Scenario: Arranque desacoplado responde con el identificador
+#[tokio::test]
+async fn a_detached_session_waits_after_its_turn_and_the_next_instruction_wakes_it() {
+    let root = fixture("waits", &[]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("waits").await;
+    let peer = init_client(&endpoint).await;
+
+    // Detached: the answer arrives as soon as the session exists, carrying its
+    // id and NO status — the turn has not happened yet.
+    let started = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({
+                "projectRoot": root_str,
+                "instruction": "find out why the build is slow",
+                "detach": true,
+            }),
+        ),
+    )
+    .await
+    .expect("a detached start answers without waiting for the turn")
+    .expect("session/start ok");
+    assert!(
+        started["status"].is_null(),
+        "a turn that has not happened has no status: {started:#}"
+    );
+    let session_id = started["sessionId"]
+        .as_str()
+        .expect("a session id")
+        .to_string();
+
+    // The turn runs, and the session does NOT end: it waits.
+    let waiting = wait_for_state(&peer, &root_str, &session_id, "waiting_instruction").await;
+    assert!(
+        waiting["endedAt"].is_null(),
+        "a waiting session has not ended: {waiting:#}"
+    );
+    let events = log_events(&peer, &root_str, &session_id).await;
+    assert!(
+        !events.iter().any(|e| e["type"] == "session_ended"),
+        "nothing was finalized: the session is between turns, not over: {events:#?}"
+    );
+
+    // The next instruction runs as the NEXT TURN of the same session — queued,
+    // never resumed. A resume would answer `resumed` and mint a new session id.
+    let directed = peer
+        .request(
+            methods::SESSION_DIRECT,
+            &json!({
+                "sessionId": session_id,
+                "instruction": "now make it faster",
+                "projectRoot": root_str,
+            }),
+        )
+        .await
+        .expect("session/direct ok");
+    assert_eq!(
+        directed["disposition"], "queued",
+        "the waiting session took the instruction directly, without resuming: {directed:#}"
+    );
+    assert_eq!(directed["sessionId"], session_id, "{directed:#}");
+
+    // Two prompts in one session log is the proof that the agent subprocess
+    // survived the first turn: a resume would have written its own log.
+    for _ in 0..400 {
+        let events = log_events(&peer, &root_str, &session_id).await;
+        if events.iter().filter(|e| e["type"] == "prompt_sent").count() >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let events = log_events(&peer, &root_str, &session_id).await;
+    assert_eq!(
+        events.iter().filter(|e| e["type"] == "prompt_sent").count(),
+        2,
+        "the relayed instruction ran in the SAME agent session: {events:#?}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: La sesión en espera se cancela como cualquier otra
+#[tokio::test]
+async fn cancelling_a_waiting_session_ends_it() {
+    let root = fixture("cancel-waiting", &[]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("cancel-waiting").await;
+    let peer = init_client(&endpoint).await;
+
+    let started = peer
+        .request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "look around", "detach": true }),
+        )
+        .await
+        .expect("session/start ok");
+    let session_id = started["sessionId"]
+        .as_str()
+        .expect("a session id")
+        .to_string();
+    wait_for_state(&peer, &root_str, &session_id, "waiting_instruction").await;
+
+    // A session parked at the boundary waits on the queue's signal and nothing
+    // else. If cancelling did not reach it, `session/cancel` would stop meaning
+    // anything for a session that is not running a turn — which, after this
+    // change, is most of the time.
+    peer.notify(methods::SESSION_CANCEL, &json!({ "sessionId": session_id }));
+    let ended = wait_for_state(&peer, &root_str, &session_id, "ended").await;
+    assert!(
+        !ended["endedAt"].is_null(),
+        "and it was finalized properly, not merely forgotten: {ended:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A fixture whose sessions stop waiting almost immediately, so the bound can be
+/// observed without the test sleeping for the real default.
+fn fixture_with_idle(tag: &str, idle_seconds: u64) -> PathBuf {
+    let root = fixture(tag, &[]);
+    let config = root.join(".meltemi").join("config.toml");
+    let existing = std::fs::read_to_string(&config).expect("the fixture wrote a config");
+    std::fs::write(
+        &config,
+        format!(
+            "{existing}
+[sessions]
+idle-timeout = {idle_seconds}
+"
+        ),
+    )
+    .expect("config written");
+    root
+}
+
+// Scenario: Sin pedirlo, el arranque responde como siempre
+#[tokio::test]
+async fn an_attached_start_answers_at_the_end_with_its_status_as_it_always_did() {
+    // The additive half. Everything above changes only for a caller that asked
+    // to stay; a caller that did not gets the same answer, at the same moment,
+    // with the same fields — including a `status`, which is what makes the
+    // scriptable surface usable at all.
+    let root = fixture("attached", &[]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("attached").await;
+    let peer = init_client(&endpoint).await;
+
+    let started = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "have a look" }),
+        ),
+    )
+    .await
+    .expect("an attached start answers when its turn ends, not fifteen minutes later")
+    .expect("session/start ok");
+    assert_eq!(
+        started["status"], "completed",
+        "the outcome is in the answer: {started:#}"
+    );
+    let session_id = started["sessionId"].as_str().expect("a session id");
+
+    // And it ENDED. Not asking to stay is not a request to be kept alive.
+    let list = peer
+        .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .expect("session/list ok");
+    let session = list["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|s| s["sessionId"] == session_id)
+        .unwrap_or_else(|| panic!("the session is missing from {list:#}"));
+    assert_eq!(
+        session["state"], "ended",
+        "a caller who waited for the outcome did not ask for a session to keep: {list:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Instrucción a una sesión que espera se despacha de inmediato
+#[tokio::test]
+async fn an_instruction_to_a_waiting_session_runs_at_once_rather_than_resuming() {
+    let root = fixture("wakes-now", &[]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("wakes-now").await;
+    let peer = init_client(&endpoint).await;
+
+    let started = peer
+        .request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "look around", "detach": true }),
+        )
+        .await
+        .expect("session/start ok");
+    let session_id = started["sessionId"]
+        .as_str()
+        .expect("a session id")
+        .to_string();
+    wait_for_state(&peer, &root_str, &session_id, "waiting_instruction").await;
+
+    // The distinguishing fact: `queued`, not `resumed`. A resume would mint a
+    // NEW session id and link it — which is what used to happen, and what this
+    // change exists to stop happening for a conversation that never ended.
+    let directed = peer
+        .request(
+            methods::SESSION_DIRECT,
+            &json!({
+                "sessionId": session_id,
+                "instruction": "and now the tests",
+                "projectRoot": root_str,
+            }),
+        )
+        .await
+        .expect("session/direct ok");
+    assert_eq!(directed["disposition"], "queued", "{directed:#}");
+    assert_eq!(
+        directed["sessionId"], session_id,
+        "the same session, not a linked successor: {directed:#}"
+    );
+    assert!(
+        directed["resumedFrom"].is_null(),
+        "nothing was resumed: {directed:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: La espera vencida termina con su motivo
+#[tokio::test]
+async fn an_expired_wait_ends_with_its_own_reason_and_stays_resumable() {
+    // One second, so the bound is observable. The default is fifteen minutes,
+    // which is the point: this is measuring the mechanism, not the number.
+    let root = fixture_with_idle("idle-expires", 1);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("idle-expires").await;
+    let peer = init_client(&endpoint).await;
+
+    let started = peer
+        .request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "look around", "detach": true }),
+        )
+        .await
+        .expect("session/start ok");
+    let session_id = started["sessionId"]
+        .as_str()
+        .expect("a session id")
+        .to_string();
+
+    let ended = wait_for_state(&peer, &root_str, &session_id, "ended").await;
+    assert!(!ended["endedAt"].is_null(), "properly finalized: {ended:#}");
+
+    // And it says what actually happened. A session whose wait expired did NOT
+    // complete, and recording it as completed would be the log agreeing with a
+    // story nobody told it.
+    let events = log_events(&peer, &root_str, &session_id).await;
+    let end = events
+        .iter()
+        .find(|e| e["type"] == "session_ended")
+        .unwrap_or_else(|| panic!("the session recorded its end: {events:#?}"));
+    assert_eq!(
+        end["payload"]["reason"], "idle_timeout",
+        "the reason is the one that happened, not the flattering one: {end:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}

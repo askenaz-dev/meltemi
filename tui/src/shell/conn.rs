@@ -296,6 +296,10 @@ async fn serve_connection(
                             instruction,
                             project_root: Some(project_root),
                             interrupt,
+                            // The scriptable shell waits for the answer, so it
+                            // is not staying: a resumed session ends with its
+                            // turn, as it always did (design D3).
+                            detach: false,
                         };
                         let notice = match peer.request(methods::SESSION_DIRECT, &params).await {
                             Ok(value) => direct_notice(&value, lang),

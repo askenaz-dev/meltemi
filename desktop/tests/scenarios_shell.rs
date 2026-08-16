@@ -1994,6 +1994,54 @@ fn strip_comments(source: &str) -> String {
     }
 }
 
+// Scenario: El compositor no muere al terminar el turno
+// Scenario: Esperar no enciende el indicador de trabajo
+#[test]
+fn a_waiting_session_keeps_its_composer_and_leaves_the_ring_dark() {
+    let detail = strip_comments(&read("desktop/ui/src/lib/views/SessionDetail.svelte"));
+
+    // The composer sends (rather than resumes) for every ALIVE state, and the
+    // list of alive states is no longer written here — it is derived from the
+    // contract's own answer, so a session waiting for its next instruction gets
+    // a working composer without this file naming it.
+    assert!(
+        detail.contains("const LIVE = (Object.keys(LIVE_STATE) as SessionState[]).filter(isLive)"),
+        "the composer takes its notion of alive from the one place that decides it"
+    );
+    let shared = strip_comments(&read("desktop/ui/src/lib/session-state.ts"));
+    assert!(
+        shared.contains("waiting_instruction: true"),
+        "and waiting for an instruction is alive: {shared}"
+    );
+
+    // Alive means SEND, and `resumes` is the negation — so a waiting session is
+    // never offered "Resume", which would relaunch a subprocess already running.
+    assert!(
+        detail.contains("const resumes = $derived(")
+            && detail.contains("!LIVE.includes(session.state) && session.resumable"),
+        "resuming is offered only where the session is NOT alive"
+    );
+
+    // And the ring stays dark, by construction: it is a literal comparison
+    // against the two states where an agent is actually running, not the LIVE
+    // list beside it. Waiting is not working.
+    let working = detail
+        .split("const working = $derived(")
+        .nth(1)
+        .expect("the composer decides when it looks busy")
+        .split(");")
+        .next()
+        .expect("the derivation closes");
+    assert!(
+        working.contains("\"active\"") && working.contains("\"starting\""),
+        "the ring spins for a running turn: {working}"
+    );
+    assert!(
+        !working.contains("waiting_instruction") && !working.contains("LIVE"),
+        "and not for a session that is merely alive: {working}"
+    );
+}
+
 // Scenario: Ninguna superficie omite el estado de espera
 #[test]
 fn every_session_state_is_declared_by_every_surface_that_shows_state() {

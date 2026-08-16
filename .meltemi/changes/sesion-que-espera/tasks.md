@@ -38,7 +38,7 @@
 - [x] 2.2 La espera compone en un `select!` con las tres salidas: instrucción
   nueva, cancelación (el mismo `cancel` que ya usa el apagado ordenado), y las
   cotas de la 4 — escenario «La sesión en espera se cancela como cualquier otra»
-- [ ] 2.3 El estado se declara **después** de que la espera humana haya
+- [x] 2.3 El estado se declara **después** de que la espera humana haya
   terminado, nunca antes: `end_waiting` restituye a `Active`
   incondicionalmente y pisaría el estado nuevo (design D7). Test que pinea el
   orden
@@ -68,7 +68,7 @@
 - [x] 3.3 El handler responde temprano copiando la forma que **ya existe en el
   mismo archivo**: la rama `queued`/`relayed` de `session/direct` responde con
   `status: null` y difiere el desenlace al stream (design D2)
-- [ ] 3.4 `session/direct` sobre una sesión en espera despacha de inmediato en
+- [x] 3.4 `session/direct` sobre una sesión en espera despacha de inmediato en
   vez de tomar el camino de reanudación — escenario «Instrucción a una sesión
   que espera se despacha de inmediato»
 
@@ -118,7 +118,7 @@
 - [x] 5.5 Se comprueba que el anillo **sigue oscuro sin tocarlo**: lo gobierna
   una comparación literal con su test, así que el estado nuevo queda apagado por
   construcción — escenario «Esperar no enciende el indicador de trabajo»
-- [ ] 5.6 TUI: estado con símbolo y palabra, y dirección ofrecida como sobre una
+- [x] 5.6 TUI: estado con símbolo y palabra, y dirección ofrecida como sobre una
   activa — escenario «El shell dice que la sesión espera»
 - [x] 5.7 CLI: el default sigue bloqueando, y la ayuda dice qué **no** se verá al
   desacoplar, porque `session/watch` y `session/log` son huecos declarados de la
@@ -127,13 +127,25 @@
 
 ## 6. El e2e y el cierre
 
-- [ ] 6.1 E2e contra el mock: turno, espera declarada, instrucción que despierta
+- [x] 6.1 E2e contra el mock: turno, espera declarada, instrucción que despierta
   sin relanzar el subproceso, y cancelación que termina la espera
-- [ ] 6.2 E2e de la cota: espera vencida que finaliza con su motivo y queda
+- [x] 6.2 E2e de la cota: espera vencida que finaliza con su motivo y queda
   reanudable
-- [ ] 6.3 QA del reposo con N sesiones esperando, medido y escrito — el riesgo
+- [x] 6.3 QA del reposo con N sesiones esperando, medido y escrito — el riesgo
   mayor que el proposal declaró es este y no se cierra suponiendo
-- [ ] 6.4 `validate` limpio, `verify` con todos los escenarios enlazados, suite
+  <!-- 2026-08-16: medido contra binarios release y un daemon propio, con cinco
+  sesiones confirmadas en `waiting_instruction` antes de contar:
+  `docs/qa/2026-08-16-sesion-que-espera-reposo.md`. El daemon crece ~1.2 MB por
+  sesión aparcada; el subproceso son ~6.9 MB **con el mock**, que es un binario
+  Rust diminuto. El número que manda es el del agente real —Node, uno o dos
+  órdenes de magnitud más— y solo el mantenedor puede medirlo (§5). Con los
+  defaults, el techo del reposo son tres agentes, no los que quepan. -->
+- [x] 6.4 `validate` limpio, `verify` con todos los escenarios enlazados, suite
   completa, clippy, fmt, gates del frontend, y `docs/paridad-nucleo.md` revisado
   (el desacople es parámetro, no verbo: se comprueba que no haga falta fila
   nueva)
+  <!-- 2026-08-16: la matriz no gana fila —`detach` es parámetro de dos verbos ya
+  registrados en las tres superficies—, pero sí gana una nota: la CLI **puede**
+  enviarlo y **declina**, y declina por una razón medida que está dos filas más
+  arriba (`session/log` y `session/watch` son `—` para ella). No es ruptura de
+  §4; lo será el día que la CLI sepa leer el stream y siga sin ofrecerlo. -->

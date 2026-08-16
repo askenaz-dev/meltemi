@@ -85,12 +85,13 @@ decisión declarada y no un flag que cada comando interpreta a su manera.
   `tui/src/cli.rs` (los flags `--yaml` y `--no-color`),
   `tui/src/run.rs` (los listados que ganan resumen y alineación),
   `docs/referencia-cli.md` (regenerada), `tui/tests/`.
-- **Una dependencia nueva**, y se justifica aquí porque la constitución lo
-  exige (§10): un serializador YAML. Rust no lo trae, y escribir uno a mano
-  para emitir el árbol de `serde_json::Value` sería reinventar un formato con
-  sus casos de borde (multilínea, comillas, claves con dos puntos). El color
-  **no** añade dependencia: son secuencias ANSI que el proyecto ya emite en el
-  shell.
+- **Cero dependencias nuevas.** El emisor de YAML es propio y cabe en unas
+  decenas de líneas porque YAML 1.2 es superconjunto de JSON: emitiendo siempre
+  las cadenas entre comillas dobles con el escapado de JSON, el resultado es
+  válido por construcción y los casos de borde no llegan a existir. La
+  alternativa —`serde_yaml`— está archivada por su autor desde 2024 y exigiría
+  un `ignore` en `deny.toml` elegido a propósito (design D2). El color tampoco
+  añade dependencia: son secuencias ANSI que el proyecto ya emite en el shell.
 - **Cero cambios en el daemon y en el contrato `proto/`**: esto es la
   superficie del cliente. No nace deber de paridad §4 — la GUI y la TUI tienen
   su propia presentación, gobernada por sus specs.

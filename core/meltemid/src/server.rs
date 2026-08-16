@@ -2009,7 +2009,7 @@ async fn handle_session_direct(
             ),
         ));
     }
-    resume_with_instruction(state, peer, &record, &params.instruction).await
+    resume_with_instruction(state, peer, &record, &params.instruction, params.detach).await
 }
 
 /// Finds a session's metadata record by id, within one project when a root is
@@ -2054,6 +2054,7 @@ async fn resume_with_instruction(
     peer: &Peer,
     record: &crate::session_index::SessionRecord,
     instruction: &str,
+    detach: bool,
 ) -> Result<Value, RpcError> {
     use meltemi_proto::{DirectDisposition, SessionDirectResult, SessionState};
 
@@ -2134,10 +2135,15 @@ async fn resume_with_instruction(
         cancel: reg.cancel,
         cancelled: reg.cancelled,
         in_flight: reg.in_flight,
-        // A resumed session IS the conversation continuing, so it waits
-        // like any other: resuming to answer once and die would put the
-        // user back where this change started.
-        idle_timeout: config.idle_timeout(),
+        // A resumed session IS the conversation continuing — but only for a
+        // caller who is staying. This branch runs the turn INSIDE the request,
+        // so parking it for a caller that is waiting would hang the very call
+        // that asked (sesion-que-espera design D2).
+        idle_timeout: if detach {
+            config.idle_timeout()
+        } else {
+            std::time::Duration::ZERO
+        },
         max_idle_sessions: config.max_idle_sessions(),
         wait: config.interactive_wait(),
         no_client_grace: config.no_client_grace(),

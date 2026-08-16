@@ -30,7 +30,11 @@ SUBCOMMANDS:
                         relaxed — the fleet resolves the agent, permissions go
                         through the proxy, the log is append-only, and a
                         restore point is taken before the first turn (or its
-                        absence is declared with the remedy that fits)
+                        absence is declared with the remedy that fits).
+                        It WAITS for the turn and prints its outcome; the
+                        session ends with it. Staying between turns is what the
+                        desktop surface does, and it needs the event stream this
+                        command has no way to read
     sessions            list agent sessions (active and historical)
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing

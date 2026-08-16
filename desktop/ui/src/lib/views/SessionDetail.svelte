@@ -506,6 +506,11 @@
         sessionId,
         instruction,
         ...(interrupt ? { interrupt: true } : {}),
+        // This surface is staying, so a session it resumes stays alive between
+        // turns too. Without this the resumed conversation would die at its
+        // first reply — which is the exact complaint this change exists to fix,
+        // just moved one step later (sesion-que-espera design D2).
+        detach: true,
       });
       draft = "";
       if (result.disposition === "queued") {

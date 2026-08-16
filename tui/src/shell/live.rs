@@ -68,6 +68,14 @@ impl SessionRow {
     pub fn accepts_instruction(&self) -> bool {
         !self.is_historical() || self.resumable
     }
+
+    /// Whether a turn is running RIGHT NOW, which is narrower than being alive:
+    /// a session waiting for its next instruction holds an agent but is running
+    /// nothing, and a session waiting on a decision has stopped.
+    #[must_use]
+    pub fn is_working(&self) -> bool {
+        matches!(self.state, SessionState::Active | SessionState::Starting)
+    }
 }
 
 impl From<SessionInfo> for SessionRow {

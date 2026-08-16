@@ -34,7 +34,11 @@ SUBCOMMANDS:
                         relaxed — the fleet resolves the agent, permissions go
                         through the proxy, the log is append-only, and a
                         restore point is taken before the first turn (or its
-                        absence is declared with the remedy that fits)
+                        absence is declared with the remedy that fits).
+                        It WAITS for the turn and prints its outcome; the
+                        session ends with it. Staying between turns is what the
+                        desktop surface does, and it needs the event stream this
+                        command has no way to read
     sessions            list agent sessions (active and historical)
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing
@@ -1012,6 +1016,39 @@ mod tests {
             plan_of(&["direct", "sess-1"], false).action,
             Action::Usage(_)
         ));
+    }
+
+    // Scenario: Arrancar desde la CLI sigue mostrando el desenlace
+    #[test]
+    fn the_scriptable_start_waits_for_the_outcome_and_says_so() {
+        // The CLI does not detach, and the reason is measured rather than
+        // cautious: `session/watch` and `session/log` are declared gaps in this
+        // surface (docs/paridad-nucleo.md), so a detached start here would print
+        // an id and exit, having shown the user nothing of the turn. The help
+        // says that out loud instead of leaving it to be discovered.
+        let plan = plan_of(&["session", "fix the build"], false);
+        assert!(
+            matches!(plan.action, Action::Run(Command::Session { .. })),
+            "the verb still starts a session"
+        );
+        let session_help = USAGE
+            .split("session <instruction>")
+            .nth(1)
+            .expect("the help documents the verb")
+            .split(
+                "
+    sessions",
+            )
+            .next()
+            .expect("its entry ends where the next verb begins");
+        assert!(
+            session_help.contains("WAITS for the turn"),
+            "the help says the command waits: {session_help}"
+        );
+        assert!(
+            session_help.contains("event stream"),
+            "and names what this surface cannot read, which is why it waits: {session_help}"
+        );
     }
 
     #[test]
