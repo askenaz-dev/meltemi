@@ -6,21 +6,26 @@
 
 ## 1. El adaptador deja de rehusar la pregunta
 
-- [ ] 1.1 `AskUserQuestion` sale de `interactive_only`, **y el mecanismo se
+- [x] 1.1 `AskUserQuestion` sale de `interactive_only`, **y el mecanismo se
   queda**: la lista sobrevive con su motivo para la siguiente herramienta que sí
   lo sea (design D1) — escenario «Lo que de verdad no se puede relevar se sigue
   rehusando»
-- [ ] 1.2 El input se parsea en preguntas con sus opciones (rótulo, descripción,
+  <!-- 2026-08-16: la lista queda **vacía**, y eso se dice en voz alta para que
+  no se lea como un mecanismo que alguien borró: `AskUserQuestion` era su única
+  entrada. El test que probaba el rehúso ahora prueba el mecanismo —cada nombre
+  de la lista responde con su motivo, de modo que el día que se añada uno el
+  rehúso ya está cableado— y afirma que la lista está vacía hoy. -->
+- [x] 1.2 El input se parsea en preguntas con sus opciones (rótulo, descripción,
   `multiSelect`), tolerando una forma que no reconozca **rehusando**, jamás
   adivinando (design D7)
-- [ ] 1.3 Cada pregunta sale como `session/request_permission` con **las opciones
+- [x] 1.3 Cada pregunta sale como `session/request_permission` con **las opciones
   del agente** y sus rótulos verbatim — escenario «Una pregunta llega con las
   opciones del agente»
-- [ ] 1.4 La excepción al input intacto, acotada en código a esta herramienta y
+- [x] 1.4 La excepción al input intacto, acotada en código a esta herramienta y
   al campo que el propio input declara (design D2); los dos tests vigentes se
   enmiendan **por adición** y siguen exigiendo input intacto para todo lo demás
   — escenario «Solo una pregunta completa su propio input»
-- [ ] 1.5 `multiSelect` se descompone en peticiones por pregunta; lo que el cable
+- [x] 1.5 `multiSelect` se descompone en peticiones por pregunta; lo que el cable
   no admite se dice en el rótulo, no se finge (design D3)
 
 ## 2. El mock aprende a preguntar

@@ -19,7 +19,7 @@ async fn main() {
     let endpoint = meltemi_client::paths::endpoint();
     let mut out = io::stdout().lock();
     let mut err = io::stderr().lock();
-    let code = meltemi::dispatch(planned, &endpoint, &mut out, &mut err).await;
+    let code = meltemi::dispatch(planned, &endpoint, stdout_is_tty, &mut out, &mut err).await;
 
     let _ = out.flush();
     let _ = err.flush();

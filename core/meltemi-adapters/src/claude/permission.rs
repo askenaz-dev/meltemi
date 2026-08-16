@@ -23,9 +23,16 @@
 //!   name.
 //! - **An allowed call runs exactly as it was asked.** The channel lets the
 //!   answer rewrite the tool's arguments. This adapter hands them back
-//!   unchanged, always: a bridge that edited what it was relaying would be
-//!   deciding something nobody asked it to decide, and the human approved what
-//!   they were shown.
+//!   unchanged: a bridge that edited what it was relaying would be deciding
+//!   something nobody asked it to decide, and the human approved what they were
+//!   shown.
+//!
+//!   The rule has **exactly one exception, and it is bounded by construction**:
+//!   the tool through which this provider asks a person to choose. There the
+//!   input *is* the form — the human is not rewriting what the agent was going
+//!   to do, they are completing what the agent came to ask — and the answer is
+//!   written into the question the agent sent, leaving the rest untouched. Every
+//!   other tool still travels byte for byte (preguntas-del-agente design D2).
 
 use agent_client_protocol::schema::v1::{
     ContentBlock, PermissionOption, PermissionOptionKind, RequestPermissionRequest, SessionId,
@@ -115,6 +122,100 @@ pub fn request_for(
     )
 }
 
+/// The permission request that carries a question, with the AGENT'S options.
+///
+/// Unlike an approval — where the two options are Meltemi's own "allow once" and
+/// "reject" — here the options belong to the agent and travel verbatim, labels
+/// included. A recommendation the agent wrote into a label is information the
+/// human is entitled to see, and rewriting it would be this adapter editing the
+/// question on its way to the person it was asked of.
+///
+/// The option ids are positional (`option-0`, `option-1`, …) because the
+/// provider's options carry a label and no id, and a label is not an
+/// identifier: two options may read alike, and a label may change between
+/// versions of the same question.
+#[must_use]
+pub fn question_request(
+    session_id: &SessionId,
+    tool_use_id: Option<&str>,
+    question: &Question,
+) -> RequestPermissionRequest {
+    let fields = ToolCallUpdateFields::new()
+        .kind(mapping::kind_of(ASK_TOOL))
+        .status(ToolCallStatus::Pending)
+        .title(if question.text.is_empty() {
+            "the agent is asking".to_string()
+        } else {
+            question.text.clone()
+        })
+        .content(vec![
+            ContentBlock::Text(TextContent::new(question.text.clone())).into(),
+        ]);
+    let options = question
+        .options
+        .iter()
+        .enumerate()
+        .map(|(at, option)| {
+            PermissionOption::new(
+                question_option_id(at),
+                option.label.clone(),
+                // An answer to a question is neither an approval nor a refusal.
+                // `AllowOnce` is the closest thing the protocol's vocabulary
+                // has to "this one, now" — and the kind is what a surface reads
+                // to decide styling, never what decides meaning here.
+                PermissionOptionKind::AllowOnce,
+            )
+        })
+        .collect();
+    RequestPermissionRequest::new(
+        session_id.clone(),
+        ToolCallUpdate::new(tool_use_id.unwrap_or(ASK_TOOL).to_string(), fields),
+        options,
+    )
+}
+
+/// The id of the option at `index` of a question.
+#[must_use]
+pub fn question_option_id(index: usize) -> String {
+    format!("option-{index}")
+}
+
+/// Which option a decision names, when it names one of a question's.
+#[must_use]
+pub fn question_choice(decision: &Decision, question: &Question) -> Option<usize> {
+    let Decision::Selected(option) = decision else {
+        return None;
+    };
+    (0..question.options.len()).find(|at| question_option_id(*at) == *option)
+}
+
+/// The answer to a question, in the shape the CLI's channel takes.
+///
+/// **The one exception to "an allowed call runs exactly as it was approved"**,
+/// and it is bounded to this tool by construction: in a question the input *is*
+/// the form. The human is not rewriting what the agent was going to do — they
+/// are completing what the agent came to ask (design D2). Every other tool's
+/// input still travels byte for byte; see [`payload`].
+///
+/// The answer is written back into the question the agent sent, under `answer`,
+/// leaving the rest of the input untouched. That field name is **the half of
+/// this change we do not control**: it belongs to the provider's tool, it is
+/// not specified by us, and it can move with a version. When it does, the
+/// version conformance requirement is what refuses rather than guesses.
+#[must_use]
+pub fn question_payload(input: &Value, at: usize, answer: &str) -> Value {
+    let mut updated = input.clone();
+    if let Some(question) = updated
+        .get_mut("questions")
+        .and_then(Value::as_array_mut)
+        .and_then(|all| all.get_mut(at))
+        && let Some(object) = question.as_object_mut()
+    {
+        object.insert("answer".into(), Value::String(answer.to_string()));
+    }
+    json!({"behavior": "allow", "updatedInput": updated})
+}
+
 /// The answer the CLI gets, from the decision the proxy made.
 ///
 /// The shape is the provider's: a payload the permission tool returns, saying
@@ -161,11 +262,101 @@ pub fn deny(reason: &str) -> Value {
 /// in — the proxy still decides, and the CLI still refuses what it cannot do.
 #[must_use]
 pub fn interactive_only(tool: &str) -> Option<&'static str> {
-    matches!(tool, "AskUserQuestion").then_some(
-        "this tool asks a person a question in the CLI's own interface, which a \
-         headless session does not have; the provider refuses it in this mode and \
-         Meltemi shows the refusal rather than hiding it",
-    )
+    INTERACTIVE_ONLY
+        .iter()
+        .find(|(name, _)| *name == tool)
+        .map(|(_, reason)| *reason)
+}
+
+/// The tools that cannot be relayed, with the reason each is refused for.
+///
+/// **Empty today, and that is the finding rather than an oversight.**
+/// `AskUserQuestion` was its only entry, refused because "there is no interface
+/// here to ask it in". That premise expired: Meltemi *is* that interface, and it
+/// now relays the question with the agent's own options
+/// (preguntas-del-agente D1).
+///
+/// The mechanism stays because the provider keeps adding tools and the next one
+/// may genuinely need a surface this one does not have. A name absent from here
+/// is relayed like any other, which remains the safe direction to be wrong in:
+/// the proxy still decides and the CLI still refuses what it cannot do.
+pub const INTERACTIVE_ONLY: &[(&str, &str)] = &[];
+
+/// The tool through which this provider asks a person to choose.
+pub const ASK_TOOL: &str = "AskUserQuestion";
+
+/// One question the agent is asking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Question {
+    /// The question itself, as the agent wrote it.
+    pub text: String,
+    /// Its options, with the agent's own labels — verbatim, including whatever
+    /// the agent marked as recommended inside the label it wrote.
+    pub options: Vec<QuestionOption>,
+    /// Whether the agent asked for more than one answer. The relay channel
+    /// carries exactly one, so this is reported rather than honoured (D3).
+    pub multi_select: bool,
+}
+
+/// One option of a question.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuestionOption {
+    /// The agent's own label. Never rewritten: a recommendation the agent put
+    /// in its label is information the human is entitled to see.
+    pub label: String,
+    /// The agent's explanation of the option, when it wrote one.
+    pub description: Option<String>,
+}
+
+/// Reads the questions out of an `AskUserQuestion` input.
+///
+/// Returns `None` when the input is not the shape this adapter knows, and that
+/// is the whole of the answer to a risk we do not control: the exact shape
+/// belongs to the provider and can change with its version, so an unrecognized
+/// input is **refused**, never guessed at (design D7). A refusal is visible in
+/// the session; a guess would put a question to a human that answers something
+/// else.
+#[must_use]
+pub fn questions_of(input: &Value) -> Option<Vec<Question>> {
+    let raw = input.get("questions")?.as_array()?;
+    if raw.is_empty() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(raw.len());
+    for item in raw {
+        let options: Vec<QuestionOption> = item
+            .get("options")?
+            .as_array()?
+            .iter()
+            .filter_map(|option| {
+                Some(QuestionOption {
+                    label: option.get("label")?.as_str()?.to_string(),
+                    description: option
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                })
+            })
+            .collect();
+        // A question with no options is not a question this surface can put:
+        // there would be nothing to choose.
+        if options.is_empty() {
+            return None;
+        }
+        out.push(Question {
+            text: item
+                .get("question")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            options,
+            multi_select: item
+                .get("multiSelect")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        });
+    }
+    Some(out)
 }
 
 /// What the session shows about a call that was refused.
@@ -278,20 +469,156 @@ mod tests {
         assert_eq!(prompt_tool_reference(), "mcp__meltemi_permissions__approve");
     }
 
+    // Scenario: Lo que de verdad no se puede relevar se sigue rehusando
     #[test]
-    fn a_tool_that_needs_a_person_in_front_of_it_is_refused_with_that_as_the_reason() {
-        // Scenario: Interacción no relevable denegada con motivo visible
-        //
-        // Not a permission question at all: the tool wants to ask a human
-        // something in an interface this session does not have. Putting it to
-        // the proxy would offer a yes that could not work; refusing it silently
-        // would leave the human wondering what the agent did instead.
-        let said = interactive_only("AskUserQuestion").expect("it cannot be relayed");
-        assert!(said.contains("headless"), "{said}");
+    fn the_refusal_mechanism_survives_the_tool_that_left_it() {
+        // `AskUserQuestion` was this list's only entry, refused because a
+        // headless session has no interface to ask a person in. Meltemi IS that
+        // interface, so the premise expired and the tool left the list — but
+        // the mechanism did not, because the provider keeps adding tools and
+        // the next one may genuinely need a surface this one lacks.
+        assert!(
+            interactive_only(ASK_TOOL).is_none(),
+            "a question is relayed now, with the agent's own options"
+        );
         assert!(
             interactive_only("Bash").is_none(),
-            "everything else is relayed like anything else"
+            "everything else is relayed like anything else, as it always was"
         );
+        // Empty TODAY, and said out loud so an empty list does not read as a
+        // mechanism somebody deleted.
+        assert!(
+            INTERACTIVE_ONLY.is_empty(),
+            "nothing is currently known to be unrelayable: {INTERACTIVE_ONLY:?}"
+        );
+        // And it still works: every name on it answers with its own reason, so
+        // the day a name is added the refusal is already wired.
+        for (tool, reason) in INTERACTIVE_ONLY {
+            assert_eq!(interactive_only(tool), Some(*reason));
+            assert_eq!(deny(reason)["behavior"], "deny");
+        }
+    }
+
+    // Scenario: Una pregunta llega con las opciones del agente
+    #[test]
+    fn a_question_travels_with_the_agents_own_options_and_labels() {
+        let input = json!({
+            "questions": [{
+                "question": "which route?",
+                "multiSelect": false,
+                "options": [
+                    {"label": "Rewrite it (recommended)", "description": "cleaner"},
+                    {"label": "Patch it"}
+                ]
+            }]
+        });
+        let questions = questions_of(&input).expect("a shape this adapter knows");
+        assert_eq!(questions.len(), 1);
+        assert_eq!(questions[0].text, "which route?");
+        assert_eq!(
+            questions[0].options[0].label, "Rewrite it (recommended)",
+            "the agent's label travels verbatim: a recommendation it wrote is              information the human is entitled to see"
+        );
+        assert_eq!(questions[0].options[1].description, None);
+
+        let request = question_request(&SessionId::new("s-1"), Some("toolu_9"), &questions[0]);
+        let names: Vec<&str> = request
+            .options
+            .iter()
+            .map(|option| option.name.as_str())
+            .collect();
+        assert_eq!(names, ["Rewrite it (recommended)", "Patch it"]);
+        assert_eq!(
+            request.tool_call.tool_call_id.0.as_ref(),
+            "toolu_9",
+            "asked against the very call the CLI streamed"
+        );
+    }
+
+    #[test]
+    fn a_shape_this_adapter_does_not_know_is_refused_rather_than_guessed_at() {
+        // The half of this we do not control. The input shape belongs to the
+        // provider and can move with its version; a guess would put a question
+        // to a human that answers something else.
+        for unknown in [
+            json!({}),
+            json!({"questions": []}),
+            json!({"questions": [{"question": "which?"}]}),
+            json!({"questions": [{"question": "which?", "options": []}]}),
+            json!({"prompt": "which route?"}),
+        ] {
+            assert_eq!(
+                questions_of(&unknown),
+                None,
+                "unrecognised, and therefore refused: {unknown}"
+            );
+        }
+    }
+
+    // Scenario: Solo una pregunta completa su propio input
+    #[test]
+    fn only_a_question_completes_its_own_input_and_nothing_else_is_touched() {
+        // The rule that must not bend: an allowed call runs exactly as it was
+        // approved. Pinned here for a tool that is not a question.
+        let call = json!({"command": "rm -rf /"});
+        let allowed = payload(&Decision::Selected(ALLOW_ONCE.into()), &call);
+        assert_eq!(
+            allowed["updatedInput"], call,
+            "an ordinary call travels byte for byte"
+        );
+
+        // And the one exception, bounded to a question: the answer is written
+        // into the question the agent sent, and NOTHING else moves. In a
+        // question the input is the form — completing it is not rewriting what
+        // the agent was going to do.
+        let input = json!({
+            "context": "keep me",
+            "questions": [
+                {"question": "which route?", "options": [{"label": "Rewrite it"}]},
+                {"question": "and then?", "options": [{"label": "Ship"}]}
+            ]
+        });
+        let answer = question_payload(&input, 0, "Rewrite it");
+        let updated = &answer["updatedInput"];
+        assert_eq!(answer["behavior"], "allow");
+        assert_eq!(updated["questions"][0]["answer"], "Rewrite it");
+        assert_eq!(
+            updated["questions"][0]["question"], "which route?",
+            "the question itself is not rewritten"
+        );
+        assert!(
+            updated["questions"][1].get("answer").is_none(),
+            "a question that was not answered gains nothing"
+        );
+        assert_eq!(updated["context"], "keep me", "and the rest is untouched");
+    }
+
+    #[test]
+    fn an_option_nobody_offered_answers_a_question_no_more_than_it_answers_a_call() {
+        let question = Question {
+            text: "which route?".into(),
+            options: vec![QuestionOption {
+                label: "Rewrite it".into(),
+                description: None,
+            }],
+            multi_select: false,
+        };
+        assert_eq!(
+            question_choice(&Decision::Selected(question_option_id(0)), &question),
+            Some(0)
+        );
+        for wrong in [
+            Decision::Selected("option-7".into()),
+            Decision::Selected(ALLOW_ONCE.into()),
+            Decision::Cancelled,
+            Decision::Unavailable,
+        ] {
+            assert_eq!(
+                question_choice(&wrong, &question),
+                None,
+                "a gap in the chain is not an answer: {wrong:?}"
+            );
+        }
     }
 
     #[test]

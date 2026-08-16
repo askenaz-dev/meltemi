@@ -1040,6 +1040,48 @@ fn refusal_before_the_session(event: &Value) -> Option<Refusal> {
 /// long as a human takes, and a turn that was told to stop while a question sat
 /// unanswered would otherwise wait for both. The question is then withdrawn
 /// rather than answered, which on this channel means the call does not run.
+/// Puts the agent's questions to the human, one request per question.
+///
+/// One at a time because the channel's outcome is one option: a question that
+/// asked for several answers is still put, and still answered once — saying so
+/// beats faking a multiple selection over a wire that cannot carry it
+/// (preguntas-del-agente design D3).
+///
+/// An input this adapter does not recognise is **refused, never guessed at**.
+/// The shape belongs to the provider and can move with its version, and a guess
+/// would put a question to a human that answers something else (design D7).
+async fn ask_questions<S: TurnStream>(
+    turn: &TurnControl,
+    stream: &S,
+    session_id: &SessionId,
+    ask: &rendezvous::Ask,
+) -> Value {
+    let Some(questions) = permission::questions_of(&ask.input) else {
+        return permission::deny(
+            "this question did not arrive in a shape this adapter recognises, so it was              refused rather than guessed at; the provider's version may have moved ahead              of the adapter's",
+        );
+    };
+    let mut answered = ask.input.clone();
+    for (at, question) in questions.iter().enumerate() {
+        let request =
+            permission::question_request(session_id, ask.tool_use_id.as_deref(), question);
+        let decision = tokio::select! {
+            decision = stream.ask(request) => decision,
+            () = turn.wait_interrupted() => permission::Decision::Cancelled,
+        };
+        let Some(chosen) = permission::question_choice(&decision, question) else {
+            // Cancelled, or an option nobody offered. Either way there is no
+            // answer, and a question without an answer is not a question that
+            // ran: the same rule as every other relay on this channel.
+            return permission::payload(&decision, &ask.input);
+        };
+        answered = permission::question_payload(&answered, at, &question.options[chosen].label)
+            ["updatedInput"]
+            .clone();
+    }
+    serde_json::json!({"behavior": "allow", "updatedInput": answered})
+}
+
 async fn relay<S: TurnStream>(
     rendezvous: &Rendezvous,
     turn: &TurnControl,
@@ -1053,6 +1095,14 @@ async fn relay<S: TurnStream>(
     // happen would be worse than useless.
     let payload = match permission::interactive_only(&ask.tool) {
         Some(reason) => permission::deny(reason),
+        // A question is relayed as a question: the agent's own options, put to
+        // the human on the same queue every other request uses. What used to
+        // happen here was a refusal, on the premise that a headless session has
+        // no interface to ask in — and Meltemi is that interface
+        // (preguntas-del-agente design D1).
+        None if ask.tool == permission::ASK_TOOL => {
+            ask_questions(turn, stream, session_id, ask).await
+        }
         None => {
             let request = permission::request_for(
                 session_id,
@@ -1661,15 +1711,16 @@ mod tests {
         channel.close();
     }
 
+    // Scenario: Una pregunta llega con las opciones del agente
     #[tokio::test]
-    async fn a_tool_that_needs_a_person_is_refused_without_troubling_one() {
-        // Scenario: Interacción no relevable denegada con motivo visible
-        //
-        // The loss this dialect pays for being headless, made visible. No
-        // answer the proxy could give would let this tool work, so the proxy is
-        // never asked — and the refusal is shown in the session with the reason
-        // that produced it, rather than leaving the human to wonder what the
-        // agent did instead.
+    async fn a_question_reaches_the_proxy_with_its_options_and_comes_back_answered() {
+        // This test used to assert the opposite. It refused, on the premise
+        // that a headless session has no interface to ask a person in — true
+        // when written, and expired: Meltemi is that interface and puts the
+        // question on the same queue every other request uses
+        // (preguntas-del-agente design D1). What it asserts now is that the
+        // question travels with the AGENT'S options and the answer comes back
+        // completing the agent's own form.
         let (mut cli, adapter_side) = tokio::io::duplex(4096);
         let mut reader = FrameReader::new(adapter_side);
         let stream = Collected::default();
@@ -1677,14 +1728,31 @@ mod tests {
         let channel = channel("interactive");
         let session = session();
 
+        // The human picks the second option.
+        stream
+            .answers
+            .lock()
+            .unwrap()
+            .push(permission::Decision::Selected(
+                permission::question_option_id(1),
+            ));
+
         let asking = tokio::task::spawn_blocking({
             let dir = channel.address().to_path_buf();
             move || {
                 rendezvous::ask(
                     &dir,
-                    "AskUserQuestion",
+                    permission::ASK_TOOL,
                     Some("toolu_3"),
-                    &serde_json::json!({"question": "which one?"}),
+                    &serde_json::json!({
+                        "questions": [{
+                            "question": "which route?",
+                            "options": [
+                                {"label": "Rewrite it (recommended)"},
+                                {"label": "Patch it"}
+                            ]
+                        }]
+                    }),
                 )
             }
         });
@@ -1703,26 +1771,36 @@ mod tests {
         let (outcome, answered) = tokio::join!(driving, feeding);
         assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
 
+        // The proxy WAS asked, with the agent's own options and labels.
+        let asked = stream.asked.lock().unwrap();
+        assert_eq!(asked.len(), 1, "one request for one question");
+        let names: Vec<&str> = asked[0]
+            .options
+            .iter()
+            .map(|option| option.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["Rewrite it (recommended)", "Patch it"],
+            "the agent's labels reached the human unedited"
+        );
+        assert_eq!(
+            asked[0].tool_call.tool_call_id.0.as_ref(),
+            "toolu_3",
+            "against the very call the CLI streamed"
+        );
+        drop(asked);
+
+        // And the answer went back completing the agent's own form.
         let decision = answered.expect("a decision came back");
-        assert_eq!(decision["behavior"], "deny");
-        assert!(
-            decision["message"]
-                .as_str()
-                .is_some_and(|said| said.contains("headless")),
-            "the CLI is told why, in its own transcript: {decision}"
+        assert_eq!(decision["behavior"], "allow");
+        assert_eq!(
+            decision["updatedInput"]["questions"][0]["answer"], "Patch it",
+            "the chosen label answers the question the agent asked: {decision}"
         );
-        assert!(
-            stream.asked.lock().unwrap().is_empty(),
-            "nobody was asked to approve something that could not have worked"
-        );
-        assert!(
-            stream.updates.lock().unwrap().iter().any(|update| matches!(
-                update,
-                SessionUpdate::ToolCallUpdate(update)
-                    if update.tool_call_id.0.as_ref() == "toolu_3"
-            )),
-            "and the session shows the refusal: {:?}",
-            stream.updates.lock().unwrap()
+        assert_eq!(
+            decision["updatedInput"]["questions"][0]["question"], "which route?",
+            "and the question itself was not rewritten: {decision}"
         );
         channel.close();
     }

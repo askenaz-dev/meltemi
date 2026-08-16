@@ -36,10 +36,19 @@ use meltemi_proto::{
 };
 
 use crate::cli::Command;
+use crate::format::{Paint, paint};
 use crate::output::{CliError, Outcome};
 
 /// Executes an RPC-backed subcommand against the daemon at `endpoint`.
-pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliError> {
+/// Runs one command. `painting` is whether the human rendering may carry
+/// colour — decided once, from the format, the flag, the environment and the
+/// terminal (`crate::format::paints`), and passed down because the human text
+/// is composed here (salida-que-se-lee D5).
+pub async fn execute(
+    command: Command,
+    endpoint: &str,
+    painting: bool,
+) -> Result<Outcome, CliError> {
     match command {
         Command::Status => status(endpoint).await,
         Command::Propose {
@@ -127,9 +136,9 @@ pub async fn execute(command: Command, endpoint: &str) -> Result<Outcome, CliErr
             since,
             until,
         } => usage(project_root, granularity, since, until, endpoint).await,
-        Command::Changes => changes(endpoint).await,
+        Command::Changes => changes(endpoint, painting).await,
         Command::Show { change } => show(change, endpoint).await,
-        Command::Specs { capability } => specs(capability, endpoint).await,
+        Command::Specs { capability } => specs(capability, endpoint, painting).await,
         Command::Validate { change } => validate(change, endpoint).await,
         Command::Direct {
             session,
@@ -1182,7 +1191,7 @@ fn render_usage(result: &meltemi_proto::AnalyticsUsageResult) -> String {
     out
 }
 
-async fn changes(endpoint: &str) -> Result<Outcome, CliError> {
+async fn changes(endpoint: &str, painting: bool) -> Result<Outcome, CliError> {
     let project_root = cwd_or(None)?;
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer
@@ -1201,7 +1210,7 @@ async fn changes(endpoint: &str) -> Result<Outcome, CliError> {
     let result: ChangeListResult =
         serde_json::from_value(value.clone()).map_err(CliError::internal)?;
     Ok(Outcome {
-        human: render_changes(&result),
+        human: render_changes(&result, painting),
         json: value,
     })
 }
@@ -1230,7 +1239,11 @@ async fn show(change: String, endpoint: &str) -> Result<Outcome, CliError> {
     })
 }
 
-async fn specs(capability: Option<String>, endpoint: &str) -> Result<Outcome, CliError> {
+async fn specs(
+    capability: Option<String>,
+    endpoint: &str,
+    painting: bool,
+) -> Result<Outcome, CliError> {
     let project_root = cwd_or(None)?;
     let (peer, background) = connect_and_init(endpoint).await?;
     // No capability -> list; a capability -> show that one.
@@ -1244,7 +1257,7 @@ async fn specs(capability: Option<String>, endpoint: &str) -> Result<Outcome, Cl
             let value = response.map_err(CliError::contract)?;
             let result: SpecListResult =
                 serde_json::from_value(value.clone()).map_err(CliError::internal)?;
-            (value.clone(), render_spec_list(&result))
+            (value.clone(), render_spec_list(&result, painting))
         }
         Some(capability) => {
             let response = peer
@@ -1781,21 +1794,53 @@ fn render_dispatch(result: &WorktreeDispatchResult) -> String {
 }
 
 /// Human rendering of the change listing: state columns per change.
-fn render_changes(result: &ChangeListResult) -> String {
+///
+/// The summary carries the one figure nobody could get from the old listing
+/// without reading every row: how many changes are waiting on a human. Colour
+/// is decoration over words and figures that already say the same thing
+/// (salida-que-se-lee D3, D5).
+fn render_changes(result: &ChangeListResult, painting: bool) -> String {
     use std::fmt::Write;
     let active = result.changes.iter().filter(|c| !c.archived).count();
-    let mut out = format!(
-        "{} change(s) — {active} active, {} archived",
+    let waiting = result
+        .changes
+        .iter()
+        .filter(|c| !c.archived && c.gate_pending)
+        .count();
+
+    let mut out = paint(painting, Paint::Bold, "Changes");
+    let _ = write!(
+        out,
+        "\n  {} total · {} active · {} archived · {}\n",
         result.changes.len(),
-        result.changes.len() - active
+        paint(painting, Paint::Green, &active.to_string()),
+        result.changes.len() - active,
+        if waiting == 0 {
+            "none awaiting you".to_string()
+        } else {
+            paint(
+                painting,
+                Paint::Yellow,
+                &format!("{waiting} awaiting your decision"),
+            )
+        }
     );
+
+    let name_w = result
+        .changes
+        .iter()
+        .filter(|c| !c.archived)
+        .map(|c| c.name.chars().count())
+        .max()
+        .unwrap_or(0);
     for c in &result.changes {
         if c.archived {
             let _ = write!(
                 out,
-                "\n  archived  {}  {}",
+                "\n  {}  {}  {}",
+                paint(painting, Paint::Dim, "archived"),
                 c.archived_at.as_deref().unwrap_or("—"),
-                c.name
+                paint(painting, Paint::Dim, &c.name)
             );
         } else {
             let a = &c.artifacts;
@@ -1815,16 +1860,30 @@ fn render_changes(result: &ChangeListResult) -> String {
                 (true, None) => "  <- gate awaits you".to_string(),
                 (false, _) => String::new(),
             };
+            // A counter is painted by what its own figures already say: green
+            // when it is done, dim when there is nothing to do, plain while it
+            // is in progress. Remove the colour and the ratio still says it.
+            let counter = |done: u32, total: u32| {
+                let text = format!("{done}/{total}");
+                if total == 0 {
+                    paint(painting, Paint::Dim, &text)
+                } else if done >= total {
+                    paint(painting, Paint::Green, &text)
+                } else {
+                    text
+                }
+            };
+            let name = format!("{:name_w$}", c.name);
             let _ = write!(
                 out,
-                "\n  active    {art}  tasks {}/{}  review {}/{}  verify {}/{}  {}{gate}",
-                c.tasks_done,
-                c.tasks_total,
-                c.review_decided,
-                c.review_total,
-                c.verified,
-                c.verify_total,
-                c.name
+                "\n  {}  {}  tasks {}  review {}  verify {}  {}{}",
+                paint(painting, Paint::Green, "active  "),
+                paint(painting, Paint::Blue, &art),
+                counter(c.tasks_done, c.tasks_total),
+                counter(c.review_decided, c.review_total),
+                counter(c.verified, c.verify_total),
+                paint(painting, Paint::Bold, &name),
+                paint(painting, Paint::Yellow, &gate)
             );
         }
     }
@@ -1853,17 +1912,45 @@ fn render_change_show(result: &ChangeShowResult) -> String {
 }
 
 /// Human rendering of the living-truth capability list.
-fn render_spec_list(result: &SpecListResult) -> String {
+///
+/// Opens with the totals that would otherwise be added by eye, and takes its
+/// column widths from the content so thirty-six rows read vertically. Colour
+/// marks nothing the figures do not already say (salida-que-se-lee D5).
+fn render_spec_list(result: &SpecListResult, painting: bool) -> String {
     use std::fmt::Write;
-    let mut out = format!(
-        "{} capabilit(y/ies) in the living truth",
+    let requirements: u32 = result.specs.iter().map(|s| s.requirements).sum();
+    let scenarios: u32 = result.specs.iter().map(|s| s.scenarios).sum();
+
+    let mut out = paint(painting, Paint::Bold, "Living truth");
+    let _ = write!(
+        out,
+        "\n  {} capabilities · {requirements} requirements · {scenarios} scenarios\n",
         result.specs.len()
     );
+
+    // Widths from the content, never a fixed number the first long name breaks.
+    let name_w = result
+        .specs
+        .iter()
+        .map(|s| s.capability.chars().count())
+        .max()
+        .unwrap_or(0);
+    let req_w = result
+        .specs
+        .iter()
+        .map(|s| s.requirements.to_string().len())
+        .max()
+        .unwrap_or(1);
     for s in &result.specs {
+        // Padded before painting: escapes have no width, and padding a painted
+        // string would align the escapes instead of the letters.
+        let name = format!("{:name_w$}", s.capability);
         let _ = write!(
             out,
-            "\n  {}  {} req  {} scenario(s)",
-            s.capability, s.requirements, s.scenarios
+            "\n  {}  {:>req_w$} req  {} scenarios",
+            paint(painting, Paint::Cyan, &name),
+            s.requirements,
+            s.scenarios
         );
     }
     out

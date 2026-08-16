@@ -28,10 +28,14 @@ use output::{CliError, render_error, render_outcome, render_value};
 pub async fn dispatch(
     plan: Plan,
     endpoint: &str,
+    stdout_is_tty: bool,
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> i32 {
     let format = plan.format;
+    // One decision, taken once: the format, the explicit flag, the environment
+    // and whether stdout is a terminal (design D4).
+    let painting = crate::format::paints(format, plan.no_color, stdout_is_tty);
     match plan.action {
         Action::Help => {
             let _ = writeln!(out, "{}", cli::USAGE);
@@ -89,7 +93,7 @@ pub async fn dispatch(
             // but exit `14` so CI distinguishes clean from findings (its `clean`
             // field is the stable signal). Every other command exits `0` on Ok.
             let is_validate = matches!(command, Command::Validate { .. });
-            match run::execute(command, endpoint).await {
+            match run::execute(command, endpoint, painting).await {
                 Ok(outcome) => {
                     let _ = render_outcome(&outcome, format, out);
                     if is_validate
