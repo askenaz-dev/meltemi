@@ -682,9 +682,24 @@ async fn with_nobody_attending_the_free_session_is_denied_like_any_other() {
     // The last client leaves. Nobody is attending, so nothing is granted.
     peer.close();
 
-    // Every poll from here opens a connection and closes it again, because a
-    // reader held open IS a client: the deny waits for the registry to be empty,
-    // and a watcher sitting on the socket would keep it from ever being so.
+    // An UNINTERRUPTED stretch with nobody connected, before any polling starts.
+    //
+    // This is the part the test used to get wrong, and it fought itself: every
+    // poll opens a connection, and a reader held open IS a client. The deny
+    // fires only while the registry is empty, so a loop that connects every
+    // 50 ms leaves only the gaps between connections for it to fire in — and on
+    // a slow, contended runner a connection's teardown can outlast the gap, so
+    // the count is never observed at zero and the deny never comes. It passed
+    // here and failed on the Windows runner, which is the signature of a test
+    // racing itself rather than a daemon misbehaving.
+    //
+    // Giving the daemon one clear stretch removes the race instead of widening
+    // the budget around it: once the deny has fired, later connections cannot
+    // un-fire it.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Every poll from here still opens a connection and closes it again, which
+    // no longer matters for the reason above.
     let mut events = Vec::new();
     for _ in 0..300 {
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -704,6 +719,10 @@ async fn with_nobody_attending_the_free_session_is_denied_like_any_other() {
         }
         reader.close();
     }
+    assert!(
+        !events.is_empty(),
+        "the session ended and its log was read; an empty list means it never ended"
+    );
     assert!(
         events.iter().any(|e| e["type"] == "permission_decided"
             && e["payload"]["decidedBy"] == "default_deny"
