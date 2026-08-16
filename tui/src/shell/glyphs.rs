@@ -78,6 +78,15 @@ pub const WAITING: Glyph = Glyph {
     unicode: "‖",
     ascii: "!",
 };
+/// Session state: alive, between turns, waiting for the next instruction.
+///
+/// Deliberately NOT the working glyph and not the permission glyph: this session
+/// is neither running nor blocking on the user. A caret is what a prompt looks
+/// like when it is your turn to type (sesion-que-espera).
+pub const IDLE: Glyph = Glyph {
+    unicode: "❯",
+    ascii: ">",
+};
 /// Session state: ended.
 pub const ENDED: Glyph = Glyph {
     unicode: "✓",
@@ -92,7 +101,8 @@ pub const GROUP: Glyph = Glyph {
 
 /// Every glyph in the table, for the twin-invariant test and audits.
 pub const ALL: &[Glyph] = &[
-    FOCUS, SELECT, PERMISSION, OK, ABSENT, ERROR, PENDING, STARTING, ACTIVE, WAITING, ENDED, GROUP,
+    FOCUS, SELECT, PERMISSION, OK, ABSENT, ERROR, PENDING, STARTING, ACTIVE, WAITING, IDLE, ENDED,
+    GROUP,
 ];
 
 #[cfg(test)]

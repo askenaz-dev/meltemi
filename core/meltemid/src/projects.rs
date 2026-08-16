@@ -335,14 +335,7 @@ async fn live_sessions(
         .summaries()
         .await
         .into_iter()
-        .filter(|summary| {
-            matches!(
-                summary.state,
-                meltemi_proto::SessionState::Starting
-                    | meltemi_proto::SessionState::Active
-                    | meltemi_proto::SessionState::WaitingPermission
-            )
-        })
+        .filter(|summary| summary.state.is_live())
         .map(|summary| summary.session_id)
         .collect()
 }

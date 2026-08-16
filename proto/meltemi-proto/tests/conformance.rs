@@ -97,14 +97,60 @@ fn initialize_conforms() {
     );
 }
 
+/// Every state the contract declares, in declaration order.
+///
+/// A list, because Rust cannot iterate an enum — which is exactly the problem
+/// this constant exists to bound. Adding a variant without adding it here is
+/// caught by [`the_state_enum_is_the_same_in_rust_and_in_both_schemas`], not by
+/// the compiler.
+const ALL_SESSION_STATES: [SessionState; 6] = [
+    SessionState::Starting,
+    SessionState::Active,
+    SessionState::WaitingPermission,
+    SessionState::WaitingInstruction,
+    SessionState::Ended,
+    SessionState::Interrupted,
+];
+
+/// The session-state enum is written THREE times — once in Rust and once in
+/// each of the two schemas that define it independently — and until now nothing
+/// compared them. A state present in Rust and missing from a schema is a
+/// conformance failure that only shows up when a real daemon sends a real
+/// session; a state in one schema and not the other is a contract that
+/// contradicts itself.
+#[test]
+fn the_state_enum_is_the_same_in_rust_and_in_both_schemas() {
+    let in_rust: Vec<String> = ALL_SESSION_STATES
+        .iter()
+        .map(|state| {
+            serde_json::to_value(state)
+                .expect("a state serializes")
+                .as_str()
+                .expect("as a string")
+                .to_string()
+        })
+        .collect();
+
+    for schema in ["status", "session-list"] {
+        let text = std::fs::read_to_string(format!("../schemas/v1/{schema}.schema.json"))
+            .unwrap_or_else(|e| panic!("read {schema}.schema.json: {e}"));
+        let doc: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+        let in_schema: Vec<String> = doc["$defs"]["sessionState"]["enum"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{schema} declares sessionState"))
+            .iter()
+            .map(|v| v.as_str().expect("a string").to_string())
+            .collect();
+        assert_eq!(
+            in_rust, in_schema,
+            "`{schema}.schema.json` and the Rust enum disagree about session states"
+        );
+    }
+}
+
 #[test]
 fn status_conforms() {
-    let states = [
-        SessionState::Starting,
-        SessionState::Active,
-        SessionState::WaitingPermission,
-        SessionState::Ended,
-    ];
+    let states = ALL_SESSION_STATES;
     assert_conforms(
         "status",
         "result",

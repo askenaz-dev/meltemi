@@ -3,6 +3,12 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    // The node test runner resolves ESM by real filename, so a lib module it
+    // loads directly must name its imports with the extension. Vite and
+    // svelte-check both accept it; this flag is what stops the type-checker
+    // from calling it an error (sesion-que-espera).
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "noUnusedLocals": true,

@@ -7,6 +7,7 @@
     activeProject,
     allSessions,
     forgetProject,
+    isLive,
     pending,
     pickAndRegisterProject,
     projects,
@@ -127,9 +128,15 @@
         return "◔";
       case "waiting_permission":
         return "‖";
+      case "waiting_instruction":
+        return "❯";
       case "interrupted":
         return "▲";
+      case "ended":
+        return "■";
       default:
+        // Every state the contract declares is named above, and a test enforces
+        // that. This arm exists only for a daemon newer than this build.
         return "■";
     }
   }
@@ -191,12 +198,7 @@
   ];
 
   const liveSessions = $derived(
-    $sessions.filter(
-      (session) =>
-        session.state === "active" ||
-        session.state === "starting" ||
-        session.state === "waiting_permission",
-    ).length,
+    $sessions.filter((session) => isLive(session.state)).length,
   );
 
   const projectName = $derived($activeProject ? leafOf($activeProject) : null);
@@ -744,6 +746,9 @@
   }
   .leafState[data-state="waiting_permission"] {
     color: var(--warn);
+  }
+  .leafState[data-state="waiting_instruction"] {
+    color: var(--accent);
   }
   .leafState[data-state="interrupted"] {
     color: var(--danger);

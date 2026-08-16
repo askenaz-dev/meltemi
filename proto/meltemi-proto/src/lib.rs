@@ -309,11 +309,37 @@ pub enum SessionState {
     Active,
     /// The session is blocked on a permission decision.
     WaitingPermission,
+    /// The session finished its turn and is alive, waiting for the next
+    /// instruction: its agent subprocess and ACP connection are intact and a
+    /// directed instruction runs as the next turn without resuming anything.
+    ///
+    /// Distinct from `WaitingPermission`, which is blocked on a decision the
+    /// user owes the agent; here the agent owes nothing and the user is simply
+    /// thinking (sesion-que-espera).
+    WaitingInstruction,
     /// The session has finished.
     Ended,
     /// The session had no recorded end (the daemon stopped mid-session): it is
     /// inspectable, and resumable only if the agent supports session load.
     Interrupted,
+}
+
+impl SessionState {
+    /// Whether the session is ALIVE — it holds an agent subprocess and takes a
+    /// directed instruction without resuming anything.
+    ///
+    /// An exhaustive `match`, not a list of the live ones, so that adding a
+    /// state is a compile error here instead of a silent miscount wherever
+    /// someone kept their own positive list (sesion-que-espera design D6).
+    #[must_use]
+    pub fn is_live(self) -> bool {
+        match self {
+            Self::Starting | Self::Active | Self::WaitingPermission => true,
+            // Between turns, not over.
+            Self::WaitingInstruction => true,
+            Self::Ended | Self::Interrupted => false,
+        }
+    }
 }
 
 /// One active session, as reported by `status`.

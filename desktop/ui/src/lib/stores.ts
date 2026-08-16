@@ -11,6 +11,7 @@ import { onIncoming, request } from "./daemon";
 import { pushNotice } from "./notices";
 import { setActiveProject, uiState } from "./ui-state";
 import { decide, type Announced, type Moment } from "./attention";
+export { isLive, LIVE_STATE } from "./session-state";
 import {
   isPermissionGranted,
   requestPermission,
@@ -23,6 +24,7 @@ export type SessionState =
   | "starting"
   | "active"
   | "waiting_permission"
+  | "waiting_instruction"
   | "ended"
   | "interrupted";
 

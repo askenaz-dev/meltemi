@@ -6,9 +6,9 @@
   import { locale, t } from "../i18n";
   import { absoluteTime, durationLabel, relativeTime } from "../time";
   import {
+    isLive,
     refreshSessions,
     sessions,
-    type SessionInfo,
     type SessionState,
   } from "../stores";
   import type { ViewId } from "../registry";
@@ -101,13 +101,6 @@
     }
   }
 
-  function isLive(session: SessionInfo): boolean {
-    return (
-      session.state === "active" ||
-      session.state === "starting" ||
-      session.state === "waiting_permission"
-    );
-  }
 
   function cancel(sessionId: string) {
     cancelTarget = null;
@@ -241,7 +234,7 @@
               </td>
               <td>
                 <StatusBadge state={session.state} />
-                {#if session.resumable && !isLive(session)}
+                {#if session.resumable && !isLive(session.state)}
                   <span class="pill info">{$t("sessions.resumable")}</span>
                 {/if}
               </td>
@@ -259,7 +252,7 @@
                 <!-- Directing and resuming both happen in the conversation now:
                      the button opens it, where the composer is already focused
                      and already knows which of the two this session allows. -->
-                {#if isLive(session)}
+                {#if isLive(session.state)}
                   <button class="ghost" onclick={() => onOpen(session.sessionId)}>
                     {$t("sessions.direct")}
                   </button>

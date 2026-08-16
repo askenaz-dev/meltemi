@@ -29,6 +29,13 @@
     $sessions.filter((s) => s.state === "active" || s.state === "starting").length,
   );
   const waiting = $derived($sessions.filter((s) => s.state === "waiting_permission").length);
+  // A third figure rather than a third meaning folded into an existing one.
+  // A session between turns is also waiting on you, but it owes you nothing —
+  // it is waiting for you to type, not to decide. Folding it into `waiting`
+  // would repeat exactly the mistake the split above was made to undo.
+  const idle = $derived(
+    $sessions.filter((s) => s.state === "waiting_instruction").length,
+  );
 
   // The change the bar names is the one asking for a decision; the criterion
   // lives in the store so both readers share it (design D2).
@@ -88,6 +95,9 @@
       {$t("status.working", { n: working })}
       {#if waiting > 0}
         · {$t("status.waiting", { n: waiting })}
+      {/if}
+      {#if idle > 0}
+        · {$t("status.idle", { n: idle })}
       {/if}
     </button>
     {#if $pending.length > 0}

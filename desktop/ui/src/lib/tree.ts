@@ -4,6 +4,7 @@
 // root) and one `project/list` (the known projects); the tree is built here, in
 // the client, so no new method exists just to shape a view.
 
+import { isLive } from "./session-state.ts";
 import type { ProjectInfo, SessionInfo } from "./stores";
 
 /** One project node of the tree, with the sessions that ran inside it. */
@@ -24,7 +25,6 @@ export interface ProjectGroup {
   inferred: boolean;
 }
 
-const LIVE = new Set(["starting", "active", "waiting_permission"]);
 
 /** Separator-normalized, trailing-slash-free form for comparison. */
 function normalize(path: string): string {
@@ -80,7 +80,7 @@ export function groupSessions(
       ? (groups.get(match) as ProjectGroup)
       : add(session.projectRoot, true, true);
     group.sessions.push(session);
-    if (LIVE.has(session.state)) group.live += 1;
+    if (isLive(session.state)) group.live += 1;
   }
 
   for (const group of groups.values()) {

@@ -30,6 +30,7 @@ const es = {
   "state.starting": "iniciando",
   "state.active": "activa",
   "state.waiting_permission": "esperando permiso",
+  "state.waiting_instruction": "esperando instrucción",
   "state.ended": "finalizada",
   "state.interrupted": "interrumpida",
 
@@ -439,6 +440,7 @@ const es = {
   "status.sessions": "{n} en curso",
   "status.working": "{n} trabajando",
   "status.waiting": "{n} esperando",
+  "status.idle": "{n} listas para tu instrucción",
   "status.gate": "compuerta: {artifact}",
   "status.changes": "{n} change(s)",
   "status.usage": "{tokens} tokens hoy",
@@ -639,6 +641,7 @@ const en: Record<MessageKey, string> = {
   "state.starting": "starting",
   "state.active": "active",
   "state.waiting_permission": "waiting permission",
+  "state.waiting_instruction": "waiting for instruction",
   "state.ended": "ended",
   "state.interrupted": "interrupted",
 
@@ -1048,6 +1051,7 @@ const en: Record<MessageKey, string> = {
   "status.sessions": "{n} running",
   "status.working": "{n} working",
   "status.waiting": "{n} waiting",
+  "status.idle": "{n} ready for your instruction",
   "status.gate": "gate: {artifact}",
   "status.changes": "{n} change(s)",
   "status.usage": "{tokens} tokens today",

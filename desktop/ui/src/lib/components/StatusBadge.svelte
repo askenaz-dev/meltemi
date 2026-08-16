@@ -21,6 +21,7 @@
     starting: "◌",
     active: "▸",
     waiting_permission: "●",
+    waiting_instruction: "❯",
     ended: "■",
     interrupted: "▲",
   };
@@ -28,6 +29,10 @@
     starting: "info",
     active: "ok",
     waiting_permission: "warn",
+    // Alive and yours: not a warning (nothing is owed to the agent) and not
+    // muted (the session has not ended). Its own tone, so a glance separates
+    // "waiting on you to decide" from "waiting on you to type".
+    waiting_instruction: "accent",
     ended: "muted",
     interrupted: "danger",
   };

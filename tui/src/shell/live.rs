@@ -52,7 +52,10 @@ impl SessionRow {
     /// currently live.
     #[must_use]
     pub fn is_historical(&self) -> bool {
-        matches!(self.state, SessionState::Ended | SessionState::Interrupted)
+        // Asked of the contract, which answers with an exhaustive match: a
+        // session waiting for its next instruction is alive, and reading it as
+        // history would offer resuming where directing is what works.
+        !self.state.is_live()
     }
 
     /// Whether an instruction has anywhere to go: a live session queues it as

@@ -1177,6 +1177,14 @@ fn session_state_label(state: SessionState, lang: Lang) -> (Glyph, &'static str)
             glyphs::ACTIVE,
             if lang == Lang::Es { "activa" } else { "active" },
         ),
+        SessionState::WaitingInstruction => (
+            glyphs::IDLE,
+            if lang == Lang::Es {
+                "esperando-instruccion"
+            } else {
+                "waiting-instruction"
+            },
+        ),
         SessionState::WaitingPermission => (
             glyphs::WAITING,
             if lang == Lang::Es {

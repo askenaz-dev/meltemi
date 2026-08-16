@@ -8,11 +8,14 @@
   import { binaryName } from "../agents";
   import {
     allSessions,
+    isLive,
+    LIVE_STATE,
     onSessionEvent,
     pending,
     pushNotice,
     refreshPending,
     refreshSessions,
+    type SessionState,
   } from "../stores";
   import { agentLabelOf } from "../tree";
   import { fold } from "../conversation";
@@ -364,7 +367,11 @@
 
   // ---- the persistent composer -------------------------------------------
 
-  const LIVE = ["active", "starting", "waiting_permission"];
+  // Alive: the composer sends, and it sends rather than resumes. The list is no
+  // longer written here — it is the contract's own answer, so a state added
+  // later cannot leave this composer offering "Resume" for a session whose
+  // agent is running (sesion-que-espera design D6).
+  const LIVE = (Object.keys(LIVE_STATE) as SessionState[]).filter(isLive);
   /**
    * Narrower than LIVE on purpose: a turn you can interrupt is a turn that is
    * running. A session stopped on your own decision has no turn of its own to

@@ -48,7 +48,7 @@
 
 ## 3. El contrato
 
-- [ ] 3.1 `SessionState::WaitingInstruction` en `meltemi-proto` y en **los dos**
+- [x] 3.1 `SessionState::WaitingInstruction` en `meltemi-proto` y en **los dos**
   JSON Schemas que duplican el enum, con el test que los compara — hoy nada lo
   guarda, aunque el idioma de ese test ya está escrito dos veces en el repo
   (design D6)
@@ -85,17 +85,26 @@
 
 ## 5. Las superficies — enumeradas, porque el compilador no avisa
 
-- [ ] 5.1 El guardián primero: un test que recorre el enum del contrato y exige
+- [x] 5.1 El guardián primero: un test que recorre el enum del contrato y exige
   que **cada** estado tenga símbolo y palabra en **cada** mapa de superficie, de
   la clase que atrapó la omisión en `redirigir-turno` (design D6) — escenario
   «Ninguna superficie omite el estado de espera»
-- [ ] 5.2 Los tres sitios que **sí** son error de compilación:
+- [x] 5.2 Los tres sitios que **sí** son error de compilación:
   `session_state_label` de la TUI, el `Record<SessionState, …>` de
   `StatusBadge.svelte`, y el catálogo ES/EN
-- [ ] 5.3 Los sitios que **aceptarían el estado nuevo en silencio y lo pintarían
+- [x] 5.3 Los sitios que **aceptarían el estado nuevo en silencio y lo pintarían
   mal**, uno por uno: el glifo del sidebar, los dos contadores de la barra de
   estado, `LIVE` de `tree.ts`, `isLive` de `Sessions.svelte`, `live_sessions`
   del daemon, `is_historical` de la TUI, y la pestaña de la tira
+  <!-- 2026-08-15: en vez de parchear cada lista positiva, la pregunta «¿está
+  viva?» quedó en **un solo lugar por lado**: `SessionState::is_live()` en el
+  contrato (match exhaustivo ⇒ error de compilación al añadir un estado) y
+  `LIVE_STATE: Record<SessionState, boolean>` en un módulo hoja de TS (el
+  `Record` sobre la unión es exhaustivo ⇒ error de tipo). El árbol, la tabla, la
+  barra lateral y el compositor lo preguntan; ya no lo listan. `is_historical`
+  de la TUI pasó a ser la negación de esa respuesta. La barra de estado ganó una
+  **tercera** cifra en vez de doblar el significado de una existente: una sesión
+  entre turnos también te espera, pero no te debe nada. -->
 - [ ] 5.4 El compositor de la GUI queda vivo y sin rótulo de reanudación en
   espera — escenario «El compositor no muere al terminar el turno»
 - [ ] 5.5 Se comprueba que el anillo **sigue oscuro sin tocarlo**: lo gobierna

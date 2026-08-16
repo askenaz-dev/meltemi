@@ -124,10 +124,20 @@ fn the_sidebar_counters_come_from_live_state() {
         body.contains("liveSessions") && body.contains("$pending.length"),
         "sessions and pending permissions feed their own counters: {body}"
     );
+    // "Live" is a state of the session, not a guess — and it stopped being a
+    // list the sidebar keeps privately. It asks the one place that answers the
+    // question, whose `Record` over the contract's union is what makes adding a
+    // state a compile error instead of a silent miscount (sesion-que-espera).
     assert!(
-        sidebar.contains("session.state === \"active\"")
-            && sidebar.contains("session.state === \"waiting_permission\""),
-        "\"live\" is a state of the session, not a guess"
+        sidebar.contains("isLive(session.state)"),
+        "the sidebar reads liveness from the shared predicate"
+    );
+    let shared = read("desktop/ui/src/lib/session-state.ts");
+    assert!(
+        shared.contains("Record<SessionState, boolean>")
+            && shared.contains("waiting_permission: true")
+            && shared.contains("ended: false"),
+        "and that predicate is exhaustive over the contract's states: {shared}"
     );
     // A permission counter is a warning; a session counter is not.
     assert!(
@@ -1948,6 +1958,155 @@ fn the_thinking_of_a_turn_in_flight_is_shown_while_it_happens() {
 
 // Scenario: Detener desde el compositor
 // Scenario: Un verbo, dos accesos
+/// Source with `//` and `/* */` comments removed. Prose that names a thing is
+/// not the same as code that handles it, and more than one guard in this file
+/// has been satisfied by its own explanation.
+fn strip_comments(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut rest = source;
+    loop {
+        let line = rest.find("//");
+        let block = rest.find("/*");
+        match (line, block) {
+            (None, None) => {
+                out.push_str(rest);
+                return out;
+            }
+            (Some(at), None) => {
+                out.push_str(&rest[..at]);
+                rest = rest[at..].find('\n').map_or("", |nl| &rest[at + nl..]);
+            }
+            (None, Some(at)) => {
+                out.push_str(&rest[..at]);
+                rest = rest[at..]
+                    .find("*/")
+                    .map_or("", |end| &rest[at + end + 2..]);
+            }
+            (Some(l), Some(b)) if l < b => {
+                out.push_str(&rest[..l]);
+                rest = rest[l..].find('\n').map_or("", |nl| &rest[l + nl..]);
+            }
+            (Some(_), Some(b)) => {
+                out.push_str(&rest[..b]);
+                rest = rest[b..].find("*/").map_or("", |end| &rest[b + end + 2..]);
+            }
+        }
+    }
+}
+
+// Scenario: Ninguna superficie omite el estado de espera
+#[test]
+fn every_session_state_is_declared_by_every_surface_that_shows_state() {
+    // The compiler catches THREE sites when a state is added: one `match` in
+    // the TUI and two `Record<SessionState, …>` here. Everything else that
+    // paints a session state is a positive list or a `default:` arm, and will
+    // accept a sixth state in silence and paint it as "ended" or as nothing.
+    // This is the guard for those.
+    let contract = read("proto/meltemi-proto/src/lib.rs");
+    let block = contract
+        .split("pub enum SessionState {")
+        .nth(1)
+        .expect("the contract declares session states")
+        .split('}')
+        .next()
+        .expect("the enum closes");
+    let states: Vec<String> = block
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with("///") && !l.starts_with("//"))
+        .filter_map(|l| l.strip_suffix(','))
+        .map(|name| {
+            let mut snake = String::new();
+            for (index, character) in name.char_indices() {
+                if character.is_uppercase() && index > 0 {
+                    snake.push('_');
+                }
+                snake.extend(character.to_lowercase());
+            }
+            snake
+        })
+        .collect();
+    assert!(
+        states.len() >= 5 && states.contains(&"waiting_instruction".to_string()),
+        "the enum was parsed: {states:?}"
+    );
+
+    // Every surface that maps a state to something a human reads, with comments
+    // STRIPPED — a state named only in prose is a state the code does not
+    // handle, and a guard a comment can satisfy guards nothing.
+    let surfaces: &[(&str, &str)] = &[
+        (
+            "desktop/ui/src/lib/components/StatusBadge.svelte",
+            "the badge's glyph and tone",
+        ),
+        (
+            "desktop/ui/src/lib/components/Sidebar.svelte",
+            "the sidebar's leaf",
+        ),
+        (
+            "desktop/ui/src/lib/session-state.ts",
+            "the one place that decides what alive means",
+        ),
+    ];
+    for (path, what) in surfaces {
+        let text = strip_comments(&read(path));
+        for state in &states {
+            assert!(
+                text.contains(state.as_str()),
+                "{what} ({path}) never names `{state}` in code — a state it does not name is a state it paints wrong"
+            );
+        }
+    }
+
+    // And nothing keeps its own private idea of which states are alive: four
+    // independent positive lists is how they drift.
+    for (path, what) in [
+        ("desktop/ui/src/lib/tree.ts", "the project tree"),
+        (
+            "desktop/ui/src/lib/views/Sessions.svelte",
+            "the session table",
+        ),
+        (
+            "desktop/ui/src/lib/components/Sidebar.svelte",
+            "the sidebar counter",
+        ),
+    ] {
+        let text = strip_comments(&read(path));
+        assert!(
+            text.contains("isLive("),
+            "{what} ({path}) asks the shared predicate instead of listing states itself"
+        );
+    }
+
+    // And both languages have the word, because a glyph alone is exactly what
+    // the accessibility rule forbids.
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    for state in &states {
+        assert_eq!(
+            messages.matches(&format!("\"state.{state}\":")).count(),
+            2,
+            "`state.{state}` is written in both languages"
+        );
+    }
+
+    // The TUI's own vocabulary, whose `match` IS exhaustive — so what is checked
+    // here is that the state got a distinct glyph rather than borrowing one that
+    // already means something else.
+    let render = read("tui/src/shell/render.rs");
+    assert!(
+        render.contains(
+            "SessionState::WaitingInstruction => (
+            glyphs::IDLE,"
+        ),
+        "the TUI gives waiting its own glyph, not the working or permission one"
+    );
+    let glyphs = read("tui/src/shell/glyphs.rs");
+    assert!(
+        glyphs.contains("pub const IDLE: Glyph") && glyphs.contains("IDLE, ENDED"),
+        "and IDLE joined the audited table, which is the only thing that reads it"
+    );
+}
+
 // Scenario: Interrumpir y enviar se ofrece con texto y sesión trabajando
 // Scenario: Sin texto no hay nada que relevar
 #[test]
