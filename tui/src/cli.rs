@@ -933,7 +933,7 @@ mod tests {
 
         // `--json` still works alongside them, and an unknown flag still fails.
         let machine = plan_of(&["--json", "usage", "total", "--all"], false);
-        assert!(machine.json);
+        assert_eq!(machine.format, Format::Json);
         assert!(matches!(
             plan_of(&["usage", "--nope"], false).action,
             Action::Usage(_)
@@ -945,7 +945,7 @@ mod tests {
         // Scenario: Con subcomando siempre scriptable.
         let p = plan_of(&["status"], false);
         assert_eq!(p.action, Action::Run(Command::Status));
-        assert!(!p.json);
+        assert_eq!(p.format, Format::Human);
     }
 
     #[test]
@@ -1107,6 +1107,54 @@ mod tests {
         );
     }
 
+    // Scenario: Dos formatos de máquina a la vez se rehúsan
+    #[test]
+    fn the_format_is_one_choice_and_two_machine_flags_are_refused() {
+        assert_eq!(plan_of(&["status"], false).format, Format::Human);
+        assert_eq!(plan_of(&["--json", "status"], false).format, Format::Json);
+        assert_eq!(plan_of(&["--yaml", "status"], false).format, Format::Yaml);
+
+        // Asking for both means nothing, so it is refused rather than resolved
+        // by whichever flag came last.
+        let both = plan_of(&["--json", "--yaml", "status"], false);
+        assert!(matches!(both.action, Action::Usage(_)));
+        let Action::Usage(message) = both.action else {
+            unreachable!("checked above")
+        };
+        assert!(
+            message.contains("pick one"),
+            "the refusal says what to do: {message}"
+        );
+
+        // An unknown flag under `--json` still answers as JSON: an error is
+        // output too, and a script asked for one shape.
+        let bad = plan_of(&["--json", "--bogus", "status"], false);
+        assert!(matches!(bad.action, Action::Usage(_)));
+        assert_eq!(bad.format, Format::Json);
+    }
+
+    #[test]
+    fn no_color_is_a_global_flag_anywhere_on_the_line() {
+        assert!(plan_of(&["--no-color", "status"], true).no_color);
+        assert!(plan_of(&["status", "--no-color"], true).no_color);
+        assert!(!plan_of(&["status"], true).no_color);
+        // It is not a machine format, so it never changes the choice.
+        assert_eq!(
+            plan_of(&["--no-color", "status"], true).format,
+            Format::Human
+        );
+    }
+
+    #[test]
+    fn a_bare_invocation_with_yaml_is_scriptable_not_interactive() {
+        // `--yaml` signals machine use exactly as `--json` does, so a bare
+        // invocation with it must not open the interactive shell.
+        assert!(matches!(
+            plan_of(&["--yaml"], true).action,
+            Action::Usage(_)
+        ));
+    }
+
     #[test]
     fn bridge_takes_no_arguments() {
         assert_eq!(
@@ -1207,7 +1255,7 @@ mod tests {
             })
         );
         let p = plan_of(&["--json", "project"], false);
-        assert!(p.json);
+        assert_eq!(p.format, Format::Json);
         assert!(matches!(
             plan_of(&["project", "a", "b"], false).action,
             Action::Usage(_)
@@ -1227,7 +1275,7 @@ mod tests {
                 project_root: Some("/repo".into())
             })
         );
-        assert!(plan_of(&["--json", "sessions"], false).json);
+        assert_eq!(plan_of(&["--json", "sessions"], false).format, Format::Json);
     }
 
     #[test]
@@ -1270,11 +1318,11 @@ mod tests {
         // Scenario: Subcomando operativo reconocido (fleet).
         let p = plan_of(&["fleet"], false);
         assert_eq!(p.action, Action::Run(Command::Fleet));
-        assert!(!p.json);
+        assert_eq!(p.format, Format::Human);
         // The --json variant is captured like any global flag.
         let p = plan_of(&["--json", "fleet"], false);
         assert_eq!(p.action, Action::Run(Command::Fleet));
-        assert!(p.json);
+        assert_eq!(p.format, Format::Json);
         assert!(matches!(
             plan_of(&["fleet", "x"], false).action,
             Action::Usage(_)
@@ -1533,7 +1581,7 @@ mod tests {
         // Scenario: éxito en JSON (grammar half): the flag reaches the plan.
         let p = plan_of(&["--json", "status"], false);
         assert_eq!(p.action, Action::Run(Command::Status));
-        assert!(p.json);
+        assert_eq!(p.format, Format::Json);
     }
 
     // Scenario: Los subcomandos locales no tocan el daemon

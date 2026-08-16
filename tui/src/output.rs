@@ -139,7 +139,7 @@ mod tests {
             human: "daemon ok".into(),
             json: json!({"ok": true}),
         };
-        render_outcome(&outcome, false, &mut out).unwrap();
+        render_outcome(&outcome, Format::Human, &mut out).unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "daemon ok\n");
     }
 
@@ -150,7 +150,7 @@ mod tests {
             human: "ignored".into(),
             json: json!({"daemonVersion": "0.1.0"}),
         };
-        render_outcome(&outcome, true, &mut out).unwrap();
+        render_outcome(&outcome, Format::Json, &mut out).unwrap();
         let printed = String::from_utf8(out).unwrap();
         let parsed: Value = serde_json::from_str(printed.trim()).expect("one JSON object");
         assert_eq!(parsed["daemonVersion"], "0.1.0");
@@ -161,7 +161,7 @@ mod tests {
         // Scenario: Error en modo humano va a stderr.
         let (mut out, mut err) = strings();
         let error = CliError::unreachable("no daemon");
-        render_error(&error, false, &mut out, &mut err).unwrap();
+        render_error(&error, Format::Human, &mut out, &mut err).unwrap();
         assert!(out.is_empty(), "stdout must stay clean on a human error");
         assert!(
             String::from_utf8(err)
@@ -175,7 +175,7 @@ mod tests {
         // Scenario: Error en JSON emite un objeto de error.
         let (mut out, mut err) = strings();
         let error = CliError::contract("[3000] change_already_exists");
-        render_error(&error, true, &mut out, &mut err).unwrap();
+        render_error(&error, Format::Json, &mut out, &mut err).unwrap();
         assert!(err.is_empty(), "stderr must stay free of JSON");
         let printed = String::from_utf8(out).unwrap();
         let parsed: Value = serde_json::from_str(printed.trim()).expect("one JSON object");

@@ -8,7 +8,7 @@ commitear en cuanto cada tarea cierre, nunca dejar el árbol sucio entre pasos.
 
 ## 1. El formato como elección
 
-- [ ] 1.1 `Format { Human, Json, Yaml }` sustituye al booleano en
+- [x] 1.1 `Format { Human, Json, Yaml }` sustituye al booleano en
   `render_outcome`/`render_error`; `--yaml` en la gramática y el rehúso de
   usarlo junto a `--json`; el emisor YAML propio, con las cadenas
   siempre entre comillas (design D1, D2) — escenarios «YAML emite un

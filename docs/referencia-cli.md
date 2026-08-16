@@ -101,6 +101,9 @@ SUBCOMMANDS:
 
 GLOBAL FLAGS:
     --json              emit machine-readable JSON on stdout
+    --yaml              emit machine-readable YAML on stdout (one of --json/--yaml)
+    --no-color          render without colour (also NO_COLOR, TERM=dumb, or a
+                        non-terminal stdout)
     -h, --help          print this help
     -V, --version       print the client version
 ```

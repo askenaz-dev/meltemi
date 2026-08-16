@@ -93,7 +93,7 @@ async fn fleet_maps_to_the_fleet_list_method() {
 
     // Under --json the outcome renders as exactly one JSON object on stdout.
     let mut out = Vec::new();
-    meltemi::output::render_outcome(&outcome, true, &mut out).unwrap();
+    meltemi::output::render_outcome(&outcome, meltemi::format::Format::Json, &mut out).unwrap();
     let printed = String::from_utf8(out).unwrap();
     assert_eq!(printed.trim().lines().count(), 1, "one line, one object");
     let parsed: serde_json::Value = serde_json::from_str(printed.trim()).expect("valid JSON");
@@ -137,7 +137,7 @@ async fn project_maps_to_context_project_and_emits_one_json_object() {
 
     // Under --json the outcome is exactly one JSON object on stdout.
     let mut out = Vec::new();
-    meltemi::output::render_outcome(&outcome, true, &mut out).unwrap();
+    meltemi::output::render_outcome(&outcome, meltemi::format::Format::Json, &mut out).unwrap();
     let printed = String::from_utf8(out).unwrap();
     assert_eq!(printed.trim().lines().count(), 1, "one line, one object");
     let parsed: serde_json::Value = serde_json::from_str(printed.trim()).expect("valid JSON");
@@ -170,7 +170,7 @@ async fn sessions_maps_to_session_list_and_emits_one_json_object() {
     assert!(outcome.human.contains("session(s)"));
 
     let mut out = Vec::new();
-    meltemi::output::render_outcome(&outcome, true, &mut out).unwrap();
+    meltemi::output::render_outcome(&outcome, meltemi::format::Format::Json, &mut out).unwrap();
     let printed = String::from_utf8(out).unwrap();
     assert_eq!(printed.trim().lines().count(), 1, "one line, one object");
     let parsed: serde_json::Value = serde_json::from_str(printed.trim()).expect("valid JSON");
@@ -309,7 +309,7 @@ async fn usage_maps_to_analytics_usage_and_emits_one_json_object() {
 
     // Under --json the outcome renders as exactly one JSON object on stdout.
     let mut out = Vec::new();
-    meltemi::output::render_outcome(&outcome, true, &mut out).unwrap();
+    meltemi::output::render_outcome(&outcome, meltemi::format::Format::Json, &mut out).unwrap();
     let printed = String::from_utf8(out).unwrap();
     assert_eq!(printed.trim().lines().count(), 1, "one line, one object");
     let parsed: serde_json::Value = serde_json::from_str(printed.trim()).expect("valid JSON");
