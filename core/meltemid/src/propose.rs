@@ -246,6 +246,8 @@ pub async fn handle_propose(
         env: resolved.env.clone(),
         // Directable: directed instructions run as follow-up turns.
         instruction_queue,
+        // Authoring flows carry their own rule posture and declare no mode.
+        mode: None,
         edit_scope: Some(edit_scope.handle()),
     })
     .await;

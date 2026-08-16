@@ -33,6 +33,11 @@
           "minLength": 1,
           "description": "The fleet agent to run: a launch profile name or a catalog id, resolved in the fleet's order (profile, catalog id, then the project's configured agent). A name that resolves to an undetected binary refuses with a remedy; nothing degrades to another provider. Absent uses the project's configured agent."
         },
+        "mode": {
+          "type": "string",
+          "enum": ["manual", "semi", "autonomous"],
+          "description": "How much this session decides on its own, as a posture over what the user's permission rules decided. `manual` asks about everything, including what those rules would have granted. `semi` grants edits contained in the session's own tree and asks about the rest. `autonomous` grants what survived the user's denies and the irreversible escalation. In EVERY mode a user's explicit deny prevails and anything irreversible or outside the tree escalates to a person (constitution §3). There is no mode that skips the permission proxy. Absent means no composition at all: the user's rules decide, exactly as before this field existed — `manual` is not today's behaviour, since it takes grants back."
+        },
         "detach": {
           "type": "boolean",
           "description": "Whether the caller is STAYING: answer as soon as the session exists, with the event stream as the truth of what happens next, and keep the session alive between turns so the next instruction runs as its next turn without resuming anything. One flag rather than two, because when the daemon answers and whether the session parks are the same question: is anyone still there to talk to. Absent means exactly the previous behaviour — one turn, answered when it ends, with `status` and `deniedPermissions` final. Detached, `status` is absent because the turn has not happened yet."

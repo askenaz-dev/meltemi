@@ -1051,3 +1051,100 @@ async fn a_blanket_allow_rule_does_not_answer_a_question_on_your_behalf() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// Scenario: Manual retira lo que las reglas concederían
+// Scenario: El deny del usuario sobrevive a cualquier modo
+#[tokio::test]
+async fn the_same_request_resolves_differently_under_different_modes() {
+    // The proof that a mode does something: one fixture, one request, three
+    // answers. The project's rule ALLOWS everything, so without a mode the turn
+    // never troubles a human — that is the baseline the other two are measured
+    // against.
+    let root = fixture("modes", Some("[[rule]]\neffect = \"allow\"\n"));
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("modes").await;
+    let (peer, _incoming) = init_client(&endpoint).await;
+
+    // No mode: the rule grants, nothing reaches the tray, the turn completes.
+    let plain = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "write it" }),
+        ),
+    )
+    .await
+    .expect("an allow rule needs no human")
+    .expect("session/start ok");
+    assert_eq!(plain["status"], "completed", "{plain:#}");
+
+    // Manual: the SAME rule, the SAME request — and now it asks, because manual
+    // takes back what the rules would have granted. This is the behaviour no
+    // bundle of rules could have expressed.
+    let asking = {
+        let peer = peer.clone();
+        let root = root_str.clone();
+        tokio::spawn(async move {
+            peer.request(
+                methods::SESSION_START,
+                &json!({ "projectRoot": root, "instruction": "write it", "mode": "manual" }),
+            )
+            .await
+        })
+    };
+    let mut reached = false;
+    for _ in 0..400 {
+        let pending = peer
+            .request(methods::PERMISSION_PENDING, &json!({}))
+            .await
+            .expect("permission/pending");
+        if pending["pending"].as_array().is_some_and(|all| !all.is_empty()) {
+            reached = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        reached,
+        "manual asks about what the user's own rules would have granted"
+    );
+    asking.abort();
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Sin modo, la resolución es la de siempre
+#[tokio::test]
+async fn a_denying_rule_still_denies_under_the_most_permissive_mode() {
+    // The one thing no mode may lift. Autonomous is the mode that grants most,
+    // and it does not reach a refusal the user wrote down.
+    let root = fixture("mode-deny", Some("[[rule]]\neffect = \"deny\"\n"));
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("mode-deny").await;
+    let (peer, _incoming) = init_client(&endpoint).await;
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({
+                "projectRoot": root_str,
+                "instruction": "write it",
+                "mode": "autonomous",
+            }),
+        ),
+    )
+    .await
+    .expect("a denying rule needs no human either")
+    .expect("session/start ok");
+    assert_eq!(
+        result["deniedPermissions"], 1,
+        "the user's deny was applied, not lifted: {result:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}

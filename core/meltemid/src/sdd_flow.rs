@@ -107,7 +107,7 @@ pub async fn handle_constitution(
         peer,
         &project_root,
         prompt,
-        allow_meltemi_writes(),
+        allow_meltemi_writes(&project_root),
         None,
     )
     .await?;
@@ -203,7 +203,7 @@ pub async fn handle_plan(
         peer,
         &project_root,
         prompt,
-        allow_meltemi_writes(),
+        allow_meltemi_writes(&project_root),
         None,
     )
     .await?;
@@ -402,7 +402,7 @@ async fn author_artifact(
         peer,
         project_root,
         prompt,
-        allow_meltemi_writes(),
+        allow_meltemi_writes(project_root),
         None,
     )
     .await?;
@@ -573,6 +573,8 @@ async fn run_turn(
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
         rules: Arc::new(rules),
+        // Authoring turns carry their own rule posture and declare no mode.
+        mode: None,
         pending: state.pending.clone(),
         load_session_id: None,
         mcp_servers: config.mcp_servers.clone(),
@@ -621,8 +623,14 @@ async fn run_turn(
 
 /// A rule posture that allows writes under `.meltemi/` (typical authoring) but
 /// leaves everything else to escalate.
-fn allow_meltemi_writes() -> RuleSet {
-    RuleSet::allow_all()
+///
+/// It used to say that and return `allow_all()`, which granted the whole tree.
+/// A posture whose name claims a bound it does not keep is worse than one that
+/// admits it grants everything, because the name is what the next reader
+/// believes — and `modos-de-autonomia` was about to build on top of it
+/// (design D5).
+fn allow_meltemi_writes(project_root: &std::path::Path) -> RuleSet {
+    RuleSet::allow_writes_under(&project_root.join(".meltemi").display().to_string())
 }
 
 fn parse<T: serde::de::DeserializeOwned>(params: Value, method: &str) -> Result<T, RpcError> {

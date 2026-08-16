@@ -316,6 +316,8 @@ pub async fn handle_session_start(
                 mcp_servers: config.mcp_servers.clone(),
                 env: resolved.env.clone(),
                 instruction_queue,
+                // The caller's declared posture, or none at all.
+                mode: params.mode,
                 edit_scope: Some(edit_scope.handle()),
             })
             .await;

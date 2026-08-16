@@ -10,4 +10,9 @@ publish = false
 
 [dependencies]
 agent-client-protocol.workspace = true
+# Not a new dependency of the project: the same pinned workspace version every
+# other crate already uses. The mock needs it to build the `rawInput` of a tool
+# call, which is what makes its permission requests match the daemon's path
+# matchers the way a real agent's do (modos-de-autonomia design D5).
+serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std", "time"] }

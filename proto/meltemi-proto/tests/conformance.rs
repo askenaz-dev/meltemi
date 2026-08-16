@@ -761,6 +761,7 @@ fn session_start_conforms() {
             instruction: "find out why the build is slow".into(),
             agent: Some("claude-code".into()),
             detach: false,
+            mode: None,
         },
     );
     // No agent named: the project's configured one, exactly as everywhere else.
@@ -772,6 +773,7 @@ fn session_start_conforms() {
             instruction: "find out why the build is slow".into(),
             agent: None,
             detach: false,
+            mode: None,
         },
     );
 
@@ -784,6 +786,7 @@ fn session_start_conforms() {
         instruction: "keep me alive".into(),
         agent: None,
         detach: true,
+        mode: None,
     };
     assert_conforms("session-start", "params", &staying);
     assert_eq!(
@@ -793,6 +796,7 @@ fn session_start_conforms() {
     );
     let one_shot = SessionStartParams {
         detach: false,
+        mode: None,
         ..staying.clone()
     };
     assert_eq!(
@@ -800,6 +804,36 @@ fn session_start_conforms() {
         r#"{"projectRoot":"/repos/fixture","instruction":"keep me alive"}"#,
         "not asking is not saying no: the field vanishes and the wire is what it always was"
     );
+    // The mode, same three ways. Present is valid, omitted is valid, and the
+    // omitted shape is byte-identical — which for a mode matters more than for
+    // most flags, because `manual` is NOT what an omitted mode means: omitted
+    // composes nothing, and manual takes grants back (modos-de-autonomia D3).
+    for mode in AutonomyMode::ALL {
+        assert_conforms(
+            "session-start",
+            "params",
+            &SessionStartParams {
+                mode: Some(mode),
+                ..staying.clone()
+            },
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(SessionStartParams {
+            mode: Some(AutonomyMode::Autonomous),
+            ..staying.clone()
+        })
+        .expect("serializes")["mode"],
+        serde_json::json!("autonomous"),
+        "the mode travels by its wire name"
+    );
+    assert!(
+        !serde_json::to_string(&one_shot)
+            .expect("serializes")
+            .contains("mode"),
+        "and an unset mode leaves no trace at all: composing nothing is not a mode"
+    );
+
     // And a caller that never heard of the field still parses, with the
     // behaviour it had.
     let legacy: SessionStartParams =

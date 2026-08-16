@@ -853,6 +853,8 @@ async fn handle_worktree_dispatch(
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
         rules,
+        // Declared per session at start; these flows declare none.
+        mode: None,
         pending: state.pending.clone(),
         load_session_id: None,
         mcp_servers: config.mcp_servers.clone(),
@@ -1762,6 +1764,8 @@ async fn handle_sdd_implement(
             clients: state.clients.clone(),
             sessions: state.sessions.clone(),
             rules: rules.clone(),
+            // Declared per session at start; these flows declare none.
+            mode: None,
             pending: state.pending.clone(),
             load_session_id: None,
             mcp_servers: config.mcp_servers.clone(),
@@ -2150,6 +2154,8 @@ async fn resume_with_instruction(
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
         rules,
+        // Declared per session at start; these flows declare none.
+        mode: None,
         pending: state.pending.clone(),
         // The heart of resume: load the agent's prior session instead of a new
         // one (only honored if the agent re-announces load support).
