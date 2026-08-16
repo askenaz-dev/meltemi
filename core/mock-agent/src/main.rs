@@ -187,9 +187,18 @@ async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
     }
 
     // 2. Ask the client for permission to write the file.
+    // The path this write would touch rides with the request, because a real
+    // agent's tool call carries it (`rawInput.path` or `locations[0].path`, ACP
+    // v1) and the daemon's rule matchers read it. A mock that omitted it was
+    // under-modelling the protocol, and any posture bounded BY PATH would have
+    // looked broken against it (modos-de-autonomia design D5).
+    let mut fields = ToolCallUpdateFields::new();
+    if let Some(path) = proposal_path(prompt).or_else(|| sdd_artifact_path(prompt)) {
+        fields = fields.raw_input(serde_json::json!({ "path": path }));
+    }
     let request = RequestPermissionRequest::new(
         session_id,
-        ToolCallUpdate::new("write-proposal", ToolCallUpdateFields::new()),
+        ToolCallUpdate::new("write-proposal", fields),
         vec![
             PermissionOption::new(ALLOW_OPTION, "Allow", PermissionOptionKind::AllowOnce),
             PermissionOption::new("reject", "Reject", PermissionOptionKind::RejectOnce),
@@ -296,6 +305,25 @@ fn value_after(text: &str, key: &str) -> Option<String> {
 /// Writes the SDD artifact the authoring prompt asked for, with valid content
 /// (or, with `--sdd-invalid`, an intentionally invalid delta spec so the
 /// engine's validation-as-gate can be exercised).
+/// The path an SDD authoring turn is about to write, read from the same prompt
+/// keys `write_sdd_artifact` uses. It rides with the permission request so the
+/// daemon's path matchers have something to match, exactly as a real agent's
+/// tool call would carry it.
+fn sdd_artifact_path(prompt: &PromptRequest) -> Option<std::path::PathBuf> {
+    let text = prompt_text(prompt);
+    for key in [
+        "CONSTITUTION_PATH:",
+        "TASKS_PATH:",
+        "ARTIFACT_PATH:",
+        "DESIGN_PATH:",
+    ] {
+        if let Some(path) = value_after(&text, key) {
+            return Some(std::path::PathBuf::from(path));
+        }
+    }
+    None
+}
+
 fn write_sdd_artifact(prompt: &PromptRequest) {
     let text = prompt_text(prompt);
     let invalid = std::env::args().any(|a| a == "--sdd-invalid");

@@ -19,7 +19,7 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value;
 
-use meltemi_proto::{PermissionRule, PermissionRuleEffect, PermissionRuleScope};
+use meltemi_proto::{AutonomyMode, PermissionRule, PermissionRuleEffect, PermissionRuleScope};
 
 /// The facts extracted from an ACP tool call, matched against rules.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -140,6 +140,26 @@ impl RuleSet {
         }
     }
 
+    /// A rule set that allows writes under one path prefix and leaves
+    /// everything else to escalate.
+    ///
+    /// The bounded form of what `allow_all` does. It exists because a posture
+    /// that says it is bounded and returns `allow_all` is worse than one that
+    /// admits it grants everything: the name is what the next reader believes.
+    #[must_use]
+    pub fn allow_writes_under(prefix: &str) -> Self {
+        Self {
+            rules: vec![PermissionRule {
+                effect: PermissionRuleEffect::Allow,
+                tool: None,
+                command_prefix: None,
+                path_prefix: Some(prefix.to_string()),
+                scope: PermissionRuleScope::Project,
+            }],
+            diagnostics: Vec::new(),
+        }
+    }
+
     /// Evaluates a request: project over global, `deny` over `allow` on a tie,
     /// else `ask`.
     #[must_use]
@@ -179,6 +199,69 @@ impl RuleSet {
                 .expect("a non-empty scope has an allow if no deny")
                 .clone(),
         )
+    }
+}
+
+/// Composes an autonomy mode with what the user's rules decided.
+///
+/// The three sentences of the posture, in this order and with no exception
+/// (modos-de-autonomia design D2):
+///
+/// 1. **A user's `deny` always wins.** No mode lifts it. It is the one thing
+///    they wrote down so as not to decide it again, and a mode that overrode it
+///    would turn "autonomous" into "ignore what you said".
+/// 2. **Anything irreversible or out of the tree escalates, in EVERY mode** —
+///    constitution §3 literally: irreversible external effects require explicit
+///    approval *even in autonomous mode*.
+/// 3. **The mode decides the rest**, and moves it in one direction only.
+///
+/// `contained` answers "is this edit inside the session's own tree?", and the
+/// caller passes `false` when that cannot be asserted — an absent path, a path
+/// outside the tree. Not asserting containment escalates: refusing to grant for
+/// want of knowing is the only safe direction (design D4).
+#[must_use]
+pub fn compose_with_mode(
+    decision: RuleDecision,
+    mode: AutonomyMode,
+    facts: &RequestFacts,
+    contained: bool,
+) -> RuleDecision {
+    // (1) Nothing below can reach a user's deny.
+    if matches!(decision, RuleDecision::Deny(_)) {
+        return decision;
+    }
+    // (2) §3, and it outranks the mode rather than being one of its cases.
+    if facts.is_out_of_tree() {
+        return RuleDecision::Ask;
+    }
+    // (3)
+    match mode {
+        // The only mode that takes something back — which is precisely why
+        // modes could not be expressed as rules at all (design D1).
+        AutonomyMode::Manual => RuleDecision::Ask,
+        AutonomyMode::Semi => match decision {
+            RuleDecision::Ask if contained => RuleDecision::Allow(mode_rule(mode)),
+            other => other,
+        },
+        AutonomyMode::Autonomous => match decision {
+            RuleDecision::Ask => RuleDecision::Allow(mode_rule(mode)),
+            other => other,
+        },
+    }
+}
+
+/// The provenance a mode-granted decision carries.
+///
+/// A decision has to say what decided it, and "the mode" is a different answer
+/// from "a rule you wrote". Without this the ledger would attribute to the user
+/// a grant they never configured.
+fn mode_rule(mode: AutonomyMode) -> PermissionRule {
+    PermissionRule {
+        effect: PermissionRuleEffect::Allow,
+        tool: Some(format!("mode:{}", mode.as_str())),
+        command_prefix: None,
+        path_prefix: None,
+        scope: PermissionRuleScope::Project,
     }
 }
 
@@ -365,6 +448,229 @@ pub fn persist_rule(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The user's rule that grants, and the one that refuses.
+    fn user(effect: PermissionRuleEffect) -> PermissionRule {
+        PermissionRule {
+            effect,
+            tool: None,
+            command_prefix: None,
+            path_prefix: None,
+            scope: PermissionRuleScope::Project,
+        }
+    }
+
+    fn edit(path: &str) -> RequestFacts {
+        RequestFacts {
+            tool: Some("edit".into()),
+            command: None,
+            path: Some(path.into()),
+        }
+    }
+
+    fn command(cmd: &str) -> RequestFacts {
+        RequestFacts {
+            tool: Some("execute".into()),
+            command: Some(cmd.into()),
+            path: None,
+        }
+    }
+
+    #[test]
+    fn a_bounded_allow_is_actually_bounded() {
+        // The debt this change had to pay before building on it: the authoring
+        // posture claimed `.meltemi/` and returned an allow-everything.
+        // The prefix is ABSOLUTE, and that is the half the first attempt got
+        // wrong: a relative `.meltemi` cannot bound an absolute path, so it
+        // bounded nothing and every authoring write escalated instead.
+        let bounded = RuleSet::allow_writes_under("/repo/.meltemi");
+        assert!(matches!(
+            bounded.evaluate(&edit("/repo/.meltemi/changes/x/proposal.md")),
+            RuleDecision::Allow(_)
+        ));
+        for outside in [
+            edit("/repo/src/main.rs"),
+            edit("/etc/passwd"),
+            edit("/other/.meltemi/x"),
+            edit(".meltemi/relative"),
+        ] {
+            assert_eq!(
+                bounded.evaluate(&outside),
+                RuleDecision::Ask,
+                "a bound that grants outside itself is not a bound: {outside:?}"
+            );
+        }
+        // A request carrying no path at all cannot be shown to be inside.
+        let no_path = RequestFacts {
+            tool: Some("edit".into()),
+            command: None,
+            path: None,
+        };
+        assert_eq!(bounded.evaluate(&no_path), RuleDecision::Ask);
+    }
+
+    // Scenario: El deny del usuario sobrevive a cualquier modo
+    #[test]
+    fn a_users_deny_outlives_every_mode() {
+        let denied = RuleDecision::Deny(user(PermissionRuleEffect::Deny));
+        for mode in AutonomyMode::ALL {
+            assert!(
+                matches!(
+                    compose_with_mode(denied.clone(), mode, &edit("src/main.rs"), true),
+                    RuleDecision::Deny(_)
+                ),
+                "`{}` must not lift a refusal the user wrote down",
+                mode.as_str()
+            );
+        }
+    }
+
+    // Scenario: Lo irreversible escala aunque el modo sea autónomo
+    #[test]
+    fn what_a_restore_cannot_undo_escalates_in_every_mode() {
+        // §3, literally: irreversible external effects need explicit approval
+        // EVEN in autonomous mode. Which is why this is checked before the mode
+        // is consulted rather than being one of the mode's cases.
+        for mode in AutonomyMode::ALL {
+            assert_eq!(
+                compose_with_mode(RuleDecision::Ask, mode, &command("rm -rf /"), true),
+                RuleDecision::Ask,
+                "`{}` still asks about a command",
+                mode.as_str()
+            );
+        }
+        // And it outranks even a user's allow: a rule that granted commands does
+        // not make them reversible.
+        let allowed = RuleDecision::Allow(user(PermissionRuleEffect::Allow));
+        assert_eq!(
+            compose_with_mode(allowed, AutonomyMode::Autonomous, &command("curl x"), true),
+            RuleDecision::Ask
+        );
+    }
+
+    // Scenario: Manual retira lo que las reglas concederían
+    #[test]
+    fn manual_takes_back_what_the_rules_would_have_granted() {
+        // The case no bundle of rules could express: adding rules cannot remove
+        // a grant. This is why modes are a posture and not a rule set.
+        let allowed = RuleDecision::Allow(user(PermissionRuleEffect::Allow));
+        assert_eq!(
+            compose_with_mode(allowed, AutonomyMode::Manual, &edit("src/main.rs"), true),
+            RuleDecision::Ask,
+            "manual means ask me everything, including what I configured"
+        );
+        assert_eq!(
+            compose_with_mode(RuleDecision::Ask, AutonomyMode::Manual, &edit("a"), true),
+            RuleDecision::Ask
+        );
+    }
+
+    // Scenario: Semi concede solo lo contenido
+    #[test]
+    fn semi_grants_only_what_it_can_prove_is_contained() {
+        assert!(
+            matches!(
+                compose_with_mode(
+                    RuleDecision::Ask,
+                    AutonomyMode::Semi,
+                    &edit("src/a.rs"),
+                    true
+                ),
+                RuleDecision::Allow(_)
+            ),
+            "a contained edit flows"
+        );
+        // The three corners where containment cannot be asserted. Not granting
+        // for want of knowing is the only safe direction.
+        assert_eq!(
+            compose_with_mode(
+                RuleDecision::Ask,
+                AutonomyMode::Semi,
+                &edit("/etc/passwd"),
+                false
+            ),
+            RuleDecision::Ask,
+            "an edit outside the tree is not contained"
+        );
+        let no_path = RequestFacts {
+            tool: Some("edit".into()),
+            command: None,
+            path: None,
+        };
+        assert_eq!(
+            compose_with_mode(RuleDecision::Ask, AutonomyMode::Semi, &no_path, false),
+            RuleDecision::Ask,
+            "an absent path cannot be asserted contained"
+        );
+        assert_eq!(
+            compose_with_mode(RuleDecision::Ask, AutonomyMode::Semi, &command("ls"), true),
+            RuleDecision::Ask,
+            "and a command is never an edit, however contained it looks"
+        );
+    }
+
+    #[test]
+    fn autonomous_grants_what_survived_and_nothing_more() {
+        assert!(matches!(
+            compose_with_mode(
+                RuleDecision::Ask,
+                AutonomyMode::Autonomous,
+                &edit("a"),
+                false
+            ),
+            RuleDecision::Allow(_)
+        ));
+        // Its grants are attributed to the MODE, never to a rule the user wrote.
+        let RuleDecision::Allow(rule) = compose_with_mode(
+            RuleDecision::Ask,
+            AutonomyMode::Autonomous,
+            &edit("a"),
+            false,
+        ) else {
+            panic!("autonomous grants an unruled edit")
+        };
+        assert_eq!(
+            rule.tool.as_deref(),
+            Some("mode:autonomous"),
+            "the ledger says the mode decided it, not the user"
+        );
+    }
+
+    // Scenario: Ningún modo omite el proxy
+    #[test]
+    fn no_mode_skips_the_proxy_or_invents_an_outcome() {
+        // Every mode, every class of request: the composition only ever returns
+        // one of the three decisions the proxy already knows how to carry out.
+        // There is no fourth answer, and therefore no way to skip the proxy.
+        for mode in AutonomyMode::ALL {
+            for facts in [edit("src/a.rs"), edit("/etc/passwd"), command("sh -c x")] {
+                for decision in [
+                    RuleDecision::Ask,
+                    RuleDecision::Allow(user(PermissionRuleEffect::Allow)),
+                    RuleDecision::Deny(user(PermissionRuleEffect::Deny)),
+                ] {
+                    let out = compose_with_mode(decision.clone(), mode, &facts, true);
+                    // A deny is never turned into anything else, and a command
+                    // is never granted. Those two are the whole of §3 here.
+                    if matches!(decision, RuleDecision::Deny(_)) {
+                        assert!(matches!(out, RuleDecision::Deny(_)));
+                    }
+                    if facts.is_out_of_tree() {
+                        assert!(
+                            !matches!(out, RuleDecision::Allow(_)),
+                            "`{}` granted an out-of-tree operation",
+                            mode.as_str()
+                        );
+                    }
+                }
+            }
+        }
+        // And there are three modes, not four: a bypass would have to be added
+        // here first, which is the point of pinning the count.
+        assert_eq!(AutonomyMode::ALL.len(), 3);
+        assert_eq!(AutonomyMode::parse("bypass"), None);
+        assert_eq!(AutonomyMode::parse("yolo"), None);
+    }
     use serde_json::json;
 
     fn rule(

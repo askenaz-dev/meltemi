@@ -11,9 +11,11 @@
   import { get } from "svelte/store";
   import { request, type AgentCandidate, type DaemonError } from "../daemon";
   import { t } from "../i18n";
+  import type { MessageKey } from "../messages";
   import {
     activeProject,
     allSessions,
+    AUTONOMY_MODES,
     fleet,
     onSessionEvent,
     pickAndRegisterProject,
@@ -23,6 +25,7 @@
     refreshProjects,
     refreshSessions,
     scopedTo,
+    type AutonomyMode,
   } from "../stores";
   import { agentLabelOf, projectName } from "../tree";
   import { markFleetGreeted, uiState } from "../ui-state";
@@ -74,6 +77,13 @@
    */
   let refusal: { remedy: string | null; candidates: AgentCandidate[] } | null = $state(null);
   let agentMenuOpen = $state(false);
+  /**
+   * How much the session may decide on its own. `null` is not a fourth mode —
+   * it declares nothing, and the daemon then composes nothing, which is what
+   * every session did before modes existed (modos-de-autonomia design D3).
+   */
+  let autonomy: AutonomyMode | null = $state(null);
+  let autonomyMenuOpen = $state(false);
 
   /**
    * The project this launch targets. It follows the active one until the user
@@ -221,6 +231,9 @@
     // Absent means "the project's configured agent", which is not the same as
     // an empty name: the contract's optional parameter stays absent.
     if (agent) params.agent = agent;
+    // Same discipline: declaring no mode is not declaring a mode. Only the free
+    // session takes one — the authoring verbs carry their own rule posture.
+    if (autonomy && mode === "free") params.mode = autonomy;
     return params;
   }
 
@@ -339,6 +352,46 @@
             {/each}
           {/snippet}
         </Chip>
+
+        <!-- How much this session decides on its own, chosen before it starts.
+             Absent is offered first and by name, because "your rules decide" is
+             a real answer and not the lack of one. -->
+          <Chip
+            bind:open={autonomyMenuOpen}
+            label={$t("mode.label")}
+            value={autonomy ? $t(`mode.${autonomy}` as MessageKey) : $t("mode.none")}
+            title={autonomy
+              ? $t(`mode.${autonomy}.hint` as MessageKey)
+              : $t("mode.none.hint")}
+            tone="plain"
+          >
+            {#snippet menu(close)}
+              <button
+                class="item"
+                aria-current={autonomy === null ? "true" : undefined}
+                onclick={() => {
+                  autonomy = null;
+                  close();
+                }}
+              >
+                <span class="itemName">{$t("mode.none")}</span>
+                <span class="itemMeta">{$t("mode.none.hint")}</span>
+              </button>
+              {#each AUTONOMY_MODES as option (option)}
+                <button
+                  class="item"
+                  aria-current={autonomy === option ? "true" : undefined}
+                  onclick={() => {
+                    autonomy = option;
+                    close();
+                  }}
+                >
+                  <span class="itemName">{$t(`mode.${option}` as MessageKey)}</span>
+                  <span class="itemMeta">{$t(`mode.${option}.hint` as MessageKey)}</span>
+                </button>
+              {/each}
+            {/snippet}
+          </Chip>
 
         <Chip
           bind:open={agentMenuOpen}

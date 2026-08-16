@@ -72,6 +72,7 @@ fn the_registry_rebuilds_itself_from_the_session_index() {
         &data,
         &key,
         &SessionRecord {
+            mode: None,
             session_id: "s1".into(),
             agent_command: vec!["mock-agent".into()],
             project_root: project.display().to_string(),
@@ -107,6 +108,7 @@ fn a_session_without_a_profile_reports_no_profile_at_all() {
         &data,
         key,
         &SessionRecord {
+            mode: None,
             session_id: "plain".into(),
             agent_command: vec!["mock-agent".into()],
             project_root: "/repo".into(),

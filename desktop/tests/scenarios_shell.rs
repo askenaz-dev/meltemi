@@ -4514,3 +4514,57 @@ fn the_conversation_composer_states_what_the_daemon_answered() {
         "cancelling stays a separate, explicit control"
     );
 }
+
+// Scenario: El modo se elige al lanzar y se ve en la sesión
+// Scenario: Semi sin worktree dice cuál es su ámbito real
+#[test]
+fn the_mode_is_chosen_at_launch_and_visible_in_the_session() {
+    let home = strip_comments(&read("desktop/ui/src/lib/views/Home.svelte"));
+    // Chosen BEFORE the session starts, because a mode is a decision about
+    // what this task may do, not a setting to discover afterwards.
+    assert!(
+        home.contains("bind:open={autonomyMenuOpen}") && home.contains("AUTONOMY_MODES"),
+        "the launcher offers the modes: {home}"
+    );
+    // Declaring none is offered first and BY NAME: "your rules decide" is a
+    // real answer, not the absence of one — and it is what every session did
+    // before modes existed.
+    assert!(
+        home.contains(r#"$t("mode.none")"#) && home.contains("autonomy = null"),
+        "declaring no mode is an option with a name of its own"
+    );
+    assert!(
+        home.contains(r#"if (autonomy && mode === "free") params.mode = autonomy;"#),
+        "and it travels only where a mode means something: the free session"
+    );
+
+    let detail = strip_comments(&read("desktop/ui/src/lib/views/SessionDetail.svelte"));
+    assert!(
+        detail.contains(r#"class="modeChip""#) && detail.contains("session.mode"),
+        "the session shows what it is allowed to decide, where deciding happens"
+    );
+    // Semi means "contained in the session's tree". A session started here is a
+    // free session, which runs on the user's project and creates no worktree —
+    // so the containment is the whole project, and that is said rather than
+    // implied.
+    assert!(
+        detail.contains(r#"session.mode === "semi""#) && detail.contains("mode.semi.wholeTree"),
+        "and semi says what its real scope is here, instead of implying a worktree"
+    );
+
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    for key in [
+        "mode.label",
+        "mode.manual",
+        "mode.semi",
+        "mode.autonomous",
+        "mode.none",
+        "mode.semi.wholeTree",
+    ] {
+        assert_eq!(
+            messages.matches(&format!("\"{key}\":")).count(),
+            2,
+            "`{key}` is written in both languages"
+        );
+    }
+}

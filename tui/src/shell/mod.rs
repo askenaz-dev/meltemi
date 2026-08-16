@@ -422,6 +422,7 @@ mod tests {
         let mut state = ShellState::new();
         let mut live = LiveData::new();
         live.apply(Update::Sessions(vec![SessionRow {
+            mode: None,
             id: "s-1".into(),
             agent: "mock".into(),
             state: SessionState::Active,
@@ -465,6 +466,7 @@ mod tests {
         let mut state = ShellState::new();
         let mut live = LiveData::new();
         live.apply(Update::Sessions(vec![SessionRow {
+            mode: None,
             id: "s-old".into(),
             agent: "mock".into(),
             state: SessionState::Ended,
@@ -488,6 +490,7 @@ mod tests {
         // The same session, resumable, does go out: the distinction is the
         // agent's ability to resume, not the fact that it ended.
         live.apply(Update::Sessions(vec![SessionRow {
+            mode: None,
             id: "s-old".into(),
             agent: "mock".into(),
             state: SessionState::Ended,
@@ -527,6 +530,7 @@ mod tests {
         let mut state = ShellState::new();
         let mut live = LiveData::new();
         live.apply(Update::Sessions(vec![SessionRow {
+            mode: None,
             id: "s-1".into(),
             agent: "mock".into(),
             state: SessionState::Active,

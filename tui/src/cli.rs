@@ -9,6 +9,8 @@
 /// Subcommands reserved for the SDD authoring cycle. The cycle is now fully
 /// operative (comando-implement un-reserved `implement`), so nothing remains
 /// reserved; the list is kept for the grammar's forward-compatibility.
+use meltemi_proto::AutonomyMode;
+
 use crate::format::Format;
 
 pub const RESERVED: &[&str] = &[];
@@ -30,7 +32,7 @@ SUBCOMMANDS:
                         launch profile and prints the login gesture to run
     unlink <name>       unlink a subscription; its auth context is not deleted
     project             regenerate the projected context (AGENTS.md, ...)
-    session <instruction> [project-root] [--agent <id|profile>]
+    session <instruction> [project-root] [--agent <id|profile>] [--mode <mode>]
                         start a free session on that project: no change, no
                         spec and no gate, and nothing of the government
                         relaxed — the fleet resolves the agent, permissions go
@@ -40,7 +42,12 @@ SUBCOMMANDS:
                         It WAITS for the turn and prints its outcome; the
                         session ends with it. Staying between turns is what the
                         desktop surface does, and it needs the event stream this
-                        command has no way to read
+                        command has no way to read.
+                        `--mode manual|semi|autonomous` says how much the
+                        session decides on its own; absent, your permission
+                        rules decide exactly as they always did. In every mode
+                        an explicit deny of yours prevails and anything
+                        irreversible escalates
     sessions            list agent sessions (active and historical)
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing
@@ -154,6 +161,9 @@ pub enum Command {
         instruction: String,
         project_root: Option<String>,
         agent: Option<String>,
+        /// How much the session decides on its own (`--mode`); `None` composes
+        /// nothing, which is the behaviour that existed before the flag.
+        mode: Option<AutonomyMode>,
     },
     /// List the fleet catalog (`fleet/list`).
     Fleet,
@@ -353,7 +363,7 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             // own parser to read. Declared here because the global parser is
             // strict about unknown flags — and a rejected flag would have made
             // the advertised `usage --all` unusable.
-            "--all" | "--project" | "--since" | "--until" | "--agent" => {
+            "--all" | "--project" | "--since" | "--until" | "--agent" | "--mode" => {
                 positionals.push(arg.as_str());
             }
             flag if flag.starts_with('-') && flag != "-" => {
@@ -411,6 +421,18 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
         }
     };
 
+    // `--mode` is read the same way and in the same place as `--agent`.
+    let mode = match take_mode(&mut positionals) {
+        Ok(mode) => mode,
+        Err(message) => {
+            return Plan {
+                action: Action::Usage(message),
+                format,
+                no_color,
+            };
+        }
+    };
+
     let action = match positionals.split_first() {
         None => {
             // A bare invocation goes interactive only with a TTY and without
@@ -422,7 +444,7 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
                 Action::Usage("no subcommand given; run `meltemi help`".into())
             }
         }
-        Some((subcommand, rest)) => plan_subcommand(subcommand, rest, exec, agent),
+        Some((subcommand, rest)) => plan_subcommand(subcommand, rest, exec, agent, mode),
     };
 
     Plan {
@@ -458,10 +480,49 @@ fn take_agent(positionals: &mut Vec<&str>) -> Result<Option<String>, String> {
     }
 }
 
+/// Reads `--mode`, refusing an unknown name **with the valid ones**.
+///
+/// A mode that does not exist is never degraded into one that does: the whole
+/// point of the flag is to say how much the session decides on its own, and
+/// guessing that would be the worst possible guess (modos-de-autonomia design
+/// D6).
+fn take_mode(positionals: &mut Vec<&str>) -> Result<Option<AutonomyMode>, String> {
+    let Some(index) = positionals.iter().position(|token| *token == "--mode") else {
+        return Ok(None);
+    };
+    let valid = AutonomyMode::ALL
+        .iter()
+        .map(|mode| mode.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    match positionals.get(index + 1) {
+        Some(value) if !value.starts_with('-') => match AutonomyMode::parse(value) {
+            Some(mode) => {
+                positionals.drain(index..=index + 1);
+                Ok(Some(mode))
+            }
+            None => Err(format!("`{value}` is not a mode; the modes are: {valid}")),
+        },
+        _ => Err(format!("`--mode` requires one of: {valid}")),
+    }
+}
+
 /// Maps a subcommand and its remaining positionals to an action. `exec` carries
 /// the global `--exec` flag (only `tunnel` consumes it); `agent` carries
 /// `--agent`, which only the session-starting verbs consume.
-fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool, agent: Option<String>) -> Action {
+fn plan_subcommand(
+    subcommand: &str,
+    rest: &[&str],
+    exec: bool,
+    agent: Option<String>,
+    mode: Option<AutonomyMode>,
+) -> Action {
+    // Same reasoning as `--agent`: a subcommand that starts no session has
+    // nothing to do with a mode, and swallowing it would be a lie about how the
+    // work ran.
+    if mode.is_some() && !matches!(subcommand, "session") {
+        return Action::Usage(format!("`--mode` applies to `session`, not `{subcommand}`"));
+    }
     // `--agent` names who runs a session. A subcommand that starts none has
     // nothing to do with it, and quietly swallowing the flag would be a lie
     // about which agent ran — so it is refused where it means nothing.
@@ -526,11 +587,13 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], exec: bool, agent: Option<St
                 instruction: (*instruction).to_string(),
                 project_root: None,
                 agent,
+                mode,
             }),
             [instruction, root] => Action::Run(Command::Session {
                 instruction: (*instruction).to_string(),
                 project_root: Some((*root).to_string()),
                 agent,
+                mode,
             }),
             _ => Action::Usage(
                 "`session` takes a quoted instruction and at most a project root".into(),
@@ -1155,6 +1218,62 @@ mod tests {
         ));
     }
 
+    // Scenario: Un modo desconocido se rehúsa con los válidos
+    #[test]
+    fn an_unknown_mode_is_refused_with_the_valid_ones_and_never_degraded() {
+        // Guessing how much a session may decide on its own would be the worst
+        // possible guess, so a name that is not a mode refuses — and the
+        // refusal carries the names that would have worked.
+        let plan = plan_of(&["session", "do it", "--mode", "bypass"], false);
+        let Action::Usage(message) = plan.action else {
+            panic!("`bypass` is not a mode and must not start a session");
+        };
+        for valid in ["manual", "semi", "autonomous"] {
+            assert!(
+                message.contains(valid),
+                "the refusal names `{valid}`: {message}"
+            );
+        }
+
+        // A missing value refuses too, rather than swallowing the next flag.
+        assert!(matches!(
+            plan_of(&["session", "do it", "--mode"], false).action,
+            Action::Usage(_)
+        ));
+        assert!(matches!(
+            plan_of(&["session", "do it", "--mode", "--json"], false).action,
+            Action::Usage(_)
+        ));
+
+        // The three that exist do start a session, carrying what was asked.
+        for (name, expected) in [
+            ("manual", AutonomyMode::Manual),
+            ("semi", AutonomyMode::Semi),
+            ("autonomous", AutonomyMode::Autonomous),
+        ] {
+            let plan = plan_of(&["session", "do it", "--mode", name], false);
+            let Action::Run(Command::Session { mode, .. }) = plan.action else {
+                panic!("`{name}` is a mode and starts a session")
+            };
+            assert_eq!(mode, Some(expected));
+        }
+
+        // And a verb that starts no session refuses the flag rather than
+        // swallowing it, which would be a lie about how the work ran.
+        assert!(matches!(
+            plan_of(&["status", "--mode", "manual"], false).action,
+            Action::Usage(_)
+        ));
+
+        // Absent is absent: no mode, no composition, the behaviour that existed.
+        let Action::Run(Command::Session { mode, .. }) =
+            plan_of(&["session", "do it"], false).action
+        else {
+            panic!("a session without a mode still starts")
+        };
+        assert_eq!(mode, None);
+    }
+
     #[test]
     fn bridge_takes_no_arguments() {
         assert_eq!(
@@ -1635,6 +1754,7 @@ mod tests {
                 instruction: "look at the failing build".into(),
                 project_root: None,
                 agent: None,
+                mode: None,
             })
         );
         assert_eq!(
@@ -1643,6 +1763,7 @@ mod tests {
                 instruction: "look at the failing build".into(),
                 project_root: Some("/repo".into()),
                 agent: None,
+                mode: None,
             })
         );
         // Without an instruction there is nothing to run: a usage error, never
@@ -1703,6 +1824,7 @@ mod tests {
                 instruction: "ship it".into(),
                 project_root: None,
                 agent: Some(agent.to_string()),
+                mode: None,
             })
         };
         assert_eq!(

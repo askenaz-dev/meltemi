@@ -84,6 +84,9 @@ pub struct SessionParams {
     pub sessions: crate::session::SessionRegistry,
     /// The permission rules evaluated before escalation (proxy-permisos D1).
     pub rules: Arc<RuleSet>,
+    /// How much this session decides on its own. `None` composes nothing: the
+    /// user's rules decide, exactly as before modes existed (design D3).
+    pub mode: Option<meltemi_proto::AutonomyMode>,
     /// The daemon's shared pending-permission queue (D2).
     pub pending: PendingQueue,
     /// When resuming, the agent session id to load instead of opening a new
@@ -150,6 +153,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         clients,
         sessions,
         rules,
+        mode,
         pending,
         load_session_id,
         mcp_servers,
@@ -189,6 +193,8 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         no_client_grace,
         clients: clients.clone(),
         sessions: sessions.clone(),
+        mode,
+        tree: project_root.clone(),
         cancel: Arc::clone(&cancel),
     };
     let perm = HandlerState {
@@ -203,6 +209,8 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         no_client_grace,
         clients: clients.clone(),
         sessions: sessions.clone(),
+        mode,
+        tree: project_root.clone(),
         cancel: Arc::clone(&cancel),
     };
 
@@ -467,6 +475,12 @@ struct HandlerState {
     clients: crate::clients::ClientRegistry,
     /// The session registry, to declare the session blocked while it waits.
     sessions: crate::session::SessionRegistry,
+    /// The session's autonomy mode, composed with the rules at the single
+    /// evaluation point (modos-de-autonomia).
+    mode: Option<meltemi_proto::AutonomyMode>,
+    /// The tree this session's edits are contained in, for the mode that grants
+    /// only contained ones.
+    tree: PathBuf,
     /// The same signal the prompt races. A permission waiting on a human is the
     /// one place where a turn can be stopped and nobody would notice: the agent
     /// is blocked on our answer, so it cannot honour a cancel it never gets to
@@ -598,7 +612,20 @@ async fn passthrough_permission(
         )
     });
     let decision = if answerable_by_rule {
-        state.rules.evaluate(&facts)
+        let decided = state.rules.evaluate(&facts);
+        // The mode is a posture over what the rules decided, and composing
+        // nothing is what an absent mode means — not a mode that resembles the
+        // old behaviour (modos-de-autonomia design D2, D3).
+        match state.mode {
+            Some(mode) => {
+                let contained = facts
+                    .path
+                    .as_deref()
+                    .is_some_and(|path| std::path::Path::new(path).starts_with(&state.tree));
+                crate::permissions::compose_with_mode(decided, mode, &facts, contained)
+            }
+            None => decided,
+        }
     } else {
         RuleDecision::Ask
     };
@@ -624,6 +651,9 @@ async fn passthrough_permission(
     {
         let mut log = state.log.lock().await;
         let _ = log.append(SessionEventKind::PermissionDecided {
+            // Recorded whether or not the mode intervened: a history that names
+            // it only where it changed something cannot be read backwards.
+            mode: state.mode,
             outcome: serde_json::to_value(&resolution.outcome).unwrap_or(Value::Null),
             decided_by: resolution.decided_by,
             denied: Some(resolution.denied),

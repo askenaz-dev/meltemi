@@ -456,6 +456,11 @@ pub struct SessionInfo {
     /// (titulo-de-sesion design D1, D2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// The autonomy mode the session declared, when it declared one. Absent is
+    /// not a fourth mode: it means the user's rules decide alone
+    /// (modos-de-autonomia design D3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<AutonomyMode>,
 }
 
 /// Result of `session/list`, most recent first.
@@ -1353,6 +1358,14 @@ pub struct SessionStartParams {
     /// (sesion-que-espera design D2, D3).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub detach: bool,
+    /// How much this session decides on its own.
+    ///
+    /// Absent means no composition at all — the user's rules decide, exactly as
+    /// before this field existed. Not a neutral default that resembles today:
+    /// `manual` is NOT today's behaviour, because it takes back what a user's
+    /// own rules would grant (modos-de-autonomia design D3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<AutonomyMode>,
 }
 
 /// Why a free session got no restore point. The two causes take different
@@ -1593,6 +1606,56 @@ pub enum PermissionRuleScope {
     Project,
 }
 
+/// How much a session decides on its own, as a posture over what the user's
+/// rules decided.
+///
+/// Deliberately NOT a set of rules. A mode can take back what a rule granted —
+/// which is exactly what `manual` is for — and rules can only add
+/// (modos-de-autonomia design D1).
+///
+/// There are three, and there is no fourth. A mode that skipped the permission
+/// proxy is refused in normative language rather than in a comment, so a future
+/// design has to repeal that in writing instead of quietly adding one more
+/// (design D6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutonomyMode {
+    /// Ask about everything, INCLUDING what the user's own rules would grant.
+    /// It is the only mode that takes something back, and that is its point:
+    /// "ask me everything, this time".
+    Manual,
+    /// Grant edits contained in the session's own tree; ask about the rest.
+    Semi,
+    /// Grant what survived the user's denies and the irreversible escalation.
+    /// Autonomous is not ungoverned: §3 is what makes that a fact rather than a
+    /// promise.
+    Autonomous,
+}
+
+impl AutonomyMode {
+    /// Every mode, for the surfaces that must offer all of them and the tests
+    /// that must walk all of them.
+    pub const ALL: [Self; 3] = [Self::Manual, Self::Semi, Self::Autonomous];
+
+    /// The stable wire name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Semi => "semi",
+            Self::Autonomous => "autonomous",
+        }
+    }
+
+    /// Reads a mode by its wire name. `None` for anything else — a name that is
+    /// not a mode is refused with the valid ones, never degraded into one
+    /// (design D6).
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|mode| mode.as_str() == name)
+    }
+}
+
 /// A persistent permission rule, evaluated in the daemon before a request is
 /// escalated to the human. The matchers are ANDed; an omitted matcher matches
 /// anything on that dimension. A rule MUST NOT grant an option the agent did
@@ -1730,6 +1793,11 @@ pub enum SessionEventKind {
         /// (titulo-de-sesion design D3).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        /// How much this session was told it may decide on its own. Absent
+        /// means no mode was declared, which is not the same as `manual`
+        /// (modos-de-autonomia design D3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<AutonomyMode>,
     },
     /// A prompt was sent to the agent.
     PromptSent {
@@ -1766,6 +1834,12 @@ pub enum SessionEventKind {
         /// never as an approval.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         denied: Option<bool>,
+        /// The autonomy mode in force when this was decided. Recorded even when
+        /// the mode changed nothing: a history that only names the mode where it
+        /// intervened cannot be read backwards to say what the session was
+        /// allowed to do (modos-de-autonomia).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<AutonomyMode>,
         /// The rule that resolved it, when `decided_by` is `rule` — its scope
         /// and content, so every grant is traceable to what took it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2160,6 +2234,11 @@ pub struct WorktreeDispatchParams {
     pub change: String,
     pub task: String,
     pub agent: String,
+    /// How much this dispatch decides on its own. This is where `semi` means
+    /// the most, because a dispatched competitor really does have a worktree of
+    /// its own to be contained in. Absent composes nothing, as everywhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<AutonomyMode>,
 }
 
 /// How a dispatch resolved its competitor's binary.

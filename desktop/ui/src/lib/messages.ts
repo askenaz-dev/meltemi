@@ -399,6 +399,18 @@ const es = {
   "conv.queued":
     "encolada en la posición {n}: el turno en curso sigue intacto y se despachará al terminar",
   "conv.waiting": "la sesión espera tu decisión sobre {tool}",
+  "mode.label": "Autonomía",
+  "mode.manual": "Manual",
+  "mode.semi": "Semi",
+  "mode.autonomous": "Autónomo",
+  "mode.manual.hint": "pregunta todo, incluso lo que tus reglas concederían",
+  "mode.semi.hint": "pasan las ediciones dentro del árbol de la sesión; lo demás pregunta",
+  "mode.autonomous.hint":
+    "fluye salvo lo irreversible y lo que sale del árbol, que siempre preguntan",
+  "mode.none": "tus reglas",
+  "mode.none.hint": "sin modo: deciden tus reglas de permisos, como siempre",
+  "mode.semi.wholeTree":
+    "esta sesión corre sobre tu proyecto, no sobre un worktree: «dentro del árbol» es el proyecto entero",
   "conv.ask": "el agente pregunta",
   "conv.ask.other": "Otra respuesta…",
   "conv.ask.relayHint":
@@ -1020,6 +1032,18 @@ const en: Record<MessageKey, string> = {
   "conv.queued":
     "queued at position {n}: the running turn continues untouched and it is dispatched when that turn ends",
   "conv.waiting": "the session is waiting for your decision on {tool}",
+  "mode.label": "Autonomy",
+  "mode.manual": "Manual",
+  "mode.semi": "Semi",
+  "mode.autonomous": "Autonomous",
+  "mode.manual.hint": "asks about everything, including what your rules would grant",
+  "mode.semi.hint": "edits inside the session's tree flow; everything else asks",
+  "mode.autonomous.hint":
+    "flows except the irreversible and what leaves the tree, which always ask",
+  "mode.none": "your rules",
+  "mode.none.hint": "no mode: your permission rules decide, as they always did",
+  "mode.semi.wholeTree":
+    "this session runs on your project, not a worktree: \"inside the tree\" is the whole project",
   "conv.ask": "the agent is asking",
   "conv.ask.other": "Other answer…",
   "conv.ask.relayHint":

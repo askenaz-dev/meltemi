@@ -51,6 +51,12 @@ pub struct SessionRecord {
     /// only, never its env overlay (§2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// The autonomy mode the session declared, when it declared one. Persisted
+    /// because a listing that cannot say what a session was allowed to decide
+    /// cannot show it, and `#[serde(default)]` because records written before
+    /// modes existed declared none (modos-de-autonomia).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<meltemi_proto::AutonomyMode>,
     /// HOW the agent resolved (profile, catalog id, configured). Recorded by
     /// the writers that resolved through the fleet; absent elsewhere, because
     /// it cannot be derived from the other two — a catalog id and a configured
@@ -209,6 +215,7 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
     let mut profile = None;
     let mut source = None;
     let mut title = None;
+    let mut mode = None;
 
     for line in contents.lines().filter(|l| !l.trim().is_empty()) {
         let Ok(event) = serde_json::from_str::<SessionEvent>(line) else {
@@ -222,10 +229,15 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
                 agent_command: cmd,
                 project_root: root,
                 title: name,
+                mode: declared,
                 ..
             } => {
                 agent_command = cmd;
                 project_root = root;
+                // Recoverable from the log alone, like the title: a rebuilt
+                // record that could not say what the session was allowed to
+                // decide would be a record missing the fact that matters most.
+                mode = declared;
                 // The start event is what makes the title recoverable without
                 // the index, the same job the resolution event does for the
                 // agent (titulo-de-sesion design D3).
@@ -276,6 +288,7 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
         agent_id,
         profile,
         source,
+        mode,
     })
 }
 
@@ -304,6 +317,7 @@ mod tests {
 
     fn started(id: &str, ts: &str) -> SessionRecord {
         SessionRecord {
+            mode: None,
             session_id: id.into(),
             agent_command: vec!["mock-agent".into()],
             project_root: "/repo".into(),
@@ -359,6 +373,7 @@ mod tests {
             &data,
             "k",
             &SessionRecord {
+                mode: None,
                 ended_at: Some("2026-07-11T10:05:00Z".into()),
                 final_status: Some(TurnStatus::Completed),
                 agent_session_id: Some("agent-s1".into()),
@@ -558,6 +573,7 @@ mod tests {
             &data,
             "k",
             &SessionRecord {
+                mode: None,
                 agent_id: Some("claude-code".into()),
                 profile: Some("work".into()),
                 ..started("s5", "2026-07-11T10:00:00Z")
@@ -569,6 +585,7 @@ mod tests {
             &data,
             "k",
             &SessionRecord {
+                mode: None,
                 ended_at: Some("2026-07-11T10:05:00Z".into()),
                 final_status: Some(TurnStatus::Completed),
                 ..started("s5", "2026-07-11T10:00:00Z")

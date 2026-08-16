@@ -107,7 +107,7 @@ pub async fn handle_constitution(
         peer,
         &project_root,
         prompt,
-        allow_meltemi_writes(),
+        allow_meltemi_writes(&project_root),
         None,
     )
     .await?;
@@ -203,7 +203,7 @@ pub async fn handle_plan(
         peer,
         &project_root,
         prompt,
-        allow_meltemi_writes(),
+        allow_meltemi_writes(&project_root),
         None,
     )
     .await?;
@@ -402,7 +402,7 @@ async fn author_artifact(
         peer,
         project_root,
         prompt,
-        allow_meltemi_writes(),
+        allow_meltemi_writes(project_root),
         None,
     )
     .await?;
@@ -498,6 +498,7 @@ async fn run_turn(
         .map_err(RpcError::internal)?
         .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(SessionEventKind::SessionStarted {
+        mode: None,
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: project_root.display().to_string(),
@@ -543,6 +544,7 @@ async fn run_turn(
             resumed_from: None,
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
+            mode: None,
             source: Some(resolved.source),
             // No title: what reaches this function is a prompt the method
             // composed, not a sentence the user typed, and naming a session
@@ -573,6 +575,8 @@ async fn run_turn(
         clients: state.clients.clone(),
         sessions: state.sessions.clone(),
         rules: Arc::new(rules),
+        // Authoring turns carry their own rule posture and declare no mode.
+        mode: None,
         pending: state.pending.clone(),
         load_session_id: None,
         mcp_servers: config.mcp_servers.clone(),
@@ -592,6 +596,7 @@ async fn run_turn(
     // listed as interrupted and its active time never counted.
     let project_root_str = project_root.display().to_string();
     let ctx = crate::session_finalize::SessionContext {
+        mode: None,
         data_dir: &state.data_dir,
         sessions: &state.sessions,
         log: &log,
@@ -621,8 +626,14 @@ async fn run_turn(
 
 /// A rule posture that allows writes under `.meltemi/` (typical authoring) but
 /// leaves everything else to escalate.
-fn allow_meltemi_writes() -> RuleSet {
-    RuleSet::allow_all()
+///
+/// It used to say that and return `allow_all()`, which granted the whole tree.
+/// A posture whose name claims a bound it does not keep is worse than one that
+/// admits it grants everything, because the name is what the next reader
+/// believes — and `modos-de-autonomia` was about to build on top of it
+/// (design D5).
+fn allow_meltemi_writes(project_root: &std::path::Path) -> RuleSet {
+    RuleSet::allow_writes_under(&project_root.join(".meltemi").display().to_string())
 }
 
 fn parse<T: serde::de::DeserializeOwned>(params: Value, method: &str) -> Result<T, RpcError> {

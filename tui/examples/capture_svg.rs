@@ -52,6 +52,7 @@ fn main() {
     ]));
     live.apply(Update::Sessions(vec![
         SessionRow {
+            mode: None,
             id: "3f9c1a20".into(),
             agent: "mock-agent".into(),
             state: SessionState::Active,
@@ -62,6 +63,7 @@ fn main() {
             title: None,
         },
         SessionRow {
+            mode: None,
             id: "7b21e4d8".into(),
             agent: "mock-agent".into(),
             state: SessionState::WaitingPermission,
@@ -72,6 +74,7 @@ fn main() {
             title: None,
         },
         SessionRow {
+            mode: None,
             id: "c04ab7f1".into(),
             agent: "mock-agent".into(),
             state: SessionState::Ended,

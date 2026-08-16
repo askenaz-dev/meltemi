@@ -943,6 +943,26 @@
     {/if}
 
     <div class="composerRow">
+      <!-- What this session is allowed to decide on its own, where the person
+           deciding can see it. A mode that governs invisibly is a mode nobody
+           can hold responsible (modos-de-autonomia design D7). -->
+      {#if session?.mode}
+        <span
+          class="modeChip"
+          title={$t(`mode.${session.mode}.hint` as MessageKey)}
+        >
+          {$t("mode.label")}: {$t(`mode.${session.mode}` as MessageKey)}
+        </span>
+        <!-- Semi means "edits contained in the session's tree". A session
+             started from this surface is a FREE session, which runs on the
+             user's project and creates no worktree — so that containment is the
+             whole project, which is not a containment worth implying. Said out
+             loud rather than quietly meaning something else (design D4). -->
+        {#if session.mode === "semi"}
+          <span class="modeWarn">{$t("mode.semi.wholeTree")}</span>
+        {/if}
+      {/if}
+
       <span class="state" aria-live="polite">
         {#if refused}
           <span class="refusedText">{$t("conv.refused")} — {refused.detail}</span>
@@ -1332,6 +1352,18 @@
   }
   .askOption.other {
     color: var(--text-muted);
+  }
+  .modeChip {
+    font-size: var(--fs-caption);
+    color: var(--text-muted);
+    border: 1px solid var(--hair);
+    border-radius: var(--radius-control);
+    padding: 0 var(--sp-1);
+    white-space: nowrap;
+  }
+  .modeWarn {
+    font-size: var(--fs-caption);
+    color: var(--warn);
   }
   .askHint {
     margin: 0;

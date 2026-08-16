@@ -32,6 +32,11 @@
               "type": "object",
               "required": ["sessionId", "agentCommand", "projectRoot"],
               "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": ["manual", "semi", "autonomous"],
+                  "description": "How much this session was told it may decide on its own. Absent means no mode was declared, which is NOT the same as `manual` — an absent mode composes nothing, while manual takes back what the user's own rules would grant."
+                },
                 "sessionId": { "type": "string", "minLength": 1 },
                 "agentCommand": {
                   "type": "array",
@@ -124,6 +129,11 @@
                 "denied": {
                   "type": "boolean",
                   "description": "Whether the decision denied the request. Recorded explicitly because the outcome shape cannot say: selecting a reject option looks like selecting an allow one. Absent in logs written before this field existed — read as unknown, never as an approval."
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": ["manual", "semi", "autonomous"],
+                  "description": "The autonomy mode in force when this was decided, recorded even where the mode changed nothing: a history that names it only where it intervened cannot be read backwards to say what the session was allowed to do. Absent means no mode was declared."
                 },
                 "decidedBy": {
                   "type": "string",
