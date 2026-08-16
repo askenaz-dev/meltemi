@@ -7,16 +7,26 @@
 
 ## 1. El primitivo que la cola no tiene
 
-- [ ] 1.1 `InstructionQueue` gana su señal: un `Notify` propio, señalado por
+- [x] 1.1 `InstructionQueue` gana su señal: un `Notify` propio, señalado por
   `enqueue`, `interrupt_with` y `mark_cancelled` **bajo el mismo lock que muta
   el estado y después de mutarlo** — la disciplina que `redirigir-turno` dejó
   escrita y probada (design D1)
-- [ ] 1.2 `take_or_wait()` sustituye a `take_or_close()` como verbo del borde:
+- [x] 1.2 `take_or_wait()` sustituye a `take_or_close()` como verbo del borde:
   comprueba y se registra en la señal **sin soltar el lock entre ambas cosas**,
   que es la única forma de que no exista ventana. `close()` sobrevive para los
   finales de verdad (design D1) — escenario «Encolar y despertar no dejan
   ventana»
-- [ ] 1.3 El test de la ventana: una instrucción que llega exactamente mientras
+  <!-- 2026-08-15: el design pedía «registrarse en la señal sin soltar el lock»,
+  que es algo que `Notify` no puede dar literalmente —el registro ocurre al
+  primer poll, ya sin el lock—. Lo que cierra la ventana de verdad es
+  **`notify_one`, que guarda un permiso cuando nadie espera**: el mutador señala
+  con el lock tomado y el borde comprueba antes de esperar, así que una
+  instrucción que cae entre medio deja permiso y la espera vuelve al instante.
+  `notify_waiters` —el que usa `redirigir-turno`— habría perdido ese despertar.
+  El verbo quedó partido en dos (`try_take` + `wait_for_work`) en vez de un
+  `take_or_wait` monolítico, para que el `select!` de las cotas viva donde
+  tiene que vivir. -->
+- [x] 1.3 El test de la ventana: una instrucción que llega exactamente mientras
   el borde entra en espera se despacha igual, y la sesión no queda dormida con
   trabajo en la cola
 

@@ -20,13 +20,30 @@ use crate::session_log::SessionLog;
 /// A per-session FIFO of directed instructions (control-remoto-asistido).
 ///
 /// While the session is `accepting`, `session/direct` enqueues an instruction
-/// and the multi-turn loop dispatches it as the next turn. Once the loop finds
-/// the queue empty at a turn boundary — or the session is cancelled — it stops
-/// accepting, so a later instruction takes the resume path instead of queueing
-/// into a session that will never drain it.
+/// and the multi-turn loop dispatches it as the next turn. An empty queue at a
+/// turn boundary no longer ends the session: the loop WAITS on this queue's
+/// signal, keeping the ACP connection and the agent subprocess alive, until an
+/// instruction arrives or the session is ended for a stated reason
+/// (sesion-que-espera design D1). Only then does it stop accepting, so a later
+/// instruction takes the resume path instead of queueing into a session that
+/// will never drain it.
 #[derive(Clone)]
 pub struct InstructionQueue {
     inner: Arc<Mutex<QueueInner>>,
+    /// Wakes the turn boundary when work arrives.
+    ///
+    /// `notify_one`, never `notify_waiters`: the first STORES a permit when
+    /// nobody is waiting yet, and the second drops it on the floor. That
+    /// difference is the whole race. The boundary checks the queue and only then
+    /// awaits, so an instruction landing in between leaves a permit that the
+    /// await consumes immediately (sesion-que-espera design D1).
+    ///
+    /// `redirigir-turno` learned the other half of this the hard way: it uses
+    /// `notify_waiters` for interruption, and an interruption asked for before
+    /// the turn started woke nobody. Here a lost wake-up would park a session
+    /// with work in its queue, which is worse, so the primitive is the one with
+    /// a memory.
+    signal: Arc<Notify>,
 }
 
 struct QueueInner {
@@ -48,6 +65,7 @@ struct QueueInner {
 impl InstructionQueue {
     fn new() -> Self {
         Self {
+            signal: Arc::new(Notify::new()),
             inner: Arc::new(Mutex::new(QueueInner {
                 items: VecDeque::new(),
                 accepting: true,
@@ -82,7 +100,12 @@ impl InstructionQueue {
             });
         }
         inner.items.push_back(instruction);
-        Some(inner.items.len())
+        let position = inner.items.len();
+        // Mutated first, signalled after, and both before the lock is released:
+        // a boundary that wakes on this permit always finds the item already
+        // there.
+        self.signal.notify_one();
+        Some(position)
     }
 
     /// Loop side: take the next queued instruction, or atomically stop accepting
@@ -105,6 +128,47 @@ impl InstructionQueue {
                 None
             }
         }
+    }
+
+    /// Loop side: take the next queued instruction if there is one, WITHOUT
+    /// closing the queue when there is not.
+    ///
+    /// This is the half of `take_or_close` that survives. The other half — stop
+    /// accepting on an empty queue — was the atomic that shut the "enqueue while
+    /// the loop exits" race, and it is gone because an empty queue now means
+    /// wait, not end. What replaces the atomic is the signal's memory: see
+    /// [`Self::wait_for_work`].
+    ///
+    /// A cancelled session still closes here, unchanged: cancelling ends a
+    /// session, and no queued turn runs after it.
+    pub async fn try_take(&self) -> Option<String> {
+        let mut inner = self.inner.lock().await;
+        if inner.cancelled {
+            inner.accepting = false;
+            return None;
+        }
+        inner.items.pop_front()
+    }
+
+    /// Loop side: park until something changes — an instruction arrives, the
+    /// session is cancelled, or the queue is closed.
+    ///
+    /// Correctness rests on ONE ordering, and it is the caller's: check the
+    /// queue first, await second. Every mutator signals after mutating and
+    /// before releasing the lock, and the signal stores a permit when no one is
+    /// waiting, so an instruction that lands between the check and the await is
+    /// not lost — the await returns at once and the caller checks again. There
+    /// is no window, and there is no busy-wait.
+    ///
+    /// Waking is not a promise that there IS work: spurious wake-ups are
+    /// expected and the caller re-checks.
+    pub async fn wait_for_work(&self) {
+        self.signal.notified().await;
+    }
+
+    /// Whether this queue still accepts turns.
+    pub async fn accepting(&self) -> bool {
+        self.inner.lock().await.accepting
     }
 
     /// Enqueue a relay AND signal the interruption, under one lock and in that
@@ -137,12 +201,11 @@ impl InstructionQueue {
         }
         inner.items.push_back(instruction);
         inner.interrupted = true;
-        Some(inner.items.len())
+        let position = inner.items.len();
+        self.signal.notify_one();
+        Some(position)
     }
 
-    /// Loop side: whether the turn that just drained was interrupted by the user
-    /// with a relay waiting. Clears the flag, so it governs one turn and not the
-    /// next.
     /// The instruction at the head of the queue, without removing it. The
     /// record of an interruption names what relayed it, and naming it must not
     /// be what consumes it.
@@ -159,6 +222,9 @@ impl InstructionQueue {
         self.inner.lock().await.interrupted
     }
 
+    /// Loop side: whether the turn that just drained was interrupted by the user
+    /// with a relay waiting. Clears the flag, so it governs one turn and not the
+    /// next.
     pub async fn take_interrupted(&self) -> bool {
         let mut inner = self.inner.lock().await;
         std::mem::take(&mut inner.interrupted)
@@ -174,6 +240,11 @@ impl InstructionQueue {
         // Cancel wins over a concurrent interrupt: it is the stronger gesture
         // and the only irreversible one (design D1, "Cancelar gana").
         inner.interrupted = false;
+        // A session parked at the boundary waits on this signal and nothing
+        // else. Without this, `session/cancel` would stop meaning anything for a
+        // session that is not running a turn — which, after sesion-que-espera,
+        // is most of the time.
+        self.signal.notify_one();
     }
 
     /// Stop accepting further turns without draining (used when the loop ends a
@@ -181,6 +252,7 @@ impl InstructionQueue {
     /// queueing into a turn that will never run.
     pub async fn close(&self) {
         self.inner.lock().await.accepting = false;
+        self.signal.notify_one();
     }
 }
 
@@ -602,6 +674,64 @@ mod tests {
             Some("seguir por aqui"),
             "the relay runs as the next turn"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Scenario: Encolar y despertar no dejan ventana
+    #[tokio::test]
+    async fn an_instruction_that_lands_before_the_wait_starts_is_not_lost() {
+        // The window this closes: the boundary checks the queue, finds it empty,
+        // and an instruction arrives BEFORE it starts waiting. With a signal
+        // that only wakes current waiters, that session parks forever with work
+        // in its queue. This test is deterministic — it does not race — because
+        // it reproduces the ordering directly: signal first, wait after.
+        let (queue, log, dir) = queue_fixture("no-window").await;
+        assert_eq!(queue.try_take().await, None, "nothing yet");
+
+        queue
+            .enqueue("llegue justo entonces".into(), &log)
+            .await
+            .expect("enqueued while nobody waits");
+
+        // No waiter existed when this was enqueued. The wait must still return.
+        tokio::time::timeout(std::time::Duration::from_millis(500), queue.wait_for_work())
+            .await
+            .expect("the permit survived the gap: no wake-up was lost");
+        assert_eq!(
+            queue.try_take().await.as_deref(),
+            Some("llegue justo entonces"),
+            "and the work is there when the boundary looks again"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn an_empty_queue_no_longer_ends_the_session_by_itself() {
+        // `try_take` is the half of `take_or_close` that survives: it reports
+        // "nothing right now" WITHOUT deciding that the session is over. What
+        // ends a session is now a stated reason, never an empty queue.
+        let (queue, _log, dir) = queue_fixture("empty-is-not-the-end").await;
+        assert_eq!(queue.try_take().await, None);
+        assert!(
+            queue.accepting().await,
+            "an empty queue is a session between turns, not a session that ended"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn cancelling_wakes_a_parked_boundary_and_closes_it() {
+        // A session parked at the boundary waits on this signal and nothing
+        // else. If cancel did not reach it, `session/cancel` would stop meaning
+        // anything for a session that is not running a turn — which, after this
+        // change, is most of the time.
+        let (queue, _log, dir) = queue_fixture("cancel-wakes").await;
+        queue.mark_cancelled().await;
+        tokio::time::timeout(std::time::Duration::from_millis(500), queue.wait_for_work())
+            .await
+            .expect("cancelling wakes the parked boundary");
+        assert_eq!(queue.try_take().await, None, "and nothing is dispatched");
+        assert!(!queue.accepting().await, "the queue closed on the way out");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
