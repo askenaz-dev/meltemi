@@ -44,7 +44,13 @@ test("every form resolves to a schema of its own family", () => {
 
 test("required flags and enums survive generation", () => {
   const dispatch = METHOD_FORMS["worktree/dispatch"];
-  assert.ok(dispatch.fields.every((field) => field.required));
+  // Its four identifying fields are required, and the generator says so. It
+  // used to be every field; `mode` is optional and that is the point of it —
+  // declaring no mode is not declaring one (modos-de-autonomia).
+  const required = dispatch.fields.filter((field) => field.required).map((field) => field.name);
+  assert.deepEqual(required.sort(), ["agent", "change", "projectRoot", "task"]);
+  const optional = dispatch.fields.filter((field) => !field.required).map((field) => field.name);
+  assert.deepEqual(optional, ["mode"], "and the optional one is optional in the form too");
   // A schema enum becomes a closed option list in the form.
   const withOptions = Object.values(METHOD_FORMS).flatMap((form) =>
     form.fields.filter((field) => field.options),
