@@ -4,15 +4,22 @@
 
 ### Requirement: Taller de change en su propia rama
 
-El daemon SHALL ofrecer, a demanda, el taller de una change: una rama con el
-nombre de la change creada desde la punta de la rama por defecto, y un worktree
-gestionado con nomenclatura estable dentro de la raíz gestionada del proyecto.
-La petición SHALL ser idempotente — si el taller ya existe y es gestionado, se
-devuelve con su ruta y su rama, declarando que es un reencuentro. WHERE exista
-una rama homónima que el daemon no creó, la petición SHALL rehusarse con
-diagnóstico y remedio, y el daemon MUST NOT tocarla. La raíz gestionada SHALL
-quedar excluida del estado de git del árbol principal por vía local, sin
-modificar el `.gitignore` versionado del usuario.
+El daemon SHALL ofrecer, a demanda, el taller de una change: por defecto, una
+rama con el nombre de la change creada desde la punta de la rama por defecto, y
+un worktree gestionado con nomenclatura estable dentro de la raíz gestionada
+del proyecto. La petición MAY nombrar la rama del taller — si la nombrada no
+existe se crea desde la punta de la rama por defecto; si existe, la elección
+explícita SHALL entenderse como consentimiento para trabajar sobre ella. La
+petición MAY pedir en su lugar un taller único: rama y worktree con un sufijo
+único, de modo que varios talleres de la misma change coexistan sin pisarse.
+La petición por defecto SHALL ser idempotente — si el taller ya existe y es
+gestionado, se devuelve con su ruta y su rama, declarando que es un
+reencuentro; un taller único SHALL ser siempre una creación nueva. WHERE exista
+una rama homónima que el daemon no creó y la petición no la haya nombrado
+explícitamente, la petición SHALL rehusarse con diagnóstico y remedio, y el
+daemon MUST NOT tocarla. La raíz gestionada SHALL quedar excluida del estado de
+git del árbol principal por vía local, sin modificar el `.gitignore` versionado
+del usuario.
 
 #### Scenario: El primer taller se crea desde la rama por defecto
 
@@ -26,6 +33,21 @@ modificar el `.gitignore` versionado del usuario.
 - **WHEN** se pide el taller de una change que ya lo tiene
 - **THEN** el daemon SHALL devolver el existente con su ruta y su rama
 - **AND** SHALL declarar que es un reencuentro, no una creación
+
+#### Scenario: El taller sobre una rama elegida
+
+- **WHEN** se pide el taller nombrando una rama
+- **THEN** el worktree SHALL crearse sobre esa rama, creándola desde la punta
+  de la rama por defecto si no existe
+- **AND** nombrarla explícitamente SHALL valer como consentimiento aunque el
+  daemon no la haya creado
+
+#### Scenario: Un taller único no colisiona con nadie
+
+- **WHEN** se pide un taller único para una change
+- **THEN** su rama y su worktree SHALL llevar un sufijo único
+- **AND** varios talleres de la misma change SHALL coexistir sin pisarse
+- **AND** la respuesta SHALL declararlo creación, nunca reencuentro
 
 #### Scenario: La rama ajena se rehúsa sin tocarse
 

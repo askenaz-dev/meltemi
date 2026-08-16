@@ -38,10 +38,15 @@ improvisa con sus propias convenciones de nombre y de limpieza.
 
 - **`change/workspace`**: el daemon crea a demanda el taller de una change —
   una rama con el nombre de la change, desde la punta de la rama por defecto,
-  y un worktree gestionado con nomenclatura estable. Pedirlo de nuevo devuelve
+  y un worktree gestionado con nomenclatura estable. Dos opciones del
+  mantenedor: nombrar la rama del taller (montar el taller sobre una rama
+  elegida — nombrarla vale como consentimiento aunque no sea del daemon), o
+  pedir un taller unico con sufijo, para que varias sesiones trabajen la misma
+  change sin pisarse. Pedirlo de nuevo devuelve
   el existente en vez de fallar: el verbo es «dame el taller», no «créalo».
-  Una rama con ese nombre que Meltemi no creó produce rehúso honesto con
-  remedio — el daemon jamás toca lo que no es suyo.
+  Una rama homónima que Meltemi no creó y que nadie nombró produce rehúso
+  honesto con remedio — el daemon jamás toca lo que no es suyo sin
+  consentimiento explícito.
 - **`change/land`**: fusiona la rama del taller en la rama por defecto, solo
   con confirmación explícita; sin `confirm` **previsualiza** (qué commits, qué
   archivos), como ya hacen `commit` y `revert`. Un taller con cambios sin

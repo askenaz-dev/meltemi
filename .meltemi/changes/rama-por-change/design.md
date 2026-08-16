@@ -74,13 +74,36 @@ versiona y no toca el `.gitignore` del usuario. Escribir en el `.gitignore`
 versionado sería colar un cambio de árbol en cada proyecto que use talleres;
 `info/exclude` es exactamente el mecanismo de git para exclusiones de máquina.
 
-### D4 — `change/workspace` es «dame», no «crea»
+### D4 — `change/workspace` es «dame», no «crea» — y admite elegir
 
-Idempotente: si el taller existe y es gestionado, lo devuelve con su ruta y su
-rama; si no existe, lo crea desde **la punta de la rama por defecto** (no
-desde HEAD, que depende de dónde esté parado quien pregunta) y lo devuelve
-igual. El resultado declara si fue creación o reencuentro. Así el verbo sirve
-de entrada única: una sesión que arranca no necesita saber si es la primera.
+Idempotente por defecto: si el taller existe y es gestionado, lo devuelve con
+su ruta y su rama; si no existe, lo crea desde **la punta de la rama por
+defecto** (no desde HEAD, que depende de dónde esté parado quien pregunta) y
+lo devuelve igual. El resultado declara si fue creación o reencuentro. Así el
+verbo sirve de entrada única: una sesión que arranca no necesita saber si es
+la primera.
+
+Dos opciones, pedidas por el mantenedor, y cómo encajan sin romper lo
+anterior:
+
+- **Nombrar la rama** (`branch`): el taller se monta sobre la rama nombrada,
+  creándola desde la punta de la rama por defecto si no existe. Y aquí la
+  interacción fina con D2: el rehúso por rama homónima protege el camino
+  **implícito** — el nombre por defecto chocando con una rama ajena.
+  Nombrarla explícitamente es otra cosa: es consentimiento. Quien escribe
+  `--branch hotfix-x` está diciendo «esa, precisamente», y rehusárselo sería
+  proteger al usuario de sí mismo. La idempotencia aplica por rama nombrada.
+- **Taller único** (`unique`): rama y worktree con un sufijo único
+  (`<change>-<hash corto>`), para que varios talleres de la misma change
+  coexistan — dos sesiones sobre la misma change, o un scratch que no estorbe
+  al taller principal. Explícitamente **no** idempotente: cada petición única
+  es una creación nueva, y la respuesta lo declara. El sufijo lo genera el
+  daemon (aleatorio corto, registrado); no deriva del contenido porque su
+  único deber es no colisionar.
+
+Las dos opciones son excluyentes entre sí en una misma petición: nombrar una
+rama exacta y a la vez pedir un sufijo que la altere no significa nada, y se
+rehúsa igual que `--json --yaml`.
 
 ### D5 — `change/land` previsualiza sin `confirm` y jamás resuelve conflictos
 
@@ -127,7 +150,12 @@ superficies.
   con un fixture cuyo default no es `main`.
 - **Dos sesiones pidiendo el mismo taller a la vez**: la creación es
   idempotente y el registro es append-only con fold posterior, la misma
-  estrategia que ya usan las carreras. El segundo llega y reencuentra.
+  estrategia que ya usan las carreras. El segundo llega y reencuentra — y si
+  lo que quieren es NO compartir, el taller único existe para eso.
+- **`land` con varios talleres**: el aterrizaje identifica su rama (por
+  defecto la del nombre de la change; `branch` para las demás), así que dos
+  talleres de la misma change aterrizan por separado y en el orden que el
+  humano decida.
 
 ## Migration Plan
 
