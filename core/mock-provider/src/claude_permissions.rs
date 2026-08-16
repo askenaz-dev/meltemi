@@ -281,12 +281,20 @@ fn run_through_shell(command: &str, input: &str) -> Result<String, String> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| error.to_string())?;
-    child
-        .stdin
-        .take()
-        .ok_or("no input to the hook")?
-        .write_all(input.as_bytes())
-        .map_err(|error| error.to_string())?;
+    // A hook that does not read its input is not a hook that failed. Handing it
+    // the event is an offer, and one that exits first — printing what it had to
+    // say without ever looking at stdin — closes the pipe under this write. On
+    // Linux that is `EPIPE`, and treating it as a failure made a passing hook
+    // look broken: the CI runner hit exactly that, while every other platform
+    // won the race. What the hook PRINTED is what decides, and that is read
+    // below either way.
+    if let Some(mut stdin) = child.stdin.take() {
+        match stdin.write_all(input.as_bytes()) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
     let done = child
         .wait_with_output()
         .map_err(|error| error.to_string())?;
