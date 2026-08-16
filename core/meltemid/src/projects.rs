@@ -549,6 +549,7 @@ mod tests {
                 resumed_from: None,
                 agent_id: None,
                 profile: None,
+                mode: None,
                 source: None,
                 title: None,
             },

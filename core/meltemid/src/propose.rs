@@ -129,6 +129,7 @@ pub async fn handle_propose(
         .map_err(RpcError::internal)?
         .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(SessionEventKind::SessionStarted {
+        mode: None,
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: project_root.display().to_string(),
@@ -180,6 +181,7 @@ pub async fn handle_propose(
             // request named none, and the profile when it named one.
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
+            mode: None,
             source: Some(resolved.source),
             title: title.clone(),
         },
@@ -247,6 +249,7 @@ pub async fn handle_propose(
         // Directable: directed instructions run as follow-up turns.
         instruction_queue,
         // Authoring flows carry their own rule posture and declare no mode.
+        // Authoring flows carry their own rule posture and declare no mode.
         mode: None,
         edit_scope: Some(edit_scope.handle()),
     })
@@ -257,6 +260,7 @@ pub async fn handle_propose(
     // resumability — matches every other single-turn run.
     let project_root_str = project_root.display().to_string();
     let ctx = crate::session_finalize::SessionContext {
+        mode: None,
         data_dir: &state.data_dir,
         sessions: &state.sessions,
         log: &log,

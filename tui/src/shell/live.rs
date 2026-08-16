@@ -29,6 +29,9 @@ pub struct SessionRow {
     /// What the session is about, when the daemon could derive it from the
     /// instruction that opened it (titulo-de-sesion D6).
     pub title: Option<String>,
+    /// How much the session was told it may decide on its own. `None` is not a
+    /// fourth mode: it means the user's rules decide alone (modos-de-autonomia).
+    pub mode: Option<meltemi_proto::AutonomyMode>,
 }
 
 impl SessionRow {
@@ -89,6 +92,7 @@ impl From<SessionInfo> for SessionRow {
             agent_id: s.agent_id,
             profile: s.profile,
             title: s.title,
+            mode: s.mode,
         }
     }
 }
@@ -529,6 +533,7 @@ mod tests {
 
     fn row(id: &str, state: SessionState) -> SessionRow {
         SessionRow {
+            mode: None,
             id: id.into(),
             agent: "mock".into(),
             state,

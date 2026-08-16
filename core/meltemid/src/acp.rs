@@ -651,6 +651,9 @@ async fn passthrough_permission(
     {
         let mut log = state.log.lock().await;
         let _ = log.append(SessionEventKind::PermissionDecided {
+            // Recorded whether or not the mode intervened: a history that names
+            // it only where it changed something cannot be read backwards.
+            mode: state.mode,
             outcome: serde_json::to_value(&resolution.outcome).unwrap_or(Value::Null),
             decided_by: resolution.decided_by,
             denied: Some(resolution.denied),

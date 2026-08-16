@@ -456,6 +456,11 @@ pub struct SessionInfo {
     /// (titulo-de-sesion design D1, D2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// The autonomy mode the session declared, when it declared one. Absent is
+    /// not a fourth mode: it means the user's rules decide alone
+    /// (modos-de-autonomia design D3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<AutonomyMode>,
 }
 
 /// Result of `session/list`, most recent first.
@@ -1788,6 +1793,11 @@ pub enum SessionEventKind {
         /// (titulo-de-sesion design D3).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        /// How much this session was told it may decide on its own. Absent
+        /// means no mode was declared, which is not the same as `manual`
+        /// (modos-de-autonomia design D3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<AutonomyMode>,
     },
     /// A prompt was sent to the agent.
     PromptSent {
@@ -1824,6 +1834,12 @@ pub enum SessionEventKind {
         /// never as an approval.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         denied: Option<bool>,
+        /// The autonomy mode in force when this was decided. Recorded even when
+        /// the mode changed nothing: a history that only names the mode where it
+        /// intervened cannot be read backwards to say what the session was
+        /// allowed to do (modos-de-autonomia).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<AutonomyMode>,
         /// The rule that resolved it, when `decided_by` is `rule` — its scope
         /// and content, so every grant is traceable to what took it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2218,6 +2234,11 @@ pub struct WorktreeDispatchParams {
     pub change: String,
     pub task: String,
     pub agent: String,
+    /// How much this dispatch decides on its own. This is where `semi` means
+    /// the most, because a dispatched competitor really does have a worktree of
+    /// its own to be contained in. Absent composes nothing, as everywhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<AutonomyMode>,
 }
 
 /// How a dispatch resolved its competitor's binary.

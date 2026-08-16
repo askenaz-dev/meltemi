@@ -28,8 +28,20 @@ export type SessionState =
   | "ended"
   | "interrupted";
 
+/**
+ * How much a session decides on its own. Three, and no fourth: a mode that
+ * skipped the permission proxy is refused in the contract's own normative
+ * language, not left to a surface to decline (modos-de-autonomia design D6).
+ */
+export type AutonomyMode = "manual" | "semi" | "autonomous";
+
+/** The modes, in the order a person should read them: least to most. */
+export const AUTONOMY_MODES: AutonomyMode[] = ["manual", "semi", "autonomous"];
+
 export interface SessionInfo {
   sessionId: string;
+  /** The session's declared autonomy mode, when it declared one. */
+  mode?: AutonomyMode;
   agentCommand: string[];
   projectRoot: string;
   state: SessionState;

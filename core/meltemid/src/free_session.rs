@@ -137,6 +137,7 @@ pub async fn handle_session_start(
         // `session_started` a surface navigates on (design D3).
         .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(SessionEventKind::SessionStarted {
+        mode: params.mode,
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: project_root.display().to_string(),
@@ -186,6 +187,7 @@ pub async fn handle_session_start(
             resumed_from: None,
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
+            mode: params.mode,
             source: Some(resolved.source),
             title: title.clone(),
         },
@@ -282,6 +284,7 @@ pub async fn handle_session_start(
         let checkpoint_ref = checkpoint_ref.clone();
         let checkpoint_remedy = checkpoint_remedy.clone();
         let detach = params.detach;
+        let detach_mode = params.mode;
         async move {
             let outcome = acp::run_session(SessionParams {
                 agent_command: agent_command.clone(),
@@ -328,6 +331,7 @@ pub async fn handle_session_start(
             // forever and its active time counted as nothing.
             let project_root_str = project_root.display().to_string();
             let ctx = crate::session_finalize::SessionContext {
+                mode: detach_mode,
                 data_dir: &state.data_dir,
                 sessions: &state.sessions,
                 log: &log,

@@ -752,6 +752,7 @@ async fn handle_worktree_dispatch(
             .map_err(RpcError::internal)?
             .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(SessionEventKind::SessionStarted {
+        mode: None,
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: worktree.display().to_string(),
@@ -796,6 +797,7 @@ async fn handle_worktree_dispatch(
             resumed_from: None,
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
+            mode: None,
             source: Some(resolved.source),
             // A race lane is not born from a sentence (design D2).
             title: None,
@@ -1655,6 +1657,7 @@ async fn handle_sdd_implement(
             .map_err(RpcError::internal)?
             .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(SessionEventKind::SessionStarted {
+        mode: None,
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: root.display().to_string(),
@@ -1889,6 +1892,7 @@ async fn handle_session_list(params: Value, state: &Arc<DaemonState>) -> Result<
                 agent_id: record.agent_id.clone(),
                 profile: record.profile.clone(),
                 title: record.title.clone(),
+                mode: record.mode,
             });
         }
     }
@@ -2077,6 +2081,7 @@ async fn resume_with_instruction(
             .map_err(RpcError::internal)?
             .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(meltemi_proto::SessionEventKind::SessionStarted {
+        mode: None,
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: record.project_root.clone(),
@@ -2113,6 +2118,7 @@ async fn resume_with_instruction(
             // A resume runs the same agent and subscription it resumed.
             agent_id: record.agent_id.clone(),
             profile: record.profile.clone(),
+            mode: None,
             source: record.source,
             // And continues the same conversation, so it keeps its name rather
             // than deriving a second one from the continuation (design D5).
@@ -2170,6 +2176,7 @@ async fn resume_with_instruction(
     .await;
 
     let ctx = crate::session_finalize::SessionContext {
+        mode: None,
         data_dir: &state.data_dir,
         sessions: &state.sessions,
         log: &log,

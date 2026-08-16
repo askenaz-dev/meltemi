@@ -323,6 +323,16 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
         "required": false
       },
       {
+        "name": "mode",
+        "kind": "string",
+        "required": false,
+        "options": [
+          "manual",
+          "semi",
+          "autonomous"
+        ]
+      },
+      {
         "name": "detach",
         "kind": "boolean",
         "required": false
@@ -474,6 +484,16 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
     "schema": "worktree.schema.json",
     "def": "dispatchParams",
     "fields": [
+      {
+        "name": "mode",
+        "kind": "string",
+        "required": false,
+        "options": [
+          "manual",
+          "semi",
+          "autonomous"
+        ]
+      },
       {
         "name": "projectRoot",
         "kind": "string",

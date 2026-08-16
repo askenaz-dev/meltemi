@@ -910,7 +910,19 @@ fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &S
     let header = match live.selected_session() {
         Some(row) => {
             let (glyph, word) = session_state_label(row.state, ctx.lang);
-            format!("{} {} {}", glyph.text(&ctx.present), word, row.id)
+            // The mode rides with the state, because what a session is allowed
+            // to decide is as much its condition as whether it is running.
+            match mode_label(row.mode, ctx.lang) {
+                Some((mark, name)) => format!(
+                    "{} {} {} · {} {}",
+                    glyph.text(&ctx.present),
+                    word,
+                    row.id,
+                    mark.text(&ctx.present),
+                    name
+                ),
+                None => format!("{} {} {}", glyph.text(&ctx.present), word, row.id),
+            }
         }
         None => "-".to_string(),
     };
@@ -1164,6 +1176,33 @@ fn read_meltemi_entries() -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+/// (glyph, word) for a session's autonomy mode, or `None` when it declared
+/// none — which is not a fourth mode, and reads as "your rules decide".
+///
+/// Symbol and word, like every other state this shell declares: a mode shown
+/// by colour alone would be a mode a reader cannot check.
+pub(crate) fn mode_label(
+    mode: Option<meltemi_proto::AutonomyMode>,
+    lang: Lang,
+) -> Option<(Glyph, &'static str)> {
+    use meltemi_proto::AutonomyMode;
+    let mode = mode?;
+    Some(match mode {
+        // `manual` and `semi` are the same word in both languages, which is a
+        // fact rather than a missing translation.
+        AutonomyMode::Manual => (glyphs::PERMISSION, "manual"),
+        AutonomyMode::Semi => (glyphs::PENDING, "semi"),
+        AutonomyMode::Autonomous => (
+            glyphs::ACTIVE,
+            if lang == Lang::Es {
+                "autonomo"
+            } else {
+                "autonomous"
+            },
+        ),
+    })
 }
 
 /// (glyph, word) for a session state — meaning never depends on color.
@@ -1467,6 +1506,31 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
+    // Scenario: El terminal declara el modo de la sesión
+    #[test]
+    fn the_terminal_declares_the_mode_with_symbol_and_word() {
+        use meltemi_proto::AutonomyMode;
+        // Every mode gets a word in both languages and a symbol of its own —
+        // colour alone is what the accessibility rule forbids.
+        for mode in AutonomyMode::ALL {
+            for lang in [Lang::Es, Lang::En] {
+                let (glyph, word) =
+                    mode_label(Some(mode), lang).expect("a declared mode is declared");
+                assert!(!word.is_empty(), "{mode:?} has a word in {lang:?}");
+                assert!(!glyph.unicode.is_empty() && !glyph.ascii.is_empty());
+            }
+        }
+        // Declaring none is not a fourth mode, and it prints nothing rather
+        // than inventing a name for the absence.
+        assert!(mode_label(None, Lang::Es).is_none());
+
+        // Autonomous and manual do not share a symbol: they are the two a
+        // reader most needs to tell apart at a glance.
+        let (autonomous, _) = mode_label(Some(AutonomyMode::Autonomous), Lang::Es).expect("a mode");
+        let (manual, _) = mode_label(Some(AutonomyMode::Manual), Lang::Es).expect("a mode");
+        assert_ne!(autonomous.unicode, manual.unicode);
+    }
+
     // Scenario: El shell dice que la sesión espera
     #[test]
     fn a_waiting_session_is_declared_with_symbol_and_word_and_stays_directable() {
@@ -1495,6 +1559,7 @@ mod tests {
         // and nothing is resumed. What is NOT offered is interrupting — there is
         // no turn to stop.
         let waiting = SessionRow {
+            mode: None,
             id: "s-1".into(),
             agent: "mock".into(),
             state: SessionState::WaitingInstruction,
@@ -1564,6 +1629,7 @@ mod tests {
         ]));
         live.apply(Update::Sessions(vec![
             SessionRow {
+                mode: None,
                 id: "s1".into(),
                 agent: "claude".into(),
                 state: SessionState::Active,
@@ -1574,6 +1640,7 @@ mod tests {
                 title: None,
             },
             SessionRow {
+                mode: None,
                 id: "s2".into(),
                 agent: "claude".into(),
                 state: SessionState::Ended,
@@ -1584,6 +1651,7 @@ mod tests {
                 title: None,
             },
             SessionRow {
+                mode: None,
                 id: "s3".into(),
                 agent: "codex".into(),
                 state: SessionState::Ended,
@@ -1961,6 +2029,7 @@ mod tests {
         });
         let mut live = LiveData::new();
         live.apply(Update::Sessions(vec![SessionRow {
+            mode: None,
             id: "s1".into(),
             agent: "mock".into(),
             state: SessionState::Active,

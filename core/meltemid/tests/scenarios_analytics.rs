@@ -33,6 +33,7 @@ fn a_range_with_monthly_grain_yields_one_cell_per_period_and_matching_totals() {
     std::fs::create_dir_all(&data).expect("temp dir");
 
     let record = |id: &str, started: &str, ended: &str| SessionRecord {
+        mode: None,
         session_id: id.into(),
         agent_command: vec!["mock-agent".into()],
         project_root: "/repo".into(),

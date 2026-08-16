@@ -115,6 +115,7 @@ mod tests {
         let mut log = SessionLog::create(&data_dir, "projkey", "sess-1").expect("create");
 
         log.append(SessionEventKind::SessionStarted {
+            mode: None,
             session_id: "sess-1".into(),
             agent_command: vec!["mock-agent".into()],
             project_root: "C:\\repos\\fixture".into(),
@@ -141,7 +142,7 @@ mod tests {
         assert_eq!(first.v, SESSION_EVENT_VERSION);
         assert!(matches!(
             first.kind,
-            SessionEventKind::SessionStarted { .. }
+            SessionEventKind::SessionStarted { mode: None, .. }
         ));
         let last: SessionEvent = serde_json::from_str(lines[2]).unwrap();
         assert!(matches!(

@@ -43,7 +43,7 @@
 - [x] 3.1 Campo aditivo de modo en `session/start` y `worktree/dispatch`, con la
   conformidad de tres vías y `gen:forms` commiteado; **no** en `session/direct`
   (design D8)
-- [ ] 3.2 El arranque registra el modo, y cada decisión de permiso registra bajo
+- [x] 3.2 El arranque registra el modo, y cada decisión de permiso registra bajo
   cuál se tomó — escenarios «El arranque registra el modo» y «Cada decisión dice
   bajo qué modo se tomó»
 - [x] 3.3 Un modo desconocido se rehúsa nombrando los válidos, jamás degrada —
@@ -51,19 +51,25 @@
 
 ## 4. Las superficies
 
-- [ ] 4.1 GUI: elección en el lanzador y chip del modo junto al compositor —
+- [x] 4.1 GUI: elección en el lanzador y chip del modo junto al compositor —
   escenario «El modo se elige al lanzar y se ve en la sesión»
-- [ ] 4.2 GUI: con sesión libre sin worktree, semi **no** se presenta como
+- [x] 4.2 GUI: con sesión libre sin worktree, semi **no** se presenta como
   contención; se nombra el ámbito real (design D4) — escenario «Semi sin
   worktree dice cuál es su ámbito real»
-- [ ] 4.3 TUI: elección al arrancar y declaración con símbolo y palabra —
+  <!-- 2026-08-16: la GUI no puede distinguir worktree de proyecto —`SessionInfo`
+  no lo dice— pero no le hace falta: **una sesión lanzada desde esta superficie
+  es siempre libre**, y una libre no crea worktree. El aviso aplica siempre que
+  el modo sea semi, y la razón queda escrita donde se lee. Donde `semi` sí
+  significa contención de verdad es en `worktree/dispatch`, que también ganó el
+  campo. -->
+- [x] 4.3 TUI: elección al arrancar y declaración con símbolo y palabra —
   escenario «El terminal declara el modo de la sesión»
 - [x] 4.4 CLI: flag de modo con su ayuda nombrando los admitidos
-- [ ] 4.5 i18n es/en de todo lo nuevo, con el lint como guardián
+- [x] 4.5 i18n es/en de todo lo nuevo, con el lint como guardián
 
 ## 5. Cierre
 
 - [x] 5.1 E2e contra el mock: una sesión en cada modo, y la misma petición
   resolviéndose distinto — la prueba de que el modo hace algo
-- [ ] 5.2 `validate` limpio, `verify` con los escenarios enlazados, suite
+- [x] 5.2 `validate` limpio, `verify` con los escenarios enlazados, suite
   completa, clippy, fmt, gates del frontend y paridad revisada

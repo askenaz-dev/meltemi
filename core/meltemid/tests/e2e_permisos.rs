@@ -1098,7 +1098,10 @@ async fn the_same_request_resolves_differently_under_different_modes() {
             .request(methods::PERMISSION_PENDING, &json!({}))
             .await
             .expect("permission/pending");
-        if pending["pending"].as_array().is_some_and(|all| !all.is_empty()) {
+        if pending["pending"]
+            .as_array()
+            .is_some_and(|all| !all.is_empty())
+        {
             reached = true;
             break;
         }
@@ -1142,6 +1145,70 @@ async fn a_denying_rule_still_denies_under_the_most_permissive_mode() {
     assert_eq!(
         result["deniedPermissions"], 1,
         "the user's deny was applied, not lifted: {result:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: El arranque registra el modo
+// Scenario: Cada decisión dice bajo qué modo se tomó
+#[tokio::test]
+async fn the_log_says_which_mode_governed_the_session_and_each_decision() {
+    // A history with modes that does not record them cannot explain its own
+    // decisions — and the decision record carries the mode even where the mode
+    // changed nothing, because otherwise the log can only be read forwards.
+    let root = fixture("mode-log", Some("[[rule]]\neffect = \"allow\"\n"));
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("mode-log").await;
+    let (peer, _incoming) = init_client(&endpoint).await;
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({
+                "projectRoot": root_str,
+                "instruction": "write it",
+                "mode": "autonomous",
+            }),
+        ),
+    )
+    .await
+    .expect("the turn ran")
+    .expect("session/start ok");
+
+    let log = peer
+        .request(
+            methods::SESSION_LOG,
+            &json!({ "sessionId": result["sessionId"], "projectRoot": root_str }),
+        )
+        .await
+        .expect("session/log");
+    let events: Vec<serde_json::Value> = log["lines"]
+        .as_array()
+        .expect("lines")
+        .iter()
+        .filter_map(|line| serde_json::from_str(line.as_str().unwrap_or_default()).ok())
+        .collect();
+
+    let started = events
+        .iter()
+        .find(|e| e["type"] == "session_started")
+        .expect("the start is recorded");
+    assert_eq!(
+        started["payload"]["mode"], "autonomous",
+        "the session says what it was allowed to decide: {started:#}"
+    );
+
+    let decided = events
+        .iter()
+        .find(|e| e["type"] == "permission_decided")
+        .expect("a decision is recorded");
+    assert_eq!(
+        decided["payload"]["mode"], "autonomous",
+        "and so does every decision taken under it: {decided:#}"
     );
 
     peer.close();

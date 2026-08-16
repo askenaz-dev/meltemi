@@ -44,6 +44,9 @@ pub struct SessionContext<'a> {
     /// How the agent resolved, when the caller resolved through the fleet
     /// (tablero-de-carrera design D2).
     pub source: Option<meltemi_proto::FleetResolutionSource>,
+    /// The autonomy mode the session declared, so the record it leaves behind
+    /// can say what the session was allowed to decide (modos-de-autonomia).
+    pub mode: Option<meltemi_proto::AutonomyMode>,
 }
 
 /// The pieces a caller reports after a finalized successful turn.
@@ -101,6 +104,7 @@ pub async fn finalize_ok(ctx: &SessionContext<'_>, outcome: SessionOutcome) -> F
             resumed_from: ctx.resumed_from.clone(),
             agent_id: ctx.agent_id.clone(),
             profile: ctx.profile.clone(),
+            mode: ctx.mode,
             source: ctx.source,
             // The fold keeps the title the opening record set (design D4).
             title: None,
@@ -150,6 +154,7 @@ pub async fn finalize_err(ctx: &SessionContext<'_>, kind: &str, detail: String) 
             resumed_from: ctx.resumed_from.clone(),
             agent_id: ctx.agent_id.clone(),
             profile: ctx.profile.clone(),
+            mode: ctx.mode,
             source: ctx.source,
             // The fold keeps the title the opening record set (design D4).
             title: None,

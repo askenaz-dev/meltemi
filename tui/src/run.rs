@@ -868,6 +868,9 @@ async fn dispatch(
         .request(
             methods::WORKTREE_DISPATCH,
             &WorktreeDispatchParams {
+                // The CLI's dispatch verb takes no mode yet: it would need its
+                // own flag, and this change wires the flag onto `session`.
+                mode: None,
                 project_root,
                 change,
                 task,

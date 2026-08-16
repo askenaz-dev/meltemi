@@ -24,7 +24,7 @@ SUBCOMMANDS:
                         launch profile and prints the login gesture to run
     unlink <name>       unlink a subscription; its auth context is not deleted
     project             regenerate the projected context (AGENTS.md, ...)
-    session <instruction> [project-root] [--agent <id|profile>]
+    session <instruction> [project-root] [--agent <id|profile>] [--mode <mode>]
                         start a free session on that project: no change, no
                         spec and no gate, and nothing of the government
                         relaxed — the fleet resolves the agent, permissions go
@@ -34,7 +34,12 @@ SUBCOMMANDS:
                         It WAITS for the turn and prints its outcome; the
                         session ends with it. Staying between turns is what the
                         desktop surface does, and it needs the event stream this
-                        command has no way to read
+                        command has no way to read.
+                        `--mode manual|semi|autonomous` says how much the
+                        session decides on its own; absent, your permission
+                        rules decide exactly as they always did. In every mode
+                        an explicit deny of yours prevails and anything
+                        irreversible escalates
     sessions            list agent sessions (active and historical)
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing

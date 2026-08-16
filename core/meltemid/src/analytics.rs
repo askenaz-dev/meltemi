@@ -237,7 +237,10 @@ fn facts_of_log(path: &Path) -> SessionFacts {
             }
             SessionEventKind::PermissionRequested { .. } => facts.permissions_requested += 1,
             SessionEventKind::PermissionDecided {
-                denied, decided_by, ..
+                mode: None,
+                denied,
+                decided_by,
+                ..
             } => {
                 // The recorded fact first: the outcome SHAPE cannot tell an
                 // approval from a denial, because selecting a reject option
@@ -632,6 +635,7 @@ mod tests {
         profile: Option<&str>,
     ) -> SessionRecord {
         SessionRecord {
+            mode: None,
             session_id: id.into(),
             agent_command: vec!["claude.exe".into()],
             project_root: "/repo".into(),

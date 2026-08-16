@@ -498,6 +498,7 @@ async fn run_turn(
         .map_err(RpcError::internal)?
         .streaming(state.events.clone(), peer.connection_id(), &session_id);
     let _ = log.append(SessionEventKind::SessionStarted {
+        mode: None,
         session_id: session_id.clone(),
         agent_command: agent_command.clone(),
         project_root: project_root.display().to_string(),
@@ -543,6 +544,7 @@ async fn run_turn(
             resumed_from: None,
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
+            mode: None,
             source: Some(resolved.source),
             // No title: what reaches this function is a prompt the method
             // composed, not a sentence the user typed, and naming a session
@@ -594,6 +596,7 @@ async fn run_turn(
     // listed as interrupted and its active time never counted.
     let project_root_str = project_root.display().to_string();
     let ctx = crate::session_finalize::SessionContext {
+        mode: None,
         data_dir: &state.data_dir,
         sessions: &state.sessions,
         log: &log,

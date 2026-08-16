@@ -117,6 +117,7 @@ fn synthetic_session(
         data_dir,
         &key,
         &SessionRecord {
+            mode: None,
             session_id: session_id.into(),
             agent_command: vec![agent.into()],
             project_root: project_root.display().to_string(),
@@ -137,6 +138,7 @@ fn synthetic_session(
 
     let mut log = SessionLog::create(data_dir, &key, session_id).expect("session log");
     log.append(SessionEventKind::SessionStarted {
+        mode: None,
         session_id: session_id.into(),
         agent_command: vec![agent.into()],
         project_root: project_root.display().to_string(),

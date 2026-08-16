@@ -1218,6 +1218,62 @@ mod tests {
         ));
     }
 
+    // Scenario: Un modo desconocido se rehúsa con los válidos
+    #[test]
+    fn an_unknown_mode_is_refused_with_the_valid_ones_and_never_degraded() {
+        // Guessing how much a session may decide on its own would be the worst
+        // possible guess, so a name that is not a mode refuses — and the
+        // refusal carries the names that would have worked.
+        let plan = plan_of(&["session", "do it", "--mode", "bypass"], false);
+        let Action::Usage(message) = plan.action else {
+            panic!("`bypass` is not a mode and must not start a session");
+        };
+        for valid in ["manual", "semi", "autonomous"] {
+            assert!(
+                message.contains(valid),
+                "the refusal names `{valid}`: {message}"
+            );
+        }
+
+        // A missing value refuses too, rather than swallowing the next flag.
+        assert!(matches!(
+            plan_of(&["session", "do it", "--mode"], false).action,
+            Action::Usage(_)
+        ));
+        assert!(matches!(
+            plan_of(&["session", "do it", "--mode", "--json"], false).action,
+            Action::Usage(_)
+        ));
+
+        // The three that exist do start a session, carrying what was asked.
+        for (name, expected) in [
+            ("manual", AutonomyMode::Manual),
+            ("semi", AutonomyMode::Semi),
+            ("autonomous", AutonomyMode::Autonomous),
+        ] {
+            let plan = plan_of(&["session", "do it", "--mode", name], false);
+            let Action::Run(Command::Session { mode, .. }) = plan.action else {
+                panic!("`{name}` is a mode and starts a session")
+            };
+            assert_eq!(mode, Some(expected));
+        }
+
+        // And a verb that starts no session refuses the flag rather than
+        // swallowing it, which would be a lie about how the work ran.
+        assert!(matches!(
+            plan_of(&["status", "--mode", "manual"], false).action,
+            Action::Usage(_)
+        ));
+
+        // Absent is absent: no mode, no composition, the behaviour that existed.
+        let Action::Run(Command::Session { mode, .. }) =
+            plan_of(&["session", "do it"], false).action
+        else {
+            panic!("a session without a mode still starts")
+        };
+        assert_eq!(mode, None);
+    }
+
     #[test]
     fn bridge_takes_no_arguments() {
         assert_eq!(

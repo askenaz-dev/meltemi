@@ -177,6 +177,11 @@
       "type": "object",
       "required": ["projectRoot", "change", "task", "agent"],
       "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["manual", "semi", "autonomous"],
+          "description": "How much this dispatch decides on its own, as a posture over what the user's permission rules decided. This is where `semi` means the most: a dispatched competitor has a worktree of its own to be contained in. In every mode a user's explicit deny prevails and anything irreversible or outside the tree escalates to a person. Absent composes nothing."
+        },
         "projectRoot": { "type": "string", "minLength": 1 },
         "change": { "type": "string", "minLength": 1 },
         "task": { "type": "string", "minLength": 1 },
