@@ -887,3 +887,167 @@ async fn a_late_client_watches_a_session_it_did_not_start() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A fixture whose mock asks a question before it works.
+fn fixture_asking(tag: &str) -> PathBuf {
+    let root = fixture(tag, Some("[[rule]]\neffect = \"allow\"\n"));
+    let mock = mock_agent_bin();
+    std::fs::write(
+        root.join(".meltemi").join("config.toml"),
+        format!("[agent]\ncommand = ['{}', '--ask']\n", mock.display()),
+    )
+    .unwrap();
+    root
+}
+
+// Scenario: Una pregunta llega con las opciones del agente
+#[tokio::test]
+async fn a_question_reaches_the_tray_with_its_options_and_the_turn_goes_on_with_the_answer() {
+    // The whole loop, without a real agent and without the network: the agent
+    // asks with its own options, the human picks one, and the turn continues
+    // carrying that choice. The allow rule covers the mock's ordinary write
+    // permission, so what reaches the tray is the QUESTION and nothing else —
+    // which is what makes the assertions about it unambiguous.
+    let root = fixture_asking("asking");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("asking").await;
+    let (peer, _incoming) = init_client(&endpoint).await;
+
+    let running = {
+        let peer = peer.clone();
+        let root = root_str.clone();
+        tokio::spawn(async move {
+            peer.request(
+                methods::SESSION_START,
+                &json!({ "projectRoot": root, "instruction": "pick a route" }),
+            )
+            .await
+        })
+    };
+
+    // Wait for the question, and read it as the surfaces would.
+    let mut question = None;
+    for _ in 0..400 {
+        let pending = peer
+            .request(methods::PERMISSION_PENDING, &json!({}))
+            .await
+            .expect("permission/pending");
+        if let Some(first) = pending["pending"].as_array().and_then(|all| all.first()) {
+            question = Some(first.clone());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let question = question.expect("the question reached the tray");
+    let options: Vec<&str> = question["options"]
+        .as_array()
+        .expect("options")
+        .iter()
+        .map(|option| option["name"].as_str().expect("a name"))
+        .collect();
+    assert_eq!(
+        options,
+        ["Rewrite it (recommended)", "Patch it"],
+        "the agent's own labels reached the human, recommendation included: {question:#}"
+    );
+
+    // Answer it the way a surface does.
+    let chosen = question["options"][1]["optionId"]
+        .as_str()
+        .expect("an option id");
+    peer.request(
+        methods::PERMISSION_DECIDE,
+        &json!({ "requestId": question["requestId"], "optionId": chosen }),
+    )
+    .await
+    .expect("permission/decide");
+
+    let result = tokio::time::timeout(Duration::from_secs(30), running)
+        .await
+        .expect("the turn ended once the question was answered")
+        .expect("join")
+        .expect("session/start ok");
+    assert_eq!(result["status"], "completed", "{result:#}");
+
+    // And the turn CONTINUED with the answer rather than merely receiving one.
+    let log = peer
+        .request(
+            methods::SESSION_LOG,
+            &json!({ "sessionId": result["sessionId"], "projectRoot": root_str }),
+        )
+        .await
+        .expect("session/log");
+    let text =
+        log["lines"]
+            .as_array()
+            .expect("lines")
+            .iter()
+            .fold(String::new(), |mut all, line| {
+                all.push_str(line.as_str().unwrap_or_default());
+                all
+            });
+    assert!(
+        text.contains("answering with option-1"),
+        "the agent carried on with the option the human picked: {text}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Una regla no contesta una pregunta por ti
+#[tokio::test]
+async fn a_blanket_allow_rule_does_not_answer_a_question_on_your_behalf() {
+    // The defect this change would otherwise have introduced. Before it, a
+    // question was refused outright, so no rule could ever answer one. Now that
+    // questions are relayed, a bare `effect = "allow"` would have picked the
+    // agent's FIRST option — silently, on the user's behalf, because it happens
+    // to carry an "allow" kind.
+    //
+    // A rule has no opinion about which answer is right. The criterion is read
+    // off the wire: a request that offers no way to REFUSE is not a permission
+    // request, and deny-by-default means nothing where there is no deny.
+    let root = fixture_asking("rule-and-question");
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("rule-and-question").await;
+    let (peer, _incoming) = init_client(&endpoint).await;
+
+    let running = {
+        let peer = peer.clone();
+        let root = root_str.clone();
+        tokio::spawn(async move {
+            peer.request(
+                methods::SESSION_START,
+                &json!({ "projectRoot": root, "instruction": "pick a route" }),
+            )
+            .await
+        })
+    };
+
+    // The fixture's rule allows everything. The question STILL reaches a human.
+    let mut question = None;
+    for _ in 0..400 {
+        let pending = peer
+            .request(methods::PERMISSION_PENDING, &json!({}))
+            .await
+            .expect("permission/pending");
+        if let Some(first) = pending["pending"].as_array().and_then(|all| all.first()) {
+            question = Some(first.clone());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let question =
+        question.expect("an allow rule must not answer a question: it escalated, as it has to");
+    assert_eq!(
+        question["options"].as_array().map(Vec::len),
+        Some(2),
+        "and it arrived as the question it is: {question:#}"
+    );
+
+    running.abort();
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}

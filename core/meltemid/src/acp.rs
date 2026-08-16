@@ -580,7 +580,29 @@ async fn passthrough_permission(
     let facts = RequestFacts::from_tool_call(&tool_call);
     let options: Vec<PermissionOption> = request.options.iter().map(to_meltemi_option).collect();
 
-    let resolution = match state.rules.evaluate(&facts) {
+    // A request that offers no way to REFUSE is not a permission request: it is
+    // a question, and the options are its answers. A rule has no opinion about
+    // which answer is right — it would pick the first one that happens to carry
+    // an "allow" kind and call that a decision. So rules do not decide these,
+    // and they escalate.
+    //
+    // The criterion is read off the wire rather than guessed: `deny_outcome`
+    // already cannot deny such a request (it has nothing to select), which is
+    // the same fact seen from the other side. Deny-by-default is meaningless
+    // where there is no deny, so the answer has to come from a person
+    // (preguntas-del-agente).
+    let answerable_by_rule = options.iter().any(|option| {
+        matches!(
+            option.kind,
+            PermissionOptionKind::RejectOnce | PermissionOptionKind::RejectAlways
+        )
+    });
+    let decision = if answerable_by_rule {
+        state.rules.evaluate(&facts)
+    } else {
+        RuleDecision::Ask
+    };
+    let resolution = match decision {
         RuleDecision::Allow(rule) => Resolution {
             outcome: allow_outcome(&options),
             decided_by: PermissionDecidedBy::Rule,

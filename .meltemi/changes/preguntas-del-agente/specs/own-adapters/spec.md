@@ -20,6 +20,11 @@ agente iba a hacer. Ninguna otra herramienta SHALL ver su input alterado.
 WHERE el canal admite una sola respuesta por petición, el adaptador SHALL relevar
 cada pregunta por separado y NO SHALL fingir selección múltiple.
 
+Una petición que no ofrece forma de **rehusar** no es una petición de permiso: es
+una pregunta, y sus opciones son respuestas. Las reglas de permisos NO SHALL
+decidirla —no tienen opinión sobre cuál respuesta es correcta— y SHALL escalar a
+una persona.
+
 #### Scenario: Una pregunta llega con las opciones del agente
 
 - **WHEN** el CLI pilotado pregunta con opciones
@@ -31,6 +36,13 @@ cada pregunta por separado y NO SHALL fingir selección múltiple.
 
 - **WHEN** se aprueba una herramienta que no es una pregunta
 - **THEN** su input SHALL viajar sin alteración alguna
+
+#### Scenario: Una regla no contesta una pregunta por ti
+
+- **WHERE** una regla de permisos resolvería toda petición
+- **WHEN** llega una pregunta, que no ofrece forma de rehusar
+- **THEN** SHALL escalar a una persona igualmente
+- **AND** la regla NO SHALL elegir una respuesta
 
 #### Scenario: Lo que de verdad no se puede relevar se sigue rehusando
 

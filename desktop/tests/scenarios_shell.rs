@@ -1994,6 +1994,103 @@ fn strip_comments(source: &str) -> String {
     }
 }
 
+// Scenario: La pregunta aparece en el compositor y se contesta con teclado
+// Scenario: La pregunta aparece sin mover nada
+// Scenario: Muchas opciones se desplazan dentro del listado
+// Scenario: La salida de texto libre dice lo que hará
+#[test]
+fn a_question_is_answered_in_the_composer_without_moving_anything() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    let code = strip_comments(&detail);
+
+    // In the composer, and it decides through the SAME verb the tray uses:
+    // another access to one queue, never a second one.
+    let composer = code
+        .split(r#"<div class="composer""#)
+        .nth(1)
+        .expect("the composer");
+    assert!(
+        composer.contains(r#"class="ask""#) && composer.contains("waitingOn.options"),
+        "the question and its options are in the composer: {composer}"
+    );
+    assert!(
+        code.contains(r#"request("permission/decide""#),
+        "and it decides with the tray's own verb, not one of its own"
+    );
+    assert_eq!(
+        code.matches(r#""permission/decide""#).count(),
+        1,
+        "one call site, so there is one queue"
+    );
+
+    // Keyboard: arrows, Enter, and digits for the list a person learns.
+    assert!(
+        code.contains("function onAskKeydown")
+            && code.contains("ArrowDown")
+            && code.contains("event.key === \"Enter\""),
+        "the options are walked and chosen from the keyboard"
+    );
+
+    // No animation of layout. The rule is standing, not new: nothing moves
+    // under the cursor while a permission is being decided.
+    let styles = detail.split("<style>").nth(1).expect("the styles");
+    let ask_styles = styles
+        .split(".ask {")
+        .nth(1)
+        .expect("the question has styles")
+        .split(".askHint")
+        .next()
+        .expect("its block");
+    assert!(
+        !ask_styles.contains("transition") && !ask_styles.contains("animation"),
+        "the question appears at once: {ask_styles}"
+    );
+
+    // Bounded, with a scroll of its own — never the panel's.
+    assert!(
+        ask_styles.contains("max-height") && ask_styles.contains("overflow-y: auto"),
+        "many options scroll inside the list rather than growing the composer: {ask_styles}"
+    );
+
+    // The escape says what it really does, and does not claim to answer.
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    for key in [
+        "conv.ask",
+        "conv.ask.other",
+        "conv.ask.relayHint",
+        "conv.ask.relayPlaceholder",
+    ] {
+        assert_eq!(
+            messages.matches(&format!("\"{key}\":")).count(),
+            2,
+            "`{key}` is written in both languages"
+        );
+    }
+    assert!(
+        !messages.contains("conv.ask.answerHint"),
+        "there is no wording for answering with text, because the protocol carries none"
+    );
+    let escape = strip_comments(&read("desktop/ui/src/lib/views/SessionDetail.svelte"))
+        .split("async function answerFreely")
+        .nth(1)
+        .expect("the escape")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("its body")
+        .to_string();
+    assert!(
+        escape.contains("direct(true)"),
+        "the escape interrupts and relays, which is what its label promises: {escape}"
+    );
+    assert!(
+        !escape.contains("updatedInput") && !escape.contains("answer:"),
+        "and it does not pretend to carry an answer the wire cannot take: {escape}"
+    );
+}
+
 // Scenario: El compositor no muere al terminar el turno
 // Scenario: Esperar no enciende el indicador de trabajo
 #[test]

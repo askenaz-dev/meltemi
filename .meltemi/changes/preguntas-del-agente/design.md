@@ -90,20 +90,35 @@ golpe.
 máxima; **jamás el panel**. Un compositor que crece con el número de opciones
 movería el transcript entero, que es la misma prohibición dicha de otra forma.
 
-## D5 — «Otra respuesta…» dice la verdad de su cable, que no es la misma
+## D5 — «Otra respuesta…» es el relevo, y no en dos versiones — CORREGIDA
 
-La última opción abre texto libre en el mismo sitio. Lo que ocurre después
-depende del protocolo, y las dos verdades se dicen en vez de disimularse:
+> **Esta decisión estaba equivocada y se corrigió durante la implementación.**
+> Se conserva el error a la vista porque la corrección es el hallazgo.
 
-- **Adaptador de Claude**: viaja en `updatedInput` (D2). Es una respuesta a la
-  pregunta.
-- **ACP nativo**: no hay campo por donde viaje. La pregunta se resuelve
-  **cancelada** y el texto entra como **relevo del turno** —el verbo que
-  `redirigir-turno` acaba de construir y probar—. No es lo mismo y no se rotula
-  igual: el turno en vuelo se interrumpe.
+Decía: en el adaptador de Claude el texto libre viaja en `updatedInput`; en ACP
+nativo no hay campo y se releva el turno. Dos verdades, dos rótulos.
 
-El rótulo de la salida se decide por el agente de la sesión, no por una
-preferencia global.
+Leer el adaptador lo invirtió. El proposal tenía razón sobre el tramo
+**adaptador → CLI**: ahí `updatedInput` existe y lleva la respuesta. Pero el
+tramo que tendría que llevar el texto **hasta** el adaptador es el tramo
+**daemon → adaptador**, y ese es ACP **en los dos casos** — el adaptador *es* un
+agente ACP. Lo que recibe es:
+
+```rust
+RequestPermissionOutcome::Selected(selected) =>
+    permission::Decision::Selected(selected.option_id.0…)   // claude/mod.rs:576-582
+```
+
+Un id de opción y nada más. **El texto libre no puede llegar al adaptador**, así
+que no hay nada que poner en `updatedInput`.
+
+Entonces hay **un solo comportamiento**, y es el honesto: la pregunta queda sin
+contestar, el turno se interrumpe, y el texto entra como el turno siguiente —el
+verbo de `redirigir-turno`, con su rama que resuelve el permiso en vuelo como
+cancelado, de modo que nada queda pendiente detrás.
+
+Extender ACP para que transporte una respuesta escrita es una change propia con
+la prueba que §6 exige, no algo que se cuela detrás de una caja de texto.
 
 ## D6 — El mock aprende a preguntar, detrás de una bandera apagada
 
@@ -122,3 +137,20 @@ versión. CI no corre agentes reales (§5), así que:
 - el requisito de **conformidad por versión** que `own-adapters` ya tiene cubre
   el desfase: si la forma cambia, el adaptador rehúsa antes que adivinar;
 - y la validación manual queda documentada como tal, no como verificada.
+
+
+## D8 — Una regla no contesta una pregunta (hallazgo de la implementación)
+
+El e2e lo encontró: con `[[rule]] effect = "allow"` la pregunta **no llegaba a
+la bandeja**. La regla la resolvía sola, eligiendo la primera opción que llevara
+un *kind* de tipo allow — es decir, la primera respuesta del agente, en nombre
+del usuario y sin decírselo.
+
+Es un defecto que **esta change crea**: antes las preguntas se rehusaban, así
+que ninguna regla podía contestar una.
+
+El criterio se lee del cable, no se adivina: **una petición que no ofrece forma
+de rehusar no es una petición de permiso**. `deny_outcome` ya no puede denegarla
+—no tiene qué seleccionar—, que es el mismo hecho visto desde el otro lado. Y
+deny-by-default no significa nada donde no hay deny, así que la respuesta tiene
+que venir de una persona.
