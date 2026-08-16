@@ -128,6 +128,37 @@ pub fn render_error(
 mod tests {
     use super::*;
 
+    // Scenario: El error en YAML también es un documento
+    #[test]
+    fn an_error_in_yaml_is_one_document_on_stdout_and_nothing_on_stderr() {
+        let error = CliError::unreachable("the daemon is not listening");
+        let (mut out, mut err) = strings();
+        render_error(&error, Format::Yaml, &mut out, &mut err).unwrap();
+
+        let stdout = String::from_utf8(out).expect("utf8");
+        let stderr = String::from_utf8(err).expect("utf8");
+
+        // The document carries the exit code from the taxonomy, so a script
+        // reads the same thing it would read from `--json`.
+        assert!(
+            stdout.contains("\"code\": 10"),
+            "the exit code travels: {stdout}"
+        );
+        assert!(stdout.contains("\"kind\": \"daemon_unreachable\""));
+        assert!(stdout.contains("\"message\":"));
+        // One document: no human prose mixed in, and stderr left alone.
+        assert!(
+            !stdout.contains("error:"),
+            "no human text on stdout: {stdout}"
+        );
+        assert!(stderr.is_empty(), "stderr stays free of it: {stderr:?}");
+        // And never painted, whatever the terminal.
+        assert!(
+            !stdout.contains('\u{1b}'),
+            "a machine document is not decorated"
+        );
+    }
+
     fn strings() -> (Vec<u8>, Vec<u8>) {
         (Vec::new(), Vec::new())
     }

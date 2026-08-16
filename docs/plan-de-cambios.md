@@ -701,6 +701,42 @@ pushes — `nanoid <3.3.17` (**high**, GHSA-2v37-7h3g-55p8) y `postcss`
 solo protege si corre; conviene mirar que corrió antes de dar una tanda por
 cerrada.
 
+### `salida-que-se-lee` — abierta el 2026-08-15, vía rápida
+
+El mantenedor puso la salida de OpenSpec junto a la nuestra y la comparación no
+admitía discusión: sin resumen (los totales había que sumarlos a ojo), sin
+alineación (treinta y seis filas que no se recorren en vertical) y sin color
+(activa y archivada, `7/7` y `0/9`, se ven igual). Pidió además formatos de
+salida al estilo de Kubernetes.
+
+`--json` era un booleano, y un booleano no admite un tercer formato sin
+convertirse en dos que pueden contradecirse: ahora es un enum resuelto una vez,
+y `--json --yaml` se rehúsa por nombre en vez de resolverse por el último flag.
+El emisor YAML es propio y la change queda con **cero dependencias**: `serde_yaml`
+está archivado por su autor desde 2024 —adoptarlo pediría un `ignore` en
+`deny.toml` elegido a propósito— y YAML 1.2 es superconjunto de JSON, así que
+emitir toda cadena entre comillas dobles con el escapado de JSON es válido por
+construcción y los casos de borde temidos no llegan a existir.
+
+El color **no carga significado**: estado es la palabra, progreso son las
+cifras, la compuerta lo dice en texto, un artefacto ausente es un punto donde
+iría una letra. El test renderiza dos veces, quita los escapes de la pintada y
+exige que sean idénticas — de modo que el color no puede empezar a significar
+algo más adelante sin que la suite lo note. Y sin TTY no se pinta, que es lo que
+hace el cambio compatible byte a byte para todo script existente y la razón de
+que ningún requisito vivo necesitara modificarse.
+
+**Tres hallazgos de implementación**: padear después de pintar alinea los
+escapes en vez de las letras (las secuencias ANSI no ocupan ancho); la última
+columna no debe padearse (solo produce espacios finales invisibles); y el filtro
+de un test atrapaba la línea de resumen junto con las filas. Nota:
+`docs/qa/2026-08-15-salida-que-se-lee-smoke.md`.
+
+**Deuda declarada**: que el terminal pinte de verdad no se automatizó —
+capturar la salida la convierte en un pipe, y en un pipe el color se apaga por
+diseño, así que la medición destruiría lo que mide. Levantar una pseudo-terminal
+(ConPTY) sería su propia change.
+
 ### `acceso-remoto-en-dos-vias` — abierta el 2026-08-09, vía rápida
 
 Nace de una exploración con el mantenedor sobre el compañero móvil, y de tres

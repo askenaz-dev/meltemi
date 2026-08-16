@@ -32,7 +32,7 @@ commitear en cuanto cada tarea cierre, nunca dejar el árbol sucio entre pasos.
 
 ## 3. Cierre
 
-- [ ] 3.1 `meltemi validate salida-que-se-lee` limpio y `meltemi verify` con
+- [x] 3.1 `meltemi validate salida-que-se-lee` limpio y `meltemi verify` con
   los ocho escenarios enlazados (meta: cero marcas manuales); referencia CLI
   regenerada; suite completa, clippy, fmt y `cargo deny` verdes; comprobación
   en la terminal real —color donde hay TTY, sin color en un pipe— con captura;
