@@ -109,22 +109,47 @@ async fn init_client(endpoint: &str) -> Peer {
     peer
 }
 
-/// Polls `session/list` until an active session for `root` appears, returning
-/// its id. Fails the test if none appears within a few seconds.
-async fn wait_for_active_session(peer: &Peer, root: &str) -> String {
+/// Polls `session/list` until a LIVE session for `root` appears, returning its
+/// id. Fails the test if none appears within a few seconds.
+///
+/// Live, not `active` specifically, and the difference is a race this helper
+/// used to lose. A session whose first permission escalates goes to
+/// `waiting_permission` within microseconds of reaching `active`; a poll that
+/// looked only for `active` caught that window on a developer's machine and
+/// missed it on every CI runner, where it failed on all three platforms at
+/// once. What the callers actually mean is "a session exists and has not
+/// ended", and that is what is asked for now.
+async fn wait_for_live_session(peer: &Peer, root: &str) -> String {
+    // Every state the contract calls alive. Spelled out here rather than
+    // imported so the test states its own expectation.
+    const LIVE: [&str; 4] = [
+        "starting",
+        "active",
+        "waiting_permission",
+        "waiting_instruction",
+    ];
+    let mut seen = String::new();
     for _ in 0..200 {
         let list = peer
             .request(methods::SESSION_LIST, &json!({ "projectRoot": root }))
             .await
             .expect("session/list");
-        if let Some(sessions) = list["sessions"].as_array()
-            && let Some(active) = sessions.iter().find(|s| s["state"] == "active")
-        {
-            return active["sessionId"].as_str().unwrap().to_string();
+        if let Some(sessions) = list["sessions"].as_array() {
+            if let Some(live) = sessions
+                .iter()
+                .find(|s| LIVE.iter().any(|state| s["state"] == *state))
+            {
+                return live["sessionId"].as_str().unwrap().to_string();
+            }
+            seen = sessions
+                .iter()
+                .map(|s| s["state"].as_str().unwrap_or("?").to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    panic!("no active session appeared for {root}");
+    panic!("no live session appeared for {root}; the states seen were: [{seen}]");
 }
 
 /// The event `type`s of a session's JSONL log, in order.
@@ -185,7 +210,7 @@ async fn directing_an_active_session_dispatches_as_the_next_turn() {
     };
 
     // While it runs, direct an instruction: it queues as the next turn.
-    let session_id = wait_for_active_session(&peer, &root_str).await;
+    let session_id = wait_for_live_session(&peer, &root_str).await;
     let directed = peer
         .request(
             methods::SESSION_DIRECT,
@@ -370,7 +395,7 @@ async fn directing_a_live_non_directable_session_says_it_is_active() {
         })
     };
 
-    let session_id = wait_for_active_session(&peer, &root_str).await;
+    let session_id = wait_for_live_session(&peer, &root_str).await;
     let refused = peer
         .request(
             methods::SESSION_DIRECT,
@@ -421,7 +446,7 @@ async fn cancelling_with_a_queued_instruction_leaves_it_undispatched() {
     };
 
     // Queue an instruction during the active turn, then cancel the session.
-    let session_id = wait_for_active_session(&peer, &root_str).await;
+    let session_id = wait_for_live_session(&peer, &root_str).await;
     let directed = peer
         .request(
             methods::SESSION_DIRECT,
@@ -458,12 +483,27 @@ async fn cancelling_with_a_queued_instruction_leaves_it_undispatched() {
         .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
         .await
         .expect("session/list");
-    let still_active = list["sessions"]
+    // Not "no longer active" — no longer ALIVE. Since `sesion-que-espera` a
+    // session that stops running a turn parks in `waiting_instruction` instead
+    // of ending, so asking only about `active` would let a cancellation that
+    // failed to end the session pass this guard.
+    let still_live = list["sessions"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|s| s["sessionId"] == session_id && s["state"] == "active");
-    assert!(!still_active, "the session is no longer active");
+        .find(|s| s["sessionId"] == session_id)
+        .map(|s| {
+            [
+                "starting",
+                "active",
+                "waiting_permission",
+                "waiting_instruction",
+            ]
+            .iter()
+            .any(|state| s["state"] == *state)
+        })
+        .unwrap_or(false);
+    assert!(!still_live, "cancelling ended the session: {list:#}");
 
     peer.close();
     daemon.abort();
@@ -496,7 +536,7 @@ async fn interrupting_relays_the_turn_and_the_session_keeps_going() {
         })
     };
 
-    let session_id = wait_for_active_session(&peer, &root_str).await;
+    let session_id = wait_for_live_session(&peer, &root_str).await;
     wait_for_turn_in_flight(&peer, &root_str, &session_id).await;
     let directed = peer
         .request(
@@ -578,7 +618,7 @@ async fn interrupting_resolves_the_permission_left_hanging() {
         })
     };
 
-    let session_id = wait_for_active_session(&peer, &root_str).await;
+    let session_id = wait_for_live_session(&peer, &root_str).await;
     wait_for_turn_in_flight(&peer, &root_str, &session_id).await;
 
     // Wait until the request is actually pending: interrupting before it exists
@@ -680,7 +720,7 @@ async fn a_turn_the_agent_cancelled_by_itself_still_ends_the_session() {
         })
     };
 
-    let session_id = wait_for_active_session(&peer, &root_str).await;
+    let session_id = wait_for_live_session(&peer, &root_str).await;
     wait_for_turn_in_flight(&peer, &root_str, &session_id).await;
 
     // Queue an instruction WITHOUT asking to interrupt. The agent cancels its
