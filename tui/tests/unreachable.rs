@@ -30,7 +30,7 @@ async fn unreachable_daemon_is_reported_as_unreachable() {
         );
     }
 
-    let error = execute(Command::Status, &endpoint)
+    let error = execute(Command::Status, &endpoint, false)
         .await
         .expect_err("status must fail when the daemon is unreachable");
     assert_eq!(error.exit, ExitCode::Unreachable);

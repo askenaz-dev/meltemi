@@ -89,6 +89,7 @@ async fn the_free_session_verb_maps_to_session_start() {
         execute(
             command_of(&["session", "look at the failing build", &root_str]),
             &endpoint,
+            false,
         ),
     )
     .await
@@ -136,6 +137,7 @@ async fn the_free_session_verb_maps_to_session_start() {
         execute(
             command_of(&["session", "ship it", &root_str, "--agent", "Work-Sub"]),
             &endpoint,
+            false,
         ),
     )
     .await
@@ -152,6 +154,7 @@ async fn the_free_session_verb_maps_to_session_start() {
         execute(
             command_of(&["session", "ship it", &root_str, "--agent", "work-sub"]),
             &endpoint,
+            false,
         ),
     )
     .await

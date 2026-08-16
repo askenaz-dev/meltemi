@@ -52,6 +52,7 @@ async fn propose_maps_to_the_propose_method() {
                 agent: None,
             },
             &endpoint,
+            false,
         ),
     )
     .await

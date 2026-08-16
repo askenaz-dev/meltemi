@@ -26,7 +26,7 @@ async fn status_maps_to_the_status_method() {
     // skipped it.
     let (endpoint, handle) = spawn_daemon("status").await;
 
-    let outcome = execute(Command::Status, &endpoint)
+    let outcome = execute(Command::Status, &endpoint, false)
         .await
         .expect("status succeeds");
     assert!(
@@ -52,6 +52,7 @@ async fn a_daemon_application_error_maps_to_the_contract_exit_code() {
             change: "no-such-change-exists".into(),
         },
         &endpoint,
+        false,
     )
     .await
     .expect_err("an unknown change is a contract error");
@@ -69,7 +70,7 @@ async fn fleet_maps_to_the_fleet_list_method() {
     // Scenario: fleet consulta el catálogo / Listado humano / para máquinas.
     let (endpoint, handle) = spawn_daemon("fleet").await;
 
-    let outcome = execute(Command::Fleet, &endpoint)
+    let outcome = execute(Command::Fleet, &endpoint, false)
         .await
         .expect("fleet succeeds");
 
@@ -127,6 +128,7 @@ async fn project_maps_to_context_project_and_emits_one_json_object() {
             project_root: Some(fixture.display().to_string()),
         },
         &endpoint,
+        false,
     )
     .await
     .expect("project succeeds");
@@ -162,6 +164,7 @@ async fn sessions_maps_to_session_list_and_emits_one_json_object() {
             project_root: Some(fixture.display().to_string()),
         },
         &endpoint,
+        false,
     )
     .await
     .expect("sessions succeeds");
@@ -193,9 +196,13 @@ async fn the_registry_verbs_map_through_the_grammar_to_their_methods() {
     std::fs::create_dir_all(&fixture).unwrap();
     let path = fixture.display().to_string();
 
-    let outcome = execute(command_of(&["projects", "register", &path]), &endpoint)
-        .await
-        .expect("projects register succeeds");
+    let outcome = execute(
+        command_of(&["projects", "register", &path]),
+        &endpoint,
+        false,
+    )
+    .await
+    .expect("projects register succeeds");
     assert_eq!(
         outcome.json["project"]["exists"], true,
         "the registered project comes back in the shape `project/list` reports: {}",
@@ -213,7 +220,7 @@ async fn the_registry_verbs_map_through_the_grammar_to_their_methods() {
     // It is listed, then it is not — and the second answer says what was NOT
     // done, because a verb that hides a project sits one keystroke away from
     // being read as one that deletes it.
-    let listed = execute(command_of(&["projects"]), &endpoint)
+    let listed = execute(command_of(&["projects"]), &endpoint, false)
         .await
         .expect("projects lists");
     assert!(
@@ -226,7 +233,7 @@ async fn the_registry_verbs_map_through_the_grammar_to_their_methods() {
         listed.json
     );
 
-    let outcome = execute(command_of(&["projects", "forget", &path]), &endpoint)
+    let outcome = execute(command_of(&["projects", "forget", &path]), &endpoint, false)
         .await
         .expect("projects forget succeeds");
     assert_eq!(outcome.json["forgotten"], true, "{}", outcome.json);
@@ -256,7 +263,7 @@ async fn stop_maps_to_shutdown_and_stops_the_daemon() {
     // Scenario: stop -> shutdown; the daemon then stops.
     let (endpoint, handle) = spawn_daemon("stop").await;
 
-    let outcome = execute(Command::Stop, &endpoint)
+    let outcome = execute(Command::Stop, &endpoint, false)
         .await
         .expect("stop succeeds");
     assert_eq!(outcome.json["shutdown"], "requested");
@@ -284,6 +291,7 @@ async fn usage_maps_to_analytics_usage_and_emits_one_json_object() {
             until: None,
         },
         &endpoint,
+        false,
     )
     .await
     .expect("usage succeeds");
@@ -332,6 +340,7 @@ async fn an_invalid_usage_query_exits_with_the_contract_code() {
             until: Some("2026-07-01T00:00:00Z".into()),
         },
         &endpoint,
+        false,
     )
     .await
     .expect_err("an inverted range is refused");

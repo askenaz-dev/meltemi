@@ -1826,13 +1826,20 @@ fn render_changes(result: &ChangeListResult, painting: bool) -> String {
         }
     );
 
-    let name_w = result
-        .changes
-        .iter()
-        .filter(|c| !c.archived)
-        .map(|c| c.name.chars().count())
-        .max()
-        .unwrap_or(0);
+    // Each counter column is as wide as its widest ratio, so the names below
+    // start on one line rather than stepping to the right (design D5).
+    let widths = result.changes.iter().filter(|c| !c.archived).fold(
+        (1usize, 1usize, 1usize),
+        |(t, r, v), c| {
+            (
+                t.max(format!("{}/{}", c.tasks_done, c.tasks_total).len()),
+                r.max(format!("{}/{}", c.review_decided, c.review_total).len()),
+                v.max(format!("{}/{}", c.verified, c.verify_total).len()),
+            )
+        },
+    );
+    let (tasks_w, review_w, verify_w) = widths;
+
     for c in &result.changes {
         if c.archived {
             let _ = write!(
@@ -1863,8 +1870,10 @@ fn render_changes(result: &ChangeListResult, painting: bool) -> String {
             // A counter is painted by what its own figures already say: green
             // when it is done, dim when there is nothing to do, plain while it
             // is in progress. Remove the colour and the ratio still says it.
-            let counter = |done: u32, total: u32| {
-                let text = format!("{done}/{total}");
+            // Padded BEFORE painting: escapes have no width, so padding a
+            // painted string aligns the escapes instead of the digits.
+            let counter = |done: u32, total: u32, width: usize| {
+                let text = format!("{:width$}", format!("{done}/{total}"));
                 if total == 0 {
                     paint(painting, Paint::Dim, &text)
                 } else if done >= total {
@@ -1873,16 +1882,17 @@ fn render_changes(result: &ChangeListResult, painting: bool) -> String {
                     text
                 }
             };
-            let name = format!("{:name_w$}", c.name);
             let _ = write!(
                 out,
                 "\n  {}  {}  tasks {}  review {}  verify {}  {}{}",
                 paint(painting, Paint::Green, "active  "),
                 paint(painting, Paint::Blue, &art),
-                counter(c.tasks_done, c.tasks_total),
-                counter(c.review_decided, c.review_total),
-                counter(c.verified, c.verify_total),
-                paint(painting, Paint::Bold, &name),
+                counter(c.tasks_done, c.tasks_total, tasks_w),
+                counter(c.review_decided, c.review_total, review_w),
+                counter(c.verified, c.verify_total, verify_w),
+                // The name is the last column, so it is never padded: trailing
+                // spaces are invisible noise a terminal cannot use.
+                paint(painting, Paint::Bold, &c.name),
                 paint(painting, Paint::Yellow, &gate)
             );
         }
@@ -2180,6 +2190,132 @@ fn render_race(result: &WorktreeDiffResult) -> String {
 mod tests {
     use super::*;
     use meltemi_proto::{FleetResolutionSource, WorktreeCompetitorDiff};
+
+    /// Strips every ANSI escape, so a painted rendering can be compared with
+    /// the plain one letter for letter.
+    fn undress(text: &str) -> String {
+        let mut out = String::new();
+        let mut chars = text.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\u{1b}' {
+                // Every sequence this surface emits is a CSI ending in a
+                // letter; skip to it.
+                for inner in chars.by_ref() {
+                    if inner.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
+    fn change(name: &str, done: u32, total: u32, gate: bool) -> meltemi_proto::ChangeInfo {
+        meltemi_proto::ChangeInfo {
+            name: name.into(),
+            archived: false,
+            archived_at: None,
+            artifacts: meltemi_proto::ChangeArtifacts {
+                proposal: true,
+                design: true,
+                specs: true,
+                tasks: true,
+            },
+            tasks_done: done,
+            tasks_total: total,
+            review_decided: 0,
+            review_total: 2,
+            verified: done,
+            verify_total: total,
+            gate_pending: gate,
+            gate_artifact: gate.then(|| "tasks".to_string()),
+        }
+    }
+
+    // Scenario: Sin color no se pierde información
+    #[test]
+    fn stripping_the_colour_removes_no_information() {
+        let result = ChangeListResult {
+            changes: vec![
+                change("uno", 4, 4, false),
+                change("dos-con-nombre-largo", 1, 9, true),
+            ],
+        };
+        let painted = render_changes(&result, true);
+        let plain = render_changes(&result, false);
+
+        assert_ne!(painted, plain, "the painted rendering does carry escapes");
+        assert_eq!(
+            undress(&painted),
+            plain,
+            "colour is decoration: removing it leaves the same text"
+        );
+
+        // And each distinction the colour marks is marked by something else.
+        assert!(plain.contains("active"), "state is a word");
+        assert!(
+            plain.contains("4/4") && plain.contains("1/9"),
+            "progress is figures"
+        );
+        assert!(
+            plain.contains("awaits you"),
+            "a waiting gate says so in words"
+        );
+        assert!(
+            plain.contains("PDST"),
+            "artifacts are letters, absence a dot"
+        );
+    }
+
+    // Scenario: El listado abre con su resumen
+    #[test]
+    fn the_change_listing_opens_with_totals_including_who_waits() {
+        let result = ChangeListResult {
+            changes: vec![change("uno", 4, 4, false), change("dos", 1, 9, true)],
+        };
+        let head = render_changes(&result, false);
+        let summary = head.lines().nth(1).expect("a summary line");
+        assert!(summary.contains("2 total"), "totals: {summary}");
+        assert!(summary.contains("2 active"), "actives: {summary}");
+        // The figure the old listing never gave without reading every row.
+        assert!(
+            summary.contains("1 awaiting your decision"),
+            "how many wait on a human: {summary}"
+        );
+
+        // With nothing pending it says so rather than printing a zero.
+        let calm = ChangeListResult {
+            changes: vec![change("uno", 4, 4, false)],
+        };
+        assert!(render_changes(&calm, false).contains("none awaiting you"));
+    }
+
+    // Scenario: Las columnas se alinean con el contenido
+    #[test]
+    fn the_columns_align_to_the_widest_value_not_to_a_fixed_number() {
+        let result = ChangeListResult {
+            changes: vec![
+                change("corto", 4, 4, false),
+                change("otro", 111, 111, false),
+            ],
+        };
+        let plain = render_changes(&result, false);
+        let rows: Vec<&str> = plain
+            .lines()
+            .filter(|l| l.starts_with("  active"))
+            .collect();
+        assert_eq!(rows.len(), 2);
+        // The name is the last column and starts at the same offset in both,
+        // which is what makes the list readable vertically.
+        let at = |row: &str, name: &str| row.find(name).expect("the name is on its row");
+        assert_eq!(at(rows[0], "corto"), at(rows[1], "otro"));
+        // And no row is padded past its last column.
+        for row in rows {
+            assert_eq!(row, row.trim_end(), "no trailing padding: {row:?}");
+        }
+    }
 
     fn lane(agent: &str) -> WorktreeCompetitorDiff {
         WorktreeCompetitorDiff {

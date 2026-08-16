@@ -18,12 +18,12 @@ commitear en cuanto cada tarea cierre, nunca dejar el árbol sucio entre pasos.
 
 ## 2. La lectura
 
-- [ ] 2.1 Decisión de color en un solo lugar: `--no-color`, `NO_COLOR`,
+- [x] 2.1 Decisión de color en un solo lugar: `--no-color`, `NO_COLOR`,
   `TERM=dumb` y stdout sin TTY apagan; los formatos de máquina nunca pintan; el
   pintado son secuencias ANSI propias, sin crate (design D3, D4) — escenarios
   «La salida redirigida no lleva color» y «El usuario apaga el color» — gates:
   suite del crate
-- [ ] 2.2 `specs` y `changes` ganan resumen y alineación calculada del
+- [x] 2.2 `specs` y `changes` ganan resumen y alineación calculada del
   contenido, y el color codifica estado y tipo **de forma redundante**; el test
   compara la salida pintada con la monocroma tras retirar los escapes y exige
   el mismo texto (design D3, D5) — escenarios «El listado abre con su resumen»,

@@ -66,6 +66,7 @@ async fn link_confirms_and_prints_the_composed_login_gesture() {
             name: "work".into(),
         },
         &endpoint,
+        false,
     )
     .await
     .expect("link succeeds");
@@ -95,6 +96,7 @@ async fn unlink_of_a_hand_written_profile_refuses_with_the_remedy() {
             name: "manual".into(),
         },
         &endpoint,
+        false,
     )
     .await
     .expect_err("a hand-written profile is not the store's to remove");
