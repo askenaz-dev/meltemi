@@ -15,8 +15,9 @@ decide. WHERE las opciones no caben, el listado SHALL desplazarse dentro de sí
 mismo y NO SHALL desplazar el panel.
 
 La última opción SHALL ser una salida de texto libre, y su rótulo SHALL decir
-qué hará realmente según el canal de la sesión: responder la pregunta, o
-interrumpir el turno y relevarlo con el texto.
+qué hará realmente: interrumpir el turno y relevarlo con el texto. NO SHALL
+presentarse como una respuesta a la pregunta mientras el protocolo de permisos
+no transporte texto.
 
 #### Scenario: La pregunta aparece en el compositor y se contesta con teclado
 
@@ -39,5 +40,5 @@ interrumpir el turno y relevarlo con el texto.
 #### Scenario: La salida de texto libre dice lo que hará
 
 - **WHEN** se ofrece la salida de texto libre
-- **THEN** su rótulo SHALL decir si responde la pregunta o interrumpe el turno
-  para relevarlo
+- **THEN** su rótulo SHALL decir que interrumpe el turno y lo releva con el texto
+- **AND** NO SHALL presentarse como una respuesta a la pregunta

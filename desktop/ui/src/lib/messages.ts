@@ -399,6 +399,12 @@ const es = {
   "conv.queued":
     "encolada en la posición {n}: el turno en curso sigue intacto y se despachará al terminar",
   "conv.waiting": "la sesión espera tu decisión sobre {tool}",
+  "conv.ask": "el agente pregunta",
+  "conv.ask.other": "Otra respuesta…",
+  "conv.ask.relayHint":
+    "↑↓ o número para elegir · Enter contesta · «Otra respuesta» interrumpe el turno y lo releva con tu texto",
+  "conv.ask.relayPlaceholder":
+    "Escribe con qué relevar el turno: interrumpirá lo que está corriendo…",
   "conv.relay": "Interrumpir y enviar",
   "conv.relayHint":
     "detiene el turno en curso y lo releva con esta instrucción; la sesión sigue viva",
@@ -1014,6 +1020,12 @@ const en: Record<MessageKey, string> = {
   "conv.queued":
     "queued at position {n}: the running turn continues untouched and it is dispatched when that turn ends",
   "conv.waiting": "the session is waiting for your decision on {tool}",
+  "conv.ask": "the agent is asking",
+  "conv.ask.other": "Other answer…",
+  "conv.ask.relayHint":
+    "↑↓ or a number to choose · Enter answers · \"Other answer\" interrupts the turn and relays it with your text",
+  "conv.ask.relayPlaceholder":
+    "Write what should relay the turn: it interrupts what is running…",
   "conv.relay": "Interrupt and send",
   "conv.relayHint":
     "stops the turn in flight and relays it with this instruction; the session stays alive",

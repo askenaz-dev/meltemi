@@ -533,12 +533,92 @@
     }
   }
 
+  /**
+   * Which option the keyboard is on. Reset whenever the question changes, so a
+   * new request never arrives with the cursor already somewhere.
+   */
+  let askCursor = $state(0);
+  /** Whether the free-text escape is open for the question on screen. */
+  let freeText = $state(false);
+  $effect(() => {
+    // Keyed on the request id: a repaint of the same question must not move the
+    // cursor out from under the user.
+    void waitingOn?.requestId;
+    askCursor = 0;
+    freeText = false;
+  });
+
+
+  function onAskKeydown(event: KeyboardEvent) {
+    if (!waitingOn) return;
+    // The escape counts as the last row: the list the user sees is what the
+    // keyboard walks.
+    const last = waitingOn.options.length;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      askCursor = (askCursor + step + last + 1) % (last + 1);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (askCursor === last) {
+        freeText = true;
+        return;
+      }
+      void decide(waitingOn.options[askCursor].optionId);
+      return;
+    }
+    // Digits pick directly, which is how a list of a few options is actually
+    // used once it is familiar.
+    const digit = Number(event.key);
+    if (Number.isInteger(digit) && digit >= 1 && digit <= last + 1) {
+      event.preventDefault();
+      if (digit === last + 1) {
+        freeText = true;
+      } else {
+        void decide(waitingOn.options[digit - 1].optionId);
+      }
+    }
+  }
+
   function onDraftKeydown(event: KeyboardEvent) {
     event.stopPropagation();
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
+      // While a question is open, the box answers the question rather than
+      // queueing a turn — that is what the user was told it would do.
+      if (waitingOn && freeText) {
+        void answerFreely();
+        return;
+      }
       void direct();
     }
+  }
+
+  /**
+   * The free-text escape: interrupt the turn and relay it with the text.
+   *
+   * The design said this depended on the channel — an answer through the
+   * provider's adapter, a relay on native ACP. Reading the adapter settled it
+   * the other way: the daemon→adapter leg is ACP in BOTH cases, and an ACP
+   * permission outcome is `Selected(optionId)` or `Cancelled`
+   * (`claude/mod.rs:576-582`). There is no field for free text on the leg that
+   * would have to carry it, so the text cannot reach the adapter to be put into
+   * `updatedInput` at all.
+   *
+   * So there is one behaviour, not two, and it is the honest one: the question
+   * is left unanswered, the turn is interrupted, and the text becomes the next
+   * turn. Extending ACP to carry a typed answer is a change of its own with the
+   * proof §6 demands, not something to smuggle in behind a text box.
+   */
+  async function answerFreely() {
+    if (!draft.trim() || !waitingOn) return;
+    freeText = false;
+    // The daemon resolves the in-flight question as cancelled when the turn is
+    // interrupted — the arm `redirigir-turno` added — so nothing is left
+    // pending behind this.
+    await direct(true);
   }
 
   function cancelSession() {
@@ -811,6 +891,43 @@
     <!-- Decorative to a screen reader: the state it signals is spoken by the
          status row below and by the badge in the header. -->
     {#if working}<span class="wind" aria-hidden="true"></span>{/if}
+    <!-- A question is answered where you write, not by scrolling up to find the
+         card that asked it. It decides through `permission/decide` — the very
+         verb the tray uses — so this is another access to one queue and never a
+         second one (preguntas-del-agente design D4). It appears with no layout
+         animation: nothing moves under the cursor while a permission is being
+         decided, which is the standing rule, not a new one. -->
+    {#if waitingOn && !freeText}
+      <div class="ask" role="group" aria-label={$t("conv.ask")}>
+        <p class="askText">{waitingOn.summary}</p>
+        <!-- Its own scroll, bounded. A composer that grew with the number of
+             options would push the whole transcript, which is the same
+             prohibition said another way. -->
+        <div class="askOptions" role="listbox" tabindex="-1" onkeydown={onAskKeydown}>
+          {#each waitingOn.options as option, at (option.optionId)}
+            <button
+              class="askOption"
+              class:sel={at === askCursor}
+              role="option"
+              aria-selected={at === askCursor}
+              onclick={() => void decide(option.optionId)}
+            >
+              <span class="askIndex" aria-hidden="true">{at + 1}</span>
+              {option.name}
+            </button>
+          {/each}
+          <!-- The escape, last and always. Its label says what it will really
+               do on THIS session's channel, because the two are not the same
+               action (design D5). -->
+          <button class="askOption other" onclick={() => (freeText = true)}>
+            <span class="askIndex" aria-hidden="true">{waitingOn.options.length + 1}</span>
+            {$t("conv.ask.other")}
+          </button>
+        </div>
+        <p class="askHint">{$t("conv.ask.relayHint")}</p>
+      </div>
+    {/if}
+
     {#if canSend}
       <textarea
         bind:this={field}
@@ -819,7 +936,9 @@
         rows="2"
         spellcheck="false"
         aria-label={$t("conv.placeholder")}
-        placeholder={$t("conv.placeholder")}
+        placeholder={waitingOn && freeText
+          ? $t("conv.ask.relayPlaceholder")
+          : $t("conv.placeholder")}
       ></textarea>
     {/if}
 
@@ -1162,6 +1281,62 @@
   }
   .composer:focus-within {
     border-color: var(--accent);
+  }
+
+  /* The question, in the composer. No transition of any kind: a permission
+     MUST NOT animate its layout, so nothing moves under the cursor while it is
+     being decided (gui-shell "Densidad y profundidad del design system"). It
+     appears at once. */
+  .ask {
+    display: grid;
+    gap: var(--sp-1);
+  }
+  .askText {
+    margin: 0;
+    color: var(--text);
+  }
+  /* Bounded, with a scroll of its OWN. A composer that grew with the number of
+     options would push the transcript above it, which is the same prohibition
+     said another way (design D4). */
+  .askOptions {
+    display: grid;
+    gap: 2px;
+    max-height: 11rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .askOption {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    padding: var(--sp-1) var(--sp-2);
+    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .askOption:hover,
+  .askOption.sel {
+    background: var(--panel);
+    /* Surface AND marker, never colour alone. */
+    border-color: var(--accent);
+  }
+  .askIndex {
+    min-width: 1.25em;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .askOption.other {
+    color: var(--text-muted);
+  }
+  .askHint {
+    margin: 0;
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
   }
   /* The ambient working indicator (design-system.md, "Ambient working
      indicator"): a clipped layer behind an opaque composer, so only the pixels

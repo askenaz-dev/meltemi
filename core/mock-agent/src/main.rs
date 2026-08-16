@@ -158,6 +158,34 @@ async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
         )))),
     ));
 
+    // 1b. With `--ask`, put a real question first: the agent's own options,
+    // one of them recommended in its label, exactly as a provider would send
+    // it. The answer comes back as the selected option id.
+    if asks() {
+        let question = RequestPermissionRequest::new(
+            session_id.clone(),
+            ToolCallUpdate::new("ask-route", ToolCallUpdateFields::new()),
+            vec![
+                PermissionOption::new(
+                    "option-0",
+                    "Rewrite it (recommended)",
+                    PermissionOptionKind::AllowOnce,
+                ),
+                PermissionOption::new("option-1", "Patch it", PermissionOptionKind::AllowOnce),
+            ],
+        );
+        let chosen = cx.send_request(question).block_task().await;
+        // The choice is echoed into the transcript, so a test can assert the
+        // turn actually continued with the answer rather than merely receiving
+        // one.
+        let _ = cx.send_notification(SessionNotification::new(
+            session_id.clone(),
+            SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
+                TextContent::new(format!("answering with {}", chosen_option(&chosen))),
+            ))),
+        ));
+    }
+
     // 2. Ask the client for permission to write the file.
     let request = RequestPermissionRequest::new(
         session_id,
@@ -189,12 +217,39 @@ async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
     }
 }
 
+/// Which option a permission answer selected, or `none` when it selected
+/// nothing. Written for a transcript a test reads, never for a protocol.
+fn chosen_option(
+    decision: &std::result::Result<
+        agent_client_protocol::schema::v1::RequestPermissionResponse,
+        agent_client_protocol::Error,
+    >,
+) -> String {
+    match decision {
+        Ok(response) => match &response.outcome {
+            RequestPermissionOutcome::Selected(selected) => selected.option_id.0.to_string(),
+            RequestPermissionOutcome::Cancelled => "cancelled".to_string(),
+            _ => "unknown".to_string(),
+        },
+        Err(_) => "none".to_string(),
+    }
+}
+
 /// Reads the optional `--turn-delay-ms <N>` argument (milliseconds to hold each
 /// turn open before scripting it).
 /// Whether `--think` was passed: the mock streams a thought chunk before it
 /// speaks.
 fn thinks() -> bool {
     std::env::args().any(|a| a == "--think")
+}
+
+/// Whether `--ask` was passed: the mock puts a question with options before it
+/// works, so the answering flow is exercisable without a real agent and without
+/// the network. Off by default, like every other knob here — a mock that asked
+/// on its own would change what every existing permission test reads
+/// (preguntas-del-agente design D6).
+fn asks() -> bool {
+    std::env::args().any(|a| a == "--ask")
 }
 
 fn turn_delay_ms() -> Option<u64> {
