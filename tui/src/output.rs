@@ -12,6 +12,7 @@ use std::io::Write;
 use serde_json::{Value, json};
 
 use crate::exit::ExitCode;
+use crate::format::Format;
 
 /// A successful command result: a human rendering and a machine value.
 #[derive(Debug)]
@@ -73,15 +74,30 @@ impl CliError {
 
 /// Writes a successful outcome: under `json`, exactly one JSON object on
 /// stdout; otherwise the human rendering on stdout.
-pub fn render_outcome(outcome: &Outcome, json: bool, out: &mut impl Write) -> std::io::Result<()> {
-    if json {
-        writeln!(
-            out,
-            "{}",
-            serde_json::to_string(&outcome.json).expect("JSON value serializes")
-        )
+pub fn render_outcome(
+    outcome: &Outcome,
+    format: Format,
+    out: &mut impl Write,
+) -> std::io::Result<()> {
+    if format.is_machine() {
+        render_value(&outcome.json, format, out)
     } else {
         writeln!(out, "{}", outcome.human)
+    }
+}
+
+/// Writes one machine-readable document. The single place that knows how each
+/// machine format serializes, so a new one is one arm and not a search.
+pub fn render_value(value: &Value, format: Format, out: &mut impl Write) -> std::io::Result<()> {
+    match format {
+        Format::Json => writeln!(
+            out,
+            "{}",
+            serde_json::to_string(value).expect("JSON value serializes")
+        ),
+        Format::Yaml => write!(out, "{}", crate::format::to_yaml(value)),
+        // A machine document was asked for; the human path never arrives here.
+        Format::Human => Ok(()),
     }
 }
 
@@ -90,11 +106,11 @@ pub fn render_outcome(outcome: &Outcome, json: bool, out: &mut impl Write) -> st
 /// stdout untouched.
 pub fn render_error(
     error: &CliError,
-    json: bool,
+    format: Format,
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> std::io::Result<()> {
-    if json {
+    if format.is_machine() {
         let object = json!({
             "error": {
                 "code": error.exit.code(),
@@ -102,11 +118,7 @@ pub fn render_error(
                 "message": error.message,
             }
         });
-        writeln!(
-            out,
-            "{}",
-            serde_json::to_string(&object).expect("JSON value serializes")
-        )
+        render_value(&object, format, out)
     } else {
         writeln!(err, "error: {}", error.message)
     }

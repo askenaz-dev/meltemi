@@ -9,6 +9,8 @@
 /// Subcommands reserved for the SDD authoring cycle. The cycle is now fully
 /// operative (comando-implement un-reserved `implement`), so nothing remains
 /// reserved; the list is kept for the grammar's forward-compatibility.
+use crate::format::Format;
+
 pub const RESERVED: &[&str] = &[];
 
 /// Help text for the scriptable surface.
@@ -105,6 +107,9 @@ SUBCOMMANDS:
 
 GLOBAL FLAGS:
     --json              emit machine-readable JSON on stdout
+    --yaml              emit machine-readable YAML on stdout (one of --json/--yaml)
+    --no-color          render without colour (also NO_COLOR, TERM=dumb, or a
+                        non-terminal stdout)
     -h, --help          print this help
     -V, --version       print the client version";
 
@@ -290,7 +295,30 @@ pub enum Action {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Plan {
     pub action: Action,
-    pub json: bool,
+    /// The single output-format choice (salida-que-se-lee D1).
+    pub format: Format,
+    /// The explicit `--no-color`; the other three signals are read from the
+    /// environment where the decision is taken, not here (this stays pure).
+    pub no_color: bool,
+}
+
+impl Plan {
+    /// Whether the caller asked for a machine-readable format.
+    #[must_use]
+    pub fn is_machine(&self) -> bool {
+        self.format.is_machine()
+    }
+}
+
+/// The single format choice from the two machine flags. `Err` is the
+/// contradiction: two machine formats at once mean nothing (design D1).
+fn resolve_format(json: bool, yaml: bool) -> Result<Format, &'static str> {
+    match (json, yaml) {
+        (true, true) => Err("`--json` and `--yaml` ask for two machine formats at once; pick one"),
+        (true, false) => Ok(Format::Json),
+        (false, true) => Ok(Format::Yaml),
+        (false, false) => Ok(Format::Human),
+    }
 }
 
 /// Resolves an invocation from its arguments (without the program name) and
@@ -298,6 +326,8 @@ pub struct Plan {
 #[must_use]
 pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
     let mut json = false;
+    let mut yaml = false;
+    let mut no_color = false;
     let mut want_help = false;
     let mut want_version = false;
     let mut exec = false;
@@ -312,6 +342,8 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
         match arg.as_str() {
             "--" => end_of_flags = true,
             "--json" => json = true,
+            "--yaml" => yaml = true,
+            "--no-color" => no_color = true,
             "--help" | "-h" => want_help = true,
             "--version" | "-V" => want_version = true,
             // Subcommand-local, but recognized here so the global flag parser
@@ -325,26 +357,45 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
                 positionals.push(arg.as_str());
             }
             flag if flag.starts_with('-') && flag != "-" => {
+                // The format so far still decides how this error is rendered:
+                // `--json --bogus` must answer with a JSON error object.
                 return Plan {
                     action: Action::Usage(format!("unknown flag `{flag}`; run `meltemi help`")),
-                    json,
+                    format: resolve_format(json, yaml).unwrap_or(Format::Human),
+                    no_color,
                 };
             }
             positional => positionals.push(positional),
         }
     }
 
+    // One format, decided once. `--json --yaml` is a state that means nothing,
+    // so it is refused here rather than resolved differently at each call site
+    // (design D1).
+    let format = match resolve_format(json, yaml) {
+        Ok(format) => format,
+        Err(message) => {
+            return Plan {
+                action: Action::Usage(message.into()),
+                format: Format::Human,
+                no_color,
+            };
+        }
+    };
+
     // Help and version flags win over any subcommand, as is conventional.
     if want_help {
         return Plan {
             action: Action::Help,
-            json,
+            format,
+            no_color,
         };
     }
     if want_version {
         return Plan {
             action: Action::Version,
-            json,
+            format,
+            no_color,
         };
     }
 
@@ -354,7 +405,8 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
         Err(message) => {
             return Plan {
                 action: Action::Usage(message),
-                json,
+                format,
+                no_color,
             };
         }
     };
@@ -364,7 +416,7 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             // A bare invocation goes interactive only with a TTY and without
             // `--json` (which signals machine use). Otherwise it is a usage
             // error — never a hang waiting on input.
-            if stdout_is_tty && !json {
+            if stdout_is_tty && !format.is_machine() {
                 Action::Interactive
             } else {
                 Action::Usage("no subcommand given; run `meltemi help`".into())
@@ -373,7 +425,11 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
         Some((subcommand, rest)) => plan_subcommand(subcommand, rest, exec, agent),
     };
 
-    Plan { action, json }
+    Plan {
+        action,
+        format,
+        no_color,
+    }
 }
 
 /// Lifts `--agent <value>` out of the collected positionals, wherever on the

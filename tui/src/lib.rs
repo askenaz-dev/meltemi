@@ -11,6 +11,7 @@
 
 pub mod cli;
 pub mod exit;
+pub mod format;
 pub mod output;
 pub mod run;
 pub mod shell;
@@ -20,7 +21,7 @@ use std::io::Write;
 
 use cli::{Action, Command, Plan};
 use exit::ExitCode;
-use output::{CliError, render_error, render_outcome};
+use output::{CliError, render_error, render_outcome, render_value};
 
 /// Runs a resolved [`Plan`] against the daemon at `endpoint`, writing to the
 /// given stdout/stderr sinks, and returns the process exit code.
@@ -30,17 +31,17 @@ pub async fn dispatch(
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> i32 {
-    let json = plan.json;
+    let format = plan.format;
     match plan.action {
         Action::Help => {
             let _ = writeln!(out, "{}", cli::USAGE);
             ExitCode::Success.code()
         }
         Action::Version => {
-            if json {
+            if format.is_machine() {
                 let object =
                     serde_json::json!({ "name": "meltemi", "version": env!("CARGO_PKG_VERSION") });
-                let _ = writeln!(out, "{object}");
+                let _ = render_value(&object, format, out);
             } else {
                 let _ = writeln!(out, "meltemi {}", env!("CARGO_PKG_VERSION"));
             }
@@ -59,7 +60,7 @@ pub async fn dispatch(
         }
         Action::Usage(message) => {
             let error = CliError::usage(message);
-            let _ = render_error(&error, json, out, err);
+            let _ = render_error(&error, format, out, err);
             error.exit.code()
         }
         Action::Run(Command::Reserved(name)) => {
@@ -90,7 +91,7 @@ pub async fn dispatch(
             let is_validate = matches!(command, Command::Validate { .. });
             match run::execute(command, endpoint).await {
                 Ok(outcome) => {
-                    let _ = render_outcome(&outcome, json, out);
+                    let _ = render_outcome(&outcome, format, out);
                     if is_validate
                         && outcome.json.get("clean") == Some(&serde_json::Value::Bool(false))
                     {
@@ -100,7 +101,7 @@ pub async fn dispatch(
                     }
                 }
                 Err(error) => {
-                    let _ = render_error(&error, json, out, err);
+                    let _ = render_error(&error, format, out, err);
                     error.exit.code()
                 }
             }
