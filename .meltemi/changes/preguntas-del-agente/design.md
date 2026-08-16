@@ -137,3 +137,20 @@ versión. CI no corre agentes reales (§5), así que:
 - el requisito de **conformidad por versión** que `own-adapters` ya tiene cubre
   el desfase: si la forma cambia, el adaptador rehúsa antes que adivinar;
 - y la validación manual queda documentada como tal, no como verificada.
+
+
+## D8 — Una regla no contesta una pregunta (hallazgo de la implementación)
+
+El e2e lo encontró: con `[[rule]] effect = "allow"` la pregunta **no llegaba a
+la bandeja**. La regla la resolvía sola, eligiendo la primera opción que llevara
+un *kind* de tipo allow — es decir, la primera respuesta del agente, en nombre
+del usuario y sin decírselo.
+
+Es un defecto que **esta change crea**: antes las preguntas se rehusaban, así
+que ninguna regla podía contestar una.
+
+El criterio se lee del cable, no se adivina: **una petición que no ofrece forma
+de rehusar no es una petición de permiso**. `deny_outcome` ya no puede denegarla
+—no tiene qué seleccionar—, que es el mismo hecho visto desde el otro lado. Y
+deny-by-default no significa nada donde no hay deny, así que la respuesta tiene
+que venir de una persona.

@@ -1994,7 +1994,7 @@ fn strip_comments(source: &str) -> String {
     }
 }
 
-// Scenario: La pregunta se contesta donde se escribe
+// Scenario: La pregunta aparece en el compositor y se contesta con teclado
 // Scenario: La pregunta aparece sin mover nada
 // Scenario: Muchas opciones se desplazan dentro del listado
 // Scenario: La salida de texto libre dice lo que hará

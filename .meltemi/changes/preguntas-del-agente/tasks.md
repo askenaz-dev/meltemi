@@ -66,10 +66,16 @@
 
 ## 5. Cierre
 
-- [ ] 5.1 E2e contra el mock: pregunta con opciones, elección desde el
+- [x] 5.1 E2e contra el mock: pregunta con opciones, elección desde el
   compositor, y el turno continuando con ella
-- [ ] 5.2 La validación manual contra el CLI real, **documentada como manual**
+  <!-- 2026-08-16: el e2e encontró un defecto que **esta change creaba**: con una
+  regla `allow` la pregunta no llegaba a la bandeja — la regla elegía la primera
+  opción del agente, sola y en nombre del usuario. Antes no podía pasar porque
+  las preguntas se rehusaban. Criterio nuevo, leído del cable: **una petición sin
+  forma de rehusar no es una petición de permiso**, las reglas no la deciden y
+  escala. Con su escenario y su guardián. -->
+- [x] 5.2 La validación manual contra el CLI real, **documentada como manual**
   con la versión probada (design D7); CI jamás corre agentes reales
-- [ ] 5.3 `validate` limpio, `verify` con los escenarios enlazados, suite
+- [x] 5.3 `validate` limpio, `verify` con los escenarios enlazados, suite
   completa, clippy, fmt y gates del frontend; paridad revisada (no nace verbo:
   se comprueba que no haga falta fila)
