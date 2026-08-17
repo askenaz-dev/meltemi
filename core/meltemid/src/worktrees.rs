@@ -284,6 +284,140 @@ fn mount(
     Ok(wt)
 }
 
+/// One commit the landing would carry (or carried): short sha and title.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LandedCommit {
+    pub sha: String,
+    pub title: String,
+}
+
+/// The outcome of `change/land`: what would land (or landed), and whether it
+/// did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Landing {
+    pub branch: String,
+    pub base_branch: String,
+    pub commits: Vec<LandedCommit>,
+    pub files: Vec<String>,
+    pub landed: bool,
+    pub merge_sha: Option<String>,
+}
+
+/// Lands the workshop branch on the default branch (rama-por-change D5) —
+/// only with explicit confirmation; without it, the preview: which commits
+/// would land and which files they touch. The merge is `--no-ff` so the
+/// change's shape stays visible in the graph. Three honest refusals, each
+/// with its remedy: a dirty workshop, a merge that conflicts (aborted
+/// immediately, the default branch left intact — conflicts belong to the
+/// user's git, never resolved here), and a main worktree not standing on the
+/// default branch.
+pub fn land(
+    repo_root: &Path,
+    change: &str,
+    branch: Option<&str>,
+    confirm: bool,
+) -> Result<Landing, String> {
+    let base = git::default_branch(repo_root)
+        .ok_or_else(|| "could not detect the default branch of the repository".to_string())?;
+    let (_, branch_name) = workspace_names(change, branch);
+
+    let workshop = list(repo_root)
+        .into_iter()
+        .find(|w| w.task == WORKSPACE_TASK && w.change == change && w.branch == branch_name)
+        .ok_or_else(|| {
+            format!(
+                "no managed workshop for change `{change}` on branch `{branch_name}`; \
+                 ask for the workshop first — asking again is always a re-encounter, never an error"
+            )
+        })?;
+
+    // The dirty workshop never lands: uncommitted work is neither landed nor
+    // silently left behind.
+    if git::is_dirty(Path::new(&workshop.path)) {
+        return Err(format!(
+            "the workshop at `{}` has uncommitted changes; commit or discard them before landing",
+            workshop.path
+        ));
+    }
+
+    let commits: Vec<LandedCommit> = git::run(
+        repo_root,
+        &[
+            "log",
+            "--format=%h\u{9}%s",
+            &format!("{base}..{branch_name}"),
+        ],
+    )?
+    .lines()
+    .filter_map(|l| {
+        let (sha, title) = l.split_once('\u{9}')?;
+        Some(LandedCommit {
+            sha: sha.to_string(),
+            title: title.to_string(),
+        })
+    })
+    .collect();
+    let files: Vec<String> = git::run(
+        repo_root,
+        &["diff", "--name-only", &format!("{base}...{branch_name}")],
+    )?
+    .lines()
+    .filter(|l| !l.trim().is_empty())
+    .map(str::to_string)
+    .collect();
+
+    if !confirm {
+        return Ok(Landing {
+            branch: branch_name,
+            base_branch: base,
+            commits,
+            files,
+            landed: false,
+            merge_sha: None,
+        });
+    }
+
+    if commits.is_empty() {
+        return Err(format!(
+            "nothing to land: `{branch_name}` has no commits that `{base}` lacks"
+        ));
+    }
+    // The merge runs in the main worktree, so it must be standing on the
+    // default branch — merging into whatever happens to be checked out would
+    // land the change somewhere nobody asked for.
+    let standing = git::run(repo_root, &["symbolic-ref", "--short", "HEAD"])
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if standing != base {
+        return Err(format!(
+            "the main worktree stands on `{standing}`, not on `{base}`; check out `{base}` there before landing"
+        ));
+    }
+
+    if let Err(diagnostic) = git::run(repo_root, &["merge", "--no-ff", "--no-edit", &branch_name]) {
+        // The conflict is refused, never half-applied: abort immediately
+        // (best-effort — a merge that never started has nothing to abort) and
+        // hand the conflict to the user's git.
+        let _ = git::run(repo_root, &["merge", "--abort"]);
+        return Err(format!(
+            "the merge did not apply cleanly and was aborted; `{base}` is intact. \
+             Resolve it in your git: {diagnostic}"
+        ));
+    }
+    let merge_sha = git::run(repo_root, &["rev-parse", "--short", "HEAD"])
+        .map(|s| s.trim().to_string())
+        .ok();
+
+    Ok(Landing {
+        branch: branch_name,
+        base_branch: base,
+        commits,
+        files,
+        landed: true,
+        merge_sha,
+    })
+}
+
 /// Whether the daemon ever created this branch for a worktree — tombstoned
 /// entries count, because retiring a workshop keeps the branch (D6), and
 /// re-mounting a branch the daemon itself minted is not touching the foreign.

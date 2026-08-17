@@ -29,7 +29,7 @@ flujo que ella misma hospeda) y aterriza en `main` al cerrar.**
   «El taller sobre una rama elegida», «Un taller único no colisiona con
   nadie», «La rama ajena se rehúsa sin tocarse» y «El taller no ensucia el
   estado del árbol principal» — gates: suite del crate
-- [ ] 2.2 `change/land`: previsualización sin `confirm` (commits y archivos);
+- [x] 2.2 `change/land`: previsualización sin `confirm` (commits y archivos);
   con `confirm`, merge `--no-ff` a la rama por defecto; rehúsos con remedio
   ante taller sucio y ante conflictos, con `merge --abort` inmediato que deja
   la rama por defecto intacta (design D5) — escenarios «Sin confirmación, la

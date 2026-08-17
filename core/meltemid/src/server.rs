@@ -346,6 +346,7 @@ async fn dispatch_request(
         methods::CHANGE_LIST => crate::navigate::handle_change_list(params).await,
         methods::CHANGE_SHOW => crate::navigate::handle_change_show(params).await,
         methods::CHANGE_WORKSPACE => handle_change_workspace(params).await,
+        methods::CHANGE_LAND => handle_change_land(params).await,
         methods::SPEC_LIST => crate::navigate::handle_spec_list(params).await,
         methods::SPEC_SHOW => crate::navigate::handle_spec_show(params).await,
         methods::SDD_VALIDATE => crate::navigate::handle_sdd_validate(params).await,
@@ -446,6 +447,50 @@ async fn handle_change_workspace(params: Value) -> Result<Value, RpcError> {
         base_branch: workspace.base_branch,
     };
     Ok(serde_json::to_value(result).expect("ChangeWorkspaceResult serializes"))
+}
+
+/// `change/land`: land the workshop branch on the default branch
+/// (rama-por-change D5). Without `confirm`, the preview — which commits would
+/// land, which files they touch; with it, the `--no-ff` merge. Conflicts are
+/// aborted and refused, never resolved.
+async fn handle_change_land(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{ChangeLandParams, ChangeLandResult, LandCommit};
+
+    let params: ChangeLandParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("change/land: {e}")))?;
+    let root = require_git_root(&params.project_root)?;
+    let landing = crate::worktrees::land(
+        &root,
+        &params.change,
+        params.branch.as_deref(),
+        params.confirm,
+    )
+    .map_err(|e| {
+        RpcError::application(
+            error_codes::WORKTREE_REFUSED,
+            "landing refused",
+            "worktree_refused",
+            e,
+            Some("The remedy is in the diagnostic; conflicts resolve in your git.".into()),
+        )
+    })?;
+    let result = ChangeLandResult {
+        change: params.change,
+        branch: landing.branch,
+        base_branch: landing.base_branch,
+        commits: landing
+            .commits
+            .into_iter()
+            .map(|c| LandCommit {
+                sha: c.sha,
+                title: c.title,
+            })
+            .collect(),
+        files: landing.files,
+        landed: landing.landed,
+        merge_sha: landing.merge_sha,
+    };
+    Ok(serde_json::to_value(result).expect("ChangeLandResult serializes"))
 }
 
 /// Maps a domain worktree to the wire type, flagging competitors: a worktree
