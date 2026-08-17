@@ -9,6 +9,12 @@
 //! **The daemon never touches a worktree it did not create**, and removing one
 //! with uncommitted changes requires explicit confirmation. Tasks that declare
 //! overlapping files are serialized (not run in parallel), reported.
+//!
+//! A second, orthogonal axis (rama-por-change D1): the change **workshop** —
+//! the worktree where a whole change lives while it is open, on a branch
+//! carrying the bare change name. The race axis answers "how do N agents
+//! compete on this task"; the workshop answers "where does this change live".
+//! Same machinery, same registry, same ownership rules.
 
 use std::path::{Path, PathBuf};
 
@@ -52,6 +58,39 @@ pub fn names(change: &str, task: &str, agent: &str) -> (PathBuf, String) {
         .join(format!("{t}-{a}"));
     let branch = format!("meltemi/{c}/{t}-{a}");
     (rel, branch)
+}
+
+/// The registry `task` marker for change workshops (never a real task id).
+const WORKSPACE_TASK: &str = "workspace";
+
+/// The workshop's stable (relative path, branch) names (rama-por-change
+/// D2/D3). The branch carries the **bare change name** — it is the human
+/// branch of the change, the one the maintainer merges — so ownership comes
+/// from the registry, not from a namespace. A chosen branch keeps its own
+/// name and gets its own directory, so workshops on different branches
+/// coexist.
+#[must_use]
+pub fn workspace_names(change: &str, branch: Option<&str>) -> (PathBuf, String) {
+    let slug = |s: &str| {
+        s.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+    };
+    let c = slug(change);
+    let branch_name = branch.map_or_else(|| c.clone(), str::to_string);
+    let dir = if branch_name == c {
+        WORKSPACE_TASK.to_string()
+    } else {
+        format!("{WORKSPACE_TASK}-{}", slug(&branch_name))
+    };
+    let rel = Path::new(".meltemi").join("worktrees").join(&c).join(dir);
+    (rel, branch_name)
 }
 
 fn registry_path(repo_root: &Path) -> PathBuf {
@@ -135,6 +174,171 @@ pub fn create(
     };
     record(repo_root, &wt).map_err(|e| e.to_string())?;
     Ok(wt)
+}
+
+/// The outcome of asking for a change workshop: the worktree, whether it was
+/// a re-encounter, and the base branch it grows from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Workspace {
+    pub worktree: ManagedWorktree,
+    pub reencountered: bool,
+    pub base_branch: String,
+}
+
+/// "Give me the workshop", not "create it" (rama-por-change D4): idempotent
+/// by default — an existing managed workshop is returned with re-encounter
+/// declared, a missing one is created from the tip of the default branch
+/// (detected, never assumed — not from HEAD, which depends on where the asker
+/// stands). Naming `branch` is consent to mount an existing branch; `unique`
+/// mints a fresh suffixed workshop and is never a re-encounter.
+pub fn workspace(
+    repo_root: &Path,
+    change: &str,
+    branch: Option<&str>,
+    unique: bool,
+) -> Result<Workspace, String> {
+    if branch.is_some() && unique {
+        return Err("`branch` and `unique` are mutually exclusive: naming an exact branch and asking for a suffix that alters it means nothing".to_string());
+    }
+    let base = git::default_branch(repo_root)
+        .ok_or_else(|| "could not detect the default branch of the repository".to_string())?;
+
+    if unique {
+        // The suffix's only duty is to not collide (D4); re-mint until free.
+        let mut branch_name = format!("{change}-{}", short_suffix());
+        while git::branch_exists(repo_root, &branch_name) {
+            branch_name = format!("{change}-{}", short_suffix());
+        }
+        let (rel, _) = workspace_names(change, Some(&branch_name));
+        return mount(repo_root, change, &rel, &branch_name, &base).map(|worktree| Workspace {
+            worktree,
+            reencountered: false,
+            base_branch: base,
+        });
+    }
+
+    let (rel, branch_name) = workspace_names(change, branch);
+    let abs_str = repo_root.join(&rel).to_string_lossy().into_owned();
+    if let Some(existing) = list(repo_root).into_iter().find(|w| w.path == abs_str) {
+        return Ok(Workspace {
+            worktree: existing,
+            reencountered: true,
+            base_branch: base,
+        });
+    }
+
+    // The refusal protects the implicit path only: a homonymous branch the
+    // daemon did not create is refused untouched. Naming it is consent, and a
+    // branch the daemon itself created earlier (workshops keep their branch
+    // when retired, D6) is not foreign.
+    if branch.is_none()
+        && git::branch_exists(repo_root, &branch_name)
+        && !ever_recorded_branch(repo_root, &branch_name)
+    {
+        return Err(format!(
+            "branch `{branch_name}` already exists and Meltemi did not create it; \
+             name it explicitly to mount the workshop on it, or rename/remove it"
+        ));
+    }
+
+    mount(repo_root, change, &rel, &branch_name, &base).map(|worktree| Workspace {
+        worktree,
+        reencountered: false,
+        base_branch: base,
+    })
+}
+
+/// Creates the workshop worktree — on the existing branch when there is one
+/// (consented or daemon-created), otherwise minting it from the base tip —
+/// records it, and excludes the managed root from the main tree's status (D3).
+fn mount(
+    repo_root: &Path,
+    change: &str,
+    rel: &Path,
+    branch: &str,
+    base: &str,
+) -> Result<ManagedWorktree, String> {
+    let abs = repo_root.join(rel);
+    let abs_str = abs.to_string_lossy().into_owned();
+    if git::branch_exists(repo_root, branch) {
+        git::run(repo_root, &["worktree", "add", &abs_str, branch])?;
+    } else {
+        git::run(
+            repo_root,
+            &["worktree", "add", "-b", branch, &abs_str, base],
+        )?;
+    }
+    let base_rev = git::run(repo_root, &["rev-parse", base])
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let wt = ManagedWorktree {
+        change: change.to_string(),
+        task: WORKSPACE_TASK.to_string(),
+        agent: String::new(),
+        path: abs_str,
+        branch: branch.to_string(),
+        base_rev,
+    };
+    record(repo_root, &wt).map_err(|e| e.to_string())?;
+    ensure_excluded(repo_root)?;
+    Ok(wt)
+}
+
+/// Whether the daemon ever created this branch for a worktree — tombstoned
+/// entries count, because retiring a workshop keeps the branch (D6), and
+/// re-mounting a branch the daemon itself minted is not touching the foreign.
+fn ever_recorded_branch(repo_root: &Path, branch: &str) -> bool {
+    let Ok(contents) = std::fs::read_to_string(registry_path(repo_root)) else {
+        return false;
+    };
+    contents
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<ManagedWorktree>(l).ok())
+        .any(|w| w.branch == branch)
+}
+
+/// Excludes the managed root from the main tree's git status by the local
+/// route (rama-por-change D3): one entry in `.git/info/exclude`, which is not
+/// versioned — never the user's `.gitignore`.
+fn ensure_excluded(repo_root: &Path) -> Result<(), String> {
+    const ENTRY: &str = "/.meltemi/worktrees/";
+    let git_dir = git::run(repo_root, &["rev-parse", "--git-common-dir"])?;
+    let git_dir = git_dir.trim();
+    let dir = if Path::new(git_dir).is_absolute() {
+        PathBuf::from(git_dir)
+    } else {
+        repo_root.join(git_dir)
+    };
+    let exclude = dir.join("info").join("exclude");
+    let current = std::fs::read_to_string(&exclude).unwrap_or_default();
+    if current.lines().any(|l| l.trim() == ENTRY) {
+        return Ok(());
+    }
+    if let Some(parent) = exclude.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&exclude)
+        .map_err(|e| e.to_string())?;
+    writeln!(file, "{ENTRY}").map_err(|e| e.to_string())
+}
+
+/// A short suffix whose only duty is to not collide: time, pid and a counter
+/// mixed into six hex chars; the caller's loop re-mints on the improbable hit.
+fn short_suffix() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static MINT: AtomicU64 = AtomicU64::new(0);
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| u64::from(d.subsec_nanos()) ^ d.as_secs())
+        .unwrap_or(0);
+    let mixed = time ^ u64::from(std::process::id()) ^ MINT.fetch_add(1, Ordering::Relaxed);
+    format!("{:06x}", mixed & 0x00ff_ffff)
 }
 
 /// Removes a managed worktree. Refuses a worktree the daemon does not own, and
@@ -284,6 +488,36 @@ mod tests {
         assert_eq!(branch, "meltemi/add-thing/1-2-gemini-cli");
         assert!(path.ends_with(Path::new("1-2-gemini-cli")));
         assert!(path.starts_with(Path::new(".meltemi").join("worktrees")));
+    }
+
+    #[test]
+    fn workspace_branch_is_the_bare_change_name() {
+        // The workshop branch is the HUMAN branch of the change (D2): no
+        // `meltemi/` namespace — ownership comes from the registry.
+        let (path, branch) = workspace_names("rama-por-change", None);
+        assert_eq!(branch, "rama-por-change");
+        assert!(path.ends_with(Path::new("workspace")));
+        assert!(path.starts_with(Path::new(".meltemi").join("worktrees")));
+    }
+
+    #[test]
+    fn a_chosen_branch_gets_its_own_workshop_directory() {
+        // Workshops on different branches coexist: the directory is keyed by
+        // the branch, so idempotence applies per named branch (D4).
+        let (default_path, _) = workspace_names("some-change", None);
+        let (chosen_path, branch) = workspace_names("some-change", Some("hotfix/x"));
+        assert_eq!(branch, "hotfix/x", "the branch name passes verbatim");
+        assert_ne!(default_path, chosen_path);
+        assert!(chosen_path.ends_with(Path::new("workspace-hotfix-x")));
+    }
+
+    #[test]
+    fn branch_plus_unique_refuses_before_touching_git() {
+        // The contradiction is refused in the daemon too, not only in the
+        // schema: a caller wiring params by hand gets the same refusal.
+        let dir = std::env::temp_dir();
+        let err = workspace(&dir, "some-change", Some("hotfix-x"), true).unwrap_err();
+        assert!(err.contains("mutually exclusive"), "{err}");
     }
 
     #[test]

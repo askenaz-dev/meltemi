@@ -345,6 +345,7 @@ async fn dispatch_request(
         methods::SDD_IMPLEMENT => handle_sdd_implement(params, state, peer).await,
         methods::CHANGE_LIST => crate::navigate::handle_change_list(params).await,
         methods::CHANGE_SHOW => crate::navigate::handle_change_show(params).await,
+        methods::CHANGE_WORKSPACE => handle_change_workspace(params).await,
         methods::SPEC_LIST => crate::navigate::handle_spec_list(params).await,
         methods::SPEC_SHOW => crate::navigate::handle_spec_show(params).await,
         methods::SDD_VALIDATE => crate::navigate::handle_sdd_validate(params).await,
@@ -408,6 +409,43 @@ fn require_git_root(project_root: &str) -> Result<PathBuf, RpcError> {
         ));
     }
     Ok(root)
+}
+
+/// `change/workspace`: the change's workshop — its branch and managed worktree
+/// (rama-por-change D2–D4). "Give me", not "create": idempotent by default
+/// with the re-encounter declared; `branch` mounts a chosen branch (naming it
+/// is consent), `unique` mints a suffixed workshop that never re-encounters.
+async fn handle_change_workspace(params: Value) -> Result<Value, RpcError> {
+    use meltemi_proto::{ChangeWorkspaceParams, ChangeWorkspaceResult};
+
+    let params: ChangeWorkspaceParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("change/workspace: {e}")))?;
+    let root = require_git_root(&params.project_root)?;
+    let workspace = crate::worktrees::workspace(
+        &root,
+        &params.change,
+        params.branch.as_deref(),
+        params.unique,
+    )
+    .map_err(|e| {
+        RpcError::application(
+            error_codes::WORKTREE_REFUSED,
+            "workshop refused",
+            "worktree_refused",
+            e,
+            Some(
+                "Name the branch explicitly to consent to it, or ask for a unique workshop.".into(),
+            ),
+        )
+    })?;
+    let result = ChangeWorkspaceResult {
+        change: params.change,
+        branch: workspace.worktree.branch,
+        path: workspace.worktree.path,
+        reencountered: workspace.reencountered,
+        base_branch: workspace.base_branch,
+    };
+    Ok(serde_json::to_value(result).expect("ChangeWorkspaceResult serializes"))
 }
 
 /// Maps a domain worktree to the wire type, flagging competitors: a worktree

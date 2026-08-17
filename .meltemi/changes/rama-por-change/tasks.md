@@ -18,7 +18,7 @@ flujo que ella misma hospeda) y aterriza en `main` al cerrar.**
 
 ## 2. El daemon
 
-- [ ] 2.1 `change/workspace` en `core/meltemid`: rama con el nombre de la
+- [x] 2.1 `change/workspace` en `core/meltemid`: rama con el nombre de la
   change desde la punta de la rama por defecto (detectada, no asumida),
   worktree en `.meltemi/worktrees/<change>/workspace`, registro append-only,
   idempotencia con `reencuentro` declarado, rehúso ante rama homónima ajena
