@@ -8,7 +8,7 @@ flujo que ella misma hospeda) y aterriza en `main` al cerrar.**
 
 ## 1. El contrato
 
-- [ ] 1.1 `proto/meltemi-proto`: métodos `change/workspace` y `change/land`
+- [x] 1.1 `proto/meltemi-proto`: métodos `change/workspace` y `change/land`
   con sus params/results (`ChangeWorkspaceParams` con `branch` y `unique`
   opcionales y excluyentes; `ChangeWorkspaceResult` con ruta, rama y si fue
   reencuentro; `ChangeLandParams` con `confirm` y `branch` opcional;

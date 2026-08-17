@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/workspace.schema.json",
+  "title": "change/workspace · change/land",
+  "description": "The change's workshop (rama-por-change): its branch and managed worktree, created from the default branch tip on demand and returned idempotently; and its landing onto the default branch, previewed without `confirm`, merged --no-ff with it, conflicts refused and aborted, never resolved.",
+  "$defs": {
+    "workspaceParams": {
+      "type": "object",
+      "required": ["projectRoot", "change"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Mount the workshop on this branch. Naming it is consent; mutually exclusive with `unique`."
+        },
+        "unique": {
+          "type": "boolean",
+          "description": "Mint a fresh suffixed workshop; never a re-encounter. Mutually exclusive with `branch`."
+        }
+      },
+      "not": {
+        "required": ["branch", "unique"],
+        "properties": { "unique": { "const": true } }
+      }
+    },
+    "workspaceResult": {
+      "type": "object",
+      "required": ["change", "branch", "path", "reencountered", "baseBranch"],
+      "properties": {
+        "change": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "reencountered": {
+          "type": "boolean",
+          "description": "True when an existing managed workshop was returned rather than created."
+        },
+        "baseBranch": { "type": "string", "minLength": 1 }
+      }
+    },
+    "landParams": {
+      "type": "object",
+      "required": ["projectRoot", "change"],
+      "properties": {
+        "projectRoot": { "type": "string", "minLength": 1 },
+        "change": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The workshop branch to land; absent means the change's own name."
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "Perform the merge. Absent means false: preview only."
+        }
+      }
+    },
+    "landCommit": {
+      "type": "object",
+      "required": ["sha", "title"],
+      "properties": {
+        "sha": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" }
+      }
+    },
+    "landResult": {
+      "type": "object",
+      "required": ["change", "branch", "baseBranch", "commits", "files", "landed"],
+      "properties": {
+        "change": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string", "minLength": 1 },
+        "baseBranch": { "type": "string", "minLength": 1 },
+        "commits": { "type": "array", "items": { "$ref": "#/$defs/landCommit" } },
+        "files": { "type": "array", "items": { "type": "string" } },
+        "landed": { "type": "boolean" },
+        "mergeSha": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The merge commit; present only when landed."
+        }
+      }
+    }
+  }
+}
