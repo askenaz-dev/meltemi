@@ -61,7 +61,20 @@ pub async fn execute(
             project_root,
             agent,
             mode,
-        } => session(instruction, project_root, agent, mode, endpoint).await,
+            model,
+            effort,
+        } => {
+            session(
+                instruction,
+                project_root,
+                agent,
+                mode,
+                model,
+                effort,
+                endpoint,
+            )
+            .await
+        }
         Command::Fleet => fleet(endpoint).await,
         Command::Link { agent, name } => link(agent, name, endpoint).await,
         Command::Unlink { name } => unlink(name, endpoint).await,
@@ -276,6 +289,8 @@ async fn session(
     project_root: Option<String>,
     agent: Option<String>,
     mode: Option<meltemi_proto::AutonomyMode>,
+    model: Option<String>,
+    effort: Option<String>,
     endpoint: &str,
 ) -> Result<Outcome, CliError> {
     let project_root = cwd_or(project_root)?;
@@ -289,6 +304,8 @@ async fn session(
                 // (sesion-que-espera design D3).
                 detach: false,
                 mode,
+                model,
+                effort,
                 project_root,
                 instruction,
                 agent,
@@ -868,9 +885,12 @@ async fn dispatch(
         .request(
             methods::WORKTREE_DISPATCH,
             &WorktreeDispatchParams {
-                // The CLI's dispatch verb takes no mode yet: it would need its
-                // own flag, and this change wires the flag onto `session`.
+                // The CLI's dispatch verb takes none of the per-session levers
+                // yet: each would need its own flag, and these changes wire them
+                // onto `session`.
                 mode: None,
+                model: None,
+                effort: None,
                 project_root,
                 change,
                 task,

@@ -760,6 +760,8 @@ async fn handle_worktree_dispatch(
         title: None,
     });
     let _ = log.append(SessionEventKind::AgentResolved {
+        model: None,
+        effort: None,
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -798,6 +800,8 @@ async fn handle_worktree_dispatch(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             mode: None,
+            model: None,
+            effort: None,
             source: Some(resolved.source),
             // A race lane is not born from a sentence (design D2).
             title: None,
@@ -1667,6 +1671,8 @@ async fn handle_sdd_implement(
     });
     // Record which binary/source ran — never the env values (§2).
     let _ = log.append(SessionEventKind::AgentResolved {
+        model: None,
+        effort: None,
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -1893,6 +1899,8 @@ async fn handle_session_list(params: Value, state: &Arc<DaemonState>) -> Result<
                 profile: record.profile.clone(),
                 title: record.title.clone(),
                 mode: record.mode,
+                model: record.model.clone(),
+                effort: record.effort.clone(),
             });
         }
     }
@@ -2119,6 +2127,8 @@ async fn resume_with_instruction(
             agent_id: record.agent_id.clone(),
             profile: record.profile.clone(),
             mode: None,
+            model: None,
+            effort: None,
             source: record.source,
             // And continues the same conversation, so it keeps its name rather
             // than deriving a second one from the continuation (design D5).
@@ -2282,6 +2292,8 @@ async fn handle_subscription_link(
 
     // Persist the profile. A taken name refuses; the store never overwrites.
     let profile = crate::config::FleetProfile {
+        model: None,
+        effort: None,
         name: params.name.clone(),
         agent: params.agent.clone(),
         env: vec![(var.clone(), value.clone())],

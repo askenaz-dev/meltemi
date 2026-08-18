@@ -194,6 +194,14 @@ pub mod error_codes {
     /// profile lives in hand-written configuration. The detail says which and
     /// the remedy says what to do instead (vincular-suscripciones).
     pub const SUBSCRIPTION_REFUSED: i64 = 2005;
+    /// A per-session lever the resolved agent does not accept — a model or an
+    /// effort its provider has no documented place for.
+    ///
+    /// Its own code because silence is the failure mode that matters here: a
+    /// quota lever that does nothing and says nothing is worse than no lever,
+    /// since the user believes they lowered their spend
+    /// (modelo-y-esfuerzo-por-sesion design D3).
+    pub const LEVER_NOT_SUPPORTED: i64 = 2006;
     /// The derived change name already exists under `.meltemi/changes/`.
     pub const CHANGE_ALREADY_EXISTS: i64 = 3000;
     /// No change name can be derived from the given idea.
@@ -461,6 +469,14 @@ pub struct SessionInfo {
     /// (modos-de-autonomia design D3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<AutonomyMode>,
+    /// The model that EFFECTIVELY governed this session, so a surface can show
+    /// what ran instead of what was asked for. Absent means none was declared —
+    /// shown as absent rather than as a guess (modelo-y-esfuerzo design D5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The effort that effectively governed, on the same terms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// Result of `session/list`, most recent first.
@@ -1366,6 +1382,19 @@ pub struct SessionStartParams {
     /// own rules would grant (modos-de-autonomia design D3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<AutonomyMode>,
+    /// The provider's model name, VERBATIM and opaque.
+    ///
+    /// The core transports it and never reads it: a validated model name would
+    /// mean a table of providers' models living in this crate, and that table
+    /// would rot in silence with every model a provider adds (§5). What accepts
+    /// or rejects the string is the agent, and its rejection is shown with its
+    /// reason (modelo-y-esfuerzo-por-sesion design D1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// How much reasoning effort the agent should spend, in the provider's own
+    /// vocabulary — equally opaque, and equally not the core's business.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// Why a free session got no restore point. The two causes take different
@@ -1916,6 +1945,18 @@ pub enum SessionEventKind {
         agent_id: Option<String>,
         /// The integration level of the resolved agent.
         level: u8,
+        /// The model that EFFECTIVELY governed — after the profile's default
+        /// and the session's own declaration were resolved against each other,
+        /// not what was asked for.
+        ///
+        /// Without it the local analytics can say how many tokens a session
+        /// spent but not with WHICH model, which is the question a quota lever
+        /// exists to answer (modelo-y-esfuerzo-por-sesion design D5).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// The effort that effectively governed, on the same terms.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
     },
     /// A task's deployment turn began (comando-implement progress). Emitted
     /// before the agent runs in the task's worktree.
@@ -2239,6 +2280,12 @@ pub struct WorktreeDispatchParams {
     /// its own to be contained in. Absent composes nothing, as everywhere else.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<AutonomyMode>,
+    /// The provider's model name, verbatim and opaque (design D1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The provider's effort level, verbatim and opaque.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// How a dispatch resolved its competitor's binary.

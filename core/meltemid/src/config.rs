@@ -60,6 +60,15 @@ pub struct FleetProfile {
     /// Environment overlay applied to the binary's subprocess (`${VAR}`
     /// references resolved at launch; never a plaintext secret).
     pub env: Vec<(String, String)>,
+    /// The model this profile runs by default, verbatim and opaque.
+    ///
+    /// "Profile = agent + account + model" is what turns "docs on the cheap
+    /// model" into a choice made once instead of a ritual per session. What a
+    /// session declares explicitly overrides it; a profile that declares
+    /// nothing imposes nothing (modelo-y-esfuerzo-por-sesion design D4).
+    pub model: Option<String>,
+    /// The effort this profile runs by default, on the same terms.
+    pub effort: Option<String>,
 }
 
 /// One MCP server the user declared once, to inject into compatible agents
@@ -292,6 +301,13 @@ struct RawFleetProfile {
     agent: String,
     #[serde(default)]
     env: std::collections::BTreeMap<String, String>,
+    /// The provider's own model name. Read as a string and never validated:
+    /// what accepts or rejects it is the agent (design D1).
+    #[serde(default)]
+    model: Option<String>,
+    /// The provider's own effort level, on the same terms.
+    #[serde(default)]
+    effort: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -522,6 +538,10 @@ impl Config {
                 name: raw.name,
                 agent: raw.agent,
                 env: raw.env.into_iter().collect(),
+                // An empty string is not a choice: it would travel to the agent
+                // as though the user had picked something.
+                model: raw.model.filter(|m| !m.trim().is_empty()),
+                effort: raw.effort.filter(|e| !e.trim().is_empty()),
             };
             match self
                 .fleet_profiles

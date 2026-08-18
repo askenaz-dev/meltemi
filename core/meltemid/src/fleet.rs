@@ -1673,6 +1673,8 @@ login-hint = \"other login\"
         let config = Config {
             fleet_registry: Some(registry),
             fleet_profiles: vec![FleetProfile {
+                model: None,
+                effort: None,
                 name: "work".into(),
                 agent: "reg".into(),
                 env: vec![("MELTEMI_MOCK_MARKER".into(), "work-ctx".into())],

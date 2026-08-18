@@ -33,6 +33,7 @@ SUBCOMMANDS:
     unlink <name>       unlink a subscription; its auth context is not deleted
     project             regenerate the projected context (AGENTS.md, ...)
     session <instruction> [project-root] [--agent <id|profile>] [--mode <mode>]
+            [--model <name>] [--effort <level>]
                         start a free session on that project: no change, no
                         spec and no gate, and nothing of the government
                         relaxed — the fleet resolves the agent, permissions go
@@ -47,7 +48,11 @@ SUBCOMMANDS:
                         session decides on its own; absent, your permission
                         rules decide exactly as they always did. In every mode
                         an explicit deny of yours prevails and anything
-                        irreversible escalates
+                        irreversible escalates.
+                        `--model` and `--effort` are the PROVIDER's own words:
+                        Meltemi carries them and never reads them, so what
+                        accepts or rejects one is the agent, and an agent that
+                        has no place for a lever refuses it by name
     sessions            list agent sessions (active and historical)
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing
@@ -164,6 +169,10 @@ pub enum Command {
         /// How much the session decides on its own (`--mode`); `None` composes
         /// nothing, which is the behaviour that existed before the flag.
         mode: Option<AutonomyMode>,
+        /// The provider's model name (`--model`), carried and never read.
+        model: Option<String>,
+        /// The provider's effort level (`--effort`), on the same terms.
+        effort: Option<String>,
     },
     /// List the fleet catalog (`fleet/list`).
     Fleet,
@@ -363,7 +372,8 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             // own parser to read. Declared here because the global parser is
             // strict about unknown flags — and a rejected flag would have made
             // the advertised `usage --all` unusable.
-            "--all" | "--project" | "--since" | "--until" | "--agent" | "--mode" => {
+            "--all" | "--project" | "--since" | "--until" | "--agent" | "--mode" | "--model"
+            | "--effort" => {
                 positionals.push(arg.as_str());
             }
             flag if flag.starts_with('-') && flag != "-" => {
@@ -433,6 +443,22 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
         }
     };
 
+    // `--model` and `--effort` are read like the others, and their values are
+    // the provider's own words: the core carries them and never reads them.
+    let (model, effort) = match (
+        take_string_flag(&mut positionals, "--model"),
+        take_string_flag(&mut positionals, "--effort"),
+    ) {
+        (Ok(model), Ok(effort)) => (model, effort),
+        (Err(message), _) | (_, Err(message)) => {
+            return Plan {
+                action: Action::Usage(message),
+                format,
+                no_color,
+            };
+        }
+    };
+
     let action = match positionals.split_first() {
         None => {
             // A bare invocation goes interactive only with a TTY and without
@@ -444,7 +470,9 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
                 Action::Usage("no subcommand given; run `meltemi help`".into())
             }
         }
-        Some((subcommand, rest)) => plan_subcommand(subcommand, rest, exec, agent, mode),
+        Some((subcommand, rest)) => {
+            plan_subcommand(subcommand, rest, exec, agent, mode, model, effort)
+        }
     };
 
     Plan {
@@ -477,6 +505,31 @@ fn take_agent(positionals: &mut Vec<&str>) -> Result<Option<String>, String> {
             Ok(Some(value))
         }
         _ => Err("`--agent` requires an agent id or launch profile name".into()),
+    }
+}
+
+/// Reads a flag whose value is a string the core does not interpret.
+///
+/// An EMPTY value is refused rather than carried. A blank string would travel
+/// to the agent as though the user had chosen something, and the agent would
+/// reject it — reporting a provider error for a mistake made here
+/// (modelo-y-esfuerzo-por-sesion design D1).
+fn take_string_flag(positionals: &mut Vec<&str>, flag: &str) -> Result<Option<String>, String> {
+    let Some(index) = positionals.iter().position(|token| *token == flag) else {
+        return Ok(None);
+    };
+    match positionals.get(index + 1) {
+        Some(value) if !value.starts_with('-') && !value.trim().is_empty() => {
+            let value = (*value).to_string();
+            positionals.drain(index..=index + 1);
+            Ok(Some(value))
+        }
+        Some(value) if !value.starts_with('-') => Err(format!(
+            "`{flag}` was given an empty value; name one or omit the flag"
+        )),
+        _ => Err(format!(
+            "`{flag}` requires a value: the provider's own name, which Meltemi carries and does not interpret"
+        )),
     }
 }
 
@@ -516,7 +569,17 @@ fn plan_subcommand(
     exec: bool,
     agent: Option<String>,
     mode: Option<AutonomyMode>,
+    model: Option<String>,
+    effort: Option<String>,
 ) -> Action {
+    // Same reasoning as the flags above: a verb that starts no session has
+    // nothing to do with a model, and swallowing it would be a lie about what
+    // ran.
+    for (value, flag) in [(&model, "--model"), (&effort, "--effort")] {
+        if value.is_some() && !matches!(subcommand, "session") {
+            return Action::Usage(format!("`{flag}` applies to `session`, not `{subcommand}`"));
+        }
+    }
     // Same reasoning as `--agent`: a subcommand that starts no session has
     // nothing to do with a mode, and swallowing it would be a lie about how the
     // work ran.
@@ -588,12 +651,16 @@ fn plan_subcommand(
                 project_root: None,
                 agent,
                 mode,
+                model,
+                effort,
             }),
             [instruction, root] => Action::Run(Command::Session {
                 instruction: (*instruction).to_string(),
                 project_root: Some((*root).to_string()),
                 agent,
                 mode,
+                model,
+                effort,
             }),
             _ => Action::Usage(
                 "`session` takes a quoted instruction and at most a project root".into(),
@@ -1755,6 +1822,8 @@ mod tests {
                 project_root: None,
                 agent: None,
                 mode: None,
+                model: None,
+                effort: None,
             })
         );
         assert_eq!(
@@ -1764,6 +1833,8 @@ mod tests {
                 project_root: Some("/repo".into()),
                 agent: None,
                 mode: None,
+                model: None,
+                effort: None,
             })
         );
         // Without an instruction there is nothing to run: a usage error, never
@@ -1825,6 +1896,8 @@ mod tests {
                 project_root: None,
                 agent: Some(agent.to_string()),
                 mode: None,
+                model: None,
+                effort: None,
             })
         };
         assert_eq!(

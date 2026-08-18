@@ -512,6 +512,8 @@ async fn run_turn(
     // proposal and every authoring turn was mute about who wrote it
     // (lanzador-conversacional 4.2).
     let _ = log.append(SessionEventKind::AgentResolved {
+        model: None,
+        effort: None,
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -545,6 +547,8 @@ async fn run_turn(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             mode: None,
+            model: None,
+            effort: None,
             source: Some(resolved.source),
             // No title: what reaches this function is a prompt the method
             // composed, not a sentence the user typed, and naming a session

@@ -6,25 +6,32 @@
 
 ## 1. El contrato y la precedencia
 
-- [ ] 1.1 `model` y `effort` opcionales, **strings opacos**, en `session/start`
+- [x] 1.1 `model` y `effort` opcionales, **strings opacos**, en `session/start`
   y `worktree/dispatch`, con la conformidad de tres vías y `gen:forms`
   commiteado; **no** en `propose` ni en los verbos de autoría (design D8) —
   escenario «El modelo pedido viaja sin interpretarse»
-- [ ] 1.2 Los perfiles ganan `model` y `effort` opcionales, y la precedencia va
+- [x] 1.2 Los perfiles ganan `model` y `effort` opcionales, y la precedencia va
   en un solo sentido: lo explícito de la sesión pisa el default del perfil
   (design D4) — escenarios «La sesión pisa el default del perfil» y «Un perfil
   sin declaración no impone nada»
-- [ ] 1.3 `agent_resolved` registra los valores **efectivos**, no los pedidos —
+- [x] 1.3 `agent_resolved` registra los valores **efectivos**, no los pedidos —
   sin eso la analítica sabe cuánto gastó una sesión pero no con qué (design D5)
   — escenario «Lo que rigió queda en el registro»
 
 ## 2. El rehúso, que es la mitad honesta de la palanca
 
-- [ ] 2.1 Pedir una palanca que el agente no admite **rehúsa con diagnóstico**
+- [x] 2.1 Pedir una palanca que el agente no admite **rehúsa con diagnóstico**
   que nombra al agente y la palanca (design D3) — escenarios «Una palanca que el
   agente no admite se rehúsa» y «Lo no verificado se rehúsa en vez de
   inventarse»
-- [ ] 2.2 Un valor vacío se rehúsa en vez de viajar como si fuera una elección —
+  <!-- 2026-08-17: el rehúso vive en el núcleo aunque §5 le prohíba entender los
+  strings, y no es contradicción: el núcleo no sabe qué **significa** un modelo,
+  pero sí sabe **si el binario que va a lanzar tiene un sitio documentado donde
+  ponerlo**. Rehúsa antes de crear nada — rehusar después dejaría una sesión que
+  nadie pidió. Y de paso salió que el catálogo del schema de errores había
+  derivado: **2005 nunca se añadió**; esta lista de constantes es lo que lo
+  notó al sumarse 2006. -->
+- [x] 2.2 Un valor vacío se rehúsa en vez de viajar como si fuera una elección —
   escenario «Un valor vacío se rehúsa en vez de viajar»
 
 ## 3. Los adaptadores, cada uno contra su proveedor
@@ -60,7 +67,7 @@
   escenario «Cambiar en marcha se advierte»
 - [ ] 5.4 TUI: modelo efectivo visible donde muestra el estado, y omitido cuando
   no hay — escenario «El terminal muestra el modelo efectivo»
-- [ ] 5.5 CLI: `--model` y `--effort` con su ayuda diciendo que son cadenas del
+- [x] 5.5 CLI: `--model` y `--effort` con su ayuda diciendo que son cadenas del
   proveedor que el núcleo no interpreta
 - [ ] 5.6 i18n es/en de todo lo nuevo, con el lint como guardián
 

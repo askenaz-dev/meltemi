@@ -80,6 +80,8 @@ fn parse(contents: &str) -> Vec<FleetProfile> {
             .profile
             .into_iter()
             .map(|p| FleetProfile {
+                model: None,
+                effort: None,
                 name: p.name,
                 agent: p.agent,
                 env: p.env.into_iter().collect(),
@@ -178,6 +180,8 @@ mod tests {
 
     fn profile(name: &str) -> FleetProfile {
         FleetProfile {
+            model: None,
+            effort: None,
             name: name.into(),
             agent: "provider-a".into(),
             env: vec![(

@@ -81,7 +81,7 @@ pub fn resolve_launch(
 
 /// A per-session agent resolution: the launch, an env overlay selecting the
 /// auth context, and how the name resolved (flota-multiproveedor D1/D2).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResolvedAgent {
     pub launch: Launch,
     /// Environment overlay for the binary's subprocess (never logged).
@@ -93,6 +93,32 @@ pub struct ResolvedAgent {
     /// only when the project configures a bare `agent.command`
     /// (multiproyecto-suscripciones D4).
     pub agent_id: Option<String>,
+    /// The model this resolution runs by default, from the profile that named
+    /// one. What a session declares explicitly overrides it — see
+    /// [`ResolvedAgent::with_session_levers`] (modelo-y-esfuerzo D4).
+    pub model: Option<String>,
+    /// The effort this resolution runs by default, on the same terms.
+    pub effort: Option<String>,
+}
+
+impl ResolvedAgent {
+    /// Applies what the SESSION declared over what the profile defaulted to.
+    ///
+    /// One direction only, and no third level. A global default would be a
+    /// preference left switched on and forgotten — the same reason
+    /// `modos-de-autonomia` refused one for autonomy. An empty string is not a
+    /// declaration: it would travel to the agent as though the user had chosen
+    /// it, so it is treated as absent here and refused at the edge.
+    #[must_use]
+    pub fn with_session_levers(mut self, model: Option<&str>, effort: Option<&str>) -> Self {
+        if let Some(model) = model.map(str::trim).filter(|m| !m.is_empty()) {
+            self.model = Some(model.to_string());
+        }
+        if let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) {
+            self.effort = Some(effort.to_string());
+        }
+        self
+    }
 }
 
 /// Resolves an agent named per session against the fleet, in order: a launch
@@ -134,6 +160,8 @@ pub fn resolve_fleet_agent(
             source: FleetResolutionSource::Profile,
             profile: Some(name.to_string()),
             agent_id: Some(profile.agent.clone()),
+            model: profile.model.clone(),
+            effort: profile.effort.clone(),
         });
     }
 
@@ -146,6 +174,8 @@ pub fn resolve_fleet_agent(
             source: FleetResolutionSource::Catalog,
             profile: None,
             agent_id: Some(name.to_string()),
+            model: None,
+            effort: None,
         });
     }
 
@@ -158,6 +188,8 @@ pub fn resolve_fleet_agent(
         profile: None,
         // The configured agent names an id unless the project pins a bare argv.
         agent_id: config.agent_id.clone(),
+        model: None,
+        effort: None,
     })
 }
 
@@ -187,6 +219,8 @@ pub fn resolve_session_agent(
             // The configured agent names an id unless the project pins a bare
             // argv, same as the fallback arm of `resolve_fleet_agent`.
             agent_id: config.agent_id.clone(),
+            model: None,
+            effort: None,
         }),
     }
 }
@@ -508,6 +542,87 @@ pub fn l4_target_for(config: &Config) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Scenario: La sesión pisa el default del perfil
+    // Scenario: Un perfil sin declaración no impone nada
+    #[test]
+    fn what_the_session_declares_wins_over_what_the_profile_defaults_to() {
+        let base = ResolvedAgent {
+            launch: Launch::Acp {
+                argv: vec!["codex".into()],
+                level: 1,
+            },
+            env: Vec::new(),
+            source: meltemi_proto::FleetResolutionSource::Profile,
+            profile: Some("work".into()),
+            agent_id: Some("codex".into()),
+            model: Some("profile-model".into()),
+            effort: Some("low".into()),
+        };
+
+        // Declared explicitly: the session wins, in one direction only.
+        let chosen = base
+            .clone()
+            .with_session_levers(Some("session-model"), None);
+        assert_eq!(chosen.model.as_deref(), Some("session-model"));
+        assert_eq!(
+            chosen.effort.as_deref(),
+            Some("low"),
+            "what the session did NOT declare is still the profile's"
+        );
+
+        // Not declared: the profile's default stands untouched.
+        let untouched = base.clone().with_session_levers(None, None);
+        assert_eq!(untouched.model.as_deref(), Some("profile-model"));
+
+        // An empty string is not a declaration. It would otherwise travel to the
+        // agent as though the user had chosen it.
+        let blank = base.clone().with_session_levers(Some("   "), Some(""));
+        assert_eq!(blank.model.as_deref(), Some("profile-model"));
+        assert_eq!(blank.effort.as_deref(), Some("low"));
+
+        // A profile that declares nothing imposes nothing.
+        let bare = ResolvedAgent {
+            model: None,
+            effort: None,
+            ..base
+        };
+        assert_eq!(bare.clone().with_session_levers(None, None).model, None);
+        assert_eq!(
+            bare.with_session_levers(Some("x"), None).model.as_deref(),
+            Some("x")
+        );
+    }
+
+    // Scenario: Una palanca que el agente no admite se rehúsa
+    // Scenario: Lo no verificado se rehúsa en vez de inventarse
+    #[test]
+    fn a_lever_the_agent_has_no_place_for_is_refused_by_name() {
+        // Codex documents both, in two different places, and takes both.
+        let codex = vec!["codex".to_string()];
+        assert!(refuse_unsupported_levers(&codex, Some("gpt-x"), Some("high")).is_ok());
+
+        // Claude documents `--model`. Effort is NOT verified against the pinned
+        // CLI, so it is refused with that as the reason rather than guessed at —
+        // and the refusal names both the agent and the lever.
+        let claude = vec!["/usr/local/bin/claude".to_string()];
+        assert!(refuse_unsupported_levers(&claude, Some("sonnet"), None).is_ok());
+        let refused = refuse_unsupported_levers(&claude, None, Some("high"))
+            .expect_err("an unverified lever is refused, not sent");
+        assert_eq!(refused.code, error_codes::LEVER_NOT_SUPPORTED);
+        let said = format!("{refused:?}");
+        assert!(said.contains("claude"), "it names the agent: {said}");
+        assert!(said.contains("effort"), "and the lever: {said}");
+
+        // A third-party ACP agent claims nothing at launch, because nothing is
+        // known about it before it speaks.
+        let other = vec!["some-acp-agent".to_string()];
+        assert!(refuse_unsupported_levers(&other, Some("x"), None).is_err());
+        assert!(
+            refuse_unsupported_levers(&other, None, None).is_ok(),
+            "and asking for nothing is never refused"
+        );
+    }
     use crate::config::CustomAgent;
 
     fn fake_binary(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
@@ -579,6 +694,8 @@ mod tests {
             &dir,
             "ghost",
             vec![crate::config::FleetProfile {
+                model: None,
+                effort: None,
                 name: "work".into(),
                 agent: "ghost".into(),
                 env: vec![],
@@ -600,6 +717,8 @@ mod tests {
             &dir,
             "real",
             vec![crate::config::FleetProfile {
+                model: None,
+                effort: None,
                 name: "work".into(),
                 agent: "real".into(),
                 env: vec![("MELTEMI_MOCK_MARKER".into(), "work".into())],
@@ -845,4 +964,102 @@ mod tests {
         assert!(guard.bounded_dir.starts_with(&dir));
         std::fs::remove_dir_all(&dir).ok();
     }
+}
+
+/// Which per-session levers an agent's own adapter can actually deliver.
+///
+/// The core does not know what a model name means (§5), but it does know
+/// **whether the binary it is about to launch has a documented place to put
+/// one** — and refusing there is the difference between a quota lever and a
+/// switch that does nothing. A lever silently dropped is worse than no lever:
+/// the user believes they lowered their spend
+/// (modelo-y-esfuerzo-por-sesion design D3).
+///
+/// Keyed on the binary's own file name rather than on a catalog id, because
+/// what accepts the lever is the process that runs.
+#[must_use]
+pub fn levers_of(agent_command: &[String]) -> Levers {
+    let binary = agent_command
+        .first()
+        .map(|program| {
+            std::path::Path::new(program)
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    match binary.as_str() {
+        // Its schema puts `model` on the thread and `effort` on the turn: two
+        // places, both documented, both wired by the adapter.
+        name if name.contains("codex") => Levers {
+            model: true,
+            effort: true,
+        },
+        // `--model` is a documented launch flag. Effort is NOT verified against
+        // the pinned CLI, and this change refuses rather than guesses: the day
+        // it is verified is the day this becomes `true` (design D7).
+        name if name.contains("claude") => Levers {
+            model: true,
+            effort: false,
+        },
+        // Anything else is a third-party ACP agent, whose levers are whatever
+        // it announces as session config options. Nothing is claimed for it at
+        // launch, because nothing is known before it speaks.
+        _ => Levers {
+            model: false,
+            effort: false,
+        },
+    }
+}
+
+/// What an agent accepts, per lever.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Levers {
+    /// Whether a model can be named at launch.
+    pub model: bool,
+    /// Whether an effort level can be named at all.
+    pub effort: bool,
+}
+
+/// Refuses a lever the resolved agent has no place for, naming both.
+///
+/// Returns `Ok(())` when nothing was asked for that cannot be delivered.
+pub fn refuse_unsupported_levers(
+    agent_command: &[String],
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<(), RpcError> {
+    let levers = levers_of(agent_command);
+    let agent = agent_command
+        .first()
+        .map(String::as_str)
+        .unwrap_or("the agent");
+    for (asked, supported, lever, remedy) in [
+        (
+            model.is_some(),
+            levers.model,
+            "model",
+            "Start the session without `model`, or choose an agent whose provider takes one.",
+        ),
+        (
+            effort.is_some(),
+            levers.effort,
+            "effort",
+            "Start the session without `effort`; the agent decides how much it reasons.",
+        ),
+    ] {
+        if asked && !supported {
+            return Err(RpcError::application(
+                error_codes::LEVER_NOT_SUPPORTED,
+                "the agent does not take this lever",
+                "lever_not_supported",
+                format!(
+                    "`{agent}` has no documented place for a per-session {lever}, so it was \
+                     refused rather than dropped in silence"
+                ),
+                Some(remedy.into()),
+            ));
+        }
+    }
+    Ok(())
 }

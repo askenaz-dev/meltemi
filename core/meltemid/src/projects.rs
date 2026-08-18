@@ -550,6 +550,8 @@ mod tests {
                 agent_id: None,
                 profile: None,
                 mode: None,
+                model: None,
+                effort: None,
                 source: None,
                 title: None,
             },

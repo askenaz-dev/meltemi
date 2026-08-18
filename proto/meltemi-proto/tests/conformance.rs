@@ -505,6 +505,8 @@ fn session_list_and_log_conform() {
 
     let info = SessionInfo {
         mode: Some(AutonomyMode::Semi),
+        model: None,
+        effort: None,
         session_id: "sess-1".into(),
         agent_command: vec!["mock-agent".into()],
         project_root: "C:\\repos\\fixture".into(),
@@ -763,6 +765,8 @@ fn session_start_conforms() {
             agent: Some("claude-code".into()),
             detach: false,
             mode: None,
+            model: None,
+            effort: None,
         },
     );
     // No agent named: the project's configured one, exactly as everywhere else.
@@ -775,6 +779,8 @@ fn session_start_conforms() {
             agent: None,
             detach: false,
             mode: None,
+            model: None,
+            effort: None,
         },
     );
 
@@ -788,6 +794,8 @@ fn session_start_conforms() {
         agent: None,
         detach: true,
         mode: None,
+        model: None,
+        effort: None,
     };
     assert_conforms("session-start", "params", &staying);
     assert_eq!(
@@ -798,6 +806,8 @@ fn session_start_conforms() {
     let one_shot = SessionStartParams {
         detach: false,
         mode: None,
+        model: None,
+        effort: None,
         ..staying.clone()
     };
     assert_eq!(
@@ -815,6 +825,8 @@ fn session_start_conforms() {
             "params",
             &SessionStartParams {
                 mode: Some(mode),
+                model: None,
+                effort: None,
                 ..staying.clone()
             },
         );
@@ -822,6 +834,8 @@ fn session_start_conforms() {
     assert_eq!(
         serde_json::to_value(SessionStartParams {
             mode: Some(AutonomyMode::Autonomous),
+            model: None,
+            effort: None,
             ..staying.clone()
         })
         .expect("serializes")["mode"],
@@ -1173,6 +1187,8 @@ fn session_events_conform() {
             irreversible: vec!["ran command: npm publish".into()],
         },
         SessionEventKind::AgentResolved {
+            model: Some("a-model-name".into()),
+            effort: Some("high".into()),
             binary: "native-agent".into(),
             source: FleetResolutionSource::Profile,
             profile: Some("work".into()),
@@ -1201,6 +1217,8 @@ fn session_events_conform() {
         },
         // The same agent under no profile: the id is still recorded.
         SessionEventKind::AgentResolved {
+            model: Some("a-model-name".into()),
+            effort: Some("high".into()),
             binary: "native-agent".into(),
             source: FleetResolutionSource::Catalog,
             profile: None,
@@ -1706,6 +1724,8 @@ fn worktree_conforms() {
         "dispatchParams",
         &WorktreeDispatchParams {
             mode: Some(AutonomyMode::Semi),
+            model: None,
+            effort: None,
             project_root: "C:\\repos\\fixture".into(),
             change: "add-thing".into(),
             task: "1.1".into(),
@@ -2576,6 +2596,10 @@ fn error_codes_match_catalog() {
         error_codes::AGENT_SPAWN_FAILED,
         error_codes::AGENT_HANDSHAKE_FAILED,
         error_codes::SESSION_NOT_FOUND,
+        // 2005 was in the constants and NOT in the schema's catalogue: the two
+        // had drifted, and this list is what noticed once 2006 joined it.
+        error_codes::SUBSCRIPTION_REFUSED,
+        error_codes::LEVER_NOT_SUPPORTED,
         error_codes::CHANGE_ALREADY_EXISTS,
         error_codes::INVALID_IDEA,
         error_codes::PROJECT_ROOT_INVALID,
