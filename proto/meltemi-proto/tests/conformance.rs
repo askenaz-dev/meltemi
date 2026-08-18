@@ -395,6 +395,8 @@ fn fleet_conforms() {
             registry_version: "2026-07-09".into(),
             agents: vec![
                 FleetAgent {
+                    model: None,
+                    effort: None,
                     id: "native-agent".into(),
                     display_name: "Native Agent".into(),
                     source: FleetAgentSource::Registry,
@@ -415,6 +417,8 @@ fn fleet_conforms() {
                     auth_context_var: None,
                 },
                 FleetAgent {
+                    model: None,
+                    effort: None,
                     id: "absent-agent".into(),
                     display_name: "Absent Agent".into(),
                     source: FleetAgentSource::Registry,
@@ -435,6 +439,8 @@ fn fleet_conforms() {
                     auth_context_var: None,
                 },
                 FleetAgent {
+                    model: None,
+                    effort: None,
                     id: "my-agent".into(),
                     display_name: "My Agent".into(),
                     source: FleetAgentSource::Custom,
@@ -457,6 +463,8 @@ fn fleet_conforms() {
                 // A launch profile row: a catalog agent under a selected auth
                 // context (flota-multiproveedor).
                 FleetAgent {
+                    model: None,
+                    effort: None,
                     id: "work".into(),
                     display_name: "work".into(),
                     source: FleetAgentSource::Profile,
@@ -2708,6 +2716,8 @@ fn harness_rejects_invalid_instances() {
 #[test]
 fn a_fleet_row_may_declare_its_auth_context_variable() {
     let bare = FleetAgent {
+        model: None,
+        effort: None,
         id: "provider-a".into(),
         display_name: "Provider A".into(),
         source: FleetAgentSource::Registry,
@@ -2728,6 +2738,8 @@ fn a_fleet_row_may_declare_its_auth_context_variable() {
         auth_context_var: None,
     };
     let declared = FleetAgent {
+        model: None,
+        effort: None,
         auth_context_var: Some("PROVIDER_CONTEXT_DIR".into()),
         ..bare.clone()
     };

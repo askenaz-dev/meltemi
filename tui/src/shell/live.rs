@@ -32,6 +32,10 @@ pub struct SessionRow {
     /// How much the session was told it may decide on its own. `None` is not a
     /// fourth mode: it means the user's rules decide alone (modos-de-autonomia).
     pub mode: Option<meltemi_proto::AutonomyMode>,
+    /// The model that effectively governed, when one did. Absent is shown as
+    /// absent: a session without a declared model has none, and inventing one
+    /// would be the shell answering a question the daemon did not.
+    pub model: Option<String>,
 }
 
 impl SessionRow {
@@ -93,6 +97,7 @@ impl From<SessionInfo> for SessionRow {
             profile: s.profile,
             title: s.title,
             mode: s.mode,
+            model: s.model,
         }
     }
 }
@@ -534,6 +539,7 @@ mod tests {
     fn row(id: &str, state: SessionState) -> SessionRow {
         SessionRow {
             mode: None,
+            model: None,
             id: id.into(),
             agent: "mock".into(),
             state,

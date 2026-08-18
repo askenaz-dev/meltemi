@@ -912,7 +912,7 @@ fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &S
             let (glyph, word) = session_state_label(row.state, ctx.lang);
             // The mode rides with the state, because what a session is allowed
             // to decide is as much its condition as whether it is running.
-            match mode_label(row.mode, ctx.lang) {
+            let mut line = match mode_label(row.mode, ctx.lang) {
                 Some((mark, name)) => format!(
                     "{} {} {} · {} {}",
                     glyph.text(&ctx.present),
@@ -922,7 +922,15 @@ fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &S
                     name
                 ),
                 None => format!("{} {} {}", glyph.text(&ctx.present), word, row.id),
+            };
+            // The model that actually governed, when one did. A session that
+            // declared none shows none: inventing a name here would be the
+            // shell answering a question the daemon did not
+            // (modelo-y-esfuerzo-por-sesion).
+            if let Some(model) = &row.model {
+                line.push_str(&format!(" · {model}"));
             }
+            line
         }
         None => "-".to_string(),
     };
@@ -1506,7 +1514,49 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    // Scenario: El terminal declara el modo de la sesión
+    // Scenario: El terminal muestra el modelo efectivo
+    #[test]
+    fn the_terminal_shows_the_model_that_governed_and_nothing_when_none_did() {
+        let with_model = SessionRow {
+            id: "s-1".into(),
+            agent: "mock".into(),
+            state: SessionState::Active,
+            project_root: "/repo".into(),
+            resumable: false,
+            agent_id: None,
+            profile: None,
+            title: None,
+            mode: None,
+            model: Some("some-provider-model".into()),
+        };
+        let without = SessionRow {
+            model: None,
+            ..with_model.clone()
+        };
+
+        let ctx = ctx(default_present());
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(1));
+        state.reduce(crate::shell::keymap::Action::DrillIn);
+
+        let mut live = LiveData::new();
+        live.apply(Update::Sessions(vec![with_model.clone()]));
+        let shown = draw(&state, &live, &ctx, 120, 24);
+        assert!(
+            shown.contains("some-provider-model"),
+            "the model that governed is on screen: {shown}"
+        );
+
+        let mut bare = LiveData::new();
+        bare.apply(Update::Sessions(vec![without]));
+        let plain = draw(&state, &bare, &ctx, 120, 24);
+        assert!(
+            !plain.contains("some-provider-model"),
+            "and a session that declared none shows none: {plain}"
+        );
+    }
+
+    // Scenario: El modo se elige y se lee desde el terminal
     #[test]
     fn the_terminal_declares_the_mode_with_symbol_and_word() {
         use meltemi_proto::AutonomyMode;
@@ -1560,6 +1610,7 @@ mod tests {
         // no turn to stop.
         let waiting = SessionRow {
             mode: None,
+            model: None,
             id: "s-1".into(),
             agent: "mock".into(),
             state: SessionState::WaitingInstruction,
@@ -1630,6 +1681,7 @@ mod tests {
         live.apply(Update::Sessions(vec![
             SessionRow {
                 mode: None,
+                model: None,
                 id: "s1".into(),
                 agent: "claude".into(),
                 state: SessionState::Active,
@@ -1641,6 +1693,7 @@ mod tests {
             },
             SessionRow {
                 mode: None,
+                model: None,
                 id: "s2".into(),
                 agent: "claude".into(),
                 state: SessionState::Ended,
@@ -1652,6 +1705,7 @@ mod tests {
             },
             SessionRow {
                 mode: None,
+                model: None,
                 id: "s3".into(),
                 agent: "codex".into(),
                 state: SessionState::Ended,
@@ -2030,6 +2084,7 @@ mod tests {
         let mut live = LiveData::new();
         live.apply(Update::Sessions(vec![SessionRow {
             mode: None,
+            model: None,
             id: "s1".into(),
             agent: "mock".into(),
             state: SessionState::Active,

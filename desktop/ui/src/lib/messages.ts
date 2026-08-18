@@ -399,6 +399,19 @@ const es = {
   "conv.queued":
     "encolada en la posición {n}: el turno en curso sigue intacto y se despachará al terminar",
   "conv.waiting": "la sesión espera tu decisión sobre {tool}",
+  "model.label": "Modelo",
+  "model.default": "el del agente",
+  "model.default.hint": "sin elegir: decide la configuración del propio agente",
+  "model.search": "Buscar o escribir un modelo…",
+  "model.free": "Usar «{name}»",
+  "model.known": "visto en este proyecto",
+  "model.declared": "declarado en un perfil",
+  "model.noPrices":
+    "Meltemi no conoce precios ni créditos: usas tu propia suscripción, y una tabla de precios aquí envejecería en silencio",
+  "model.live.warn":
+    "cambiar de modelo a mitad de sesión reinicia la caché del proveedor y puede aumentar el costo",
+  "effort.label": "Esfuerzo",
+  "effort.default": "el del agente",
   "mode.label": "Autonomía",
   "mode.manual": "Manual",
   "mode.semi": "Semi",
@@ -1032,6 +1045,19 @@ const en: Record<MessageKey, string> = {
   "conv.queued":
     "queued at position {n}: the running turn continues untouched and it is dispatched when that turn ends",
   "conv.waiting": "the session is waiting for your decision on {tool}",
+  "model.label": "Model",
+  "model.default": "the agent's own",
+  "model.default.hint": "unset: the agent's own configuration decides",
+  "model.search": "Search or type a model…",
+  "model.free": "Use \"{name}\"",
+  "model.known": "seen in this project",
+  "model.declared": "declared in a profile",
+  "model.noPrices":
+    "Meltemi knows no prices and no credits: you bring your own subscription, and a price table here would age in silence",
+  "model.live.warn":
+    "changing model mid-session resets the provider's cache and may increase cost",
+  "effort.label": "Effort",
+  "effort.default": "the agent's own",
   "mode.label": "Autonomy",
   "mode.manual": "Manual",
   "mode.semi": "Semi",

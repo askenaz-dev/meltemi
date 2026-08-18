@@ -68,24 +68,30 @@
 
 ## 5. Las superficies
 
-- [ ] 5.1 GUI: chip «modelo · esfuerzo» en el lanzador, con búsqueda y entrada
+- [x] 5.1 GUI: chip «modelo · esfuerzo» en el lanzador, con búsqueda y entrada
   libre — escenario «Se elige con búsqueda y se admite entrada libre»
-- [ ] 5.2 GUI: la ficha muestra solo lo que Meltemi sabe —lo anunciado, lo
+- [x] 5.2 GUI: la ficha muestra solo lo que Meltemi sabe —lo anunciado, lo
   declarado, lo medido— y **sin precios ni créditos** (design D6) — escenario
   «La ficha no inventa lo que no sabe»
-- [ ] 5.3 GUI: cambiar en marcha advierte el efecto sobre caché y costo —
+  <!-- 2026-08-17: la ficha necesitaba saber qué modelos declaró un perfil, así
+  que la entrada de flota los expone —solo las filas de perfil, porque un modelo
+  pertenece a **cómo** el usuario corre un agente, no al agente—. Y el guardián
+  de «sin precios» se tropezó con su propia clave `noPrices` la primera vez que
+  corrió: la frase que dice que no hay precios no es un precio, y ahora sale del
+  pajar antes de buscar. -->
+- [x] 5.3 GUI: cambiar en marcha advierte el efecto sobre caché y costo —
   escenario «Cambiar en marcha se advierte»
-- [ ] 5.4 TUI: modelo efectivo visible donde muestra el estado, y omitido cuando
+- [x] 5.4 TUI: modelo efectivo visible donde muestra el estado, y omitido cuando
   no hay — escenario «El terminal muestra el modelo efectivo»
 - [x] 5.5 CLI: `--model` y `--effort` con su ayuda diciendo que son cadenas del
   proveedor que el núcleo no interpreta
-- [ ] 5.6 i18n es/en de todo lo nuevo, con el lint como guardián
+- [x] 5.6 i18n es/en de todo lo nuevo, con el lint como guardián
 
 ## 6. Cierre
 
 - [x] 6.1 E2e contra el mock: una sesión con modelo declarado, el valor efectivo
   en el registro, y el rehúso de la palanca no admitida
-- [ ] 6.2 Validación manual contra los CLIs reales, **documentada como manual**
+- [x] 6.2 Validación manual contra los CLIs reales, **documentada como manual**
   con las versiones probadas (design D7)
 - [ ] 6.3 `validate` limpio, `verify` con los escenarios enlazados, suite
   completa, clippy, fmt, gates del frontend y paridad revisada

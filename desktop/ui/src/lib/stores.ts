@@ -42,6 +42,10 @@ export interface SessionInfo {
   sessionId: string;
   /** The session's declared autonomy mode, when it declared one. */
   mode?: AutonomyMode;
+  /** The model that effectively governed, when one did. */
+  model?: string;
+  /** The effort that effectively governed, when one did. */
+  effort?: string;
   agentCommand: string[];
   projectRoot: string;
   state: SessionState;
@@ -131,6 +135,10 @@ export interface FleetAgent {
   installState?: FleetInstallState;
   remedy?: string;
   remedyCommand?: string;
+  /** The model a launch profile declared, when it declared one. */
+  model?: string;
+  /** The effort a launch profile declared, when it declared one. */
+  effort?: string;
   legalStatus?: "sanctioned" | "tolerated" | "grey";
   legalNote?: string;
   /** The auth-context variable the registry declares: its presence makes the

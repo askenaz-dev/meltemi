@@ -1056,6 +1056,15 @@ pub struct FleetAgent {
     /// variable NAME only — never a value, never a credential.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_context_var: Option<String>,
+    /// The model this entry runs by default, when it is a launch profile that
+    /// declared one. Present so a surface can OFFER what the user already
+    /// declared instead of asking them to remember it — the string stays the
+    /// provider's and is never interpreted (modelo-y-esfuerzo design D6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The effort this entry runs by default, on the same terms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// Result of `fleet/list`.

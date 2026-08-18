@@ -84,6 +84,42 @@
    */
   let autonomy: AutonomyMode | null = $state(null);
   let autonomyMenuOpen = $state(false);
+  /**
+   * The provider's own model name, or `null` for "the agent's own
+   * configuration decides" — which is what every session did before this
+   * existed. The string is opaque to this surface too: it is searched and
+   * offered, never validated (modelo-y-esfuerzo-por-sesion design D1).
+   */
+  let model: string | null = $state(null);
+  let modelMenuOpen = $state(false);
+  let modelQuery = $state("");
+
+  /**
+   * What Meltemi actually KNOWS about models, which is three things and no
+   * fourth: what a profile declared, what has been seen running in this
+   * project, and nothing else. No prices and no credits — Meltemi has neither
+   * (you bring your own subscription), and a price table here would age in
+   * silence, which is the worst kind of data: the kind that looks like
+   * authority (design D6).
+   */
+  const knownModels = $derived.by(() => {
+    const seen = new Map<string, string>();
+    for (const entry of $fleet) {
+      if (entry.model) seen.set(entry.model, "model.declared");
+    }
+    for (const session of $allSessions) {
+      if (session.model && !seen.has(session.model)) {
+        seen.set(session.model, "model.known");
+      }
+    }
+    return [...seen].map(([name, origin]) => ({ name, origin }));
+  });
+
+  const offeredModels = $derived(
+    knownModels.filter(({ name }) =>
+      name.toLowerCase().includes(modelQuery.trim().toLowerCase()),
+    ),
+  );
 
   /**
    * The project this launch targets. It follows the active one until the user
@@ -234,6 +270,8 @@
     // Same discipline: declaring no mode is not declaring a mode. Only the free
     // session takes one — the authoring verbs carry their own rule posture.
     if (autonomy && mode === "free") params.mode = autonomy;
+    // Opaque, and only where a session takes one.
+    if (model && mode === "free") params.model = model;
     return params;
   }
 
@@ -392,6 +430,62 @@
               {/each}
             {/snippet}
           </Chip>
+
+        <!-- The provider's own model name. Searched and offered, never
+             validated: what accepts or rejects it is the agent. Free text is
+             admitted for the same reason. -->
+        <Chip
+          bind:open={modelMenuOpen}
+          label={$t("model.label")}
+          value={model ?? $t("model.default")}
+          title={model ?? $t("model.default.hint")}
+          tone="plain"
+        >
+          {#snippet menu(close)}
+            <input
+              class="modelSearch"
+              bind:value={modelQuery}
+              placeholder={$t("model.search")}
+              aria-label={$t("model.search")}
+            />
+            <button
+              class="item"
+              aria-current={model === null ? "true" : undefined}
+              onclick={() => {
+                model = null;
+                close();
+              }}
+            >
+              <span class="itemName">{$t("model.default")}</span>
+              <span class="itemMeta">{$t("model.default.hint")}</span>
+            </button>
+            {#each offeredModels as option (option.name)}
+              <button
+                class="item"
+                aria-current={model === option.name ? "true" : undefined}
+                onclick={() => {
+                  model = option.name;
+                  close();
+                }}
+              >
+                <span class="itemName">{option.name}</span>
+                <span class="itemMeta">{$t(option.origin as MessageKey)}</span>
+              </button>
+            {/each}
+            {#if modelQuery.trim() && !knownModels.some((m) => m.name === modelQuery.trim())}
+              <button
+                class="item"
+                onclick={() => {
+                  model = modelQuery.trim();
+                  close();
+                }}
+              >
+                <span class="itemName">{$t("model.free", { name: modelQuery.trim() })}</span>
+              </button>
+            {/if}
+            <p class="none">{$t("model.noPrices")}</p>
+          {/snippet}
+        </Chip>
 
         <Chip
           bind:open={agentMenuOpen}

@@ -963,6 +963,22 @@
         {/if}
       {/if}
 
+      <!-- What actually governed this session, beside what it was allowed to
+           decide. Absent means none was declared: shown as absent rather than
+           as a guess (modelo-y-esfuerzo-por-sesion design D5). -->
+      {#if session?.model}
+        <span class="modeChip" title={$t("model.label")}>
+          {session.model}{session.effort ? ` · ${session.effort}` : ""}
+        </span>
+        <!-- Changing it while the session runs is offered only where the agent
+             announced the option, and it is never offered silently: resetting
+             the provider's cache is a real cost and saying so is a technical
+             fact, not caution (design D8). -->
+        {#if working}
+          <span class="modeWarn">{$t("model.live.warn")}</span>
+        {/if}
+      {/if}
+
       <span class="state" aria-live="polite">
         {#if refused}
           <span class="refusedText">{$t("conv.refused")} — {refused.detail}</span>
