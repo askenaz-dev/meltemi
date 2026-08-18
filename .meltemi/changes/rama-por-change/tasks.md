@@ -53,7 +53,7 @@ flujo que ella misma hospeda) y aterriza en `main` al cerrar.**
 
 ## 4. Cierre
 
-- [ ] 4.1 E2e en `core/meltemid/tests/` contra repos fixture temporales
+- [x] 4.1 E2e en `core/meltemid/tests/` contra repos fixture temporales
   (incluido uno cuya rama por defecto no es `main`): ciclo completo
   workspace → commits → land con previsualización y con confirmación, el
   conflicto abortado, y el retiro protegido; `meltemi validate rama-por-change`

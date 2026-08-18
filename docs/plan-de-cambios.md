@@ -781,6 +781,29 @@ corta emitidos por el IdP del usuario, selector multi-máquina como concepto de
 la app (cada `meltemid` sigue siendo de su máquina), y el aviso de espera
 autohospedado.
 
+### `rama-por-change` — abierta el 2026-08-16, vía completa
+
+El mantenedor instauró el flujo con una frase —cada change «en ramas separadas
+por change y al terminar [...] merge a main»— después de que un `git add`
+amplio arrastrara archivos ajenos **tres veces en un día** entre sesiones
+concurrentes commiteando sobre el mismo árbol. Meltemi ya orquestaba worktrees,
+pero en el eje de las carreras (change×tarea×agente); esta change añade el eje
+que el flujo necesita: el **taller** de la change, con su rama de nombre
+desnudo y su aterrizaje.
+
+`change/workspace` es «dame», no «crea»: idempotente con reencuentro declarado,
+creado desde la punta de la rama por defecto (detectada, no asumida). La
+propiedad la da el registro, no un namespace: la rama homónima ajena se rehúsa
+sin tocarse **solo en el camino implícito** — nombrarla con `--branch` es
+consentir, y `--unique` acuña un taller con sufijo que jamás colisiona (los dos
+flags se excluyen con palabras, como `--json --yaml`). `change/land`
+previsualiza sin `confirm` y fusiona `--no-ff` con él; el conflicto se aborta
+al instante y se entrega al git del usuario. Retirar un taller con commits sin
+aterrizar exige confirmación **que dice cuántos**, y la rama nunca se borra.
+La raíz gestionada queda excluida por `info/exclude`, no por el `.gitignore`
+versionado. Paridad §4 pagada por el registro obligatorio; doce escenarios
+cubiertos por e2e contra fixtures (uno con rama por defecto `trunk`).
+
 ### `cromo-que-no-estorba` — abierta el 2026-08-08, vía rápida
 
 Tres frases del mantenedor sobre una captura: el scroll del panel derecho, los
