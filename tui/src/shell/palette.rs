@@ -227,6 +227,20 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "the living-truth capabilities",
     },
     Entry {
+        name: "workspace",
+        reserved: true,
+        methods: &[m::CHANGE_WORKSPACE],
+        desc_es: "el taller de una change: su rama y su worktree",
+        desc_en: "a change's workshop: its branch and its worktree",
+    },
+    Entry {
+        name: "land",
+        reserved: true,
+        methods: &[m::CHANGE_LAND],
+        desc_es: "aterrizar el taller en la rama por defecto",
+        desc_en: "land the workshop on the default branch",
+    },
+    Entry {
         name: "worktrees",
         reserved: true,
         methods: &[m::WORKTREE_LIST],

@@ -50,6 +50,8 @@ future change — never a silent omission.
 | `analytics/usage` | `usage` | `usage` | registry + Usage view |
 | `change/list` | `changes` | `changes` | registry + Project view |
 | `change/show` | `show` | `show` | registry |
+| `change/workspace` | `workspace` | `workspace` | registry |
+| `change/land` | `land` | `land` | registry |
 | `spec/list` | `specs` | `specs` | registry + Project view |
 | `spec/show` | `specs <capability>` | `specs` | registry |
 | `permission/pending` | — | `permissions` (`a`, tray) | registry + Permissions view |

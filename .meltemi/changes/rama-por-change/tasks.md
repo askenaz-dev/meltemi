@@ -44,7 +44,7 @@ flujo que ella misma hospeda) y aterriza en `main` al cerrar.**
 
 ## 3. Las superficies
 
-- [ ] 3.1 CLI: verbos `workspace <change> [--branch <rama>|--unique]` y `land <change> [--branch <rama>] [confirm]` con su
+- [x] 3.1 CLI: verbos `workspace <change> [--branch <rama>|--unique]` y `land <change> [--branch <rama>] [confirm]` con su
   render humano (la previsualización legible; el reencuentro dicho con
   palabras); paleta TUI; `registry.ts` GUI + `npm run gen:forms`; dos filas en
   `docs/paridad-nucleo.md`; `docs/referencia-cli.md` regenerada (design D7,

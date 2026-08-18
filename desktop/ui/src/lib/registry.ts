@@ -237,6 +237,15 @@ export const REGISTRY: RegistryEntry[] = [
   R("project/forget", "palette.m.project.forget", {
     template: { root: "" },
   }),
+  R("change/workspace", "palette.m.change.workspace", {
+    template: { projectRoot: "", change: "" },
+    injectRoot: "projectRoot",
+  }),
+  R("change/land", "palette.m.change.land", {
+    template: { projectRoot: "", change: "", confirm: false },
+    injectRoot: "projectRoot",
+    dangerous: true,
+  }),
   R("change/list", "palette.m.change.list", {
     template: { projectRoot: "" },
     injectRoot: "projectRoot",
