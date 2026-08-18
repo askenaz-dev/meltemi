@@ -15,7 +15,8 @@ use tokio::task::JoinHandle;
 use meltemi_client::bootstrap;
 use meltemi_client::rpc::{Incoming, Peer, RpcError};
 use meltemi_proto::{
-    ChangeListParams, ChangeListResult, ChangeShowParams, ChangeShowResult, SddValidateParams,
+    ChangeLandParams, ChangeLandResult, ChangeListParams, ChangeListResult, ChangeShowParams,
+    ChangeShowResult, ChangeWorkspaceParams, ChangeWorkspaceResult, SddValidateParams,
     SddValidateResult, SpecListParams, SpecListResult, SpecShowParams, SpecShowResult,
 };
 use meltemi_proto::{
@@ -139,6 +140,16 @@ pub async fn execute(
         } => usage(project_root, granularity, since, until, endpoint).await,
         Command::Changes => changes(endpoint, painting).await,
         Command::Show { change } => show(change, endpoint).await,
+        Command::Workspace {
+            change,
+            branch,
+            unique,
+        } => workspace(change, branch, unique, endpoint).await,
+        Command::Land {
+            change,
+            branch,
+            confirm,
+        } => land(change, branch, confirm, endpoint).await,
         Command::Specs { capability } => specs(capability, endpoint, painting).await,
         Command::Validate { change } => validate(change, endpoint).await,
         Command::Direct {
@@ -1245,6 +1256,71 @@ async fn show(change: String, endpoint: &str) -> Result<Outcome, CliError> {
     })
 }
 
+/// `workspace <change>`: ask the daemon for the change's workshop — the
+/// re-encounter is said with words, not left to a boolean the eye skips.
+async fn workspace(
+    change: String,
+    branch: Option<String>,
+    unique: bool,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::CHANGE_WORKSPACE,
+            &ChangeWorkspaceParams {
+                project_root,
+                change,
+                branch,
+                unique,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: ChangeWorkspaceResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_workspace(&result),
+        json: value,
+    })
+}
+
+/// `land <change> [confirm]`: preview or perform the landing.
+async fn land(
+    change: String,
+    branch: Option<String>,
+    confirm: bool,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::CHANGE_LAND,
+            &ChangeLandParams {
+                project_root,
+                change,
+                branch,
+                confirm,
+            },
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    let result: ChangeLandResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: render_land(&result),
+        json: value,
+    })
+}
+
 async fn specs(
     capability: Option<String>,
     endpoint: &str,
@@ -1923,6 +1999,71 @@ fn render_change_show(result: &ChangeShowResult) -> String {
     for d in &result.deltas {
         let reqs = d.content.matches("### Requirement:").count();
         let _ = write!(out, "\n  delta: {} ({reqs} requirement(s))", d.capability);
+    }
+    out
+}
+
+/// The workshop, said with words: created or re-encountered, and from where.
+fn render_workspace(result: &ChangeWorkspaceResult) -> String {
+    let verdict = if result.reencountered {
+        format!("re-encountered the workshop of `{}`", result.change)
+    } else {
+        format!(
+            "created the workshop of `{}` from the tip of `{}`",
+            result.change, result.base_branch
+        )
+    };
+    format!(
+        "{verdict}
+  branch  {}
+  path    {}",
+        result.branch, result.path
+    )
+}
+
+/// The landing: the preview reads as a promise, the merge as a fact.
+fn render_land(result: &ChangeLandResult) -> String {
+    use std::fmt::Write;
+    let mut out = if result.landed {
+        let sha = result.merge_sha.as_deref().unwrap_or("?");
+        format!(
+            "landed `{}` on `{}` (merge {sha})",
+            result.branch, result.base_branch
+        )
+    } else {
+        format!(
+            "would land `{}` on `{}` — add `confirm` to merge",
+            result.branch, result.base_branch
+        )
+    };
+    let _ = write!(
+        out,
+        "
+  {} commit(s), {} file(s)",
+        result.commits.len(),
+        result.files.len()
+    );
+    for c in &result.commits {
+        let _ = write!(
+            out,
+            "
+  {}  {}",
+            c.sha, c.title
+        );
+    }
+    if !result.files.is_empty() {
+        let _ = write!(
+            out,
+            "
+  files:"
+        );
+        for f in &result.files {
+            let _ = write!(
+                out,
+                "
+    {f}"
+            );
+        }
     }
     out
 }

@@ -632,6 +632,8 @@ const es = {
   "usage.disclosure.nothing-leaves-this-machine":
     "ningún dato sale de esta máquina",
   "palette.m.change.list": "listar changes (activas y archivadas) con su estado",
+  "palette.m.change.workspace": "el taller de una change: su rama y su worktree",
+  "palette.m.change.land": "aterrizar el taller en la rama por defecto",
   "palette.m.change.show": "mostrar una change: artefactos y deltas",
   "palette.m.spec.list": "listar capacidades de la verdad viva",
   "palette.m.spec.show": "mostrar una capacidad, sus requisitos y escenarios",
@@ -1264,6 +1266,8 @@ const en: Record<MessageKey, string> = {
   "usage.disclosure.nothing-leaves-this-machine":
     "no data leaves this machine",
   "palette.m.change.list": "list changes (active and archived) with state",
+  "palette.m.change.workspace": "a change's workshop: its branch and its worktree",
+  "palette.m.change.land": "land the workshop on the default branch",
   "palette.m.change.show": "show a change: artifacts and deltas",
   "palette.m.spec.list": "list the living-truth capabilities",
   "palette.m.spec.show": "show a capability, its requirements and scenarios",

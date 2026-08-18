@@ -2789,3 +2789,122 @@ fn subscription_link_and_unlink_conform() {
         }),
     );
 }
+
+#[test]
+fn change_workspace_conforms() {
+    // The default ask: no branch, no unique — the shape every caller sends.
+    let plain = ChangeWorkspaceParams {
+        project_root: "C:/repos/fixture".into(),
+        change: "rama-por-change".into(),
+        branch: None,
+        unique: false,
+    };
+    assert_conforms("workspace", "workspaceParams", &plain);
+    let wire = serde_json::to_string(&plain).unwrap();
+    assert!(
+        !wire.contains("branch") && !wire.contains("unique"),
+        "a caller that chooses nothing sends exactly the plain shape: {wire}"
+    );
+
+    // Naming the branch is consent (D4); present and conformant.
+    assert_conforms(
+        "workspace",
+        "workspaceParams",
+        &ChangeWorkspaceParams {
+            branch: Some("hotfix-x".into()),
+            ..plain.clone()
+        },
+    );
+    // A unique workshop; also alone.
+    assert_conforms(
+        "workspace",
+        "workspaceParams",
+        &ChangeWorkspaceParams {
+            unique: true,
+            ..plain.clone()
+        },
+    );
+    // Both at once means nothing, and the SCHEMA is what refuses it, so a
+    // client in any language is refused the same way.
+    assert_rejected(
+        "workspace",
+        "workspaceParams",
+        &json!({
+            "projectRoot": "C:/repos/fixture",
+            "change": "rama-por-change",
+            "branch": "hotfix-x",
+            "unique": true,
+        }),
+    );
+
+    assert_conforms(
+        "workspace",
+        "workspaceResult",
+        &ChangeWorkspaceResult {
+            change: "rama-por-change".into(),
+            branch: "rama-por-change".into(),
+            path: "C:/repos/fixture/.meltemi/worktrees/rama-por-change/workspace".into(),
+            reencountered: false,
+            base_branch: "main".into(),
+        },
+    );
+}
+
+#[test]
+fn change_land_conforms() {
+    // The preview: no confirm, no branch — the default shape.
+    let preview = ChangeLandParams {
+        project_root: "C:/repos/fixture".into(),
+        change: "rama-por-change".into(),
+        branch: None,
+        confirm: false,
+    };
+    assert_conforms("workspace", "landParams", &preview);
+    let wire = serde_json::to_string(&preview).unwrap();
+    assert!(
+        !wire.contains("confirm") && !wire.contains("branch"),
+        "the preview sends exactly the plain shape: {wire}"
+    );
+    // Confirmed, on a named branch: both optionals present together are fine —
+    // unlike workspace, land's options compose.
+    assert_conforms(
+        "workspace",
+        "landParams",
+        &ChangeLandParams {
+            branch: Some("rama-por-change-3f2a".into()),
+            confirm: true,
+            ..preview.clone()
+        },
+    );
+
+    // The preview result: commits and files, nothing landed, no merge sha.
+    let previewed = ChangeLandResult {
+        change: "rama-por-change".into(),
+        branch: "rama-por-change".into(),
+        base_branch: "main".into(),
+        commits: vec![LandCommit {
+            sha: "046b9d3".into(),
+            title: "Plan the workshop Meltemi lacks".into(),
+        }],
+        files: vec![".meltemi/changes/rama-por-change/proposal.md".into()],
+        landed: false,
+        merge_sha: None,
+    };
+    assert_conforms("workspace", "landResult", &previewed);
+    assert!(
+        !serde_json::to_string(&previewed)
+            .unwrap()
+            .contains("mergeSha"),
+        "a preview carries no merge commit"
+    );
+    // The landed result carries it.
+    assert_conforms(
+        "workspace",
+        "landResult",
+        &ChangeLandResult {
+            landed: true,
+            merge_sha: Some("a1b2c3d".into()),
+            ..previewed
+        },
+    );
+}
