@@ -79,6 +79,19 @@ pub fn resolve_launch(
     resolve_id_launch(&catalog, id, path_var, bundled_dir)
 }
 
+/// How the daemon names the per-session model to an adapter.
+///
+/// Nothing links these two processes at compile time — `meltemi-adapters` is a
+/// leaf crate that produces ACP agents and depends on none of the daemon's, and
+/// pulling the client contract into an ACP agent to share a string would be the
+/// wrong direction of dependency. So the name is written on both sides and a
+/// test reads the other side's source to prove they agree
+/// (`the_lever_variables_are_spelled_the_same_on_both_sides`).
+pub const SESSION_MODEL_ENV: &str = "MELTEMI_SESSION_MODEL";
+
+/// How the daemon names the per-session effort level, on the same terms.
+pub const SESSION_EFFORT_ENV: &str = "MELTEMI_SESSION_EFFORT";
+
 /// A per-session agent resolution: the launch, an env overlay selecting the
 /// auth context, and how the name resolved (flota-multiproveedor D1/D2).
 #[derive(Debug, Clone)]
@@ -116,6 +129,24 @@ impl ResolvedAgent {
         }
         if let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) {
             self.effort = Some(effort.to_string());
+        }
+        // The adapter is a separate process, so the effective levers travel the
+        // way its other configuration already does: through the environment the
+        // daemon composes for it. No new transport, and the daemon still never
+        // reads the strings — only the adapter that knows its CLI does
+        // (modelo-y-esfuerzo-por-sesion design D1).
+        //
+        // Set LAST so the resolved value wins over anything a profile's own env
+        // overlay happened to name.
+        self.env
+            .retain(|(key, _)| key != SESSION_MODEL_ENV && key != SESSION_EFFORT_ENV);
+        if let Some(model) = &self.model {
+            self.env
+                .push((SESSION_MODEL_ENV.to_string(), model.clone()));
+        }
+        if let Some(effort) = &self.effort {
+            self.env
+                .push((SESSION_EFFORT_ENV.to_string(), effort.clone()));
         }
         self
     }
@@ -542,6 +573,31 @@ pub fn l4_target_for(config: &Config) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lever_variables_are_spelled_the_same_on_both_sides() {
+        // Nothing links these two processes at compile time: `meltemi-adapters`
+        // is a leaf crate that produces ACP agents and depends on none of the
+        // daemon's. Pulling the client contract into an ACP agent just to share
+        // a string would be the wrong direction of dependency, so the name is
+        // written twice and this reads the other side's source to prove the two
+        // agree. A silent disagreement here would mean a model the user chose
+        // never reaching the CLI, with nothing reporting it
+        // (modelo-y-esfuerzo-por-sesion).
+        let adapters = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../meltemi-adapters/src/lib.rs"),
+        )
+        .expect("the adapters crate is beside this one in the workspace");
+        for (constant, value) in [
+            ("SESSION_MODEL_ENV", SESSION_MODEL_ENV),
+            ("SESSION_EFFORT_ENV", SESSION_EFFORT_ENV),
+        ] {
+            assert!(
+                adapters.contains(&format!("pub const {constant}: &str = \"{value}\";")),
+                "the adapters read `{constant}` as something other than `{value}`"
+            );
+        }
+    }
 
     // Scenario: La sesión pisa el default del perfil
     // Scenario: Un perfil sin declaración no impone nada
@@ -999,6 +1055,15 @@ pub fn levers_of(agent_command: &[String]) -> Levers {
         // the pinned CLI, and this change refuses rather than guesses: the day
         // it is verified is the day this becomes `true` (design D7).
         name if name.contains("claude") => Levers {
+            model: true,
+            effort: false,
+        },
+        // Meltemi's own scripted agent. It is first-party, so what it accepts
+        // is not a guess — and it deliberately takes a model and NOT an effort,
+        // which is the shape of a real provider that documents one lever and
+        // not the other. That lets the end-to-end exercise both branches
+        // without any provider at all (§5).
+        name if name.contains("mock-agent") => Levers {
             model: true,
             effort: false,
         },

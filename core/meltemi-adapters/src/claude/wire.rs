@@ -61,6 +61,11 @@ pub const SETTINGS: &str = "--settings";
 /// verbatim, which is what lets the adapter name a session before the CLI has
 /// said anything at all.
 pub const SESSION_ID: &str = "--session-id";
+/// Names the model this session runs, in the CLI's documented flag. Sent ONLY
+/// when the user chose one: absent, the CLI's own configuration decides, which
+/// is what happened before this flag was ever passed
+/// (modelo-y-esfuerzo-por-sesion).
+pub const MODEL: &str = "--model";
 
 /// The flags that put the official CLI in the documented headless session, with
 /// the account the user already signed into.
@@ -73,7 +78,7 @@ pub const SESSION_ID: &str = "--session-id";
 /// CLI to stop checking.
 #[must_use]
 pub fn session_args() -> Vec<String> {
-    [
+    let mut args: Vec<String> = [
         PRINT,
         INPUT_FORMAT,
         STREAM_JSON,
@@ -84,7 +89,16 @@ pub fn session_args() -> Vec<String> {
     ]
     .iter()
     .map(|arg| (*arg).to_string())
-    .collect()
+    .collect();
+    // The user's choice, in the flag this CLI documents for it. Effort has no
+    // verified place here, and the daemon refuses it before a session is
+    // created rather than the adapter guessing at one
+    // (modelo-y-esfuerzo-por-sesion design D3, D7).
+    if let Some(model) = crate::session_model() {
+        args.push(MODEL.to_string());
+        args.push(model);
+    }
+    args
 }
 
 // --- Event types the CLI emits -------------------------------------------

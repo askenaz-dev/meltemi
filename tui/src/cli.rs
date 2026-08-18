@@ -1341,6 +1341,68 @@ mod tests {
         assert_eq!(mode, None);
     }
 
+    // Scenario: Un valor vacío se rehúsa en vez de viajar
+    #[test]
+    fn an_empty_lever_is_refused_rather_than_carried_as_a_choice() {
+        // A blank string would reach the agent as though the user had picked
+        // something, and the agent's rejection would report a provider error
+        // for a mistake made here.
+        for flag in ["--model", "--effort"] {
+            let plan = plan_of(&["session", "do it", flag, ""], false);
+            assert!(
+                matches!(plan.action, Action::Usage(_)),
+                "`{flag} \"\"` is refused, not carried"
+            );
+            // A missing value refuses too, rather than swallowing the next flag.
+            assert!(matches!(
+                plan_of(&["session", "do it", flag], false).action,
+                Action::Usage(_)
+            ));
+            assert!(matches!(
+                plan_of(&["session", "do it", flag, "--json"], false).action,
+                Action::Usage(_)
+            ));
+            // And a verb that starts no session refuses the flag by name.
+            assert!(matches!(
+                plan_of(&["status", flag, "x"], false).action,
+                Action::Usage(_)
+            ));
+        }
+
+        // A real value travels verbatim — the core carries it and never reads
+        // it, so nothing here inspects its shape.
+        let Action::Run(Command::Session { model, effort, .. }) = plan_of(
+            &[
+                "session",
+                "do it",
+                "--model",
+                "some-provider-model-9000",
+                "--effort",
+                "high",
+            ],
+            false,
+        )
+        .action
+        else {
+            panic!("a session with levers still starts")
+        };
+        assert_eq!(model.as_deref(), Some("some-provider-model-9000"));
+        assert_eq!(effort.as_deref(), Some("high"));
+
+        // And the help says whose words these are.
+        let session_help = USAGE
+            .split("session <instruction>")
+            .nth(1)
+            .expect("the help documents the verb")
+            .split("\n    sessions")
+            .next()
+            .expect("its entry");
+        assert!(
+            session_help.contains("PROVIDER's own words"),
+            "the help says the core does not interpret them: {session_help}"
+        );
+    }
+
     #[test]
     fn bridge_takes_no_arguments() {
         assert_eq!(

@@ -36,13 +36,23 @@
 
 ## 3. Los adaptadores, cada uno contra su proveedor
 
-- [ ] 3.1 Codex: `model` al arrancar el hilo y `effort` **por turno**, que es
+- [x] 3.1 Codex: `model` al arrancar el hilo y `effort` **por turno**, que es
   donde su esquema pineado los define — verificado, no citado de memoria
   (design D3) — escenario «El adaptador manda la palanca donde su proveedor la
   acepta»
-- [ ] 3.2 Claude: `--model` en `session_args()`; **esfuerzo NO se cablea** y se
+- [x] 3.2 Claude: `--model` en `session_args()`; **esfuerzo NO se cablea** y se
   rehúsa con ese motivo, porque no está verificado contra el CLI pineado
   (design D7)
+  <!-- 2026-08-17: las palancas viajan al adaptador por el **entorno** que el
+  daemon ya compone para él —mismo camino que su otra configuración, sin
+  transporte nuevo—, porque nada enlaza los dos procesos en tiempo de
+  compilación: `meltemi-adapters` es un crate hoja y meterle el contrato del
+  cliente para compartir un string sería la dirección equivocada de dependencia.
+  El nombre se escribe en los dos lados y **un test lee la fuente del otro** para
+  probar que coinciden: un desacuerdo silencioso ahí sería un modelo elegido que
+  nunca llega al CLI, sin que nada lo diga. Y el mock ganó **una palanca y no la
+  otra**, que es la forma de un proveedor real y deja el e2e ejercitando las dos
+  ramas sin proveedor alguno. -->
 - [ ] 3.3 Los adaptadores anuncian sus opciones como *session config options* de
   ACP, que es la vía estándar y la anuncia el agente (design D2)
 
@@ -73,7 +83,7 @@
 
 ## 6. Cierre
 
-- [ ] 6.1 E2e contra el mock: una sesión con modelo declarado, el valor efectivo
+- [x] 6.1 E2e contra el mock: una sesión con modelo declarado, el valor efectivo
   en el registro, y el rehúso de la palanca no admitida
 - [ ] 6.2 Validación manual contra los CLIs reales, **documentada como manual**
   con las versiones probadas (design D7)

@@ -118,6 +118,8 @@ fn synthetic_session(
         &key,
         &SessionRecord {
             mode: None,
+            model: None,
+            effort: None,
             session_id: session_id.into(),
             agent_command: vec![agent.into()],
             project_root: project_root.display().to_string(),
@@ -146,6 +148,8 @@ fn synthetic_session(
     })
     .expect("start");
     log.append(SessionEventKind::AgentResolved {
+        model: None,
+        effort: None,
         binary: agent.into(),
         source: meltemi_proto::FleetResolutionSource::Profile,
         profile: profile.map(String::from),

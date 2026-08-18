@@ -25,6 +25,7 @@ SUBCOMMANDS:
     unlink <name>       unlink a subscription; its auth context is not deleted
     project             regenerate the projected context (AGENTS.md, ...)
     session <instruction> [project-root] [--agent <id|profile>] [--mode <mode>]
+            [--model <name>] [--effort <level>]
                         start a free session on that project: no change, no
                         spec and no gate, and nothing of the government
                         relaxed — the fleet resolves the agent, permissions go
@@ -39,7 +40,11 @@ SUBCOMMANDS:
                         session decides on its own; absent, your permission
                         rules decide exactly as they always did. In every mode
                         an explicit deny of yours prevails and anything
-                        irreversible escalates
+                        irreversible escalates.
+                        `--model` and `--effort` are the PROVIDER's own words:
+                        Meltemi carries them and never reads them, so what
+                        accepts or rejects one is the agent, and an agent that
+                        has no place for a lever refuses it by name
     sessions            list agent sessions (active and historical)
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing

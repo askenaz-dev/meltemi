@@ -73,6 +73,8 @@ fn the_registry_rebuilds_itself_from_the_session_index() {
         &key,
         &SessionRecord {
             mode: None,
+            model: None,
+            effort: None,
             session_id: "s1".into(),
             agent_command: vec!["mock-agent".into()],
             project_root: project.display().to_string(),
@@ -109,6 +111,8 @@ fn a_session_without_a_profile_reports_no_profile_at_all() {
         key,
         &SessionRecord {
             mode: None,
+            model: None,
+            effort: None,
             session_id: "plain".into(),
             agent_command: vec!["mock-agent".into()],
             project_root: "/repo".into(),
@@ -454,6 +458,8 @@ fn the_resolution_event_carries_the_subscription_name_and_no_environment() {
     let data = temp("resolution-log");
     let mut log = SessionLog::create(&data, "k", "s1").expect("log");
     log.append(SessionEventKind::AgentResolved {
+        model: None,
+        effort: None,
         binary: "mock-agent".into(),
         source: FleetResolutionSource::Profile,
         profile: Some("work".into()),

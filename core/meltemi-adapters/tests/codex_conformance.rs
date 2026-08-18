@@ -189,6 +189,8 @@ fn what_the_adapter_sends_conforms_to_the_dumped_schema() {
     );
 
     let thread_start = ThreadStartParams {
+        // The provider's schema accepts it here; the conformance proves the shape.
+        model: Some("a-model-name".into()),
         cwd: "/project/worktree".into(),
     };
     assert_conforms(
@@ -198,6 +200,8 @@ fn what_the_adapter_sends_conforms_to_the_dumped_schema() {
     );
 
     let turn_start = TurnStartParams {
+        // And accepts effort HERE and only here.
+        effort: Some("high".into()),
         thread_id: "thread-1".into(),
         input: vec![UserInput::Text {
             text: "write the proposal".into(),
