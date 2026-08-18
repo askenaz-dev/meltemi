@@ -36,7 +36,7 @@ flujo que ella misma hospeda) y aterriza en `main` al cerrar.**
   previsualización», «Con confirmación, el aterrizaje limpio», «El conflicto
   se rehúsa y no deja el árbol a medias» y «El taller sucio no aterriza» —
   gates: suite del crate
-- [ ] 2.3 Retiro protegido: quitar un taller con commits que la rama por
+- [x] 2.3 Retiro protegido: quitar un taller con commits que la rama por
   defecto no alcanza exige confirmación diciendo cuántos quedarían solo en la
   rama; el retiro nunca borra la rama (design D6) — escenarios «Retirar con
   commits sin aterrizar exige confirmación» y «Retirar el taller conserva la

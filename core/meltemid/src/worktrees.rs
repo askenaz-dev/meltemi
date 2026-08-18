@@ -475,16 +475,33 @@ fn short_suffix() -> String {
     format!("{:06x}", mixed & 0x00ff_ffff)
 }
 
-/// Removes a managed worktree. Refuses a worktree the daemon does not own, and
-/// requires `force` when the worktree has uncommitted changes.
+/// Removes a managed worktree. Refuses a worktree the daemon does not own,
+/// and requires `force` when the worktree has uncommitted changes — or, for a
+/// change workshop, when its branch holds commits the default branch does not
+/// reach (rama-por-change D6): unlanded work does not vanish in silence. The
+/// branch itself is never deleted; retiring the workshop retires the worktree.
 pub fn remove(repo_root: &Path, path: &Path, force: bool) -> Result<(), String> {
-    if !is_managed(repo_root, path) {
+    let target = path.to_string_lossy();
+    let Some(owned) = list(repo_root).into_iter().find(|w| w.path == target) else {
         return Err("refusing to remove a worktree Meltemi did not create".to_string());
-    }
+    };
     if !force && git::is_dirty(path) {
         return Err(
             "the worktree has uncommitted changes; confirm to remove it (force)".to_string(),
         );
+    }
+    if !force
+        && owned.task == WORKSPACE_TASK
+        && let Some(base) = git::default_branch(repo_root)
+    {
+        let unlanded = git::ahead_count(repo_root, &base, &owned.branch);
+        if unlanded > 0 {
+            return Err(format!(
+                "the workshop branch `{}` holds {unlanded} commit(s) that `{base}` does not \
+                 reach; confirm to retire it (force). The branch itself stays either way",
+                owned.branch
+            ));
+        }
     }
     let path_str = path.to_string_lossy();
     let mut args = vec!["worktree", "remove"];
