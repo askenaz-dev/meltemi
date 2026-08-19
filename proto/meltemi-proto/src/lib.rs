@@ -65,6 +65,13 @@ pub mod methods {
     /// — queued as the next turn of an active session, or resuming a terminated
     /// but resumable one (control-remoto-asistido). The third remote verb.
     pub const SESSION_DIRECT: &str = "session/direct";
+    /// Request (client -> daemon): set one of the session configuration options
+    /// the AGENT announced when the session opened — ACP's own
+    /// `session/set_config_option`, forwarded over the live connection without
+    /// relaunching anything. Refused when the agent announced nothing, or
+    /// announced no option with that id: Meltemi never offers a selector in the
+    /// agent's name (modelo-y-esfuerzo design D2).
+    pub const SESSION_SET_CONFIG_OPTION: &str = "session/set-config-option";
     /// Notification (daemon -> client): streamed session event.
     pub const SESSION_EVENT: &str = "session/event";
     /// Request (client -> daemon): declare whether this connection watches a
@@ -202,6 +209,16 @@ pub mod error_codes {
     /// since the user believes they lowered their spend
     /// (modelo-y-esfuerzo-por-sesion design D3).
     pub const LEVER_NOT_SUPPORTED: i64 = 2006;
+    /// A live configuration change was asked for that the agent never
+    /// announced: an unknown option id, a value the option does not list, or a
+    /// session whose agent announced no options at all.
+    ///
+    /// Distinct from [`LEVER_NOT_SUPPORTED`], which is refused *before* the
+    /// session exists against what the adapter documents. This one is refused
+    /// against what THIS agent said about THIS session, and it is the code that
+    /// keeps Meltemi from promising a selector on the agent's behalf
+    /// (modelo-y-esfuerzo-por-sesion design D2).
+    pub const CONFIG_OPTION_NOT_ANNOUNCED: i64 = 2007;
     /// The derived change name already exists under `.meltemi/changes/`.
     pub const CHANGE_ALREADY_EXISTS: i64 = 3000;
     /// No change name can be derived from the given idea.
@@ -477,6 +494,106 @@ pub struct SessionInfo {
     /// The effort that effectively governed, on the same terms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+}
+
+/// One selectable value of a `select` session configuration option, as the
+/// agent announced it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionConfigValue {
+    /// The value's identifier — what is sent back to choose it.
+    pub id: String,
+    /// Human-readable label the agent gave it.
+    pub name: String,
+    /// The agent's own description, when it sent one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// The shape of a session configuration option, mirroring ACP's own two kinds.
+///
+/// Carried as a discriminated union rather than flattened into loose fields
+/// because the kind is what decides how a chosen value is read: an option the
+/// agent announced as boolean accepts nothing but the two words, and one it
+/// announced as a select accepts nothing but a value it listed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum SessionConfigKind {
+    /// A single-value selector.
+    Select {
+        /// The value in force right now, by id.
+        current_value: String,
+        /// Everything the agent said can be chosen.
+        values: Vec<SessionConfigValue>,
+    },
+    /// An on/off toggle.
+    Boolean {
+        /// The value in force right now.
+        current_value: bool,
+    },
+}
+
+/// One session configuration option the agent announced when the session
+/// opened (ACP `session/new` response), relayed verbatim.
+///
+/// Meltemi adds nothing to this list and invents no entry for it: it has no
+/// catalogue of models of its own, and one embedded here would be the core
+/// assuming a provider (§5) and rotting silently with every model released
+/// (modelo-y-esfuerzo design D1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionConfigOption {
+    /// The option's identifier — what is sent back to set it.
+    pub id: String,
+    /// Human-readable label the agent gave it.
+    pub name: String,
+    /// The agent's own description, when it sent one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The ACP category verbatim (`model`, `mode`, `model_config`,
+    /// `thought_level`, or whatever else the agent sent). A string and not an
+    /// enum because ACP leaves the space open and requires clients to handle
+    /// categories they do not know — a closed enum here would turn the next
+    /// category the spec adds into a parse failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// The option's shape and current state.
+    #[serde(flatten)]
+    pub kind: SessionConfigKind,
+}
+
+/// Params of `session/set-config-option`: change one announced option on a live
+/// session, without relaunching it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSetConfigOptionParams {
+    /// The live session whose option to set.
+    pub session_id: String,
+    /// The option's id, as the agent announced it.
+    pub option_id: String,
+    /// The chosen value: for a select, the id of one of the announced values;
+    /// for a boolean, `true` or `false`.
+    ///
+    /// One string, and which of the two it means is decided by the kind the
+    /// AGENT announced for this option — never by the caller and never by a
+    /// guess. The daemon checks the value against that declaration and refuses
+    /// what it does not match, so a select that happens to list a value called
+    /// `true` is still resolved as a select.
+    pub value: String,
+}
+
+/// Result of `session/set-config-option`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSetConfigOptionResult {
+    /// The options as the AGENT reports them after the change — its answer,
+    /// not our projection of what we asked for. An agent that clamps, renames
+    /// or reorders is reported as it actually is.
+    pub options: Vec<SessionConfigOption>,
 }
 
 /// Result of `session/list`, most recent first.
@@ -1895,6 +2012,19 @@ pub enum SessionEventKind {
     McpNotDelivered {
         /// Why they were not delivered.
         reason: String,
+    },
+    /// The agent announced its session configuration options — at the
+    /// handshake, and again as the agent reports them after one is set.
+    ///
+    /// The live-change control exists only where this event does. An agent that
+    /// announced nothing leaves no event, and absence is the whole answer: no
+    /// selector gets invented in its name (modelo-y-esfuerzo design D2). The
+    /// handshake's other facts already land here the same way
+    /// (`McpInjected` / `McpNotDelivered`) — the log is where a surface learns
+    /// what the agent said it could do.
+    ConfigOptionsAnnounced {
+        /// The options, verbatim as the agent sent them.
+        options: Vec<SessionConfigOption>,
     },
     /// The agent turn finished.
     TurnCompleted {

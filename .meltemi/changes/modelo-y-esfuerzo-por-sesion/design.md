@@ -132,3 +132,48 @@ método SDD como banco de pruebas de modelos.
 El cambio a mitad de sesión se ofrece **donde el agente anunció la opción**. Con
 el aviso técnico —cambiar de modelo reinicia la caché del proveedor y puede
 aumentar el costo— que es verdad, no retórica.
+
+## D9 — Los adaptadores propios no anuncian nada, y eso es el hallazgo
+
+> Añadida durante la implementación de 3.3. La tarea decía «los adaptadores
+> anuncian sus opciones como session config options de ACP». Al ir a
+> escribirlas, resultó que **no tienen ninguna que anunciar**.
+
+Una `SessionConfigOption` de tipo `select` exige `current_value` **y** la lista
+de valores seleccionables. Para anunciar un selector de modelo, el adaptador
+tendría que saber qué modelos existen. Y no lo sabe:
+
+- **Codex**: el esquema pineado (`core/mock-provider/schemas/codex-app-server/`)
+  no tiene método alguno que enumere modelos. `InitializeResponse` trae
+  exactamente un campo, `userAgent`. `ThreadStartParams` **acepta** un `model`
+  pero no dice cuáles.
+- **Claude**: el CLI acepta `--model <string>`; nada en lo verificado enumera.
+
+Así que la única forma de anunciar sería **incrustar una lista de modelos en el
+adaptador** — precisamente lo que D1 prohíbe («se pudriría en silencio con cada
+modelo nuevo») y lo que D7 ya resolvió para el esfuerzo: lo no verificado se
+rehúsa en vez de inventarse. Un selector con un solo valor —el actual— sería
+peor que no anunciar: un control que no puede elegir.
+
+**Entonces los adaptadores propios no anuncian.** No es una tarea pendiente
+disfrazada: es la respuesta correcta con lo que los proveedores dan hoy, y se
+revierte sola el día que uno publique un método de enumeración —serán las mismas
+diez líneas que ya existen para traducir lo anunciado.
+
+Lo que **no** se pierde por esto:
+
+1. **La vía de arranque sigue siendo completa** (D2, columna «al arrancar»): el
+   modelo y el esfuerzo viajan por argv, que es donde los proveedores los
+   aceptan. Nada de lo que el usuario pide deja de llegar.
+2. **La vía estándar existe y funciona de punta a punta**, ejercitada por el
+   mock detrás de `--config-options` con las dos clases de ACP (`select` y
+   `boolean`). No es código sin probar esperando un proveedor.
+3. **Cualquier agente ACP de terceros que sí anuncie lo obtiene gratis**, que es
+   justamente por qué §6 manda usar el estándar en vez de inventar un canal: la
+   capacidad no depende de que la escribamos agente por agente.
+
+Y la frontera queda escrita donde se lee: sin anuncio no hay evento
+`config_options_announced` en el registro, la superficie no ofrece nada, y el
+daemon rehúsa con 2007 si alguien lo intenta igual. Tres capas diciendo lo
+mismo, porque la que importa —«Meltemi no promete en nombre del agente»— es una
+promesa de seguridad, no de comodidad.

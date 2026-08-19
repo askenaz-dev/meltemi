@@ -17,16 +17,64 @@ use agent_client_protocol::schema::v1::{
     AgentCapabilities, CancelNotification, ContentBlock, ContentChunk, InitializeRequest,
     InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
     NewSessionResponse, PermissionOption, PermissionOptionKind, PromptRequest, PromptResponse,
-    RequestPermissionOutcome, RequestPermissionRequest, SessionId, SessionNotification,
-    SessionUpdate, StopReason, TextContent, ToolCallUpdate, ToolCallUpdateFields,
+    RequestPermissionOutcome, RequestPermissionRequest, SessionConfigBoolean, SessionConfigKind,
+    SessionConfigOption, SessionConfigOptionCategory, SessionConfigOptionValue,
+    SessionConfigSelect, SessionConfigSelectOption, SessionId, SessionNotification, SessionUpdate,
+    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, StopReason, TextContent,
+    ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Result, Stdio};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Fixed session id the scripted agent hands back from `session/new`.
 const SESSION_ID: &str = "mock-session";
 /// Option id the agent offers (and checks for) to allow the file write.
 const ALLOW_OPTION: &str = "allow";
+
+/// The two config options the mock announces under `--config-options`: a
+/// selector and a toggle, because the two ACP kinds take different paths on the
+/// daemon side and a mock that only had one would leave the other untested.
+const MODEL_OPTION: &str = "model";
+const THINKING_OPTION: &str = "thinking";
+
+/// What the announced options currently hold. Real state, not a canned answer:
+/// the point of the flag is that `session/set_config_option` actually changes
+/// what the next announcement says, which is what the daemon reads back.
+static CURRENT_MODEL: Mutex<String> = Mutex::new(String::new());
+static CURRENT_THINKING: AtomicBool = AtomicBool::new(false);
+
+/// The options as they stand right now.
+fn announced_options() -> Vec<SessionConfigOption> {
+    let current = CURRENT_MODEL.lock().expect("mock config state").clone();
+    let current = if current.is_empty() {
+        "fast".to_string()
+    } else {
+        current
+    };
+    vec![
+        SessionConfigOption::new(
+            MODEL_OPTION,
+            "Model",
+            SessionConfigKind::Select(SessionConfigSelect::new(
+                current,
+                vec![
+                    SessionConfigSelectOption::new("fast", "Fast"),
+                    SessionConfigSelectOption::new("slow", "Slow").description("The careful one"),
+                ],
+            )),
+        )
+        .category(SessionConfigOptionCategory::Model),
+        SessionConfigOption::new(
+            THINKING_OPTION,
+            "Extended thinking",
+            SessionConfigKind::Boolean(SessionConfigBoolean::new(
+                CURRENT_THINKING.load(Ordering::SeqCst),
+            )),
+        )
+        .category(SessionConfigOptionCategory::ThoughtLevel),
+    ]
+}
 
 /// Set when the client sends `session/cancel` AND `--honor-cancel` was passed.
 ///
@@ -49,6 +97,15 @@ async fn main() -> Result<()> {
     // asked: the agent giving up on its own, which the daemon must keep treating
     // as the end of the session (redirigir-turno).
     let cancels_itself = std::env::args().any(|a| a == "--cancel-turn");
+    // `--config-options` makes the mock announce session config options and
+    // honour `session/set_config_option`, so the live-change path can be
+    // exercised without any provider (modelo-y-esfuerzo design D2).
+    //
+    // Off by default like every other mock switch, and for the same reason:
+    // announcing options unconditionally would make every existing session
+    // start emit a `config_options_announced` event that the tests reading the
+    // log were never written to expect.
+    let announces_config = std::env::args().any(|a| a == "--config-options");
 
     Agent
         .builder()
@@ -77,7 +134,12 @@ async fn main() -> Result<()> {
         )
         .on_receive_request(
             async move |_new_session: NewSessionRequest, responder, _cx| {
-                responder.respond(NewSessionResponse::new(SessionId::new(SESSION_ID)))
+                let response = NewSessionResponse::new(SessionId::new(SESSION_ID));
+                responder.respond(if announces_config {
+                    response.config_options(announced_options())
+                } else {
+                    response
+                })
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -85,7 +147,36 @@ async fn main() -> Result<()> {
             // Loading a prior session succeeds (the mock keeps no real state);
             // its presence lets the daemon exercise the resume path.
             async move |_load: LoadSessionRequest, responder, _cx| {
-                responder.respond(LoadSessionResponse::new())
+                let response = LoadSessionResponse::new();
+                responder.respond(if announces_config {
+                    response.config_options(announced_options())
+                } else {
+                    response
+                })
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            // The live change. Values the announcement does not cover are
+            // refused here too: the daemon checks first, and an agent that
+            // accepted anything anyway would let a bug on that side pass
+            // unnoticed.
+            async move |set: SetSessionConfigOptionRequest, responder, _cx| {
+                if !announces_config {
+                    return responder.respond(SetSessionConfigOptionResponse::new(Vec::new()));
+                }
+                match (set.config_id.0.as_ref(), &set.value) {
+                    (MODEL_OPTION, SessionConfigOptionValue::ValueId { value })
+                        if matches!(value.0.as_ref(), "fast" | "slow") =>
+                    {
+                        *CURRENT_MODEL.lock().expect("mock config state") = value.0.to_string();
+                    }
+                    (THINKING_OPTION, SessionConfigOptionValue::Boolean { value }) => {
+                        CURRENT_THINKING.store(*value, Ordering::SeqCst);
+                    }
+                    _ => {}
+                }
+                responder.respond(SetSessionConfigOptionResponse::new(announced_options()))
             },
             agent_client_protocol::on_receive_request!(),
         )

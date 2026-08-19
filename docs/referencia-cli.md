@@ -99,6 +99,10 @@ SUBCOMMANDS:
     direct <session> <instruction>
                         steer an existing session: queue the instruction as an
                         active session's next turn, or resume a resumable one
+    set-option <session> <option-id> <value>
+                        set one of the options the AGENT announced for a live
+                        session, without relaunching it; the option ids and
+                        their values are the agent's, never a list of ours
     tunnel [user@host] [--exec]
                         compose the `ssh` command that reverse-forwards this
                         daemon's endpoint to a remote host; `--exec` runs it

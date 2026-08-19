@@ -107,6 +107,10 @@ SUBCOMMANDS:
     direct <session> <instruction>
                         steer an existing session: queue the instruction as an
                         active session's next turn, or resume a resumable one
+    set-option <session> <option-id> <value>
+                        set one of the options the AGENT announced for a live
+                        session, without relaunching it; the option ids and
+                        their values are the agent's, never a list of ours
     tunnel [user@host] [--exec]
                         compose the `ssh` command that reverse-forwards this
                         daemon's endpoint to a remote host; `--exec` runs it
@@ -283,6 +287,13 @@ pub enum Command {
         session: String,
         instruction: String,
         project_root: Option<String>,
+    },
+    /// Set one of the configuration options the AGENT announced for a live
+    /// session (`session/set-config-option`), without relaunching it.
+    SetOption {
+        session: String,
+        option: String,
+        value: String,
     },
     /// Compose (or, with `--exec`, run) the `ssh` reverse-forward that exposes
     /// this daemon's endpoint to a remote host. Local: touches no daemon.
@@ -911,6 +922,18 @@ fn plan_subcommand(
             }),
             _ => Action::Usage(
                 "`direct` requires: meltemi direct <session> \"<instruction>\" [project-root]"
+                    .into(),
+            ),
+        },
+        "set-option" => match rest {
+            [session, option, value] => Action::Run(Command::SetOption {
+                session: (*session).to_string(),
+                option: (*option).to_string(),
+                value: (*value).to_string(),
+            }),
+            _ => Action::Usage(
+                "`set-option` requires: meltemi set-option <session> <option-id> <value>  \
+                 (the option and its values are the AGENT's, announced when the session opened)"
                     .into(),
             ),
         },

@@ -138,6 +138,9 @@ export const REGISTRY: RegistryEntry[] = [
     template: { projectRoot: "", sessionId: "", instruction: "" },
     injectRoot: "projectRoot",
   }),
+  R("session/set-config-option", "palette.m.session.set-config-option", {
+    template: { sessionId: "", optionId: "", value: "" },
+  }),
   R("session/start", "palette.m.session.start", {
     template: { projectRoot: "", instruction: "" },
     injectRoot: "projectRoot",

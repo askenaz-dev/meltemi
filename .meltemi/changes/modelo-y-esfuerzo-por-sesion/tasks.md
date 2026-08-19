@@ -53,18 +53,45 @@
   nunca llega al CLI, sin que nada lo diga. Y el mock ganó **una palanca y no la
   otra**, que es la forma de un proveedor real y deja el e2e ejercitando las dos
   ramas sin proveedor alguno. -->
-- [ ] 3.3 Los adaptadores anuncian sus opciones como *session config options* de
+- [x] 3.3 Los adaptadores anuncian sus opciones como *session config options* de
   ACP, que es la vía estándar y la anuncia el agente (design D2)
+  <!-- 2026-08-19: **no anuncian, y ese es el resultado** (design D9). Un
+  `select` de ACP exige la lista de valores, y ninguno de los dos proveedores la
+  da: el esquema pineado de Codex no tiene método que enumere modelos
+  (`InitializeResponse` trae solo `userAgent`) y el CLI de Claude tampoco.
+  Anunciar exigiría incrustar un catálogo de modelos en el adaptador —lo que D1
+  prohíbe y D7 ya resolvió para el esfuerzo—, y un selector con un único valor
+  es un control que no puede elegir. La vía queda escrita, probada con el mock y
+  disponible para cualquier agente ACP que sí anuncie. -->
 
 ## 4. El cambio en vivo, solo donde el agente lo anunció
 
-- [ ] 4.1 El daemon fija la opción por `session/set_config_option` cuando el
+- [x] 4.1 El daemon fija la opción por `session/set_config_option` cuando el
   agente la anunció, sin relanzar — escenario «Se cambia por la vía estándar
   cuando el agente la anuncia»
-- [ ] 4.2 Sin opción anunciada, la superficie **no lo ofrece** — escenario «Sin
+  <!-- 2026-08-19: el daemon **guarda la conexión ACP** en el registro de
+  sesiones y manda la petición por ella. Se puede porque ACP es full-duplex y
+  `ConnectionTo` es un handle clonable: la petición no espera a un límite de
+  turno, y bloquear esperando su respuesta solo es deadlock dentro de un
+  manejador de la conexión, que no es donde vive el verbo. Lo que responde el
+  **agente** es lo que se guarda y se registra, no lo que pedimos: uno que
+  recorte o reordene se cree por encima de la petición. -->
+- [x] 4.2 Sin opción anunciada, la superficie **no lo ofrece** — escenario «Sin
   opción anunciada no se ofrece el cambio en vivo»
-- [ ] 4.3 El mock-agent anuncia opciones detrás de una bandera apagada por
+  <!-- 2026-08-19: el anuncio viaja por el **registro append-only**, donde ya
+  aterrizan los otros hechos del handshake (`mcp_injected`,
+  `mcp_not_delivered`). Sin anuncio no hay evento, y esa ausencia es la
+  respuesta entera: el control de la GUI se deriva del último evento del
+  transcript, así que no puede discrepar del registro del que salió. Y el
+  daemon rehúsa con 2007 aunque una superficie lo ofreciera igual. -->
+- [x] 4.3 El mock-agent anuncia opciones detrás de una bandera apagada por
   defecto, para ejercitar la vía sin proveedor alguno
+  <!-- 2026-08-19: `--config-options`, apagada como las demás y por el mismo
+  motivo: anunciar siempre metería un evento nuevo en el registro que leen los
+  e2e ya escritos. Anuncia **un selector y un interruptor**, que son las dos
+  clases de ACP y dos caminos distintos en el daemon; con una sola quedaría la
+  otra sin probar. Y guarda estado real: el cambio se ve en el anuncio
+  siguiente, que es lo que el daemon lee de vuelta. -->
 
 ## 5. Las superficies
 
@@ -93,5 +120,14 @@
   en el registro, y el rehúso de la palanca no admitida
 - [x] 6.2 Validación manual contra los CLIs reales, **documentada como manual**
   con las versiones probadas (design D7)
-- [ ] 6.3 `validate` limpio, `verify` con los escenarios enlazados, suite
+- [x] 6.3 `validate` limpio, `verify` con los escenarios enlazados, suite
   completa, clippy, fmt, gates del frontend y paridad revisada
+  <!-- 2026-08-19: `validate` limpio, `verify` 14/14, 91 suites verdes, clippy y
+  fmt en cero, `svelte-check` sin errores e `i18n lint` limpio. Paridad: el
+  verbo nuevo entra en las tres superficies y en la matriz. Dos guardianes
+  encontraron cosas al pasar — el que exige glifo y tono para cada tipo de
+  evento, y el que prohíbe variables de estilo inventadas (`--s-1` y `--r-1` no
+  existen; son `--sp-1` y `--radius-control`). Y el de «nada se mueve mientras
+  se decide un permiso» se disparó con la palabra «animation» de un comentario
+  mío, igual que `noPrices` con su propia clave: la prosa cae dentro del pajar
+  que el guardián registra. -->

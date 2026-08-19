@@ -303,6 +303,27 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
       }
     ]
   },
+  "session/set-config-option": {
+    "schema": "session-config.schema.json",
+    "def": "params",
+    "fields": [
+      {
+        "name": "sessionId",
+        "kind": "string",
+        "required": true
+      },
+      {
+        "name": "optionId",
+        "kind": "string",
+        "required": true
+      },
+      {
+        "name": "value",
+        "kind": "string",
+        "required": true
+      }
+    ]
+  },
   "session/start": {
     "schema": "session-start.schema.json",
     "def": "params",

@@ -13,9 +13,37 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::sync::{Mutex, Notify};
 
-use meltemi_proto::{SessionEventKind, SessionState, SessionSummary};
+use agent_client_protocol::{Agent, ConnectionTo};
+use meltemi_proto::{SessionConfigOption, SessionEventKind, SessionState, SessionSummary};
 
 use crate::session_log::SessionLog;
+
+/// What a live session needs to change an announced configuration option
+/// without relaunching anything: the agent's own connection, the ACP session id
+/// it answers to, and exactly what it announced.
+///
+/// The connection is cloned out of the ACP task rather than reached through a
+/// command channel because ACP is full-duplex: `session/set_config_option` is a
+/// request like any other and does not have to wait for a turn boundary. The
+/// clone is cheap (`ConnectionTo` is a handle over the same transport), and
+/// awaiting a response from the server's task is the documented safe case —
+/// blocking is only a deadlock inside a connection handler, which this is not.
+#[derive(Clone)]
+pub struct LiveConfig {
+    /// The session id the AGENT gave us, which is what its own protocol
+    /// answers to — never Meltemi's session id.
+    pub acp_session_id: String,
+    /// The live connection to the agent.
+    pub connection: ConnectionTo<Agent>,
+    /// Exactly what the agent announced. Empty means it announced nothing, and
+    /// no surface may offer a live change (modelo-y-esfuerzo design D2).
+    pub options: Vec<SessionConfigOption>,
+    /// The session's append-only log, so a change lands where the session's
+    /// history is read. Without it `agent_resolved` would name one model while
+    /// the session finished under another, and nothing would say when it
+    /// changed (§8; modelo-y-esfuerzo design D5).
+    pub log: Arc<Mutex<SessionLog>>,
+}
 
 /// A per-session FIFO of directed instructions (control-remoto-asistido).
 ///
@@ -291,6 +319,10 @@ struct Entry {
     /// decision. Counted, not toggled: with two requests in flight, resolving
     /// one must not declare the session unblocked (sesion-esperando D1).
     waiting: u32,
+    /// Present from the moment the handshake completes until the session ends.
+    /// `None` — a session still starting, or one already over — is a refusal,
+    /// not a wait: there is no live connection to carry the change.
+    config: Option<LiveConfig>,
 }
 
 /// What [`SessionRegistry::register`] hands back to the ACP task that runs the
@@ -331,6 +363,7 @@ impl SessionRegistry {
                 in_flight: Arc::clone(&in_flight),
                 direction: None,
                 waiting: 0,
+                config: None,
             },
         );
         Registration {
@@ -368,6 +401,49 @@ impl SessionRegistry {
         let guard = self.inner.lock().await;
         let direction = guard.get(session_id)?.direction.as_ref()?;
         Some((direction.queue.clone(), direction.log.clone()))
+    }
+
+    /// Records the live ACP connection and whatever configuration options the
+    /// agent announced when the session opened, so a later change can be sent
+    /// over the same connection instead of relaunching the agent.
+    ///
+    /// Called once per session, right after the handshake. An agent that
+    /// announced nothing is still recorded — with an empty list — because
+    /// "connected and announced nothing" and "not connected yet" must not be
+    /// answered with the same refusal.
+    pub async fn set_live_config(
+        &self,
+        session_id: &str,
+        acp_session_id: String,
+        connection: ConnectionTo<Agent>,
+        options: Vec<SessionConfigOption>,
+        log: Arc<Mutex<SessionLog>>,
+    ) {
+        if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
+            entry.config = Some(LiveConfig {
+                acp_session_id,
+                connection,
+                options,
+                log,
+            });
+        }
+    }
+
+    /// The live connection and announced options of a session, when it has
+    /// completed its handshake and is still registered.
+    pub async fn live_config(&self, session_id: &str) -> Option<LiveConfig> {
+        self.inner.lock().await.get(session_id)?.config.clone()
+    }
+
+    /// Replaces the announced options with what the agent reported after a
+    /// change. The agent's answer is the record, not what we asked for: one
+    /// that clamps or reorders must be believed over our request.
+    pub async fn update_config_options(&self, session_id: &str, options: Vec<SessionConfigOption>) {
+        if let Some(entry) = self.inner.lock().await.get_mut(session_id)
+            && let Some(config) = entry.config.as_mut()
+        {
+            config.options = options;
+        }
     }
 
     /// Updates the lifecycle state of a session, if still present.

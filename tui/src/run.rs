@@ -159,6 +159,11 @@ pub async fn execute(
             instruction,
             project_root,
         } => direct(session, instruction, project_root, endpoint).await,
+        Command::SetOption {
+            session,
+            option,
+            value,
+        } => set_option(session, option, value, endpoint).await,
         // `tunnel` is a local formatter: it never touches the daemon.
         Command::Tunnel { target, exec } => tunnel(target, exec),
         // The bridge writes the daemon's bytes to the process's own locked
@@ -1371,6 +1376,62 @@ async fn direct(
         human: render_direct(&value),
         json: value,
     })
+}
+
+/// `set-option`: change an announced option on a live session.
+///
+/// No project root and no lookup of what is on offer: the options belong to the
+/// agent, and the daemon refuses anything it did not announce — so a wrong id
+/// or a wrong value comes back naming what the agent actually said, which is
+/// more use than a list this side could have printed.
+async fn set_option(
+    session: String,
+    option: String,
+    value: String,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer
+        .request(
+            methods::SESSION_SET_CONFIG_OPTION,
+            &json!({
+                "sessionId": session,
+                "optionId": option,
+                "value": value,
+            }),
+        )
+        .await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    Ok(Outcome {
+        human: render_options(&value),
+        json: value,
+    })
+}
+
+/// What the agent reports after the change — its answer, not the request.
+fn render_options(value: &serde_json::Value) -> String {
+    let options = value["options"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    if options.is_empty() {
+        return "the agent reports no configuration options".into();
+    }
+    options
+        .iter()
+        .map(|option| {
+            let current = match &option["currentValue"] {
+                serde_json::Value::String(text) => text.clone(),
+                serde_json::Value::Bool(flag) => flag.to_string(),
+                _ => "?".to_string(),
+            };
+            format!("{} = {current}", option["id"].as_str().unwrap_or("?"),)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn render_direct(value: &serde_json::Value) -> String {

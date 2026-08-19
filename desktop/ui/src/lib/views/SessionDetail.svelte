@@ -54,6 +54,28 @@
     cut?: boolean;
   }
 
+  /** One selectable value of an announced `select` option. */
+  interface ConfigValue {
+    id: string;
+    name: string;
+    description?: string;
+  }
+
+  /**
+   * One option the AGENT announced for this session. Meltemi contributes
+   * nothing to this shape and nothing to its contents: the list is read off the
+   * agent's own announcement in the transcript.
+   */
+  interface ConfigOption {
+    id: string;
+    name: string;
+    description?: string;
+    category?: string;
+    type: "select" | "boolean";
+    currentValue?: string | boolean;
+    values?: ConfigValue[];
+  }
+
   /** Glyph + tone per known event type; unknown types stay neutral. */
   const EVENT_STYLE: Record<string, { glyph: string; tone: string }> = {
     session_started: { glyph: "◌", tone: "info" },
@@ -64,6 +86,7 @@
     permission_decided: { glyph: "●", tone: "warn" },
     mcp_injected: { glyph: "·", tone: "faint" },
     mcp_not_delivered: { glyph: "▲", tone: "warn" },
+    config_options_announced: { glyph: "◎", tone: "faint" },
     turn_completed: { glyph: "■", tone: "ok" },
     turn_interrupted: { glyph: "⤳", tone: "accent" },
     checkpoint_created: { glyph: "·", tone: "info" },
@@ -93,6 +116,10 @@
   /** Index into the ordered match list, for next/previous navigation. */
   let matchAt = $state(0);
   let confirmCancel = $state(false);
+  /** Why the last live change was refused, shown where it was attempted. */
+  let optionRefusal: string | null = $state(null);
+  /** The option a change is in flight for, so its control alone is disabled. */
+  let optionBusy: string | null = $state(null);
   let gone = $state(false);
   let atBottom = $state(true);
   let newLines = $state(0);
@@ -130,6 +157,53 @@
     const key = `end.${text}` as MessageKey;
     const translated = $t(key);
     return translated === key ? text : translated;
+  }
+
+  /**
+   * What the agent announced it can change without being relaunched, read off
+   * the LAST announcement in the transcript — the handshake's, or the refreshed
+   * one the daemon logs after a change.
+   *
+   * An empty list is the whole answer, not a missing piece: an agent that
+   * announced nothing gets no selector invented in its name
+   * (modelo-y-esfuerzo-por-sesion design D2). Derived rather than mirrored so
+   * the control can never disagree with the log it came from.
+   */
+  const announced: ConfigOption[] = $derived.by(() => {
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      if (lines[index].kind !== "config_options_announced") continue;
+      const payload = lines[index].payload as { options?: ConfigOption[] } | undefined;
+      return payload?.options ?? [];
+    }
+    return [];
+  });
+
+  /** Whether any announced option is about the model, which is what the cache
+   *  and cost warning is actually about. */
+  const announcesModel = $derived(
+    announced.some((option) => option.category === "model"),
+  );
+
+  /**
+   * Send the choice as ACP's own `session/set_config_option`. Nothing is
+   * relaunched, and nothing is mirrored locally: the daemon logs what the AGENT
+   * reports back, that event re-derives `announced`, and the control follows an
+   * agent that clamped or renamed instead of showing what we asked for.
+   */
+  async function setOption(option: ConfigOption, value: string) {
+    optionRefusal = null;
+    optionBusy = option.id;
+    try {
+      await request("session/set-config-option", {
+        sessionId,
+        optionId: option.id,
+        value,
+      });
+    } catch (error) {
+      optionRefusal = error instanceof Error ? error.message : String(error);
+    } finally {
+      optionBusy = null;
+    }
   }
 
   /** The conversational reading of exactly the events the log holds. */
@@ -970,12 +1044,54 @@
         <span class="modeChip" title={$t("model.label")}>
           {session.model}{session.effort ? ` · ${session.effort}` : ""}
         </span>
-        <!-- Changing it while the session runs is offered only where the agent
-             announced the option, and it is never offered silently: resetting
-             the provider's cache is a real cost and saying so is a technical
-             fact, not caution (design D8). -->
-        {#if working}
+      {/if}
+
+      <!-- The live change, offered ONLY where the agent announced the option.
+           `announced` is empty for an agent that announced nothing, and the
+           whole block disappears — Meltemi never promises a selector in the
+           agent's name (design D2). Where it is offered it is never offered
+           silently: resetting the provider's cache is a real cost and saying so
+           is a technical fact, not caution (design D8). -->
+      {#if announced.length > 0}
+        {#each announced as option (option.id)}
+          <span class="liveOption">
+            <label for={`opt-${option.id}`}>{option.name}</label>
+            {#if option.type === "select"}
+              <select
+                id={`opt-${option.id}`}
+                title={option.description ?? ""}
+                disabled={optionBusy === option.id}
+                value={String(option.currentValue ?? "")}
+                onchange={(e) =>
+                  setOption(option, (e.currentTarget as HTMLSelectElement).value)}
+              >
+                {#each option.values ?? [] as value (value.id)}
+                  <option value={value.id} title={value.description ?? ""}>
+                    {value.name}
+                  </option>
+                {/each}
+              </select>
+            {:else}
+              <input
+                id={`opt-${option.id}`}
+                type="checkbox"
+                title={option.description ?? ""}
+                disabled={optionBusy === option.id}
+                checked={option.currentValue === true}
+                onchange={(e) =>
+                  setOption(
+                    option,
+                    (e.currentTarget as HTMLInputElement).checked ? "true" : "false",
+                  )}
+              />
+            {/if}
+          </span>
+        {/each}
+        {#if announcesModel && working}
           <span class="modeWarn">{$t("model.live.warn")}</span>
+        {/if}
+        {#if optionRefusal}
+          <span class="modeWarn">{$t("model.live.refused", { reason: optionRefusal })}</span>
         {/if}
       {/if}
 
@@ -1380,6 +1496,29 @@
   .modeWarn {
     font-size: var(--fs-caption);
     color: var(--warn);
+  }
+  /* The live-change controls. Inline with the chips they sit beside, and
+     static: nothing here may move under the cursor while a permission is being
+     decided, which is the standing rule of this whole region. */
+  .liveOption {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
+  }
+  .liveOption select,
+  .liveOption input {
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    padding: 0 var(--sp-1);
+  }
+  .liveOption select:disabled,
+  .liveOption input:disabled {
+    opacity: 0.6;
   }
   .askHint {
     margin: 0;

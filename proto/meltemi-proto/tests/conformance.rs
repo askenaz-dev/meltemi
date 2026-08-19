@@ -762,6 +762,112 @@ fn session_direct_conforms() {
     );
 }
 
+/// The shape of a config option is written twice — once in the verb's schema
+/// and once in the log event's — because a cross-file `$ref` cannot resolve
+/// under the synthetic root every schema here is compiled against. Two copies
+/// that drift would let a surface accept an event it cannot render, so the
+/// copies are compared instead of trusted.
+#[test]
+fn the_two_copies_of_the_config_option_shape_agree() {
+    let verb = schema_doc("session-config");
+    let event = schema_doc("session-event");
+    for def in ["configOption", "configValue"] {
+        assert_eq!(
+            verb["$defs"][def], event["$defs"][def],
+            "`{def}` drifted between session-config.schema.json and session-event.schema.json"
+        );
+        assert!(
+            !verb["$defs"][def].is_null(),
+            "`{def}` is missing from session-config.schema.json"
+        );
+    }
+}
+
+#[test]
+fn session_set_config_option_conforms() {
+    assert_conforms(
+        "session-config",
+        "params",
+        &SessionSetConfigOptionParams {
+            session_id: "sess-1".into(),
+            option_id: "model".into(),
+            value: "sonnet".into(),
+        },
+    );
+    let select = SessionConfigOption {
+        id: "model".into(),
+        name: "Model".into(),
+        description: Some("Which model answers".into()),
+        category: Some("model".into()),
+        kind: SessionConfigKind::Select {
+            current_value: "sonnet".into(),
+            values: vec![
+                SessionConfigValue {
+                    id: "sonnet".into(),
+                    name: "Sonnet".into(),
+                    description: None,
+                },
+                SessionConfigValue {
+                    id: "opus".into(),
+                    name: "Opus".into(),
+                    description: Some("The slow one".into()),
+                },
+            ],
+        },
+    };
+    let toggle = SessionConfigOption {
+        id: "web-search".into(),
+        name: "Web search".into(),
+        description: None,
+        category: None,
+        kind: SessionConfigKind::Boolean {
+            current_value: false,
+        },
+    };
+    assert_conforms(
+        "session-config",
+        "result",
+        &SessionSetConfigOptionResult {
+            options: vec![select.clone(), toggle.clone()],
+        },
+    );
+    // An agent that announces nothing is a valid answer, not an error: it is
+    // exactly the case where no surface may offer the live change.
+    assert_conforms(
+        "session-config",
+        "result",
+        &SessionSetConfigOptionResult { options: vec![] },
+    );
+    // The kind decides how `currentValue` is read, and the schema enforces it:
+    // a select with a boolean current value is not a select.
+    assert_rejected(
+        "session-config",
+        "configOption",
+        &json!({"id": "model", "name": "Model", "type": "select", "currentValue": true}),
+    );
+    assert_rejected(
+        "session-config",
+        "configOption",
+        &json!({"id": "toggle", "name": "Toggle", "type": "boolean", "currentValue": "yes"}),
+    );
+    // A select without its list of values would be a selector that cannot
+    // select — the shape a surface must never be handed.
+    assert_rejected(
+        "session-config",
+        "configOption",
+        &json!({"id": "model", "name": "Model", "type": "select", "currentValue": "sonnet"}),
+    );
+    // And the same two options must validate as the log event's payload, which
+    // is the only place a surface ever learns them.
+    assert_conforms(
+        "session-event",
+        "sessionEvent",
+        &event(SessionEventKind::ConfigOptionsAnnounced {
+            options: vec![select, toggle],
+        }),
+    );
+}
+
 #[test]
 fn session_start_conforms() {
     assert_conforms(
@@ -2608,6 +2714,7 @@ fn error_codes_match_catalog() {
         // had drifted, and this list is what noticed once 2006 joined it.
         error_codes::SUBSCRIPTION_REFUSED,
         error_codes::LEVER_NOT_SUPPORTED,
+        error_codes::CONFIG_OPTION_NOT_ANNOUNCED,
         error_codes::CHANGE_ALREADY_EXISTS,
         error_codes::INVALID_IDEA,
         error_codes::PROJECT_ROOT_INVALID,
