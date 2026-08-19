@@ -138,6 +138,15 @@ pub mod methods {
     pub const CHANGE_LIST: &str = "change/list";
     /// Request: show a change — its artifacts and its deltas per capability.
     pub const CHANGE_SHOW: &str = "change/show";
+    /// Request: give me the change's workshop — its branch and managed
+    /// worktree — creating both from the default branch tip when absent.
+    /// Idempotent by default; `unique` mints a fresh suffixed one
+    /// (rama-por-change).
+    pub const CHANGE_WORKSPACE: &str = "change/workspace";
+    /// Request: land the workshop's branch onto the default branch. Without
+    /// `confirm` it previews the commits and files that would land; conflicts
+    /// are refused and aborted, never resolved (rama-por-change).
+    pub const CHANGE_LAND: &str = "change/land";
     /// Request: list the living-truth capabilities with requirement/scenario counts.
     pub const SPEC_LIST: &str = "spec/list";
     /// Request: show a living-truth capability, its requirements and scenarios.
@@ -2976,6 +2985,92 @@ pub struct ChangeShowResult {
     pub name: String,
     pub artifacts: Vec<ChangeArtifact>,
     pub deltas: Vec<ChangeDelta>,
+}
+
+/// Params of `change/workspace`: give me the change's workshop
+/// (rama-por-change D4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeWorkspaceParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change whose workshop is asked for.
+    pub change: String,
+    /// Mount the workshop on this branch instead of the change's name.
+    /// Naming it IS the consent: an existing branch the daemon did not create
+    /// is taken as chosen, not refused. Mutually exclusive with `unique`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Mint a fresh workshop with a unique suffix on branch and worktree, so
+    /// several workshops of one change coexist. Never a re-encounter.
+    /// Mutually exclusive with `branch`. Absent means false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unique: bool,
+}
+
+/// Result of `change/workspace`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeWorkspaceResult {
+    /// The change the workshop belongs to.
+    pub change: String,
+    /// The workshop's branch.
+    pub branch: String,
+    /// Absolute path of the workshop's worktree.
+    pub path: String,
+    /// Whether an existing managed workshop was returned rather than created.
+    pub reencountered: bool,
+    /// The default branch new workshops are created from.
+    pub base_branch: String,
+}
+
+/// Params of `change/land`: land the workshop's branch onto the default
+/// branch (rama-por-change D5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeLandParams {
+    /// Absolute path to the repository root.
+    pub project_root: String,
+    /// The change whose workshop lands.
+    pub change: String,
+    /// The workshop branch to land; absent means the change's own name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Perform the merge. Absent means false: preview only, nothing merges.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirm: bool,
+}
+
+/// One commit that would land (or landed): its short sha and title.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LandCommit {
+    /// Abbreviated commit sha.
+    pub sha: String,
+    /// The commit's title line.
+    pub title: String,
+}
+
+/// Result of `change/land`: the preview, and — only with `confirm` — the
+/// merge that was performed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeLandResult {
+    /// The change whose workshop this is.
+    pub change: String,
+    /// The workshop branch.
+    pub branch: String,
+    /// The default branch it lands onto.
+    pub base_branch: String,
+    /// The commits that would land (preview) or landed, newest first.
+    pub commits: Vec<LandCommit>,
+    /// The files those commits touch, deduplicated.
+    pub files: Vec<String>,
+    /// Whether the merge was performed; false is the preview.
+    pub landed: bool,
+    /// The merge commit, present only when landed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge_sha: Option<String>,
 }
 
 /// Params of `spec/list`.

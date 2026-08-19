@@ -76,6 +76,55 @@ pub fn head_rev(cwd: &Path) -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
+/// Whether a local branch exists.
+#[must_use]
+pub fn branch_exists(cwd: &Path, branch: &str) -> bool {
+    run(
+        cwd,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .is_ok()
+}
+
+/// The repository's default branch — detected, never assumed (rama-por-change
+/// D4): the remote's declared HEAD first, then the conventional names, then
+/// the main worktree's own HEAD for local-only repositories whose initial
+/// branch is neither.
+#[must_use]
+pub fn default_branch(cwd: &Path) -> Option<String> {
+    if let Ok(head) = run(
+        cwd,
+        &["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"],
+    ) && let Some(name) = head.trim().strip_prefix("refs/remotes/origin/")
+        && !name.is_empty()
+    {
+        return Some(name.to_string());
+    }
+    for candidate in ["main", "master"] {
+        if branch_exists(cwd, candidate) {
+            return Some(candidate.to_string());
+        }
+    }
+    run(cwd, &["symbolic-ref", "--short", "HEAD"])
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// How many commits `branch` holds that `base` does not reach.
+#[must_use]
+pub fn ahead_count(cwd: &Path, base: &str, branch: &str) -> u64 {
+    run(cwd, &["rev-list", "--count", &format!("{base}..{branch}")])
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
 /// Whether the working tree at `cwd` has uncommitted changes.
 #[must_use]
 pub fn is_dirty(cwd: &Path) -> bool {

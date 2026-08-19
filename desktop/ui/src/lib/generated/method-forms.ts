@@ -898,6 +898,58 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
       }
     ]
   },
+  "change/workspace": {
+    "schema": "workspace.schema.json",
+    "def": "workspaceParams",
+    "fields": [
+      {
+        "name": "projectRoot",
+        "kind": "string",
+        "required": true
+      },
+      {
+        "name": "change",
+        "kind": "string",
+        "required": true
+      },
+      {
+        "name": "branch",
+        "kind": "string",
+        "required": false
+      },
+      {
+        "name": "unique",
+        "kind": "boolean",
+        "required": false
+      }
+    ]
+  },
+  "change/land": {
+    "schema": "workspace.schema.json",
+    "def": "landParams",
+    "fields": [
+      {
+        "name": "projectRoot",
+        "kind": "string",
+        "required": true
+      },
+      {
+        "name": "change",
+        "kind": "string",
+        "required": true
+      },
+      {
+        "name": "branch",
+        "kind": "string",
+        "required": false
+      },
+      {
+        "name": "confirm",
+        "kind": "boolean",
+        "required": false
+      }
+    ]
+  },
   "change/list": {
     "schema": "change.schema.json",
     "def": "listParams",

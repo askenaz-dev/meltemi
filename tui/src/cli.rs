@@ -99,6 +99,19 @@ SUBCOMMANDS:
                         them, never estimated (`--all` spans every project)
     changes             list changes (active and archived) with their state
     show <change>       show a change: its artifacts and per-capability deltas
+    workspace <change> [--branch <branch>|--unique]
+                        the change's workshop: its own branch (the bare change
+                        name) and a managed worktree from the default branch
+                        tip; asking again re-encounters, never fails.
+                        `--branch` mounts a chosen branch (naming it is
+                        consent), `--unique` mints a suffixed workshop that
+                        never collides — one or the other, not both
+    land <change> [--branch <branch>] [confirm]
+                        land the workshop branch on the default branch with a
+                        --no-ff merge; without the trailing `confirm` it
+                        previews the commits and files that would land. A
+                        conflicted merge is aborted — the default branch stays
+                        intact and the conflict is yours to resolve in git
     specs [capability]  list living-truth capabilities, or show one
     validate [change]   validate a change or the living truth (exit 14 on findings)
     implement <change> <agent> [plan]
@@ -277,6 +290,20 @@ pub enum Command {
     Changes,
     /// Show a change: artifacts and per-capability deltas (`change/show`).
     Show { change: String },
+    /// The change's workshop: its own branch and managed worktree
+    /// (`change/workspace`); "give me", not "create".
+    Workspace {
+        change: String,
+        branch: Option<String>,
+        unique: bool,
+    },
+    /// Land the workshop branch on the default branch (`change/land`);
+    /// `confirm` false previews commits and files without merging.
+    Land {
+        change: String,
+        branch: Option<String>,
+        confirm: bool,
+    },
     /// List living-truth capabilities (`spec/list`), or show one (`spec/show`).
     Specs { capability: Option<String> },
     /// Validate a change or the living truth without archiving (`sdd/validate`).
@@ -384,7 +411,7 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             // strict about unknown flags — and a rejected flag would have made
             // the advertised `usage --all` unusable.
             "--all" | "--project" | "--since" | "--until" | "--agent" | "--mode" | "--model"
-            | "--effort" => {
+            | "--effort" | "--branch" | "--unique" => {
                 positionals.push(arg.as_str());
             }
             flag if flag.starts_with('-') && flag != "-" => {
@@ -900,6 +927,8 @@ fn plan_subcommand(
             }),
             _ => Action::Usage("`show` requires a change name: meltemi show <change>".into()),
         },
+        "workspace" => parse_workspace(rest),
+        "land" => parse_land(rest),
         "specs" => match rest {
             [] => Action::Run(Command::Specs { capability: None }),
             [capability] => Action::Run(Command::Specs {
@@ -976,6 +1005,76 @@ fn plan_subcommand(
 /// `usage [<granularity>] [--project <root>|--all] [--since <ts>] [--until <ts>]`.
 /// Unknown flags are refused rather than ignored: a mistyped filter that
 /// silently widened the query would misreport consumption.
+/// `workspace <change> [--branch <branch>|--unique]` — the options are
+/// mutually exclusive, refused here with words like `--json --yaml` is.
+fn parse_workspace(rest: &[&str]) -> Action {
+    const GRAMMAR: &str = "meltemi workspace <change> [--branch <branch>|--unique]";
+    let mut change: Option<String> = None;
+    let mut branch: Option<String> = None;
+    let mut unique = false;
+    let mut args = rest.iter();
+    while let Some(arg) = args.next() {
+        match *arg {
+            "--branch" => match args.next() {
+                Some(name) => branch = Some((*name).to_string()),
+                None => return Action::Usage(format!("`--branch` needs a branch name: {GRAMMAR}")),
+            },
+            "--unique" => unique = true,
+            other if change.is_none() && !other.starts_with('-') => {
+                change = Some(other.to_string());
+            }
+            other => {
+                return Action::Usage(format!("`workspace` does not take `{other}`: {GRAMMAR}"));
+            }
+        }
+    }
+    let Some(change) = change else {
+        return Action::Usage(format!("`workspace` requires a change name: {GRAMMAR}"));
+    };
+    if branch.is_some() && unique {
+        return Action::Usage(
+            "`--branch` and `--unique` are mutually exclusive: naming an exact branch and              asking for a suffix that alters it means nothing"
+                .into(),
+        );
+    }
+    Action::Run(Command::Workspace {
+        change,
+        branch,
+        unique,
+    })
+}
+
+/// `land <change> [--branch <branch>] [confirm]` — the trailing literal
+/// `confirm` follows the house pattern of `commit` and `revert`.
+fn parse_land(rest: &[&str]) -> Action {
+    const GRAMMAR: &str = "meltemi land <change> [--branch <branch>] [confirm]";
+    let mut change: Option<String> = None;
+    let mut branch: Option<String> = None;
+    let mut confirm = false;
+    let mut args = rest.iter();
+    while let Some(arg) = args.next() {
+        match *arg {
+            "--branch" => match args.next() {
+                Some(name) => branch = Some((*name).to_string()),
+                None => return Action::Usage(format!("`--branch` needs a branch name: {GRAMMAR}")),
+            },
+            "confirm" => confirm = true,
+            other if change.is_none() && !other.starts_with('-') => {
+                change = Some(other.to_string());
+            }
+            other => return Action::Usage(format!("`land` does not take `{other}`: {GRAMMAR}")),
+        }
+    }
+    match change {
+        Some(change) => Action::Run(Command::Land {
+            change,
+            branch,
+            confirm,
+        }),
+        None => Action::Usage(format!("`land` requires a change name: {GRAMMAR}")),
+    }
+}
+
 fn parse_usage(rest: &[&str]) -> Action {
     const GRAINS: [&str; 4] = ["day", "week", "month", "total"];
     let mut granularity = None;
@@ -1200,6 +1299,90 @@ mod tests {
                 change: Some("flota-multiproveedor".into())
             })
         );
+    }
+
+    #[test]
+    fn workspace_parses_its_two_exclusive_options() {
+        assert_eq!(
+            plan_of(&["workspace", "rama-por-change"], false).action,
+            Action::Run(Command::Workspace {
+                change: "rama-por-change".into(),
+                branch: None,
+                unique: false,
+            })
+        );
+        assert_eq!(
+            plan_of(
+                &["workspace", "rama-por-change", "--branch", "hotfix-x"],
+                false
+            )
+            .action,
+            Action::Run(Command::Workspace {
+                change: "rama-por-change".into(),
+                branch: Some("hotfix-x".into()),
+                unique: false,
+            })
+        );
+        assert_eq!(
+            plan_of(&["workspace", "rama-por-change", "--unique"], false).action,
+            Action::Run(Command::Workspace {
+                change: "rama-por-change".into(),
+                branch: None,
+                unique: true,
+            })
+        );
+        // The contradiction is refused with words, like `--json --yaml`.
+        assert!(matches!(
+            plan_of(
+                &["workspace", "rama-por-change", "--branch", "x", "--unique"],
+                false
+            )
+            .action,
+            Action::Usage(_)
+        ));
+        assert!(matches!(
+            plan_of(&["workspace"], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn land_previews_without_the_trailing_confirm() {
+        assert_eq!(
+            plan_of(&["land", "rama-por-change"], false).action,
+            Action::Run(Command::Land {
+                change: "rama-por-change".into(),
+                branch: None,
+                confirm: false,
+            })
+        );
+        assert_eq!(
+            plan_of(&["land", "rama-por-change", "confirm"], false).action,
+            Action::Run(Command::Land {
+                change: "rama-por-change".into(),
+                branch: None,
+                confirm: true,
+            })
+        );
+        assert_eq!(
+            plan_of(
+                &[
+                    "land",
+                    "rama-por-change",
+                    "--branch",
+                    "rama-por-change-3f2a",
+                    "confirm"
+                ],
+                false
+            )
+            .action,
+            Action::Run(Command::Land {
+                change: "rama-por-change".into(),
+                branch: Some("rama-por-change-3f2a".into()),
+                confirm: true,
+            })
+        );
+        assert!(matches!(plan_of(&["land"], false).action, Action::Usage(_)));
     }
 
     #[test]

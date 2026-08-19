@@ -91,6 +91,19 @@ SUBCOMMANDS:
                         them, never estimated (`--all` spans every project)
     changes             list changes (active and archived) with their state
     show <change>       show a change: its artifacts and per-capability deltas
+    workspace <change> [--branch <branch>|--unique]
+                        the change's workshop: its own branch (the bare change
+                        name) and a managed worktree from the default branch
+                        tip; asking again re-encounters, never fails.
+                        `--branch` mounts a chosen branch (naming it is
+                        consent), `--unique` mints a suffixed workshop that
+                        never collides — one or the other, not both
+    land <change> [--branch <branch>] [confirm]
+                        land the workshop branch on the default branch with a
+                        --no-ff merge; without the trailing `confirm` it
+                        previews the commits and files that would land. A
+                        conflicted merge is aborted — the default branch stays
+                        intact and the conflict is yours to resolve in git
     specs [capability]  list living-truth capabilities, or show one
     validate [change]   validate a change or the living truth (exit 14 on findings)
     implement <change> <agent> [plan]
