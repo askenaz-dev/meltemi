@@ -761,3 +761,226 @@ async fn a_turn_the_agent_cancelled_by_itself_still_ends_the_session() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The full log, parsed, for the tests that need payloads and not just types.
+async fn log_events(peer: &Peer, root: &str, session_id: &str) -> Vec<Value> {
+    let log = peer
+        .request(
+            methods::SESSION_LOG,
+            &json!({ "projectRoot": root, "sessionId": session_id }),
+        )
+        .await
+        .expect("session/log");
+    log["lines"]
+        .as_array()
+        .expect("lines")
+        .iter()
+        .filter_map(|l| serde_json::from_str::<Value>(l.as_str().unwrap()).ok())
+        .collect()
+}
+
+// Scenario: Se cambia por la vía estándar cuando el agente la anuncia
+#[tokio::test]
+async fn an_announced_option_is_set_over_the_open_connection_without_relaunching() {
+    // The mock announces its options and honours ACP's own
+    // `session/set_config_option` — behind a flag, so every other e2e keeps
+    // reading the log it was written against. The turn is held open so the
+    // change happens while the session is genuinely live.
+    let root = fixture(
+        "live-config",
+        &["--turn-delay-ms", "3000", "--config-options"],
+    );
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("live-config").await;
+    let peer = init_client(&endpoint).await;
+
+    let propose = {
+        let peer = peer.clone();
+        let root = root_str.clone();
+        tokio::spawn(async move {
+            peer.request(
+                methods::PROPOSE,
+                &json!({ "idea": "add dark mode", "projectRoot": root }),
+            )
+            .await
+        })
+    };
+
+    let session_id = wait_for_live_session(&peer, &root_str).await;
+    // Wait for the turn to actually reach the agent, not merely for the session
+    // to exist: the announcement arrives with the handshake, and a session in
+    // `starting` has not had one yet. Reading earlier was a race this test lost
+    // on the first run.
+    wait_for_turn_in_flight(&peer, &root_str, &session_id).await;
+
+    // The announcement is in the log, which is the only place a surface reads
+    // it: the handshake's facts land where the session's history is read.
+    let announced = log_events(&peer, &root_str, &session_id)
+        .await
+        .into_iter()
+        .find(|e| e["type"] == "config_options_announced")
+        .expect("the agent's announcement is recorded");
+    let options = announced["payload"]["options"]
+        .as_array()
+        .expect("options")
+        .clone();
+    let model = options
+        .iter()
+        .find(|o| o["id"] == "model")
+        .expect("the mock announces a model selector");
+    assert_eq!(model["type"], "select", "{model:#}");
+    assert_eq!(model["currentValue"], "fast", "{model:#}");
+
+    // The change, over the connection that is already open.
+    let changed = peer
+        .request(
+            methods::SESSION_SET_CONFIG_OPTION,
+            &json!({ "sessionId": session_id, "optionId": "model", "value": "slow" }),
+        )
+        .await
+        .expect("session/set-config-option");
+    let now = changed["options"]
+        .as_array()
+        .expect("options")
+        .iter()
+        .find(|o| o["id"] == "model")
+        .expect("the model option is still announced")
+        .clone();
+    assert_eq!(
+        now["currentValue"], "slow",
+        "what the AGENT reports is the record: {changed:#}"
+    );
+
+    // The toggle takes the other branch of the same verb, so both ACP kinds
+    // are exercised without a provider.
+    let toggled = peer
+        .request(
+            methods::SESSION_SET_CONFIG_OPTION,
+            &json!({ "sessionId": session_id, "optionId": "thinking", "value": "true" }),
+        )
+        .await
+        .expect("session/set-config-option");
+    let thinking = toggled["options"]
+        .as_array()
+        .expect("options")
+        .iter()
+        .find(|o| o["id"] == "thinking")
+        .expect("the toggle is still announced")
+        .clone();
+    assert_eq!(thinking["currentValue"], true, "{toggled:#}");
+
+    // A value the agent never announced is refused rather than sent: Meltemi
+    // does not speak in the agent's name.
+    let refused = peer
+        .request(
+            methods::SESSION_SET_CONFIG_OPTION,
+            &json!({ "sessionId": session_id, "optionId": "model", "value": "invented" }),
+        )
+        .await
+        .expect_err("an unannounced value is refused");
+    assert_eq!(refused.code, 2007, "{refused}");
+
+    let result = tokio::time::timeout(Duration::from_secs(30), propose)
+        .await
+        .expect("propose returned")
+        .expect("join")
+        .expect("propose ok");
+    assert_eq!(result["status"], "completed", "{result:#}");
+
+    // NOTHING was relaunched: one session, started once, and the same id
+    // throughout. A change that relaunched would show as a second start.
+    let types = log_event_types(&peer, &root_str, &session_id).await;
+    assert_eq!(
+        types.iter().filter(|t| *t == "session_started").count(),
+        1,
+        "the session was never relaunched: {types:?}"
+    );
+    let list = peer
+        .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .expect("session/list");
+    assert_eq!(
+        list["sessions"].as_array().expect("sessions").len(),
+        1,
+        "and no second session was created: {list:#}"
+    );
+    // Each accepted change is recorded where the session's history is read —
+    // the handshake's announcement plus one per change.
+    assert_eq!(
+        types
+            .iter()
+            .filter(|t| *t == "config_options_announced")
+            .count(),
+        3,
+        "the announcement and both changes are in the log: {types:?}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Sin opción anunciada no se ofrece el cambio en vivo
+#[tokio::test]
+async fn an_agent_that_announced_nothing_gets_no_live_change_offered_for_it() {
+    // The same mock WITHOUT the flag: it announces nothing, which is the
+    // ordinary case and the one every real adapter is in today.
+    let root = fixture("no-config", &["--turn-delay-ms", "3000"]);
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("no-config").await;
+    let peer = init_client(&endpoint).await;
+
+    let propose = {
+        let peer = peer.clone();
+        let root = root_str.clone();
+        tokio::spawn(async move {
+            peer.request(
+                methods::PROPOSE,
+                &json!({ "idea": "add dark mode", "projectRoot": root }),
+            )
+            .await
+        })
+    };
+
+    let session_id = wait_for_live_session(&peer, &root_str).await;
+    // Same wait as its twin, and for the same reason: before the handshake the
+    // refusal is a different one — there is no open connection yet — and that
+    // is not the refusal this scenario is about.
+    wait_for_turn_in_flight(&peer, &root_str, &session_id).await;
+
+    // No announcement in the log. This absence IS the answer a surface reads:
+    // the control exists only where the event does, so an agent that announced
+    // nothing gets no selector invented in its name.
+    let types = log_event_types(&peer, &root_str, &session_id).await;
+    assert!(
+        !types.iter().any(|t| t == "config_options_announced"),
+        "nothing was announced, so nothing is recorded: {types:?}"
+    );
+
+    // And the daemon refuses rather than attempting it: a surface that offered
+    // it anyway would still not get a value sent in the agent's name.
+    let refused = peer
+        .request(
+            methods::SESSION_SET_CONFIG_OPTION,
+            &json!({ "sessionId": session_id, "optionId": "model", "value": "slow" }),
+        )
+        .await
+        .expect_err("an agent that announced nothing has nothing to set");
+    assert_eq!(refused.code, 2007, "{refused}");
+    let said = format!("{refused}");
+    assert!(
+        said.contains("announced no configuration options"),
+        "the refusal says WHY, so a surface can tell it from a wrong id: {said}"
+    );
+
+    let result = tokio::time::timeout(Duration::from_secs(30), propose)
+        .await
+        .expect("propose returned")
+        .expect("join")
+        .expect("propose ok");
+    assert_eq!(result["status"], "completed", "{result:#}");
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}

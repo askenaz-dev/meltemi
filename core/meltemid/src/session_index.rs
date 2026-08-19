@@ -57,6 +57,13 @@ pub struct SessionRecord {
     /// modes existed declared none (modos-de-autonomia).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<meltemi_proto::AutonomyMode>,
+    /// The model that effectively governed, recoverable from the log's own
+    /// resolution event like the agent and the title are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The effort that effectively governed, on the same terms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     /// HOW the agent resolved (profile, catalog id, configured). Recorded by
     /// the writers that resolved through the fleet; absent elsewhere, because
     /// it cannot be derived from the other two — a catalog id and a configured
@@ -216,6 +223,8 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
     let mut source = None;
     let mut title = None;
     let mut mode = None;
+    let mut model = None;
+    let mut effort = None;
 
     for line in contents.lines().filter(|l| !l.trim().is_empty()) {
         let Ok(event) = serde_json::from_str::<SessionEvent>(line) else {
@@ -249,11 +258,17 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
                 agent_id: id,
                 profile: prof,
                 source: src,
+                model: ran_model,
+                effort: ran_effort,
                 ..
             } => {
                 agent_id = id;
                 profile = prof;
                 source = Some(src);
+                // Recoverable from the log alone, like the agent itself: a
+                // rebuilt record can still say with which model a session ran.
+                model = ran_model;
+                effort = ran_effort;
             }
             SessionEventKind::TurnCompleted { stop_reason } => final_status = Some(stop_reason),
             SessionEventKind::SessionEnded { .. } => ended_at = Some(event.ts.clone()),
@@ -289,6 +304,8 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
         profile,
         source,
         mode,
+        model,
+        effort,
     })
 }
 
@@ -318,6 +335,8 @@ mod tests {
     fn started(id: &str, ts: &str) -> SessionRecord {
         SessionRecord {
             mode: None,
+            model: None,
+            effort: None,
             session_id: id.into(),
             agent_command: vec!["mock-agent".into()],
             project_root: "/repo".into(),
@@ -374,6 +393,8 @@ mod tests {
             "k",
             &SessionRecord {
                 mode: None,
+                model: None,
+                effort: None,
                 ended_at: Some("2026-07-11T10:05:00Z".into()),
                 final_status: Some(TurnStatus::Completed),
                 agent_session_id: Some("agent-s1".into()),
@@ -574,6 +595,8 @@ mod tests {
             "k",
             &SessionRecord {
                 mode: None,
+                model: None,
+                effort: None,
                 agent_id: Some("claude-code".into()),
                 profile: Some("work".into()),
                 ..started("s5", "2026-07-11T10:00:00Z")
@@ -586,6 +609,8 @@ mod tests {
             "k",
             &SessionRecord {
                 mode: None,
+                model: None,
+                effort: None,
                 ended_at: Some("2026-07-11T10:05:00Z".into()),
                 final_status: Some(TurnStatus::Completed),
                 ..started("s5", "2026-07-11T10:00:00Z")

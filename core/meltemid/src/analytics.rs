@@ -267,7 +267,13 @@ fn facts_of_log(path: &Path) -> SessionFacts {
             SessionEventKind::TaskCommitted { .. } => facts.commits += 1,
             SessionEventKind::CheckpointCreated { .. } => facts.checkpoints += 1,
             SessionEventKind::Error { .. } => facts.errors += 1,
-            SessionEventKind::AgentResolved { binary, level, .. } => {
+            SessionEventKind::AgentResolved {
+                model: None,
+                effort: None,
+                binary,
+                level,
+                ..
+            } => {
                 facts.binary = Some(binary_label(&binary));
                 facts.level = Some(level);
             }
@@ -636,6 +642,8 @@ mod tests {
     ) -> SessionRecord {
         SessionRecord {
             mode: None,
+            model: None,
+            effort: None,
             session_id: id.into(),
             agent_command: vec!["claude.exe".into()],
             project_root: "/repo".into(),

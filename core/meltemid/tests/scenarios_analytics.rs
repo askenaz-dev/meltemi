@@ -34,6 +34,8 @@ fn a_range_with_monthly_grain_yields_one_cell_per_period_and_matching_totals() {
 
     let record = |id: &str, started: &str, ended: &str| SessionRecord {
         mode: None,
+        model: None,
+        effort: None,
         session_id: id.into(),
         agent_command: vec!["mock-agent".into()],
         project_root: "/repo".into(),

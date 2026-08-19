@@ -3,10 +3,131 @@
   "$id": "https://meltemi.dev/proto/v1/session-event.schema.json",
   "title": "session event (JSONL record & session/event notification)",
   "description": "Versioned session event envelope. The same shape is (a) appended as one JSON line per event to the session's append-only JSONL log in the user data directory, and (b) streamed to the connected client as params of the `session/event` notification (wrapped with the session id).",
+  "$comment": "`configValue` and `configOption` below are a verbatim copy of `session-config.schema.json#/$defs`. Copied rather than referenced because a cross-file $ref does not resolve when a $defs section is grafted onto a synthetic root, which is how every schema here is compiled for validation. `the_two_copies_of_the_config_option_shape_agree` in the conformance suite compares them and fails on the first divergence — the same answer this codebase gives everywhere it cannot remove a duplication: let a test hold the two ends together.",
   "$defs": {
     "turnStatus": {
       "type": "string",
       "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"]
+    },
+    "configValue": {
+      "type": "object",
+      "description": "One selectable value of a `select` option, as the agent announced it.",
+      "required": [
+        "id",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The value's identifier — what is sent back to choose it."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable label the agent gave it."
+        },
+        "description": {
+          "type": "string",
+          "description": "The agent's own description, when it sent one."
+        }
+      }
+    },
+    "configOption": {
+      "type": "object",
+      "description": "One session configuration option, relayed verbatim from the agent. Meltemi adds no entry of its own: an embedded catalog of models would be the core assuming a provider and would rot silently with every model released.",
+      "required": [
+        "id",
+        "name",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The option's identifier — what is sent back to set it."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable label the agent gave it."
+        },
+        "description": {
+          "type": "string",
+          "description": "The agent's own description, when it sent one."
+        },
+        "category": {
+          "type": "string",
+          "description": "The ACP category verbatim (`model`, `mode`, `modelConfig`, `thoughtLevel`, or anything else the agent sent). A free string and not an enum because ACP leaves the space open and requires clients to handle categories they do not know; a closed enum would turn the next category the spec adds into a parse failure."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "select",
+            "boolean"
+          ],
+          "description": "The option's shape, mirroring ACP's own two kinds. It is what decides how a chosen value is read."
+        },
+        "currentValue": {
+          "description": "The value in force right now: a value id for `select`, a boolean for `boolean`.",
+          "type": [
+            "string",
+            "boolean"
+          ]
+        },
+        "values": {
+          "type": "array",
+          "description": "Everything the agent said can be chosen. Present for `select` only.",
+          "items": {
+            "$ref": "#/$defs/configValue"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "select"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "currentValue",
+              "values"
+            ],
+            "properties": {
+              "currentValue": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "boolean"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "currentValue"
+            ],
+            "properties": {
+              "currentValue": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      ]
     },
     "sessionEvent": {
       "type": "object",
@@ -172,6 +293,24 @@
               "required": ["reason"],
               "properties": {
                 "reason": { "type": "string" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "config_options_announced" },
+            "payload": {
+              "type": "object",
+              "required": ["options"],
+              "properties": {
+                "options": {
+                  "type": "array",
+                  "description": "The session configuration options the agent announced, verbatim. Emitted at the handshake and again as the agent reports them after one is set. The live-change control exists only where this event does: an agent that announced nothing leaves no event, and that absence is the whole answer.",
+                  "items": {
+                    "$ref": "#/$defs/configOption"
+                  }
+                }
               }
             }
           }

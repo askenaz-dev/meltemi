@@ -128,16 +128,25 @@ pub struct InitializeResult {
 
 /// `thread/start` parameters.
 ///
-/// Only the working directory is sent. Model, sandbox and approval policy are
-/// deliberately left to the CLI's own configuration: choosing them here would
-/// make Meltemi assume a provider's semantics, which §5 forbids the core to do
-/// and which the adapter has no better information to do either.
+/// The working directory, and the model when the SESSION named one. Sandbox and
+/// approval policy stay with the CLI's own configuration: choosing those here
+/// would make Meltemi assume a provider's semantics, which §5 forbids the core
+/// to do and which the adapter has no better information to do either.
+///
+/// The model is different in exactly one way, and it is why it belongs here:
+/// the user chose it. Carrying a choice is not assuming one
+/// (modelo-y-esfuerzo-por-sesion design D1). It rides on the THREAD because
+/// this provider's schema puts it there — `effort` is not accepted here at all,
+/// only per turn, and the adapter respects that split rather than flattening it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadStartParams {
     /// The session's working directory: the project root or one of its
     /// worktrees.
     pub cwd: String,
+    /// The provider's own model name, verbatim, when the session named one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// A thread, of which the adapter reads only its identity.
@@ -175,6 +184,13 @@ pub struct TurnStartParams {
     pub thread_id: String,
     /// The user's message.
     pub input: Vec<UserInput>,
+    /// How much reasoning to spend on THIS turn, when the session named a
+    /// level. It rides here and not on the thread because the provider's own
+    /// schema defines it only here — the model belongs to the thread, the
+    /// effort to the turn, and flattening the two would be the adapter
+    /// deciding something the provider already decided.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// How a turn ended, in the server's own terms.

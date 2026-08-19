@@ -113,6 +113,16 @@ pub async fn handle_session_start(
         }
     };
 
+    // The levers are resolved BEFORE anything is created: refusing after a
+    // session exists would leave a session nobody asked for, and the refusal is
+    // the whole point — a lever silently dropped is worse than no lever.
+    let resolved = resolved.with_session_levers(params.model.as_deref(), params.effort.as_deref());
+    crate::levels::refuse_unsupported_levers(
+        &agent_command,
+        resolved.model.as_deref(),
+        resolved.effort.as_deref(),
+    )?;
+
     // Open the session and its log.
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
@@ -147,6 +157,8 @@ pub async fn handle_session_start(
     // must recover the agent and its subscription, so the free session records
     // its resolution like a dispatch does.
     let _ = log.append(SessionEventKind::AgentResolved {
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -188,6 +200,8 @@ pub async fn handle_session_start(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             mode: params.mode,
+            model: resolved.model.clone(),
+            effort: resolved.effort.clone(),
             source: Some(resolved.source),
             title: title.clone(),
         },
@@ -510,6 +524,8 @@ mod tests {
     #[test]
     fn the_agent_slot_names_the_binary_when_no_catalog_id_did() {
         let resolved = ResolvedAgent {
+            model: None,
+            effort: None,
             launch: crate::levels::Launch::Acp {
                 argv: vec!["/opt/bin/mock-agent".into()],
                 level: 1,

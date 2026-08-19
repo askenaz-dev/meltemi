@@ -105,6 +105,8 @@ pub async fn finalize_ok(ctx: &SessionContext<'_>, outcome: SessionOutcome) -> F
             agent_id: ctx.agent_id.clone(),
             profile: ctx.profile.clone(),
             mode: ctx.mode,
+            model: None,
+            effort: None,
             source: ctx.source,
             // The fold keeps the title the opening record set (design D4).
             title: None,
@@ -155,6 +157,8 @@ pub async fn finalize_err(ctx: &SessionContext<'_>, kind: &str, detail: String) 
             agent_id: ctx.agent_id.clone(),
             profile: ctx.profile.clone(),
             mode: ctx.mode,
+            model: None,
+            effort: None,
             source: ctx.source,
             // The fold keeps the title the opening record set (design D4).
             title: None,

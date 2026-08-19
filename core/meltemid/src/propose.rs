@@ -141,6 +141,8 @@ pub async fn handle_propose(
     // proposal and every authoring turn was mute about who wrote it
     // (lanzador-conversacional 4.2).
     let _ = log.append(SessionEventKind::AgentResolved {
+        model: None,
+        effort: None,
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -182,6 +184,8 @@ pub async fn handle_propose(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             mode: None,
+            model: None,
+            effort: None,
             source: Some(resolved.source),
             title: title.clone(),
         },

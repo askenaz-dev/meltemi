@@ -322,6 +322,13 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "direct an instruction to the selected session",
     },
     Entry {
+        name: "set-option",
+        reserved: true,
+        methods: &[m::SESSION_SET_CONFIG_OPTION],
+        desc_es: "fijar una opción que el agente anunció, sin relanzar la sesión",
+        desc_en: "set an option the agent announced, without relaunching the session",
+    },
+    Entry {
         name: "map",
         reserved: true,
         methods: &[m::REPO_MAP],

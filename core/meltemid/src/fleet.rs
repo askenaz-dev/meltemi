@@ -915,6 +915,11 @@ pub fn list(
                 legal_status: legal_status_of(entry),
                 legal_note: entry.legal_note.clone(),
                 auth_context_var: entry.auth_context_var.clone(),
+                // A catalog entry declares no model: only a launch profile
+                // does, because a model belongs to how the user runs an agent
+                // and not to the agent itself.
+                model: None,
+                effort: None,
             }
         })
         .collect();
@@ -951,6 +956,10 @@ pub fn list(
             // A profile row is not itself linkable: it IS a link (or a manual
             // twin of one), so it never advertises the variable.
             auth_context_var: None,
+            // What the user already declared, so a surface can offer it back
+            // instead of asking them to remember it.
+            model: profile.model.clone(),
+            effort: profile.effort.clone(),
         });
     }
 
@@ -1673,6 +1682,8 @@ login-hint = \"other login\"
         let config = Config {
             fleet_registry: Some(registry),
             fleet_profiles: vec![FleetProfile {
+                model: None,
+                effort: None,
                 name: "work".into(),
                 agent: "reg".into(),
                 env: vec![("MELTEMI_MOCK_MARKER".into(), "work-ctx".into())],

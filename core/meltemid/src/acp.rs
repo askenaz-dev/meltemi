@@ -241,13 +241,22 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
 
             // Open the session: resume by loading the prior agent session when
             // asked (and possible), otherwise create a new one.
-            let acp_session_id = match &load_session_id {
+            // What the agent announces about itself when the session opens. A
+            // loaded session announces its own set; a new one announces with
+            // the response to `session/new`. Either way the list is the
+            // AGENT's, and an agent that announces nothing leaves this empty —
+            // which is the answer that stops any surface from offering a live
+            // change (modelo-y-esfuerzo design D2).
+            let (acp_session_id, announced_options) = match &load_session_id {
                 Some(prev) if supports_load => {
-                    connection
+                    let loaded = connection
                         .send_request(LoadSessionRequest::new(prev.clone(), project_root.clone()))
                         .block_task()
                         .await?;
-                    SessionId::new(prev.clone())
+                    let announced = crate::session_config::from_acp(
+                        loaded.config_options.as_deref().unwrap_or_default(),
+                    );
+                    (SessionId::new(prev.clone()), announced)
                 }
                 _ => {
                     // Inject declared MCP servers only when the agent announced
@@ -269,14 +278,35 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                             });
                         }
                     }
-                    connection
-                        .send_request(request)
-                        .block_task()
-                        .await?
-                        .session_id
+                    let opened = connection.send_request(request).block_task().await?;
+                    let announced = crate::session_config::from_acp(
+                        opened.config_options.as_deref().unwrap_or_default(),
+                    );
+                    (opened.session_id, announced)
                 }
             };
             let agent_session_id = session_id_string(&acp_session_id);
+
+            // The connection is kept so a configuration change can travel over
+            // it without relaunching the agent, and the announcement is
+            // recorded even when empty: "connected and announced nothing" and
+            // "not connected yet" are different refusals and must not read the
+            // same.
+            sessions
+                .set_live_config(
+                    &meltemi_session_id,
+                    acp_session_id.0.to_string(),
+                    connection.clone(),
+                    announced_options.clone(),
+                    log.clone(),
+                )
+                .await;
+            if !announced_options.is_empty() {
+                let mut log = log.lock().await;
+                let _ = log.append(SessionEventKind::ConfigOptionsAnnounced {
+                    options: announced_options,
+                });
+            }
 
             // Turns while the queue has work. The first turn runs the initial
             // prompt; each subsequent turn runs the next directed instruction on

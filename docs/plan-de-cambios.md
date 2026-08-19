@@ -198,7 +198,7 @@ eventos externos no gasta turno. Toda desviación se anota aquí.
 | 10º | `sesion-que-espera` | **implementada** (verify 19/19) | El chat que no muere: el borde del turno espera en vez de cerrar — **mismo código que el 9º**, adyacentes para no reabrirlo dos veces; la evidencia que `eventos-para-tardios` dejó pedida |
 | 11º | `preguntas-del-agente` | proposal | La corona del bucle conversacional: AskUserQuestion contestada donde se escribe; depende del 9º y aprovecha el 8º |
 | 12º | `modos-de-autonomia` | proposal | Manual/Semi/Autónomo como posturas por sesión sobre el proxy existente; Bypass rechazado por §3 de entrada |
-| 13º | `modelo-y-esfuerzo-por-sesion` | proposal | La palanca de cuotas: modelo y esfuerzo opacos por sesión y por perfil; las palancas del lado Codex ya existen, apagadas a propósito |
+| 13º | `modelo-y-esfuerzo-por-sesion` | **implementada** (verify 14/14) | La palanca de cuotas: modelo y esfuerzo opacos por sesión y por perfil. Hallazgo de cierre: **los adaptadores propios no anuncian opciones de sesión** porque ningún proveedor pineado enumera modelos, así que la vía en vivo queda cableada, probada con el mock y disponible para cualquier agente ACP que sí anuncie (design D9) |
 | 14º | `harness-global-y-por-agente` | proposal | La apuesta estratégica: fase 1 (Rules + vista efectiva) con design por delante; spec-full |
 | 15º | `motor-propio-byok` | proposal | La mayor de fase 2; entra tras el harness (la directiva más reciente manda) y con su rename terminológico ya hecho |
 | ⏳ | `procedencia-de-release` | tasks 6/8, verify 6/6 | Sus 2 tareas dependen de eventos externos — una corrida real disparada por tag (próxima release) y **la clave pública que entrega el mantenedor** — se cierra cuando ocurran, sin gastar turno |

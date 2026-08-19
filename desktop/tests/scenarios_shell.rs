@@ -4568,3 +4568,88 @@ fn the_mode_is_chosen_at_launch_and_visible_in_the_session() {
         );
     }
 }
+
+// Scenario: Se elige con búsqueda y se admite entrada libre
+// Scenario: La ficha no inventa lo que no sabe
+// Scenario: Cambiar en marcha se advierte
+#[test]
+fn the_model_is_searched_offered_and_never_priced() {
+    let home = strip_comments(&read("desktop/ui/src/lib/views/Home.svelte"));
+
+    // Searched, and free text admitted — the string is opaque to this surface
+    // too, so it offers what it knows and accepts what it does not.
+    assert!(
+        home.contains("bind:value={modelQuery}") && home.contains("offeredModels"),
+        "the picker searches: {home}"
+    );
+    assert!(
+        home.contains(r#"$t("model.free""#) && home.contains("model = modelQuery.trim()"),
+        "and a name it has never seen can still be chosen"
+    );
+    // Choosing nothing is offered first and by name.
+    assert!(
+        home.contains(r#"$t("model.default")"#) && home.contains("model = null"),
+        "letting the agent's own configuration decide is an option with a name"
+    );
+
+    // What it knows is three things and no fourth: declared in a profile, seen
+    // running here, and nothing else.
+    assert!(
+        home.contains("model.declared") && home.contains("model.known"),
+        "the card names where each candidate came from"
+    );
+
+    // No prices, no credits. Meltemi has neither, and a price table would age
+    // in silence — the worst kind of data, the kind that looks like authority.
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    assert!(
+        home.contains("model.noPrices"),
+        "the picker says why there are no prices, instead of leaving a gap"
+    );
+    // The key that SAYS there are no prices is not pricing data, so it is taken
+    // out of the haystack before the scan — otherwise this guard trips on its
+    // own explanation, which it did the first time it ran.
+    let without_the_disclaimer = home.replace("model.noPrices", "");
+    for forbidden in [
+        "price",
+        "usd",
+        "$/",
+        "credit",
+        "per 1m",
+        "per million",
+        "cost per",
+    ] {
+        assert!(
+            !without_the_disclaimer.to_lowercase().contains(forbidden),
+            "the picker must not carry pricing: found `{forbidden}`"
+        );
+    }
+
+    // Changing it while a turn runs warns about what it actually costs.
+    let detail = strip_comments(&read("desktop/ui/src/lib/views/SessionDetail.svelte"));
+    assert!(
+        detail.contains("model.live.warn") && detail.contains("{#if working}"),
+        "a live change is warned about, and only while something is running"
+    );
+    assert!(
+        detail.contains("session.model"),
+        "and the session shows the model that governed it"
+    );
+
+    for key in [
+        "model.label",
+        "model.default",
+        "model.search",
+        "model.free",
+        "model.known",
+        "model.declared",
+        "model.noPrices",
+        "model.live.warn",
+    ] {
+        assert_eq!(
+            messages.matches(&format!("\"{key}\":")).count(),
+            2,
+            "`{key}` is written in both languages"
+        );
+    }
+}

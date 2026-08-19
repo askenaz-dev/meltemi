@@ -1215,3 +1215,97 @@ async fn the_log_says_which_mode_governed_the_session_and_each_decision() {
     daemon.abort();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// Scenario: El modelo pedido viaja sin interpretarse
+// Scenario: Lo que rigió queda en el registro
+#[tokio::test]
+async fn a_declared_model_travels_untouched_and_is_recorded_as_what_ran() {
+    // The mock ignores the levers entirely — they are opaque to it too — which
+    // is the point: what is asserted here is the CORE's behaviour, with no
+    // provider involved (§5).
+    let root = fixture("levers", Some("[[rule]]\neffect = \"allow\"\n"));
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("levers").await;
+    let (peer, _incoming) = init_client(&endpoint).await;
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(30),
+        peer.request(
+            methods::SESSION_START,
+            &json!({
+                "projectRoot": root_str,
+                "instruction": "look",
+                // A string no catalogue of ours knows, on purpose: the core
+                // carries it and does not judge it.
+                "model": "some-provider-model-9000",
+            }),
+        ),
+    )
+    .await
+    .expect("the turn ran")
+    .expect("session/start ok");
+
+    let log = peer
+        .request(
+            methods::SESSION_LOG,
+            &json!({ "sessionId": result["sessionId"], "projectRoot": root_str }),
+        )
+        .await
+        .expect("session/log");
+    let resolved = log["lines"]
+        .as_array()
+        .expect("lines")
+        .iter()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line.as_str()?).ok())
+        .find(|e| e["type"] == "agent_resolved")
+        .expect("the resolution is recorded");
+    assert_eq!(
+        resolved["payload"]["model"], "some-provider-model-9000",
+        "what governed is written where it is consulted: {resolved:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Una palanca que el agente no admite se rehúsa
+#[tokio::test]
+async fn asking_an_agent_for_a_lever_it_has_no_place_for_refuses_by_name() {
+    // The mock takes a model and NOT an effort — the shape of a real provider
+    // that documents one lever and not the other. Asking for the one it has no
+    // place for is refused rather than dropped: a lever that silently does
+    // nothing is worse than no lever.
+    let root = fixture("lever-refused", Some("[[rule]]\neffect = \"allow\"\n"));
+    let root_str = root.display().to_string();
+    let (endpoint, daemon) = spawn_daemon("lever-refused").await;
+    let (peer, _incoming) = init_client(&endpoint).await;
+
+    let refused = peer
+        .request(
+            methods::SESSION_START,
+            &json!({ "projectRoot": root_str, "instruction": "look", "effort": "high" }),
+        )
+        .await
+        .expect_err("an agent with no place for effort refuses it");
+    assert_eq!(refused.code, 2006, "{refused}");
+    let said = format!("{refused}");
+    assert!(said.contains("effort"), "it names the lever: {said}");
+
+    // And the refusal happened BEFORE anything was created: no session was left
+    // behind by a request that was never going to work.
+    let list = peer
+        .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .expect("session/list ok");
+    assert!(
+        list["sessions"]
+            .as_array()
+            .is_some_and(|all| all.is_empty()),
+        "nothing was created for a refused request: {list:#}"
+    );
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
+}

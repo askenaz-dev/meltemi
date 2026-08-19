@@ -170,6 +170,9 @@ impl ProviderSession for CodexSession {
             input: vec![wire::UserInput::Text {
                 text: mapping::prompt_text(&prompt),
             }],
+            // Per turn, because that is the only place this provider's schema
+            // defines it.
+            effort: crate::session_effort(),
         };
         match drive_turn(
             &self.peer,
@@ -716,6 +719,9 @@ async fn open_thread<W: AsyncWrite + Unpin + Send>(
 ) -> Result<String, Refusal> {
     let params = wire::ThreadStartParams {
         cwd: request.cwd.display().to_string(),
+        // The user's choice, carried verbatim to where this provider's schema
+        // accepts it: the thread.
+        model: crate::session_model(),
     };
     let answer = peer
         .request(wire::THREAD_START, &params)
@@ -903,6 +909,45 @@ fn handshake_failed(detail: &str) -> Refusal {
 mod tests {
     use super::*;
 
+    // Scenario: El adaptador manda la palanca donde su proveedor la acepta
+    #[test]
+    fn each_lever_rides_where_this_providers_schema_puts_it() {
+        // Verified against the vendored schema rather than remembered: `model`
+        // is a thread field and `effort` is a turn field, and the adapter keeps
+        // that split instead of flattening the two into one place.
+        let started = serde_json::to_value(wire::ThreadStartParams {
+            cwd: "/repo".into(),
+            model: Some("some-provider-model".into()),
+        })
+        .expect("thread start serializes");
+        assert_eq!(started["model"], "some-provider-model");
+        assert!(
+            started.get("effort").is_none(),
+            "effort is not a thread field in this provider's schema: {started}"
+        );
+
+        let turn = serde_json::to_value(wire::TurnStartParams {
+            thread_id: "t-1".into(),
+            input: vec![wire::UserInput::Text { text: "go".into() }],
+            effort: Some("high".into()),
+        })
+        .expect("turn start serializes");
+        assert_eq!(turn["effort"], "high");
+        assert!(
+            turn.get("model").is_none(),
+            "and model is not a turn field: {turn}"
+        );
+
+        // Nothing chosen means nothing sent: the CLI's own configuration
+        // decides, exactly as before these fields existed.
+        let bare = serde_json::to_value(wire::ThreadStartParams {
+            cwd: "/repo".into(),
+            model: None,
+        })
+        .expect("serializes");
+        assert!(bare.get("model").is_none(), "{bare}");
+    }
+
     /// A provider process that answers from a script, so a whole handshake runs
     /// in memory: no binary, no pipes, same behaviour on the three platforms.
     struct FakeProcess;
@@ -1059,6 +1104,7 @@ mod tests {
 
     fn turn_params() -> wire::TurnStartParams {
         wire::TurnStartParams {
+            effort: None,
             thread_id: "thread-1".into(),
             input: vec![wire::UserInput::Text {
                 text: "do it".into(),

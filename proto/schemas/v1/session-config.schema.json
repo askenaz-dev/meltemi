@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/session-config.schema.json",
+  "title": "session/set-config-option",
+  "description": "Request `session/set-config-option` (client -> daemon): set one of the session configuration options the AGENT announced when the session opened, over the live ACP connection (`session/set_config_option`), without relaunching the session. The options themselves are never listed by a verb: the agent announces them at the handshake and the daemon records them as a `config_options_announced` event on the session log, the same place the handshake's other facts land. A surface therefore offers the live change exactly where that event exists — an agent that announced nothing gets no selector invented in its name. Refused with CONFIG_OPTION_NOT_ANNOUNCED (2007) for an unknown option id, a value the option does not list, or a session whose agent announced nothing.",
+  "$defs": {
+    "configValue": {
+      "type": "object",
+      "description": "One selectable value of a `select` option, as the agent announced it.",
+      "required": [
+        "id",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The value's identifier — what is sent back to choose it."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable label the agent gave it."
+        },
+        "description": {
+          "type": "string",
+          "description": "The agent's own description, when it sent one."
+        }
+      }
+    },
+    "configOption": {
+      "type": "object",
+      "description": "One session configuration option, relayed verbatim from the agent. Meltemi adds no entry of its own: an embedded catalog of models would be the core assuming a provider and would rot silently with every model released.",
+      "required": [
+        "id",
+        "name",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The option's identifier — what is sent back to set it."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable label the agent gave it."
+        },
+        "description": {
+          "type": "string",
+          "description": "The agent's own description, when it sent one."
+        },
+        "category": {
+          "type": "string",
+          "description": "The ACP category verbatim (`model`, `mode`, `modelConfig`, `thoughtLevel`, or anything else the agent sent). A free string and not an enum because ACP leaves the space open and requires clients to handle categories they do not know; a closed enum would turn the next category the spec adds into a parse failure."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "select",
+            "boolean"
+          ],
+          "description": "The option's shape, mirroring ACP's own two kinds. It is what decides how a chosen value is read."
+        },
+        "currentValue": {
+          "description": "The value in force right now: a value id for `select`, a boolean for `boolean`.",
+          "type": [
+            "string",
+            "boolean"
+          ]
+        },
+        "values": {
+          "type": "array",
+          "description": "Everything the agent said can be chosen. Present for `select` only.",
+          "items": {
+            "$ref": "#/$defs/configValue"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "select"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "currentValue",
+              "values"
+            ],
+            "properties": {
+              "currentValue": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "boolean"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "currentValue"
+            ],
+            "properties": {
+              "currentValue": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "params": {
+      "type": "object",
+      "required": [
+        "sessionId",
+        "optionId",
+        "value"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The live session whose option to set."
+        },
+        "optionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The option's id, as the agent announced it."
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The chosen value: for a select, the id of one of the announced values; for a boolean, `true` or `false`. One string, and which of the two it means is decided by the kind the AGENT announced for this option — never by the caller and never by a guess. The daemon checks the value against that declaration and refuses what it does not match, so a select that happens to list a value called `true` is still resolved as a select."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "options"
+      ],
+      "properties": {
+        "options": {
+          "type": "array",
+          "description": "The options as the AGENT reports them after the change — its answer, not our projection of what we asked for. An agent that clamps, renames or reorders is reported as it actually is.",
+          "items": {
+            "$ref": "#/$defs/configOption"
+          }
+        }
+      }
+    }
+  }
+}

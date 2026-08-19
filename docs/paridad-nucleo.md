@@ -28,6 +28,7 @@ future change — never a silent omission.
 | `session/watch` | — | `sessions` (drill-in) | registry + session drill-in (live stream) |
 | `session/cancel` | — | `cancel` (`x`) | registry + session drill-in |
 | `session/direct` | `direct` | `direct` (drill-in, entrada de instrucción) | registry |
+| `session/set-config-option` | `set-option` | `set-option` (reservado) | registry + selector en la ficha de sesión |
 | `session/start` | `session` | `session` | registry |
 | `repo/map` | — | `map` | registry |
 | `sdd/constitution` | `constitution` | `constitution` | registry |

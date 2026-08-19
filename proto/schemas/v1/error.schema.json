@@ -71,7 +71,7 @@
     },
     "errorCode": {
       "type": "integer",
-      "enum": [1000, 1001, 1002, 2000, 2001, 2002, 2003, 2004, 3000, 3001, 3002, 4000, 4001, 4002, 4003, 4004, 4005, 4006, 5000],
+      "enum": [1000, 1001, 1002, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 3000, 3001, 3002, 4000, 4001, 4002, 4003, 4004, 4005, 4006, 5000],
       "x-catalog": {
         "1000": {
           "kind": "protocol_version_unsupported",
@@ -104,6 +104,18 @@
         "2004": {
           "kind": "session_not_found",
           "description": "The given sessionId does not correspond to an active session."
+        },
+        "2005": {
+          "kind": "subscription_refused",
+          "description": "A subscription link or unlink was refused: the catalog entry declares no auth-context variable, the name is invalid or already linked, or the profile lives in hand-written configuration. The detail says which and the remedy says what to do instead."
+        },
+        "2006": {
+          "kind": "lever_not_supported",
+          "description": "A per-session lever the resolved agent does not accept — a model or an effort level its provider has no documented place for. Refused rather than ignored: a quota lever that silently does nothing is worse than no lever, because the user believes they lowered their spend. The detail names the agent and the lever."
+        },
+        "2007": {
+          "kind": "config_option_not_announced",
+          "description": "A live configuration change was asked for that the agent never announced: an unknown option id, a value the option does not list, or a session whose agent announced no options at all. Distinct from 2006, which is refused before the session exists against what the adapter documents; this one is refused against what THIS agent said about THIS session. It is what keeps Meltemi from offering a selector on the agent's behalf."
         },
         "3000": {
           "kind": "change_already_exists",

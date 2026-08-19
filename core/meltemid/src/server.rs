@@ -310,6 +310,7 @@ async fn dispatch_request(
         methods::SESSION_LIST => handle_session_list(params, state).await,
         methods::SESSION_LOG => handle_session_log(params, state).await,
         methods::SESSION_DIRECT => handle_session_direct(params, state, peer).await,
+        methods::SESSION_SET_CONFIG_OPTION => handle_session_set_config_option(params, state).await,
         methods::SESSION_START => {
             crate::free_session::handle_session_start(params, state, peer).await
         }
@@ -843,6 +844,8 @@ async fn handle_worktree_dispatch(
         title: None,
     });
     let _ = log.append(SessionEventKind::AgentResolved {
+        model: None,
+        effort: None,
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -881,6 +884,8 @@ async fn handle_worktree_dispatch(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             mode: None,
+            model: None,
+            effort: None,
             source: Some(resolved.source),
             // A race lane is not born from a sentence (design D2).
             title: None,
@@ -1750,6 +1755,8 @@ async fn handle_sdd_implement(
     });
     // Record which binary/source ran — never the env values (§2).
     let _ = log.append(SessionEventKind::AgentResolved {
+        model: None,
+        effort: None,
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -1976,6 +1983,8 @@ async fn handle_session_list(params: Value, state: &Arc<DaemonState>) -> Result<
                 profile: record.profile.clone(),
                 title: record.title.clone(),
                 mode: record.mode,
+                model: record.model.clone(),
+                effort: record.effort.clone(),
             });
         }
     }
@@ -1990,6 +1999,132 @@ async fn handle_session_list(params: Value, state: &Arc<DaemonState>) -> Result<
 
     Ok(serde_json::to_value(SessionListResult { sessions: infos })
         .expect("SessionListResult serializes"))
+}
+
+/// `session/set-config-option`: change one of the options the AGENT announced,
+/// over the connection that is already open.
+///
+/// Everything here is checked against that announcement and nothing against a
+/// catalog of our own. An unknown option, a value the option does not list, and
+/// an agent that announced nothing are one refusal with three messages — and
+/// they are refusals rather than best-effort attempts because sending a value
+/// the agent never described would be Meltemi speaking in its name
+/// (modelo-y-esfuerzo-por-sesion design D2).
+async fn handle_session_set_config_option(
+    params: Value,
+    state: &Arc<DaemonState>,
+) -> Result<Value, RpcError> {
+    use agent_client_protocol::schema::v1::{
+        SessionConfigId, SessionId, SetSessionConfigOptionRequest,
+    };
+    use meltemi_proto::{
+        SessionEventKind, SessionSetConfigOptionParams, SessionSetConfigOptionResult, error_codes,
+    };
+
+    let params: SessionSetConfigOptionParams = serde_json::from_value(params)
+        .map_err(|e| RpcError::invalid_params(format!("session/set-config-option: {e}")))?;
+    if !is_safe_session_id(&params.session_id) {
+        return Err(RpcError::invalid_params(
+            "session/set-config-option: invalid session id",
+        ));
+    }
+
+    // No live config means no open connection to carry the change — a session
+    // still starting, or one already over. Saying "not found" is the truth from
+    // this verb's point of view: there is nothing live to configure.
+    let Some(config) = state.sessions.live_config(&params.session_id).await else {
+        return Err(RpcError::application(
+            error_codes::SESSION_NOT_FOUND,
+            "no live session to configure",
+            "session_not_found",
+            format!(
+                "`{}` is not a live session with an open agent connection",
+                params.session_id
+            ),
+            Some("start or resume the session before changing its options".into()),
+        ));
+    };
+
+    let option = config
+        .options
+        .iter()
+        .find(|option| option.id == params.option_id)
+        .ok_or_else(|| {
+            let detail = if config.options.is_empty() {
+                format!(
+                    "this session's agent announced no configuration options at all, so `{}` \
+                     cannot be set on it",
+                    params.option_id
+                )
+            } else {
+                let announced: Vec<&str> = config
+                    .options
+                    .iter()
+                    .map(|option| option.id.as_str())
+                    .collect();
+                format!(
+                    "the agent never announced `{}`; it announced {} instead",
+                    params.option_id,
+                    announced.join(", ")
+                )
+            };
+            RpcError::application(
+                error_codes::CONFIG_OPTION_NOT_ANNOUNCED,
+                "the agent did not announce this option",
+                "config_option_not_announced",
+                detail,
+                Some(
+                    "change what the agent announced, or relaunch the session with the lever you \
+                     want"
+                        .into(),
+                ),
+            )
+        })?;
+
+    let value = crate::session_config::chosen_value(option, &params.value).map_err(|reason| {
+        RpcError::application(
+            error_codes::CONFIG_OPTION_NOT_ANNOUNCED,
+            "the agent did not announce this value",
+            "config_option_not_announced",
+            reason,
+            None,
+        )
+    })?;
+
+    // ACP's own verb, over the live connection: nothing is relaunched, and the
+    // agent is the one that decides what the option ends up being.
+    let response = config
+        .connection
+        .send_request(SetSessionConfigOptionRequest::new(
+            SessionId::new(config.acp_session_id.clone()),
+            SessionConfigId::new(params.option_id.clone()),
+            value,
+        ))
+        .block_task()
+        .await
+        .map_err(|e| {
+            RpcError::internal(format!(
+                "session/set-config-option: the agent did not accept the change: {e}"
+            ))
+        })?;
+
+    // What the agent reports back is the record — not what we asked for. An
+    // agent that clamps or reorders is believed over the request.
+    let refreshed = crate::session_config::from_acp(&response.config_options);
+    state
+        .sessions
+        .update_config_options(&params.session_id, refreshed.clone())
+        .await;
+    {
+        let mut log = config.log.lock().await;
+        let _ = log.append(SessionEventKind::ConfigOptionsAnnounced {
+            options: refreshed.clone(),
+        });
+    }
+    Ok(
+        serde_json::to_value(SessionSetConfigOptionResult { options: refreshed })
+            .expect("SessionSetConfigOptionResult serializes"),
+    )
 }
 
 /// `session/direct`: steer an existing session (control-remoto-asistido, the
@@ -2202,6 +2337,8 @@ async fn resume_with_instruction(
             agent_id: record.agent_id.clone(),
             profile: record.profile.clone(),
             mode: None,
+            model: None,
+            effort: None,
             source: record.source,
             // And continues the same conversation, so it keeps its name rather
             // than deriving a second one from the continuation (design D5).
@@ -2365,6 +2502,8 @@ async fn handle_subscription_link(
 
     // Persist the profile. A taken name refuses; the store never overwrites.
     let profile = crate::config::FleetProfile {
+        model: None,
+        effort: None,
         name: params.name.clone(),
         agent: params.agent.clone(),
         env: vec![(var.clone(), value.clone())],
