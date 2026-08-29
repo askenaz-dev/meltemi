@@ -7,19 +7,26 @@
 
 ## 1. Leer un `RULE.md` real
 
-- [ ] 1.1 El escáner de front-matter se generaliza a un mapa `clave → valor`
+- [x] 1.1 El escáner de front-matter se generaliza a un mapa `clave → valor`
   con las dos formas que existen (escalar y lista en línea), reutilizado por
   `rumbo/` y por el harness — **sin dependencia nueva** (design D3)
-- [ ] 1.2 Un escalar con comentario al final se lee sin él (`version: 0.2.0 #
+- [x] 1.2 Un escalar con comentario al final se lee sin él (`version: 0.2.0 #
   x-release-please-version`), respetando los `#` que estén entre comillas — el
   defecto que los `RULE.md` de FDH tienen hoy y que `rumbo/` no podía encontrar
-- [ ] 1.3 Una forma no cubierta —lista de bloque— produce diagnóstico que nombra
+- [x] 1.3 Una forma no cubierta —lista de bloque— produce diagnóstico que nombra
   la clave y la forma esperada, en vez de un valor parcial — escenario «Una
   forma no cubierta se diagnostica en vez de leerse a medias»
-- [ ] 1.4 Las claves que el núcleo no conoce se conservan verbatim y se
+- [x] 1.4 Las claves que el núcleo no conoce se conservan verbatim y se
   exponen — escenario «Las claves que el núcleo no conoce se conservan»
-- [ ] 1.5 Fixture con los cuatro `RULE.md` reales de FDH copiados tal cual, para
+- [x] 1.5 Fixture con los cuatro `RULE.md` reales de FDH copiados tal cual, para
   que el lector se pruebe contra el formato de verdad y no contra uno inventado
+  <!-- 2026-08-19: el fixture encontró un defecto **anterior a esta change** a
+  los cinco minutos de existir: `parse_list` partía por cada coma, y el `scope`
+  real `["**/*.{ts,tsx}"]` se rompía en `"**/*.{ts` y `tsx}"`. Una regla que
+  habría aplicado a un patrón que nadie escribió. Ningún archivo de `rumbo/`
+  podía encontrarlo porque ninguno de sus globs ha llevado nunca una coma; hizo
+  falta el formato de verdad. Ahora corta solo en las comas fuera de comillas,
+  que es lo que YAML significa. -->
 
 ## 2. Los cuatro ámbitos y la resolución
 
