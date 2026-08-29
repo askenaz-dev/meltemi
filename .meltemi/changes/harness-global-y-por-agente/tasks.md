@@ -104,9 +104,14 @@
 
 - [x] 5.1 CLI: verbo `harness [--agent <id>]` con `--json` y la disciplina de
   salida vigente — escenario «El verbo muestra de qué capa viene cada pieza»
-- [ ] 5.2 GUI: drill-in desde la Flota, solo lectura, con capa de origen y con
+- [x] 5.2 GUI: drill-in desde la Flota, solo lectura, con capa de origen y con
   lo que no aplica — escenario «La ficha de un agente muestra su harness con el
   origen»
+  <!-- 2026-08-19: el panel pregunta por el agente **seleccionado**, y manda el
+  proyecto solo si hay uno abierto — sin proyecto la respuesta son los ámbitos
+  globales, y el panel lo dice en vez de parecer vacío. El test comprueba
+  también el lado negativo: no invoca verbo de escritura alguno, porque no
+  existe ninguno. -->
 - [ ] 5.3 TUI: la misma lectura con la navegación del shell — escenario «El
   terminal muestra el harness con su origen»
 - [x] 5.4 i18n es/en de todo lo nuevo, con el lint como guardián
