@@ -67,13 +67,19 @@
 
 ## 4. La proyección, en dos contenidos
 
-- [ ] 4.1 Las reglas de ámbito proyecto entran al bloque gestionado con su
+- [x] 4.1 Las reglas de ámbito proyecto entran al bloque gestionado con su
   ámbito en prosa — escenario «Una regla del proyecto llega a los destinos del
   repositorio»
-- [ ] 4.2 **El guardián es estructural** (design D6): la compilación de lo que
+- [x] 4.2 **El guardián es estructural** (design D6): la compilación de lo que
   va al repositorio no recibe las fuentes globales, y el test proyecta con
   harness global presente exigiendo el repositorio intacto — escenario
   «Proyectar con harness global deja el repositorio intacto»
+  <!-- 2026-08-19: el guardián es **la llamada**, no un filtro después: la
+  compilación del repositorio invoca `discover(None, Some(root), …)`, así que el
+  directorio de configuración del usuario no tiene por dónde entrar. El
+  `debug_assert` que lo acompaña no es el guardián sino su alarma, y el test
+  comprueba además que la regla del proyecto **sí** viajó — sin eso, pasaría
+  igual proyectando nada. -->
 - [ ] 4.3 El mapa de destinos gana la columna de ámbito usuario, y **solo
   entradas verificadas con su fecha** (design D7); un agente sin ruta verificada
   se declara — escenario «Un agente sin destino verificado no recibe escritura»

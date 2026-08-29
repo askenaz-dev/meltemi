@@ -2671,7 +2671,8 @@ async fn handle_context_project(
     // (projection is its only integration channel).
     let config = crate::config::Config::load(&state.config_dir, Some(&project_root));
     let l4 = crate::levels::l4_target_for(&config);
-    let written = crate::context::project_and_write_with(&project_root, l4.as_deref())
+    let known = crate::harness::known_agent_ids(&config);
+    let written = crate::context::project_and_write_with(&project_root, l4.as_deref(), &known)
         .map_err(RpcError::internal)?;
     let result = meltemi_proto::ContextProjectResult {
         targets: written.into_iter().map(Into::into).collect(),
