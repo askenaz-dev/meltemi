@@ -551,6 +551,8 @@ const es = {
   "palette.m.propose": "andamiar una propuesta de change y delegarla al agente",
   "palette.m.fleet.list": "catálogo de flota: agentes, detección y niveles",
   "palette.m.context.project": "regenerar el contexto proyectado (AGENTS.md, …)",
+  "palette.m.harness.effective":
+    "qué harness aplica y de qué capa viene cada pieza",
   "palette.m.session.list": "listar sesiones (activas e históricas)",
   "palette.m.session.log": "leer el registro JSONL de una sesión",
   "palette.m.session.watch": "seguir en vivo el transcript de una sesión",
@@ -1201,6 +1203,8 @@ const en: Record<MessageKey, string> = {
   "palette.m.propose": "scaffold a change proposal and delegate it to the agent",
   "palette.m.fleet.list": "fleet catalog: agents, detection and levels",
   "palette.m.context.project": "regenerate the projected context (AGENTS.md, …)",
+  "palette.m.harness.effective":
+    "which harness applies, and the layer each piece comes from",
   "palette.m.session.list": "list sessions (active and historical)",
   "palette.m.session.log": "read a session's JSONL log",
   "palette.m.session.watch": "follow a session transcript live",

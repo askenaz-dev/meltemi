@@ -76,6 +76,22 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
       }
     ]
   },
+  "harness/effective": {
+    "schema": "harness.schema.json",
+    "def": "params",
+    "fields": [
+      {
+        "name": "projectRoot",
+        "kind": "string",
+        "required": false
+      },
+      {
+        "name": "agent",
+        "kind": "string",
+        "required": false
+      }
+    ]
+  },
   "session/list": {
     "schema": "session-list.schema.json",
     "def": "params",

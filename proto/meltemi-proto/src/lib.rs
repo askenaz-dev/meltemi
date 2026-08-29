@@ -32,6 +32,10 @@ pub mod methods {
     pub const FLEET_LIST: &str = "fleet/list";
     /// Request: (re)project the compiled context into the declared targets.
     pub const CONTEXT_PROJECT: &str = "context/project";
+    /// Request: the harness that effectively applies — optionally narrowed to a
+    /// project and to an agent — with the layer each piece came from, and with
+    /// what does NOT apply and why (harness-global-y-por-agente design D8).
+    pub const HARNESS_EFFECTIVE: &str = "harness/effective";
     /// Request: list sessions (active and historical) for a project.
     pub const SESSION_LIST: &str = "session/list";
     /// Request: read a session's JSONL log, paginated by line range.
@@ -503,6 +507,121 @@ pub struct SessionInfo {
     /// The effort that effectively governed, on the same terms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+}
+
+/// A front-matter value of a harness piece, in the two shapes that exist.
+///
+/// Untagged because the two shapes are already unambiguous on the wire — a
+/// string or an array of strings — and a discriminator would be ceremony a
+/// reader does not need.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum HarnessValue {
+    /// `key: value`
+    Scalar(String),
+    /// `key: [a, b, c]`
+    List(Vec<String>),
+}
+
+/// One front-matter entry of a harness piece, in the order it was written.
+///
+/// Every entry travels, including the ones the core does not use: they were
+/// written on purpose, and a view that dropped them would hide what their
+/// author put there (harness-global-y-por-agente design D2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessField {
+    /// The key, verbatim.
+    pub key: String,
+    /// The value, verbatim.
+    pub value: HarnessValue,
+}
+
+/// The scope a harness piece came from.
+///
+/// A closed set because these four are the product's own layers, not a
+/// third party's vocabulary: `user`, `user_agent`, `project`, `project_agent`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HarnessLayer {
+    /// The user's own harness.
+    User,
+    /// The user's harness for one agent.
+    UserAgent,
+    /// The project's harness.
+    Project,
+    /// The project's harness for one agent.
+    ProjectAgent,
+}
+
+/// Where a piece was found: its layer, the agent that layer is specific to when
+/// it is one, and the file itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessOrigin {
+    /// The layer it came from.
+    pub layer: HarnessLayer,
+    /// The agent the layer is specific to, when it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// The file, so a reader can open what they are looking at.
+    pub path: String,
+}
+
+/// One rule of the effective harness.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessRule {
+    /// The rule's identity: the name of its directory.
+    pub name: String,
+    /// Where the governing version came from.
+    pub origin: HarnessOrigin,
+    /// Its front-matter, entries in source order, every key included.
+    pub front_matter: Vec<HarnessField>,
+    /// Why it cannot be projected, when it cannot. Empty means it governs.
+    #[serde(default)]
+    pub problems: Vec<String>,
+    /// The same rule as found in less specific layers, most general first —
+    /// the answer to "why is mine not the one applying".
+    #[serde(default)]
+    pub shadowed: Vec<HarnessOrigin>,
+}
+
+/// A per-agent directory whose identifier the fleet catalog does not know.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessUnknownAgent {
+    /// The identifier as the directory spells it.
+    pub id: String,
+    /// The directory, so it can be found and renamed.
+    pub path: String,
+}
+
+/// Params of `harness/effective`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessEffectiveParams {
+    /// The project to include. Absent means only the user's own scopes, which
+    /// is what "what do I have globally" means.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+    /// The agent to narrow to. Absent means every agent's pieces are included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+}
+
+/// Result of `harness/effective`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessEffectiveResult {
+    /// The rules, by name. Includes the ones that cannot be projected, with
+    /// their diagnostic: a view that only listed what governs would leave "why
+    /// is mine missing" unanswered.
+    pub rules: Vec<HarnessRule>,
+    /// Per-agent directories the catalog does not know. Reported rather than
+    /// read: writing for an agent the core cannot name is writing blind.
+    #[serde(default)]
+    pub unknown_agents: Vec<HarnessUnknownAgent>,
 }
 
 /// One selectable value of a `select` session configuration option, as the

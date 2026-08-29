@@ -307,6 +307,7 @@ async fn dispatch_request(
         methods::PROPOSE => crate::propose::handle_propose(params, state, peer).await,
         methods::FLEET_LIST => crate::fleet::handle_fleet_list(params, state),
         methods::CONTEXT_PROJECT => handle_context_project(params, state).await,
+        methods::HARNESS_EFFECTIVE => crate::harness::handle_harness_effective(params, state),
         methods::SESSION_LIST => handle_session_list(params, state).await,
         methods::SESSION_LOG => handle_session_log(params, state).await,
         methods::SESSION_DIRECT => handle_session_direct(params, state, peer).await,

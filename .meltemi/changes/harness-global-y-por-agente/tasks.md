@@ -51,14 +51,19 @@
 
 ## 3. El contrato y la vista efectiva
 
-- [ ] 3.1 `harness/effective` en `proto/` con su schema, la conformidad de tres
+- [x] 3.1 `harness/effective` en `proto/` con su schema, la conformidad de tres
   vías y `gen:forms` commiteado; proyecto y agente opcionales
-- [ ] 3.2 La respuesta lleva, por pieza, capa de origen y ruta — escenario «Cada
+- [x] 3.2 La respuesta lleva, por pieza, capa de origen y ruta — escenario «Cada
   pieza dice de qué capa viene»
-- [ ] 3.3 Lo pisado y lo inválido viajan con su motivo — escenario «Lo pisado y
+- [x] 3.3 Lo pisado y lo inválido viajan con su motivo — escenario «Lo pisado y
   lo inválido también se ven»
-- [ ] 3.4 Sin proyecto declarado se responde solo lo global — escenario «Sin
+- [x] 3.4 Sin proyecto declarado se responde solo lo global — escenario «Sin
   proyecto solo se responde lo global»
+  <!-- 2026-08-19: el valor de front-matter viaja **sin discriminador**: en el
+  cable una cadena y un arreglo ya son inconfundibles, y un `type` sería
+  ceremonia que ningún lector necesita. La conversión de capa a nombre de cable
+  está en un `match` exhaustivo a propósito: una quinta capa no compila hasta
+  que también tenga nombre en el contrato. -->
 
 ## 4. La proyección, en dos contenidos
 
@@ -78,15 +83,15 @@
 
 ## 5. Las superficies
 
-- [ ] 5.1 CLI: verbo `harness [--agent <id>]` con `--json` y la disciplina de
+- [x] 5.1 CLI: verbo `harness [--agent <id>]` con `--json` y la disciplina de
   salida vigente — escenario «El verbo muestra de qué capa viene cada pieza»
 - [ ] 5.2 GUI: drill-in desde la Flota, solo lectura, con capa de origen y con
   lo que no aplica — escenario «La ficha de un agente muestra su harness con el
   origen»
 - [ ] 5.3 TUI: la misma lectura con la navegación del shell — escenario «El
   terminal muestra el harness con su origen»
-- [ ] 5.4 i18n es/en de todo lo nuevo, con el lint como guardián
-- [ ] 5.5 Paridad: fila en `docs/paridad-nucleo.md` y entrada en los dos
+- [x] 5.4 i18n es/en de todo lo nuevo, con el lint como guardián
+- [x] 5.5 Paridad: fila en `docs/paridad-nucleo.md` y entrada en los dos
   registros de superficie
 
 ## 6. Cierre

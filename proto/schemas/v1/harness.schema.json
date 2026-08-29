@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/harness.schema.json",
+  "title": "harness/effective",
+  "description": "Request `harness/effective` (client -> daemon): the harness that effectively applies, optionally narrowed to a project and to an agent, with the layer each piece came from. The four scopes compose from most general to most specific — the user's own, the user's per agent, the project's, the project's per agent — and the most specific one wins ENTIRE: no field is merged across layers, because a partial merge produces a rule nobody wrote. Without a projectRoot only the user's own scopes are read. The answer includes what does NOT apply and why: a rule covered by a more specific layer travels with the origins that covered it, and one that cannot be projected travels with its diagnostic. A view that listed only what governs would leave 'why is mine not applying' unanswered, which is the question people arrive with. Meltemi validates the FORM of these files and never interprets their meaning; in particular, who receives a rule is decided by the per-agent directory and never by a field inside the file.",
+  "$defs": {
+    "harnessLayer": {
+      "type": "string",
+      "enum": [
+        "user",
+        "user_agent",
+        "project",
+        "project_agent"
+      ],
+      "description": "The scope a piece came from, most general first. A closed set because these are the product's own four layers, not a third party's vocabulary."
+    },
+    "harnessValue": {
+      "description": "A front-matter value, in the two shapes that exist: a scalar or an inline list. Untagged on the wire because a string and an array are already unambiguous.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "harnessField": {
+      "type": "object",
+      "description": "One front-matter entry, in the order it was written. Every entry travels, including the keys the core does not use: they were written on purpose, and dropping them would hide what their author put there.",
+      "required": [
+        "key",
+        "value"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "$ref": "#/$defs/harnessValue"
+        }
+      }
+    },
+    "harnessOrigin": {
+      "type": "object",
+      "description": "Where a piece was found.",
+      "required": [
+        "layer",
+        "path"
+      ],
+      "properties": {
+        "layer": {
+          "$ref": "#/$defs/harnessLayer"
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The agent the layer is specific to, present only for the per-agent layers. It is the fleet catalog's identifier, which is what the directory is named after."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The file itself, so a reader can open what they are looking at."
+        }
+      }
+    },
+    "harnessRule": {
+      "type": "object",
+      "required": [
+        "name",
+        "origin",
+        "frontMatter"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The rule's identity: the name of its directory. The front-matter must agree with it; a rule that declares another name is reported with a diagnostic and is not projected, because the directory is the identity resolution uses."
+        },
+        "origin": {
+          "$ref": "#/$defs/harnessOrigin"
+        },
+        "frontMatter": {
+          "type": "array",
+          "description": "The front-matter, in source order, every key included.",
+          "items": {
+            "$ref": "#/$defs/harnessField"
+          }
+        },
+        "problems": {
+          "type": "array",
+          "description": "Why this rule cannot be projected, when it cannot. An empty list means it governs. Reported rather than dropped: a rule that will not apply still has to be explainable.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "shadowed": {
+          "type": "array",
+          "description": "The same rule as found in less specific layers, most general first.",
+          "items": {
+            "$ref": "#/$defs/harnessOrigin"
+          }
+        }
+      }
+    },
+    "params": {
+      "type": "object",
+      "properties": {
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The project to include. Absent means only the user's own scopes are read."
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The fleet catalog identifier to narrow to. Absent means every agent's pieces are included."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "rules"
+      ],
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/harnessRule"
+          }
+        },
+        "unknownAgents": {
+          "type": "array",
+          "description": "Per-agent directories whose identifier the fleet catalog does not know. Reported rather than read: projecting for an agent the core cannot name is writing blind.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "path"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

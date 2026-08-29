@@ -329,6 +329,13 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "set an option the agent announced, without relaunching the session",
     },
     Entry {
+        name: "harness",
+        reserved: true,
+        methods: &[m::HARNESS_EFFECTIVE],
+        desc_es: "qué harness aplica y de qué capa viene cada pieza",
+        desc_en: "which harness applies, and the layer each piece comes from",
+    },
+    Entry {
         name: "map",
         reserved: true,
         methods: &[m::REPO_MAP],

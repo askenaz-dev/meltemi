@@ -116,6 +116,9 @@ SUBCOMMANDS:
                         set one of the options the AGENT announced for a live
                         session, without relaunching it; the option ids and
                         their values are the agent's, never a list of ours
+    harness [--agent <id>]
+                        the harness that applies: every piece with the layer it
+                        comes from, plus what is covered or unreadable and why
     tunnel [user@host] [--exec]
                         compose the `ssh` command that reverse-forwards this
                         daemon's endpoint to a remote host; `--exec` runs it

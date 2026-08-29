@@ -783,6 +783,89 @@ fn the_two_copies_of_the_config_option_shape_agree() {
     }
 }
 
+// Scenario: Cada pieza dice de qué capa viene
+// Scenario: Lo pisado y lo inválido también se ven
+#[test]
+fn harness_effective_conforms() {
+    assert_conforms("harness", "params", &HarnessEffectiveParams::default());
+    assert_conforms(
+        "harness",
+        "params",
+        &HarnessEffectiveParams {
+            project_root: Some("/repos/fixture".into()),
+            agent: Some("claude-code".into()),
+        },
+    );
+    // A rule that governs, carrying the keys the core does not use.
+    let governing = HarnessRule {
+        name: "no-any-cast".into(),
+        origin: HarnessOrigin {
+            layer: HarnessLayer::ProjectAgent,
+            agent: Some("claude-code".into()),
+            path: "/repos/fixture/.meltemi/harness/per-agent/claude-code/rules/no-any-cast/RULE.md"
+                .into(),
+        },
+        front_matter: vec![
+            HarnessField {
+                key: "name".into(),
+                value: HarnessValue::Scalar("no-any-cast".into()),
+            },
+            HarnessField {
+                key: "scope".into(),
+                value: HarnessValue::List(vec!["**/*.{ts,tsx}".into()]),
+            },
+            HarnessField {
+                key: "owner_team".into(),
+                value: HarnessValue::Scalar("dx-platform".into()),
+            },
+        ],
+        problems: Vec::new(),
+        shadowed: vec![HarnessOrigin {
+            layer: HarnessLayer::User,
+            agent: None,
+            path: "/home/x/.config/meltemi/harness/rules/no-any-cast/RULE.md".into(),
+        }],
+    };
+    // And one that cannot be projected, which must travel with its reason.
+    let broken = HarnessRule {
+        name: "no-console-log".into(),
+        origin: HarnessOrigin {
+            layer: HarnessLayer::Project,
+            agent: None,
+            path: "/repo/.meltemi/harness/rules/no-console-log/RULE.md".into(),
+        },
+        front_matter: Vec::new(),
+        problems: vec!["the front-matter declares no `name`".into()],
+        shadowed: Vec::new(),
+    };
+    assert_conforms(
+        "harness",
+        "result",
+        &HarnessEffectiveResult {
+            rules: vec![governing, broken],
+            unknown_agents: vec![HarnessUnknownAgent {
+                id: "some-agent-9000".into(),
+                path: "/repo/.meltemi/harness/per-agent/some-agent-9000".into(),
+            }],
+        },
+    );
+    // Nothing configured at all is a valid answer, not an error.
+    assert_conforms("harness", "result", &HarnessEffectiveResult::default());
+    // The wire keeps the two shapes apart without a discriminator.
+    let field = serde_json::to_value(HarnessField {
+        key: "scope".into(),
+        value: HarnessValue::List(vec!["a".into()]),
+    })
+    .expect("serializes");
+    assert!(field["value"].is_array(), "{field:#}");
+    // A layer outside the product's own four is not a layer.
+    assert_rejected(
+        "harness",
+        "harnessOrigin",
+        &json!({"layer": "somewhere_else", "path": "/x"}),
+    );
+}
+
 #[test]
 fn session_set_config_option_conforms() {
     assert_conforms(

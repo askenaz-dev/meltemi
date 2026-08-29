@@ -308,6 +308,108 @@ fn read_rule(name: &str, path: &Path, layer: Layer) -> Option<Rule> {
     })
 }
 
+/// `harness/effective`: what applies, and where each piece came from.
+///
+/// Reads and reports; writes nothing. Narrowing to an agent keeps that agent's
+/// per-agent layers and the two general ones, and drops the layers belonging to
+/// OTHER agents — a rule another agent's directory carries is not part of this
+/// agent's harness and showing it would answer a question nobody asked.
+///
+/// # Errors
+///
+/// Refuses params it cannot read.
+pub fn handle_harness_effective(
+    params: serde_json::Value,
+    state: &std::sync::Arc<crate::server::DaemonState>,
+) -> Result<serde_json::Value, crate::rpc::RpcError> {
+    use meltemi_proto::{
+        HarnessEffectiveParams, HarnessEffectiveResult, HarnessField, HarnessLayer, HarnessOrigin,
+        HarnessRule, HarnessUnknownAgent, HarnessValue,
+    };
+
+    let params: HarnessEffectiveParams = if params.is_null() {
+        HarnessEffectiveParams::default()
+    } else {
+        serde_json::from_value(params)
+            .map_err(|e| crate::rpc::RpcError::invalid_params(format!("harness/effective: {e}")))?
+    };
+    let project_root = params.project_root.as_ref().map(PathBuf::from);
+    let config = crate::config::Config::load(&state.config_dir, project_root.as_deref());
+    let known = known_agent_ids(&config);
+
+    let found = discover(Some(&state.config_dir), project_root.as_deref(), &known);
+
+    let wanted = params.agent.as_deref();
+    let keeps = |layer: &Layer| match (layer.agent(), wanted) {
+        (None, _) => true,
+        (Some(id), Some(asked)) => id == asked,
+        (Some(_), None) => true,
+    };
+
+    let rules = found
+        .rules
+        .iter()
+        .filter(|resolved| keeps(&resolved.rule.layer))
+        .map(|resolved| HarnessRule {
+            name: resolved.rule.name.clone(),
+            origin: origin_of(&resolved.rule),
+            front_matter: resolved
+                .rule
+                .front
+                .entries
+                .iter()
+                .map(|(key, value)| HarnessField {
+                    key: key.clone(),
+                    value: match value {
+                        meltemi_spec::frontmatter::FrontValue::Scalar(text) => {
+                            HarnessValue::Scalar(text.clone())
+                        }
+                        meltemi_spec::frontmatter::FrontValue::List(items) => {
+                            HarnessValue::List(items.clone())
+                        }
+                    },
+                })
+                .collect(),
+            problems: resolved.rule.problems.clone(),
+            shadowed: resolved.shadowed.iter().map(origin_of).collect(),
+        })
+        .collect();
+
+    let unknown_agents = found
+        .unknown_agents
+        .iter()
+        .map(|(id, path)| HarnessUnknownAgent {
+            id: id.clone(),
+            path: path.display().to_string(),
+        })
+        .collect();
+
+    // Named so the mapping below stays exhaustive: a fifth layer would not
+    // compile until it also had a wire name.
+    fn wire_layer(layer: &Layer) -> HarnessLayer {
+        match layer {
+            Layer::User => HarnessLayer::User,
+            Layer::UserAgent(_) => HarnessLayer::UserAgent,
+            Layer::Project => HarnessLayer::Project,
+            Layer::ProjectAgent(_) => HarnessLayer::ProjectAgent,
+        }
+    }
+
+    fn origin_of(rule: &Rule) -> HarnessOrigin {
+        HarnessOrigin {
+            layer: wire_layer(&rule.layer),
+            agent: rule.layer.agent().map(str::to_string),
+            path: rule.path.display().to_string(),
+        }
+    }
+
+    Ok(serde_json::to_value(HarnessEffectiveResult {
+        rules,
+        unknown_agents,
+    })
+    .expect("HarnessEffectiveResult serializes"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

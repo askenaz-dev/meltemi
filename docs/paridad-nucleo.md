@@ -23,6 +23,7 @@ future change — never a silent omission.
 | `propose` | `propose` | `propose` | registry |
 | `fleet/list` | `fleet` | `fleet` | registry + Fleet view |
 | `context/project` | `project` | `project` | registry |
+| `harness/effective` | `harness` | `harness` (reservado) | registry + drill-in de Flota |
 | `session/list` | `sessions` | `sessions` | registry + Sessions view |
 | `session/log` | — | `sessions` (drill-in) | registry + session drill-in |
 | `session/watch` | — | `sessions` (drill-in) | registry + session drill-in (live stream) |
