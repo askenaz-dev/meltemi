@@ -187,6 +187,31 @@ pub fn project_and_write_with(
     Ok(written)
 }
 
+/// Writes `content` into one file's managed block, preserving everything
+/// outside it byte for byte, and reports whether the file changed.
+///
+/// The same mechanism the repository targets use, reused rather than copied:
+/// a second implementation of "preserve what is not ours" is a second place
+/// for it to stop being true.
+///
+/// # Errors
+///
+/// Propagates the write error.
+pub fn write_managed_block(path: &Path, content: &str) -> std::io::Result<bool> {
+    let fingerprint = fingerprint(content);
+    let existing = std::fs::read_to_string(path).unwrap_or_default();
+    match plan_block(&existing, content, &fingerprint) {
+        BlockPlan::Unchanged => Ok(false),
+        BlockPlan::Write(next) => {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            atomic_write(path, &next)?;
+            Ok(true)
+        }
+    }
+}
+
 /// The content fingerprint: hex SHA-256 of the compiled content.
 fn fingerprint(content: &str) -> String {
     let digest = Sha256::digest(content.as_bytes());

@@ -101,6 +101,27 @@ pub fn project(sources: &ProjectionSources) -> String {
     out
 }
 
+/// Compiles ONLY the user's own harness rules, for the instruction files of
+/// their agents.
+///
+/// Deliberately narrow, and narrow by signature: it takes rules and nothing
+/// else, so no constitution, rumbo or active change can travel into a file that
+/// applies to every repository the user opens
+/// (harness-global-y-por-agente design D6).
+#[must_use]
+pub fn project_user_rules(rules: &[ProjectedRule]) -> String {
+    let mut out = String::new();
+    out.push_str("# Meltemi — reglas propias\n\n");
+    out.push_str(
+        "_Tu harness global, proyectado por `meltemi project`. Se regenera; no \
+         editar a mano. Nada de un repositorio entra aquí._\n",
+    );
+    for rule in rules {
+        project_rule(&mut out, rule);
+    }
+    out
+}
+
 /// Projects one harness rule: its name, what it applies to, and its body.
 fn project_rule(out: &mut String, rule: &ProjectedRule) {
     out.push_str(&format!("\n### {}\n", rule.name));

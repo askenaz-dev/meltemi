@@ -640,7 +640,10 @@ async fn project_context(peer: &Peer, updates: &UnboundedSender<Update>, scope: 
             Err(_) => return,
         },
     };
-    let params = ContextProjectParams { project_root: root };
+    let params = ContextProjectParams {
+        project_root: root,
+        consent_user_scope: Vec::new(),
+    };
     match peer.request(methods::CONTEXT_PROJECT, &params).await {
         Ok(value) => {
             if let Ok(result) = serde_json::from_value::<ContextProjectResult>(value) {

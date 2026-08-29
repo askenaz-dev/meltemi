@@ -1512,6 +1512,16 @@ pub struct RepoMapResult {
 pub struct ContextProjectParams {
     /// Absolute path to the root of the target repository.
     pub project_root: String,
+    /// Catalog ids whose USER-scope instruction file Meltemi may write into
+    /// from now on. Someone else's configuration is not ours to start editing
+    /// because the feature exists (§2), so the first write to each one is
+    /// consented to here and the consent is recorded.
+    ///
+    /// Absent asks for nothing: destinations not yet consented to are reported
+    /// as awaiting consent and left untouched
+    /// (harness-global-y-por-agente design D7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consent_user_scope: Vec<String>,
 }
 
 /// One target file the projection wrote (or found already current).
@@ -1532,6 +1542,42 @@ pub struct ContextTarget {
 pub struct ContextProjectResult {
     /// Every declared target with its fingerprint and whether it changed.
     pub targets: Vec<ContextTarget>,
+    /// Every user-scope destination the user's own harness reaches, with what
+    /// happened at each. Reported whether or not anything was written: a
+    /// destination left alone for want of consent, or one the agent itself
+    /// ignores, is exactly what a surface has to be able to say.
+    #[serde(default)]
+    pub user_targets: Vec<UserScopeTarget>,
+}
+
+/// What happened at one user-scope destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserScopeState {
+    /// The file was updated.
+    Written,
+    /// The managed block already carried this content.
+    Unchanged,
+    /// This agent's file has never been consented to; nothing was written.
+    AwaitingConsent,
+    /// The agent reads a different file while this one is present, so writing
+    /// here would fill a file nobody reads.
+    IgnoredByAgent,
+}
+
+/// One user-scope destination and its outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserScopeTarget {
+    /// The catalog id whose instruction file this is.
+    pub agent: String,
+    /// The resolved absolute path.
+    pub path: String,
+    /// What happened at it.
+    pub state: UserScopeState,
+    /// For `ignored_by_agent`, the file the agent reads instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overridden_by: Option<String>,
 }
 
 /// Params of `propose`.

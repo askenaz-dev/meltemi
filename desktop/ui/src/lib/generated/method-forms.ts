@@ -73,6 +73,11 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
         "name": "projectRoot",
         "kind": "string",
         "required": true
+      },
+      {
+        "name": "consentUserScope",
+        "kind": "array",
+        "required": false
       }
     ]
   },

@@ -464,7 +464,13 @@ async fn project(project_root: Option<String>, endpoint: &str) -> Result<Outcome
     let response = peer
         .request(
             methods::CONTEXT_PROJECT,
-            &ContextProjectParams { project_root },
+            &ContextProjectParams {
+                project_root,
+                // The scriptable surface consents to nothing implicitly: writing
+                // into an agent's own configuration is a decision, and a flag
+                // nobody typed is not one.
+                consent_user_scope: Vec::new(),
+            },
         )
         .await;
     peer.close();

@@ -626,6 +626,27 @@ fn context_project_conforms() {
         "params",
         &ContextProjectParams {
             project_root: "C:\\repos\\fixture".into(),
+            consent_user_scope: Vec::new(),
+        },
+    );
+    // Consenting is additive on the wire: a caller that does not consent sends
+    // exactly what it sent before this field existed.
+    let silent = ContextProjectParams {
+        project_root: "/repos/fixture".into(),
+        consent_user_scope: Vec::new(),
+    };
+    assert!(
+        !serde_json::to_string(&silent)
+            .unwrap()
+            .contains("consentUserScope"),
+        "asking for nothing looks like it always did"
+    );
+    assert_conforms(
+        "context",
+        "params",
+        &ContextProjectParams {
+            project_root: "/repos/fixture".into(),
+            consent_user_scope: vec!["claude-code".into()],
         },
     );
     assert_conforms(
@@ -644,7 +665,44 @@ fn context_project_conforms() {
                     written: false,
                 },
             ],
+            // The three outcomes a user-scope destination can have besides
+            // being written, each of which a surface has to be able to say.
+            user_targets: vec![
+                UserScopeTarget {
+                    agent: "claude-code".into(),
+                    path: "/home/x/.claude/CLAUDE.md".into(),
+                    state: UserScopeState::Written,
+                    overridden_by: None,
+                },
+                UserScopeTarget {
+                    agent: "opencode".into(),
+                    path: "/home/x/.config/opencode/AGENTS.md".into(),
+                    state: UserScopeState::AwaitingConsent,
+                    overridden_by: None,
+                },
+                UserScopeTarget {
+                    agent: "codex-cli".into(),
+                    path: "/home/x/.codex/AGENTS.md".into(),
+                    state: UserScopeState::IgnoredByAgent,
+                    overridden_by: Some("AGENTS.override.md".into()),
+                },
+            ],
         },
+    );
+    // A result from before this existed still conforms.
+    assert_conforms(
+        "context",
+        "result",
+        &ContextProjectResult {
+            targets: Vec::new(),
+            user_targets: Vec::new(),
+        },
+    );
+    // An outcome the contract does not name is not an outcome.
+    assert_rejected(
+        "context",
+        "userScopeTarget",
+        &json!({"agent": "claude-code", "path": "/x", "state": "probably_fine"}),
     );
     // A non-hex or wrong-length fingerprint is rejected.
     assert_rejected(

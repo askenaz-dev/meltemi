@@ -32,7 +32,7 @@ pub use model::{
     ChangeDir, DeltaOperation, DeltaSection, Inclusion, MeltemiTree, Ratification, Requirement,
     RumboFile, Scenario, Spec, Step, StepMarker,
 };
-pub use project::{ActiveChange, ProjectedRule, ProjectionSources, project};
+pub use project::{ActiveChange, ProjectedRule, ProjectionSources, project, project_user_rules};
 pub use review::{normalize_name, review_diagnostics};
 pub use spec_parser::{parse_spec, parse_spec_file};
 pub use validate::{validate_rumbo, validate_spec, validate_tree};

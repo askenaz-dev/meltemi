@@ -80,12 +80,25 @@
   `debug_assert` que lo acompaña no es el guardián sino su alarma, y el test
   comprueba además que la regla del proyecto **sí** viajó — sin eso, pasaría
   igual proyectando nada. -->
-- [ ] 4.3 El mapa de destinos gana la columna de ámbito usuario, y **solo
+- [x] 4.3 El mapa de destinos gana la columna de ámbito usuario, y **solo
   entradas verificadas con su fecha** (design D7); un agente sin ruta verificada
   se declara — escenario «Un agente sin destino verificado no recibe escritura»
-- [ ] 4.4 La primera escritura en un archivo de usuario de un agente pide
+  <!-- 2026-08-19: tres destinos verificados contra la documentación del
+  proveedor, cada uno con su cita y su fecha: `~/.claude/CLAUDE.md`,
+  `~/.codex/AGENTS.md` y `~/.config/opencode/AGENTS.md`. Y verificar produjo dos
+  hechos que ninguna suposición habría dado: Codex lee **`AGENTS.override.md` en
+  vez de** `AGENTS.md` cuando el override existe —escribir igual llenaría un
+  archivo que nadie lee y parecería haber funcionado—, y su directorio se mueve
+  con `CODEX_HOME`. Los dos están en los datos, no en el código. -->
+- [x] 4.4 La primera escritura en un archivo de usuario de un agente pide
   consentimiento y queda registrada — escenario «La primera escritura en config
   ajena se consiente»
+  <!-- 2026-08-19: el consentimiento es **por agente** y se guarda en la
+  configuración del usuario; se registra **antes** de proyectar, para que un
+  fallo a mitad deje consentimiento otorgado y no un archivo escrito bajo un
+  consentimiento que nadie guardó. Solo se añade: retirarlo es editar ese
+  archivo, y el bloque gestionado deja de actualizarse sin borrar nada de lo
+  ajeno. La superficie scriptable no consiente nada implícitamente. -->
 
 ## 5. Las superficies
 
