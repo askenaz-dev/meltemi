@@ -22,6 +22,7 @@ pub mod events;
 pub mod fleet;
 pub mod free_session;
 pub mod git;
+pub mod harness;
 pub mod implement;
 pub mod levels;
 pub mod logging;

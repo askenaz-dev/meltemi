@@ -1,7 +1,9 @@
 # Reglas reales del hub (copia literal)
 
-Estos `RULE.md` son la copia **byte a byte** de las reglas publicadas del Forge
-Development Hub, sin una sola edición. Son la autoridad de forma del lector de
+Estos `RULE.md` son la copia **literal** de las reglas publicadas del Forge
+Development Hub, sin una sola edición de contenido (los finales de línea los
+normaliza git a la convención de este repositorio, que es lo que hace que los
+tres sistemas operativos de CI lean lo mismo). Son la autoridad de forma del lector de
 front-matter del harness (`harness-global-y-por-agente` design D2/D3): ante
 cualquier discrepancia entre estos archivos y lo que el lector espera, **mandan
 estos archivos**.

@@ -30,18 +30,24 @@
 
 ## 2. Los cuatro ámbitos y la resolución
 
-- [ ] 2.1 Descubrimiento de las cuatro capas con sus rutas (design D1), y el
+- [x] 2.1 Descubrimiento de las cuatro capas con sus rutas (design D1), y el
   identificador de agente validado contra el catálogo de flota — escenario «Un
   agente que el catálogo no conoce no recibe proyección»
-- [ ] 2.2 Resolución por nombre: la capa más específica gana **entera**, sin
+- [x] 2.2 Resolución por nombre: la capa más específica gana **entera**, sin
   merge de campos; lo pisado se conserva con quién lo pisó — escenario «Lo
   específico pisa lo general»
-- [ ] 2.3 El nombre del front-matter debe coincidir con el del directorio;
+- [x] 2.3 El nombre del front-matter debe coincidir con el del directorio;
   si no, inválida con diagnóstico y sin proyectar — escenario «Un nombre que no
   coincide con su directorio se rehúsa»
-- [ ] 2.4 `agents_supported` se conserva y **no gobierna nada** (design D4): los
+- [x] 2.4 `agents_supported` se conserva y **no gobierna nada** (design D4): los
   vocabularios de ids no coinciden y adivinar la equivalencia aplicaría reglas
   al agente equivocado en silencio
+  <!-- 2026-08-19: la precedencia **es el orden de las variantes del enum**, no
+  una tabla aparte: derivar `Ord` deja que la capa se compare sola y quita el
+  sitio donde alguien podría ordenarlas al revés sin que nada lo note. Y los ids
+  conocidos se leen del catálogo de flota en vez de copiarse aquí: dos listas de
+  identificadores de agente es exactamente cómo el eje por agente empezaría a
+  aplicar reglas a un agente que este build ya no trae. -->
 
 ## 3. El contrato y la vista efectiva
 
