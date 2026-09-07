@@ -1256,6 +1256,43 @@ de la lista se pinea con un test propio; y la tabla de cubetas vive dos veces
 —TypeScript y Rust no comparten función—, con un test de paridad que falla si
 divergen.
 
+### `identidad-propia` — abierta el 2026-09-06, vía completa
+
+Nace de una frase del mantenedor —«lo otro importante, inicio de sesión; sé que
+para esto hace falta un backend pero puede ser parte de la propuesta»— y de lo
+que ya había pedido para el móvil: «poder autenticarme en el cel con mi cuenta
+y ver las máquinas o instancias que están conectadas».
+
+La respuesta empieza por lo que **no** se hace, porque tres guardianes lo
+prohíben a la vez: `deny.toml` no admite cliente HTTP ni pila TLS en el
+workspace, el webview no alcanza ningún origen `https` y su test lo pinea, y la
+constitución §3 mantiene al daemon sin puertos. Un flujo OIDC dentro de Meltemi
+rompería los tres, y `docs/acceso-remoto.md` ya había escrito que «Meltemi con
+login» exigiría enmienda fundacional. La maqueta de acabado que dibujaba un
+código de dispositivo dentro de la app se corrige por eso.
+
+Lo que sí cabe es la identidad que **la malla del usuario ya conoce**: Headscale
+con su IdP hace el OIDC en el navegador del usuario al enlazar cada equipo, y
+el cliente oficial sabe localmente quién es y qué equipos hay. Meltemi lo
+**lee** por ese binario —la misma regla con la que ejecuta `git` y los
+agentes—, compone sin ejecutar jamás el gesto que enlaza un equipo (como
+`subscription/link` compone el login de una suscripción), y lo muestra en sus
+tres superficies antes de que el móvil lo enseñe. Cero dependencias nuevas,
+`deny.toml` intacto, «sin cuentas» sigue siendo literalmente cierto.
+
+El único MODIFIED es sobre «El punto de encuentro en dos vías está
+documentado», que hoy manda que la identidad y el selector de máquinas queden
+como notas de fase 3: esta change convierte en capacidad la parte de la
+variante de malla y deja como nota lo que sigue siéndolo (certificados SSH del
+bastión, el selector que conecta, el aviso de espera).
+
+**Deuda declarada**: la forma del JSON del cliente de malla no es verificable
+desde el repositorio, así que la primera tarea del daemon captura una salida
+real redactada como fixture antes de escribir el parser —un campo mal nombrado
+daría un parser verde en CI y un rehúso contra el cliente de verdad—. Y el test
+`tui/tests/docs.rs` pinea hoy la nota de fase 3 que la change reescribe: se
+reescribe con ella, conservando sus tres marcadores.
+
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 
 ### Prerrequisitos de daemon del Agent Boss (antes de `companero-movil`, sirven a TUI/GUI hoy)
