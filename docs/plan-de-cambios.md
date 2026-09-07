@@ -1217,6 +1217,45 @@ propia no sigue el patrón ARIA; (2) un tope de líneas del transcript en la GUI
 el conjunto de pestañas al arrancar, cuya primera tarea sería medir el arranque
 con ocho.
 
+### `sesiones-en-la-barra` — abierta el 2026-09-06, vía completa
+
+Nace de la maqueta de acabado del shell y de cuatro frases del mantenedor: las
+sesiones «deben aparecer a la izquierda en el menú y diferenciadas por en
+curso, en pausa, esperando respuesta del usuario, detenido»; «lo que dice
+lista, no tiene sentido, no sirve para nada»; «al hacerle nueva sesión debe
+crear el tab y además dejar el cursor en el campo de texto con foco», con
+«ctrl + enter para enviar o ctrl + shift + enter para encolar mensaje»; y, al
+mirar la barra otra vez, «no veo dónde la gestión de tabs a la izquierda».
+
+Las cuatro cosas son una sola pregunta —**¿quién me necesita?**— hecha desde el
+sitio donde se elige a quién atender. El contrato ya tiene los seis estados y
+la barra de estado ya los parte en trabajando / esperando / listas; lo que
+faltaba era usarlos donde se decide. Por eso el árbol gana cubetas **dentro**
+de cada proyecto (el proyecto sigue siendo el ámbito, la cubeta es el orden),
+la barra gana la sección «Abiertas» que es la tira vista de lado, y la pestaña
+«Lista» desaparece porque duplicaba la entrada Sesiones del menú.
+
+Dos decisiones cargan el peso, y las dos nacieron de la revisión adversarial
+antes de escribir código. La primera: el compositor deja de ser una **vista** y
+pasa a ser **la pestaña de llegada**, que es lo que hace que «nueva sesión»
+cree su tab en vez de esconder los que ya hay; eso roza la frase de «Paridad de
+vistas y modelo de navegación» que `lanzador-conversacional` modifica sin
+archivar, así que la enmienda de esa frase se declara como deuda con nombre
+—la lleva quien archive segunda— en vez de darse por compuesta. La segunda: con
+un turno en vuelo, el acorde que despacha **releva** (interrumpe y envía, la
+puerta que `redirigir-turno` construyó) y el que encola deja la instrucción
+detrás; el texto normativo nunca llama «enviar» al primero, de modo que «Enviar
+no interrumpe» de `conversational-session` sigue siendo cierto palabra por
+palabra, y el compositor lo dice antes de que se pulse. El mapeo alterno
+—Ctrl+Enter encola, Ctrl+Shift+Enter releva— queda anotado en el design para
+que la compuerta lo decida.
+
+**Deuda declarada**: la guardia `migration.rs::SUPERSEDED` no cubre `gui-shell`
+(la capability nació después de `openspec/`), así que el renombre del escenario
+de la lista se pinea con un test propio; y la tabla de cubetas vive dos veces
+—TypeScript y Rust no comparten función—, con un test de paridad que falla si
+divergen.
+
 ### `identidad-propia` — abierta el 2026-09-06, vía completa
 
 Nace de una frase del mantenedor —«lo otro importante, inicio de sesión; sé que
