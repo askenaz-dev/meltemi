@@ -126,8 +126,17 @@
 
 ## 6. Cierre
 
-- [ ] 6.1 `docs/harness.md`: los cuatro ámbitos, el formato, la precedencia y la
+- [x] 6.1 `docs/harness.md`: los cuatro ámbitos, el formato, la precedencia y la
   frontera con FDH — incluido **dónde escribe cada uno** (design D6)
+  <!-- 2026-09-15: «dónde escribe cada uno» quedó como la sección larga y con
+  su razón: el guardián de D6 es una firma que no admite el dato, y eso se
+  documenta como propiedad estructural y no como promesa. Los dos hallazgos de
+  la verificación de D7 —Codex leyendo `AGENTS.override.md` **en vez de**
+  `AGENTS.md`, y `CODEX_HOME` moviendo el directorio— van en prosa porque son
+  exactamente lo que alguien que escriba un destino nuevo necesita saber antes
+  de escribirlo. Y se dice sin adorno que hoy el consentimiento solo se otorga
+  por el formulario genérico de la GUI: un gesto dedicado es trabajo futuro, no
+  un default silencioso. -->
 - [ ] 6.2 `rumbo/structure.md` gana los directorios del harness
 - [ ] 6.3 `validate` limpio, `verify` con los escenarios enlazados, suite
   completa, clippy, fmt, gates del frontend y paridad revisada
