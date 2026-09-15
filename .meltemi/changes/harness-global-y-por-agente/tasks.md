@@ -137,6 +137,13 @@
   de escribirlo. Y se dice sin adorno que hoy el consentimiento solo se otorga
   por el formulario genérico de la GUI: un gesto dedicado es trabajo futuro, no
   un default silencioso. -->
-- [ ] 6.2 `rumbo/structure.md` gana los directorios del harness
+- [x] 6.2 `rumbo/structure.md` gana los directorios del harness
+  <!-- 2026-09-15: solo se añade, no se reescribe nada ratificado — el rumbo
+  gana el árbol de los cuatro ámbitos y la frontera de escritura, con la change
+  y la fecha a la vista para que no parezca que siempre estuvo ahí. Y como el
+  rumbo se proyecta, el commit trae de vuelta `AGENTS.md`, `CLAUDE.md` y
+  `GEMINI.md` regenerados por `meltemi project`: dejar el bloque desfasado sería
+  que este repositorio le contara a sus propios agentes una estructura que ya no
+  es la suya. -->
 - [ ] 6.3 `validate` limpio, `verify` con los escenarios enlazados, suite
   completa, clippy, fmt, gates del frontend y paridad revisada
