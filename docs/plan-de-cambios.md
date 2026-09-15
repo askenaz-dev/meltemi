@@ -199,7 +199,7 @@ eventos externos no gasta turno. Toda desviación se anota aquí.
 | 11º | `preguntas-del-agente` | proposal | La corona del bucle conversacional: AskUserQuestion contestada donde se escribe; depende del 9º y aprovecha el 8º |
 | 12º | `modos-de-autonomia` | proposal | Manual/Semi/Autónomo como posturas por sesión sobre el proxy existente; Bypass rechazado por §3 de entrada |
 | 13º | `modelo-y-esfuerzo-por-sesion` | **implementada** (verify 14/14) | La palanca de cuotas: modelo y esfuerzo opacos por sesión y por perfil. Hallazgo de cierre: **los adaptadores propios no anuncian opciones de sesión** porque ningún proveedor pineado enumera modelos, así que la vía en vivo queda cableada, probada con el mock y disponible para cualquier agente ACP que sí anuncie (design D9) |
-| 14º | ✅ `harness-global-y-por-agente` | **implementada** (26/26, verify 15/15) | La apuesta estratégica: fase 1 (Rules + vista efectiva) con design por delante; spec-full. **Espera review** |
+| 14º | ✅ `harness-global-y-por-agente` | **implementada** (25/25, verify 15/15) | La apuesta estratégica: fase 1 (Rules + vista efectiva) con design por delante; spec-full. **Espera review** |
 | 15º | `motor-propio-byok` | proposal | La mayor de fase 2; entra tras el harness (la directiva más reciente manda) y con su rename terminológico ya hecho |
 | ⏳ | `procedencia-de-release` | tasks 6/8, verify 6/6 | Sus 2 tareas dependen de eventos externos — una corrida real disparada por tag (próxima release) y **la clave pública que entrega el mantenedor** — se cierra cuando ocurran, sin gastar turno |
 
@@ -914,7 +914,7 @@ changes futuras (`harness-skills`, `harness-hooks`, `harness-subagentes`) con
 sus pruebas §6 y §2 por delante; los bundles con nombre y la alineación del
 lado FDH, también. Capability nueva `agent-harness`; spec-full deliberado.
 
-**Cerrada 26/26, verify 15/15.** Tres hallazgos que solo aparecieron al leer
+**Cerrada 25/25, verify 15/15.** Tres hallazgos que solo aparecieron al leer
 los archivos de verdad. (1) El fixture con los cuatro `RULE.md` reales de FDH
 encontró un defecto **anterior a esta change**: `parse_list` partía por cada
 coma y el `scope` real `["**/*.{ts,tsx}"]` se rompía en dos globs que nadie
