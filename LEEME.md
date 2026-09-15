@@ -182,7 +182,8 @@ en cada release. Ver [`docs/plan-de-cambios.md`](docs/plan-de-cambios.md).
 
 - [Quickstart](docs/quickstart.md), [Arquitectura](docs/arquitectura.md),
   [Método SDD](docs/metodo-sdd.md), [Referencia CLI](docs/referencia-cli.md),
-  [Agentes](docs/agentes.md), [Paridad de núcleo](docs/paridad-nucleo.md),
+  [Agentes](docs/agentes.md), [Harness](docs/harness.md),
+  [Paridad de núcleo](docs/paridad-nucleo.md),
   [Accesibilidad](docs/accesibilidad.md), [Plataformas](docs/plataformas.md),
   [Releases](docs/release.md).
 - [Contribuir](CONTRIBUTING.md) · [Gobernanza](GOVERNANCE.md) · [Seguridad](SECURITY.md)

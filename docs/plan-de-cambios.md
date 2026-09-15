@@ -199,7 +199,7 @@ eventos externos no gasta turno. Toda desviación se anota aquí.
 | 11º | `preguntas-del-agente` | proposal | La corona del bucle conversacional: AskUserQuestion contestada donde se escribe; depende del 9º y aprovecha el 8º |
 | 12º | `modos-de-autonomia` | proposal | Manual/Semi/Autónomo como posturas por sesión sobre el proxy existente; Bypass rechazado por §3 de entrada |
 | 13º | `modelo-y-esfuerzo-por-sesion` | **implementada** (verify 14/14) | La palanca de cuotas: modelo y esfuerzo opacos por sesión y por perfil. Hallazgo de cierre: **los adaptadores propios no anuncian opciones de sesión** porque ningún proveedor pineado enumera modelos, así que la vía en vivo queda cableada, probada con el mock y disponible para cualquier agente ACP que sí anuncie (design D9) |
-| 14º | `harness-global-y-por-agente` | proposal | La apuesta estratégica: fase 1 (Rules + vista efectiva) con design por delante; spec-full |
+| 14º | ✅ `harness-global-y-por-agente` | **implementada** (26/26, verify 15/15) | La apuesta estratégica: fase 1 (Rules + vista efectiva) con design por delante; spec-full. **Espera review** |
 | 15º | `motor-propio-byok` | proposal | La mayor de fase 2; entra tras el harness (la directiva más reciente manda) y con su rename terminológico ya hecho |
 | ⏳ | `procedencia-de-release` | tasks 6/8, verify 6/6 | Sus 2 tareas dependen de eventos externos — una corrida real disparada por tag (próxima release) y **la clave pública que entrega el mantenedor** — se cierra cuando ocurran, sin gastar turno |
 
@@ -895,7 +895,7 @@ del arrastre es otra conversación. Nota:
 > `project-registry`. Evidencia en
 > `docs/qa/2026-08-09-piel-de-pestanas-smoke.md`.
 
-### `harness-global-y-por-agente` — abierta el 2026-08-09
+### `harness-global-y-por-agente` — abierta el 2026-08-09, implementada el 2026-09-15
 
 La directiva del mantenedor: definir una sola vez el comportamiento base y las
 tecnologías —«el backend siempre es FastAPI y usa las tools xxx»— y ajustarlo
@@ -913,6 +913,29 @@ capa viene cada pieza. Skills, Hooks y Subagentes quedan nombrados como
 changes futuras (`harness-skills`, `harness-hooks`, `harness-subagentes`) con
 sus pruebas §6 y §2 por delante; los bundles con nombre y la alineación del
 lado FDH, también. Capability nueva `agent-harness`; spec-full deliberado.
+
+**Cerrada 26/26, verify 15/15.** Tres hallazgos que solo aparecieron al leer
+los archivos de verdad. (1) El fixture con los cuatro `RULE.md` reales de FDH
+encontró un defecto **anterior a esta change**: `parse_list` partía por cada
+coma y el `scope` real `["**/*.{ts,tsx}"]` se rompía en dos globs que nadie
+escribió — ningún archivo de `rumbo/` podía hallarlo porque ninguno ha llevado
+nunca una coma. (2) Verificar los destinos de ámbito usuario produjo dos hechos
+que ninguna suposición habría dado: Codex lee `AGENTS.override.md` **en vez de**
+`AGENTS.md` cuando el override existe —escribir igual llenaría un archivo que
+nadie lee y parecería haber funcionado— y su directorio se mueve con
+`CODEX_HOME`. (3) `agents_supported` de FDH dice `codex` y este catálogo dice
+`codex-cli`: los vocabularios no coinciden, así que el campo se conserva,
+se muestra y **no gobierna nada** — quién recibe una regla lo decide el eje
+`per-agent/<id>/`, que usa los ids de este catálogo.
+
+El guardián de «lo global del usuario jamás entra al repositorio» quedó
+**estructural**: la función que compila lo de repositorio no recibe las fuentes
+globales, así que no hay parámetro por donde entren. Un `if` se olvida en la
+siguiente refactorización; una firma que no admite el dato, no.
+
+Y el cierre encontró lo suyo: `verify` dio 14/15 porque el escenario de la CLI
+estaba marcado hecho sin test que lo enlazara — el verbo existía y nadie lo
+probaba. Documentación en `docs/harness.md`.
 
 ### `compositor-que-trabaja` — abierta e implementada el 2026-08-09
 

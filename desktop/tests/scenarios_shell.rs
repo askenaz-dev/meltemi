@@ -4653,3 +4653,51 @@ fn the_model_is_searched_offered_and_never_priced() {
         );
     }
 }
+
+// ---- the harness in the Fleet drill-in -----------------------------------
+
+// Scenario: La ficha de un agente muestra su harness con el origen
+#[test]
+fn the_fleet_drill_in_shows_the_harness_with_the_layer_each_piece_comes_from() {
+    let fleet = strip_comments(&read("desktop/ui/src/lib/views/Fleet.svelte"));
+
+    // It asks the daemon for the SELECTED agent, and for the project only when
+    // one is open — without a project the answer is the user's own scopes,
+    // which is what the panel then says.
+    assert!(
+        fleet.contains(r#""harness/effective""#) && fleet.contains("agent };"),
+        "the drill-in asks about the agent it is showing: {fleet}"
+    );
+    assert!(
+        fleet.contains("if (root) params.projectRoot = root;")
+            && fleet.contains(r#"$t("harness.globalOnly")"#),
+        "without a project it reads the global scopes and says so"
+    );
+
+    // Every piece carries the layer it came from.
+    assert!(
+        fleet.contains(r#"$t(("harness.layer." + rule.origin.layer) as never)"#),
+        "each piece names its layer"
+    );
+
+    // And what does NOT apply is shown: covered by a more specific layer, or
+    // unreadable with its reason, or an agent id the catalog does not know.
+    assert!(
+        fleet.contains("rule.problems") && fleet.contains(r#"$t("harness.covered""#),
+        "the covered and the unreadable are on screen, not omitted"
+    );
+    assert!(
+        fleet.contains("harness.unknownAgent"),
+        "and so is a per-agent directory nobody can name"
+    );
+
+    // Read only: the authoring of a rule lives in its file.
+    assert!(
+        fleet.contains(r#"$t("harness.readOnly")"#),
+        "the panel says it does not edit"
+    );
+    assert!(
+        !fleet.contains("harness/set") && !fleet.contains("harness/write"),
+        "and it invokes no writing verb, because none exists"
+    );
+}

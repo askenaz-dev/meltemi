@@ -124,6 +124,9 @@ SUBCOMMANDS:
                         set one of the options the AGENT announced for a live
                         session, without relaunching it; the option ids and
                         their values are the agent's, never a list of ours
+    harness [--agent <id>]
+                        the harness that applies: every piece with the layer it
+                        comes from, plus what is covered or unreadable and why
     tunnel [user@host] [--exec]
                         compose the `ssh` command that reverse-forwards this
                         daemon's endpoint to a remote host; `--exec` runs it
@@ -322,6 +325,9 @@ pub enum Command {
         option: String,
         value: String,
     },
+    /// Read the harness that effectively applies (`harness/effective`), with
+    /// the layer each piece comes from and what does not apply.
+    Harness { agent: Option<String> },
     /// Compose (or, with `--exec`, run) the `ssh` reverse-forward that exposes
     /// this daemon's endpoint to a remote host. Local: touches no daemon.
     Tunnel { target: Option<String>, exec: bool },
@@ -964,6 +970,15 @@ fn plan_subcommand(
                 "`set-option` requires: meltemi set-option <session> <option-id> <value>  \
                  (the option and its values are the AGENT's, announced when the session opened)"
                     .into(),
+            ),
+        },
+        "harness" => match rest {
+            [] => Action::Run(Command::Harness { agent: None }),
+            ["--agent", agent] => Action::Run(Command::Harness {
+                agent: Some((*agent).to_string()),
+            }),
+            _ => Action::Usage(
+                "`harness` takes at most `--agent <id>` (an id of the fleet catalog)".into(),
             ),
         },
         "tunnel" => match rest {

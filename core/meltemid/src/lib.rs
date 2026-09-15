@@ -22,6 +22,7 @@ pub mod events;
 pub mod fleet;
 pub mod free_session;
 pub mod git;
+pub mod harness;
 pub mod implement;
 pub mod levels;
 pub mod logging;
@@ -43,6 +44,7 @@ pub mod session_index;
 pub mod session_log;
 pub mod subscriptions;
 pub mod title;
+pub mod user_scope;
 pub mod verify;
 pub mod worktrees;
 

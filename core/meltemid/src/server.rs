@@ -307,6 +307,7 @@ async fn dispatch_request(
         methods::PROPOSE => crate::propose::handle_propose(params, state, peer).await,
         methods::FLEET_LIST => crate::fleet::handle_fleet_list(params, state),
         methods::CONTEXT_PROJECT => handle_context_project(params, state).await,
+        methods::HARNESS_EFFECTIVE => crate::harness::handle_harness_effective(params, state),
         methods::SESSION_LIST => handle_session_list(params, state).await,
         methods::SESSION_LOG => handle_session_log(params, state).await,
         methods::SESSION_DIRECT => handle_session_direct(params, state, peer).await,
@@ -2670,10 +2671,44 @@ async fn handle_context_project(
     // (projection is its only integration channel).
     let config = crate::config::Config::load(&state.config_dir, Some(&project_root));
     let l4 = crate::levels::l4_target_for(&config);
-    let written = crate::context::project_and_write_with(&project_root, l4.as_deref())
+    let known = crate::harness::known_agent_ids(&config);
+    let written = crate::context::project_and_write_with(&project_root, l4.as_deref(), &known)
         .map_err(RpcError::internal)?;
+    // Consent given in this call is recorded BEFORE the user-scope projection
+    // runs, so what the caller just agreed to is what gets written — and so a
+    // failure halfway leaves consent granted rather than a file half written
+    // under a consent nobody stored.
+    if !params.consent_user_scope.is_empty() {
+        let asked: std::collections::BTreeSet<String> =
+            params.consent_user_scope.iter().cloned().collect();
+        crate::user_scope::record_consent(&state.config_dir, &asked).map_err(RpcError::internal)?;
+    }
+    let user_targets = crate::user_scope::project_user_scope(&state.config_dir, &known)
+        .map_err(RpcError::internal)?
+        .into_iter()
+        .map(|written| {
+            use crate::user_scope::UserState;
+            use meltemi_proto::{UserScopeState, UserScopeTarget};
+            let (state, overridden_by) = match written.state {
+                UserState::Written => (UserScopeState::Written, None),
+                UserState::Unchanged => (UserScopeState::Unchanged, None),
+                UserState::AwaitingConsent => (UserScopeState::AwaitingConsent, None),
+                UserState::IgnoredByAgent { overridden_by } => {
+                    (UserScopeState::IgnoredByAgent, Some(overridden_by))
+                }
+            };
+            UserScopeTarget {
+                agent: written.agent,
+                path: written.path.display().to_string(),
+                state,
+                overridden_by,
+            }
+        })
+        .collect();
+
     let result = meltemi_proto::ContextProjectResult {
         targets: written.into_iter().map(Into::into).collect(),
+        user_targets,
     };
     Ok(serde_json::to_value(result).expect("ContextProjectResult serializes"))
 }

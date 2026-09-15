@@ -590,7 +590,7 @@ async fn conformance_suite_runs_every_level_against_simulated_agents() {
     )
     .unwrap();
     let written =
-        meltemid::context::project_and_write_with(&l4, Some("GEMINI.md")).expect("projection");
+        meltemid::context::project_and_write_with(&l4, Some("GEMINI.md"), &[]).expect("projection");
     criteria.push(ConformanceCriterion {
         level: 4,
         name: "projection_includes_target".into(),

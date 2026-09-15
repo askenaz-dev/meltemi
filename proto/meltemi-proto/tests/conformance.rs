@@ -626,6 +626,27 @@ fn context_project_conforms() {
         "params",
         &ContextProjectParams {
             project_root: "C:\\repos\\fixture".into(),
+            consent_user_scope: Vec::new(),
+        },
+    );
+    // Consenting is additive on the wire: a caller that does not consent sends
+    // exactly what it sent before this field existed.
+    let silent = ContextProjectParams {
+        project_root: "/repos/fixture".into(),
+        consent_user_scope: Vec::new(),
+    };
+    assert!(
+        !serde_json::to_string(&silent)
+            .unwrap()
+            .contains("consentUserScope"),
+        "asking for nothing looks like it always did"
+    );
+    assert_conforms(
+        "context",
+        "params",
+        &ContextProjectParams {
+            project_root: "/repos/fixture".into(),
+            consent_user_scope: vec!["claude-code".into()],
         },
     );
     assert_conforms(
@@ -644,7 +665,44 @@ fn context_project_conforms() {
                     written: false,
                 },
             ],
+            // The three outcomes a user-scope destination can have besides
+            // being written, each of which a surface has to be able to say.
+            user_targets: vec![
+                UserScopeTarget {
+                    agent: "claude-code".into(),
+                    path: "/home/x/.claude/CLAUDE.md".into(),
+                    state: UserScopeState::Written,
+                    overridden_by: None,
+                },
+                UserScopeTarget {
+                    agent: "opencode".into(),
+                    path: "/home/x/.config/opencode/AGENTS.md".into(),
+                    state: UserScopeState::AwaitingConsent,
+                    overridden_by: None,
+                },
+                UserScopeTarget {
+                    agent: "codex-cli".into(),
+                    path: "/home/x/.codex/AGENTS.md".into(),
+                    state: UserScopeState::IgnoredByAgent,
+                    overridden_by: Some("AGENTS.override.md".into()),
+                },
+            ],
         },
+    );
+    // A result from before this existed still conforms.
+    assert_conforms(
+        "context",
+        "result",
+        &ContextProjectResult {
+            targets: Vec::new(),
+            user_targets: Vec::new(),
+        },
+    );
+    // An outcome the contract does not name is not an outcome.
+    assert_rejected(
+        "context",
+        "userScopeTarget",
+        &json!({"agent": "claude-code", "path": "/x", "state": "probably_fine"}),
     );
     // A non-hex or wrong-length fingerprint is rejected.
     assert_rejected(
@@ -781,6 +839,89 @@ fn the_two_copies_of_the_config_option_shape_agree() {
             "`{def}` is missing from session-config.schema.json"
         );
     }
+}
+
+// Scenario: Cada pieza dice de qué capa viene
+// Scenario: Lo pisado y lo inválido también se ven
+#[test]
+fn harness_effective_conforms() {
+    assert_conforms("harness", "params", &HarnessEffectiveParams::default());
+    assert_conforms(
+        "harness",
+        "params",
+        &HarnessEffectiveParams {
+            project_root: Some("/repos/fixture".into()),
+            agent: Some("claude-code".into()),
+        },
+    );
+    // A rule that governs, carrying the keys the core does not use.
+    let governing = HarnessRule {
+        name: "no-any-cast".into(),
+        origin: HarnessOrigin {
+            layer: HarnessLayer::ProjectAgent,
+            agent: Some("claude-code".into()),
+            path: "/repos/fixture/.meltemi/harness/per-agent/claude-code/rules/no-any-cast/RULE.md"
+                .into(),
+        },
+        front_matter: vec![
+            HarnessField {
+                key: "name".into(),
+                value: HarnessValue::Scalar("no-any-cast".into()),
+            },
+            HarnessField {
+                key: "scope".into(),
+                value: HarnessValue::List(vec!["**/*.{ts,tsx}".into()]),
+            },
+            HarnessField {
+                key: "owner_team".into(),
+                value: HarnessValue::Scalar("dx-platform".into()),
+            },
+        ],
+        problems: Vec::new(),
+        shadowed: vec![HarnessOrigin {
+            layer: HarnessLayer::User,
+            agent: None,
+            path: "/home/x/.config/meltemi/harness/rules/no-any-cast/RULE.md".into(),
+        }],
+    };
+    // And one that cannot be projected, which must travel with its reason.
+    let broken = HarnessRule {
+        name: "no-console-log".into(),
+        origin: HarnessOrigin {
+            layer: HarnessLayer::Project,
+            agent: None,
+            path: "/repo/.meltemi/harness/rules/no-console-log/RULE.md".into(),
+        },
+        front_matter: Vec::new(),
+        problems: vec!["the front-matter declares no `name`".into()],
+        shadowed: Vec::new(),
+    };
+    assert_conforms(
+        "harness",
+        "result",
+        &HarnessEffectiveResult {
+            rules: vec![governing, broken],
+            unknown_agents: vec![HarnessUnknownAgent {
+                id: "some-agent-9000".into(),
+                path: "/repo/.meltemi/harness/per-agent/some-agent-9000".into(),
+            }],
+        },
+    );
+    // Nothing configured at all is a valid answer, not an error.
+    assert_conforms("harness", "result", &HarnessEffectiveResult::default());
+    // The wire keeps the two shapes apart without a discriminator.
+    let field = serde_json::to_value(HarnessField {
+        key: "scope".into(),
+        value: HarnessValue::List(vec!["a".into()]),
+    })
+    .expect("serializes");
+    assert!(field["value"].is_array(), "{field:#}");
+    // A layer outside the product's own four is not a layer.
+    assert_rejected(
+        "harness",
+        "harnessOrigin",
+        &json!({"layer": "somewhere_else", "path": "/x"}),
+    );
 }
 
 #[test]

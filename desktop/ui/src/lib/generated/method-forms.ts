@@ -73,6 +73,27 @@ export const METHOD_FORMS: Record<string, MethodForm> = {
         "name": "projectRoot",
         "kind": "string",
         "required": true
+      },
+      {
+        "name": "consentUserScope",
+        "kind": "array",
+        "required": false
+      }
+    ]
+  },
+  "harness/effective": {
+    "schema": "harness.schema.json",
+    "def": "params",
+    "fields": [
+      {
+        "name": "projectRoot",
+        "kind": "string",
+        "required": false
+      },
+      {
+        "name": "agent",
+        "kind": "string",
+        "required": false
       }
     ]
   },

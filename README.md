@@ -293,6 +293,7 @@ application and the terminal surface are in core parity, verified by CI. See
 
 - [Quickstart](docs/quickstart.md) — zero to your first reviewed proposal
 - [Agents guide](docs/agentes.md) — install, detect and configure your agents
+- [The harness](docs/harness.md) — say your conventions once, adjust them per agent and per project
 - [Architecture](docs/arquitectura.md)
 - [The SDD method](docs/metodo-sdd.md)
 - [CLI reference](docs/referencia-cli.md) (generated)

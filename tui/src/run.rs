@@ -175,6 +175,7 @@ pub async fn execute(
             option,
             value,
         } => set_option(session, option, value, endpoint).await,
+        Command::Harness { agent } => harness(agent, endpoint).await,
         // `tunnel` is a local formatter: it never touches the daemon.
         Command::Tunnel { target, exec } => tunnel(target, exec),
         // The bridge writes the daemon's bytes to the process's own locked
@@ -463,7 +464,13 @@ async fn project(project_root: Option<String>, endpoint: &str) -> Result<Outcome
     let response = peer
         .request(
             methods::CONTEXT_PROJECT,
-            &ContextProjectParams { project_root },
+            &ContextProjectParams {
+                project_root,
+                // The scriptable surface consents to nothing implicitly: writing
+                // into an agent's own configuration is a decision, and a flag
+                // nobody typed is not one.
+                consent_user_scope: Vec::new(),
+            },
         )
         .await;
     peer.close();
@@ -1452,6 +1459,85 @@ async fn direct(
         human: render_direct(&value),
         json: value,
     })
+}
+
+/// `harness`: what applies, and where each piece comes from.
+///
+/// Prints the covered and the unreadable too, because "why is mine not the one
+/// applying" is the question people arrive with, and a listing of only what
+/// governs leaves it unanswered.
+async fn harness(agent: Option<String>, endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let mut params = json!({ "projectRoot": project_root });
+    if let Some(agent) = &agent {
+        params["agent"] = json!(agent);
+    }
+    let response = peer.request(methods::HARNESS_EFFECTIVE, &params).await;
+    peer.close();
+    background.abort();
+
+    let value = response.map_err(CliError::contract)?;
+    Ok(Outcome {
+        human: render_harness(&value),
+        json: value,
+    })
+}
+
+fn render_harness(value: &serde_json::Value) -> String {
+    let rules = value["rules"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let unknown = value["unknownAgents"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    if rules.is_empty() && unknown.is_empty() {
+        return "no harness is configured for this project or user".into();
+    }
+    let mut out: Vec<String> = Vec::new();
+    for rule in rules {
+        let name = rule["name"].as_str().unwrap_or("?");
+        let origin = &rule["origin"];
+        let layer = origin["layer"].as_str().unwrap_or("?");
+        let agent = origin["agent"]
+            .as_str()
+            .map(|a| format!(" · {a}"))
+            .unwrap_or_default();
+        let problems = rule["problems"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if problems.is_empty() {
+            out.push(format!("{name} [{layer}{agent}]"));
+        } else {
+            out.push(format!("{name} [{layer}{agent}] — not applied"));
+            for problem in problems {
+                out.push(format!("    {}", problem.as_str().unwrap_or("?")));
+            }
+        }
+        for covered in rule["shadowed"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+        {
+            let layer = covered["layer"].as_str().unwrap_or("?");
+            let agent = covered["agent"]
+                .as_str()
+                .map(|a| format!(" · {a}"))
+                .unwrap_or_default();
+            out.push(format!("    covered: [{layer}{agent}]"));
+        }
+    }
+    for entry in unknown {
+        out.push(format!(
+            "unknown agent `{}` — nothing was read from {}",
+            entry["id"].as_str().unwrap_or("?"),
+            entry["path"].as_str().unwrap_or("?")
+        ));
+    }
+    out.join(
+        "
+",
+    )
 }
 
 /// `set-option`: change an announced option on a live session.
