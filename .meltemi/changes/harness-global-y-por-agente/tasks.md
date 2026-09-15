@@ -145,5 +145,19 @@
   `GEMINI.md` regenerados por `meltemi project`: dejar el bloque desfasado sería
   que este repositorio le contara a sus propios agentes una estructura que ya no
   es la suya. -->
-- [ ] 6.3 `validate` limpio, `verify` con los escenarios enlazados, suite
+- [x] 6.3 `validate` limpio, `verify` con los escenarios enlazados, suite
   completa, clippy, fmt, gates del frontend y paridad revisada
+  <!-- 2026-09-15: `validate` limpio; `verify` **15/15 (completo)**. La primera
+  pasada dio 14/15: el escenario de la CLI estaba marcado hecho en 5.1 pero sin
+  test que lo enlazara — el verbo existía y nadie lo probaba. Se cerró con
+  `tui/tests/harness_mapping.rs`, en binario propio porque `harness` no toma
+  raíz de proyecto (lee el directorio de trabajo, como `git`) y ejercitarlo
+  obliga a mover el cwd del proceso, que es global: el mismo motivo por el que
+  `propose_mapping` vive solo. Suite completa verde, clippy `-D warnings` y fmt
+  limpios; `lint:i18n` limpio, `check:forms` fresco, `svelte-check` 0 errores en
+  150 archivos.
+  **Un gate rojo que no es de esta change**: `desktop/ui` → `forms.test.ts`
+  falla en «every form resolves to a schema of its own family» porque
+  `change/workspace` resuelve a `workspace.schema.json` y la familia del método
+  es `change`. Lo introdujo `rama-por-change` (ya archivada) y falla igual en
+  `main`; se deja anotado en vez de colarse aquí. -->
