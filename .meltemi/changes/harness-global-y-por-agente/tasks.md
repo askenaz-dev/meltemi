@@ -112,8 +112,14 @@
   globales, y el panel lo dice en vez de parecer vacío. El test comprueba
   también el lado negativo: no invoca verbo de escritura alguno, porque no
   existe ninguno. -->
-- [ ] 5.3 TUI: la misma lectura con la navegación del shell — escenario «El
+- [x] 5.3 TUI: la misma lectura con la navegación del shell — escenario «El
   terminal muestra el harness con su origen»
+  <!-- 2026-09-15: la lectura vive **bajo el catálogo de la Flota**, no en una
+  quinta vista: el harness es un hecho sobre estos agentes, y la GUI ya lo puso
+  en el drill-in de Flota (design D8). Se pide, no se sondea — leer cuatro
+  ámbitos de disco en cada refresco sería cromo que nadie pidió, así que la
+  sección no existe hasta que `:harness [agente]` la pide. El verbo deja de
+  estar reservado en la paleta y `docs/paridad-nucleo.md` lo dice. -->
 - [x] 5.4 i18n es/en de todo lo nuevo, con el lint como guardián
 - [x] 5.5 Paridad: fila en `docs/paridad-nucleo.md` y entrada en los dos
   registros de superficie

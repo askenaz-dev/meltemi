@@ -449,7 +449,97 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
         lines.push(Line::from(ctx.msg(Msg::NoAgents)));
         lines.push(Line::from(ctx.msg(Msg::FleetByoHint)));
     }
+    // The harness reads under the catalog, on demand (`:harness [agente]`),
+    // because it is a fact ABOUT these agents and not a fifth place to
+    // navigate to (design D8). Absent until asked for: reading four scopes off
+    // disk on every refresh would be chrome nobody requested.
+    append_harness(&mut lines, live, ctx);
     render_lines(frame, area, lines);
+}
+
+/// The name of a harness layer, in the surface's language.
+fn harness_layer_label(layer: meltemi_proto::HarnessLayer, ctx: &ShellCtx) -> &'static str {
+    ctx.msg(match layer {
+        meltemi_proto::HarnessLayer::User => Msg::HarnessLayerUser,
+        meltemi_proto::HarnessLayer::UserAgent => Msg::HarnessLayerUserAgent,
+        meltemi_proto::HarnessLayer::Project => Msg::HarnessLayerProject,
+        meltemi_proto::HarnessLayer::ProjectAgent => Msg::HarnessLayerProjectAgent,
+    })
+}
+
+/// One origin rendered as `capa · agente`, the agent only when the layer has
+/// one — a per-agent layer without its agent would be the same word twice.
+fn harness_origin_label(origin: &meltemi_proto::HarnessOrigin, ctx: &ShellCtx) -> String {
+    match &origin.agent {
+        Some(agent) => format!("{} · {agent}", harness_layer_label(origin.layer, ctx)),
+        None => harness_layer_label(origin.layer, ctx).to_string(),
+    }
+}
+
+/// Appends the effective harness: every piece with the layer it came from, and
+/// —equally— what does NOT govern and why. Covered and unreadable pieces are
+/// the answer to "why is mine not the one applying"; a listing of only what
+/// governs would leave that unanswered (design D5/D8).
+fn append_harness(lines: &mut Vec<Line<'static>>, live: &LiveData, ctx: &ShellCtx) {
+    let Some(snapshot) = &live.harness else {
+        return;
+    };
+    lines.push(Line::from(""));
+    let title = match &snapshot.agent {
+        Some(agent) => format!("{} — {agent}", ctx.msg(Msg::HarnessTitle)),
+        None => ctx.msg(Msg::HarnessTitle).to_string(),
+    };
+    lines.push(Line::styled(title, ctx.emphasis()));
+    if !snapshot.scoped_to_project {
+        lines.push(Line::from(format!(
+            "  {} {}",
+            glyphs::PENDING.text(&ctx.present),
+            ctx.msg(Msg::HarnessGlobalOnly)
+        )));
+    }
+    let answer = &snapshot.answer;
+    if answer.rules.is_empty() && answer.unknown_agents.is_empty() {
+        lines.push(Line::from(format!("  {}", ctx.msg(Msg::HarnessNone))));
+        return;
+    }
+    for rule in &answer.rules {
+        // Glyph AND word, never colour alone: a piece that governs and one
+        // that cannot must be told apart on a monochrome terminal.
+        let governs = rule.problems.is_empty();
+        let glyph = if governs { glyphs::OK } else { glyphs::ABSENT };
+        let mut label = format!(
+            "  {} {:<24} [{}]",
+            glyph.text(&ctx.present),
+            rule.name,
+            harness_origin_label(&rule.origin, ctx)
+        );
+        if !governs {
+            label.push_str(&format!(" — {}", ctx.msg(Msg::HarnessNotApplied)));
+        }
+        lines.push(Line::from(label));
+        lines.push(Line::from(format!("        {}", rule.origin.path)));
+        for problem in &rule.problems {
+            lines.push(Line::from(format!("        · {problem}")));
+        }
+        for covered in &rule.shadowed {
+            lines.push(Line::from(format!(
+                "        {} {} [{}]",
+                glyphs::SELECT.text(&ctx.present),
+                ctx.msg(Msg::HarnessCovered),
+                harness_origin_label(covered, ctx)
+            )));
+        }
+    }
+    for unknown in &answer.unknown_agents {
+        lines.push(Line::from(format!(
+            "  {} {:<24} — {}",
+            glyphs::ABSENT.text(&ctx.present),
+            unknown.id,
+            ctx.msg(Msg::HarnessUnknownAgent)
+        )));
+        lines.push(Line::from(format!("        {}", unknown.path)));
+    }
+    lines.push(Line::from(format!("  {}", ctx.msg(Msg::HarnessReadOnly))));
 }
 
 /// The race board (tablero-de-carrera design D4): the lanes of one task, each
@@ -1652,6 +1742,118 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect()
+    }
+
+    // Scenario: El terminal muestra el harness con su origen
+    #[test]
+    fn the_terminal_shows_each_piece_with_the_layer_it_came_from() {
+        use meltemi_proto::{
+            HarnessEffectiveResult, HarnessLayer, HarnessOrigin, HarnessRule, HarnessUnknownAgent,
+        };
+
+        let answer = HarnessEffectiveResult {
+            rules: vec![
+                // Governs, and it covers the same rule from a broader layer.
+                HarnessRule {
+                    name: "no-console-log".into(),
+                    origin: HarnessOrigin {
+                        layer: HarnessLayer::ProjectAgent,
+                        agent: Some("claude".into()),
+                        path: "/repo/.meltemi/harness/agents/claude/rules/no-console-log/RULE.md"
+                            .into(),
+                    },
+                    front_matter: Vec::new(),
+                    problems: Vec::new(),
+                    shadowed: vec![HarnessOrigin {
+                        layer: HarnessLayer::User,
+                        agent: None,
+                        path: "/home/u/.config/meltemi/harness/rules/no-console-log/RULE.md".into(),
+                    }],
+                },
+                // Read, but unusable: it says why instead of vanishing.
+                HarnessRule {
+                    name: "no-any-cast".into(),
+                    origin: HarnessOrigin {
+                        layer: HarnessLayer::Project,
+                        agent: None,
+                        path: "/repo/.meltemi/harness/rules/no-any-cast/RULE.md".into(),
+                    },
+                    front_matter: Vec::new(),
+                    problems: vec!["el nombre no coincide con su directorio".into()],
+                    shadowed: Vec::new(),
+                },
+            ],
+            unknown_agents: vec![HarnessUnknownAgent {
+                id: "claudius".into(),
+                path: "/repo/.meltemi/harness/agents/claudius".into(),
+            }],
+        };
+
+        let ctx = ctx(default_present());
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "1".into(),
+            rows: Vec::new(),
+        }));
+        live.apply(Update::Harness(crate::shell::live::HarnessSnapshot {
+            agent: Some("claude".into()),
+            scoped_to_project: true,
+            answer,
+        }));
+        let shown = draw(&state, &live, &ctx, 160, 40);
+
+        // Every piece, with the layer it came from.
+        assert!(
+            shown.contains("no-console-log"),
+            "the governing rule: {shown}"
+        );
+        assert!(
+            shown.contains("proyecto por agente"),
+            "the layer it came from: {shown}"
+        );
+        // What does NOT govern, and why — the question people arrive with.
+        assert!(
+            shown.contains("pisa a la de") && shown.contains("global"),
+            "the covered layer: {shown}"
+        );
+        assert!(
+            shown.contains("no aplica") && shown.contains("no coincide"),
+            "the unusable rule with its diagnostic: {shown}"
+        );
+        assert!(
+            shown.contains("claudius"),
+            "an id the catalog does not know: {shown}"
+        );
+        // Read only: this surface writes nothing.
+        assert!(
+            shown.contains("solo lectura"),
+            "the read-only note: {shown}"
+        );
+    }
+
+    // Scenario: El terminal muestra el harness con su origen
+    #[test]
+    fn the_terminal_says_the_reading_was_global_when_no_project_took_part() {
+        let ctx = ctx(default_present());
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "1".into(),
+            rows: Vec::new(),
+        }));
+        live.apply(Update::Harness(crate::shell::live::HarnessSnapshot {
+            agent: None,
+            scoped_to_project: false,
+            answer: meltemi_proto::HarnessEffectiveResult::default(),
+        }));
+        let shown = draw(&state, &live, &ctx, 160, 24);
+        assert!(
+            shown.contains("solo tu harness global"),
+            "an empty reading without a project is global, not empty: {shown}"
+        );
     }
 
     fn default_present() -> Presentation {

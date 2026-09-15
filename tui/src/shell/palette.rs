@@ -330,7 +330,7 @@ pub const ENTRIES: &[Entry] = &[
     },
     Entry {
         name: "harness",
-        reserved: true,
+        reserved: false,
         methods: &[m::HARNESS_EFFECTIVE],
         desc_es: "qué harness aplica y de qué capa viene cada pieza",
         desc_en: "which harness applies, and the layer each piece comes from",

@@ -178,6 +178,24 @@ pub struct FleetSnapshot {
     pub rows: Vec<FleetRow>,
 }
 
+/// The effective harness as last read, with what the reading was narrowed to.
+///
+/// The answer travels whole — including the rules that do NOT govern and why —
+/// because "why is mine not the one applying" is the question people arrive
+/// with, and a listing of only what governs leaves it unanswered
+/// (harness-global-y-por-agente design D5/D8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HarnessSnapshot {
+    /// The agent the reading was narrowed to, when it was.
+    pub agent: Option<String>,
+    /// Whether a project took part: without one only the user's own scopes are
+    /// read, and a surface that did not say so would look empty instead of
+    /// global.
+    pub scoped_to_project: bool,
+    /// The answer, verbatim from the contract.
+    pub answer: meltemi_proto::HarnessEffectiveResult,
+}
+
 /// One lane of a race, as the board reads it: who ran it, under which
 /// subscription, how it ended, and its diff against its own base. Every
 /// provenance field is optional because the contract makes it optional — a lane
@@ -227,6 +245,8 @@ pub enum Update {
     Sessions(Vec<SessionRow>),
     /// The fleet catalog was (re)queried.
     Fleet(FleetSnapshot),
+    /// The effective harness was (re)read.
+    Harness(HarnessSnapshot),
     /// The known-project registry was (re)queried.
     Projects(Vec<ProjectRow>),
     /// The lanes of a race were (re)read for the board.
@@ -263,6 +283,9 @@ pub struct LiveData {
     pub projects: Vec<ProjectRow>,
     /// The fleet catalog; `None` until the first `fleet/list` answer arrives.
     pub fleet: Option<FleetSnapshot>,
+    /// The effective harness; `None` until it is asked for. It is asked for,
+    /// never polled: reading four scopes off disk is not chrome.
+    pub harness: Option<HarnessSnapshot>,
     /// The race board currently open, when the shell is drilled into one.
     pub race: Option<RaceBoard>,
     pub selected: usize,
@@ -306,6 +329,7 @@ impl LiveData {
             sessions: Vec::new(),
             projects: Vec::new(),
             fleet: None,
+            harness: None,
             race: None,
             selected: 0,
             permission_queue: Vec::new(),
@@ -356,6 +380,7 @@ impl LiveData {
                 }
             }
             Update::Fleet(snapshot) => self.fleet = Some(snapshot),
+            Update::Harness(snapshot) => self.harness = Some(snapshot),
             Update::Race(board) => {
                 // Selection survives a re-read as long as the lane still exists;
                 // a lane that vanished clamps rather than pointing past the end.

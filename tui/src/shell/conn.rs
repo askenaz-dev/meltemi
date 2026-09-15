@@ -17,14 +17,16 @@ use meltemi_client::bootstrap;
 use meltemi_client::rpc::{Incoming, Peer, RpcError};
 use meltemi_proto::{
     ChangeListParams, ChangeListResult, ContextProjectParams, ContextProjectResult,
-    FleetListParams, FleetListResult, InitializeParams, PROTOCOL_VERSION, PeerInfo,
-    PermissionChangedParams, PermissionDecideParams, PermissionPendingResult, PermissionRule,
-    SessionCancelParams, SessionDirectParams, SessionListParams, SessionListResult,
-    SessionLogParams, SessionLogResult, StatusResult, WorktreeDiffResult, methods,
+    FleetListParams, FleetListResult, HarnessEffectiveParams, HarnessEffectiveResult,
+    InitializeParams, PROTOCOL_VERSION, PeerInfo, PermissionChangedParams, PermissionDecideParams,
+    PermissionPendingResult, PermissionRule, SessionCancelParams, SessionDirectParams,
+    SessionListParams, SessionListResult, SessionLogParams, SessionLogResult, StatusResult,
+    WorktreeDiffResult, methods,
 };
 
 use crate::shell::live::{
-    FleetRow, FleetSnapshot, GateRow, ProjectRow, RaceBoard, RaceLane, SessionRow, Update,
+    FleetRow, FleetSnapshot, GateRow, HarnessSnapshot, ProjectRow, RaceBoard, RaceLane, SessionRow,
+    Update,
 };
 use crate::shell::messages::{Lang, Msg, text};
 use crate::shell::render::ConnState;
@@ -40,6 +42,9 @@ pub enum Command {
     Refresh,
     /// Query the fleet catalog (`fleet/list`).
     FleetList,
+    /// Read the effective harness (`harness/effective`), optionally narrowed
+    /// to one catalog agent.
+    Harness { agent: Option<String> },
     /// Query the known-project registry (`project/list`).
     ProjectList,
     /// Set the project every scoped call is made against; `None` returns to the
@@ -218,6 +223,9 @@ async fn serve_connection(
                     refresh_sessions(&peer, updates).await;
                 }
                 Some(Command::FleetList) => refresh_fleet(&peer, updates, scope.as_deref()).await,
+                Some(Command::Harness { agent }) => {
+                    read_harness(&peer, updates, scope.as_deref(), agent).await;
+                }
                 Some(Command::ProjectList) => refresh_projects(&peer, updates).await,
                 Some(Command::LinkSubscription { agent, name }) => {
                     let params = serde_json::json!({ "agent": agent, "name": name });
@@ -551,6 +559,46 @@ async fn refresh_fleet(peer: &Peer, updates: &UnboundedSender<Update>, scope: Op
         }
         Err(error) => {
             let _ = updates.send(Update::Notice(format!("fleet/list: {error}")));
+        }
+    }
+}
+
+/// Reads the effective harness (`harness/effective`) and pushes the snapshot.
+///
+/// The project is the scope in force, or the working directory — the same rule
+/// every other scoped call here follows. Without either, the request goes out
+/// with no project at all and the answer is the user's own scopes, which the
+/// view then says out loud instead of looking empty.
+async fn read_harness(
+    peer: &Peer,
+    updates: &UnboundedSender<Update>,
+    scope: Option<&str>,
+    agent: Option<String>,
+) {
+    let project_root = scope.map(str::to_string).or_else(|| {
+        std::env::current_dir()
+            .ok()
+            .map(|root| root.display().to_string())
+    });
+    let params = HarnessEffectiveParams {
+        project_root: project_root.clone(),
+        agent: agent.clone(),
+    };
+    match peer.request(methods::HARNESS_EFFECTIVE, &params).await {
+        Ok(value) => match serde_json::from_value::<HarnessEffectiveResult>(value) {
+            Ok(answer) => {
+                let _ = updates.send(Update::Harness(HarnessSnapshot {
+                    agent,
+                    scoped_to_project: project_root.is_some(),
+                    answer,
+                }));
+            }
+            Err(error) => {
+                let _ = updates.send(Update::Notice(format!("harness/effective: {error}")));
+            }
+        },
+        Err(error) => {
+            let _ = updates.send(Update::Notice(format!("harness/effective: {error}")));
         }
     }
 }
