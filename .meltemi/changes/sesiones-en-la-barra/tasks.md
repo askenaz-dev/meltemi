@@ -87,7 +87,7 @@ de paridad §4, y la TUI entra por paridad de superficies.
   y de decir que lo etiqueta `tab-__list__`: sin la pestaña, eso era una promesa
   al lector de pantalla que ya no sostenía nada. Y la clave `sessions.tabs.list`
   —«Lista»— se borra del catálogo. -->
-- [ ] 3.2 La sesión nueva como pestaña: pestaña `__new__` con el compositor;
+- [x] 3.2 La sesión nueva como pestaña: pestaña `__new__` con el compositor;
   `openComposer` abre-o-enfoca sin cambiar de vista y da el foco; al recibir
   `session_started` la pestaña se convierte en la de la sesión; la llegada
   sin última vista es esa pestaña; cerrarla con borrador pide decisión con
@@ -96,6 +96,16 @@ de paridad §4, y la TUI entra por paridad de superficies.
   de nuevo enfoca, no duplica», «Enviar convierte la pestaña en la sesión»,
   «Llegar es llegar a la pestaña nueva» y «Cerrar con borrador pide decisión»
   — gates: suite de cableado
+  <!-- 2026-09-15: la adopción es un reductor puro (`adoptTab`) con su test, no
+  una asignación en el shell, y devuelve `null` cuando no hay compositor del que
+  adoptar — una sesión puede nacer desde donde nunca hubo uno, y ese `null` es
+  lo que manda al llamador de vuelta a la puerta única. Dos detalles que el
+  design no había decidido y que el código obligó a decidir: (1) si la sesión
+  arranca mientras lees **otra** pestaña, la pestaña nace igual pero el frente
+  no se mueve — llevarte sería que la superficie decidiera dónde miras; (2) el
+  compositor solo toma el cursor mientras **es** la pestaña al frente, porque el
+  panel queda montado detrás de otra y un campo oculto que roba el foco escribe
+  donde nadie ve. -->
 
 ## 4. Los acordes
 

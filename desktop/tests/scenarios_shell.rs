@@ -543,10 +543,19 @@ fn a_new_session_is_the_primary_action_and_propose_is_one_key_away() {
         app.contains("event.key.toLowerCase() === \"n\""),
         "and a key does the same"
     );
-    // Both go through the one door, and it opens the composer.
+    // Both go through the one door, and it opens the composer — which is now a
+    // TAB inside the sessions view, not a view of its own. `home` stays the
+    // ViewId of the door; what it resolves to is that tab in front
+    // (sesiones-en-la-barra design D4).
     assert!(
-        app.contains("onNewSession={() => openComposer()}") && app.contains("view = \"home\";"),
+        app.contains("onNewSession={() => openComposer()}")
+            && app.contains("setLastView(\"home\");")
+            && app.contains("openTab(openSessions, NEW_SESSION_TAB)"),
         "the primary action and its key open the conversational composer"
+    );
+    assert!(
+        !app.contains("{:else if view === \"home\"}"),
+        "and the composer is no longer routed to as a view of its own"
     );
     // Free is what a new session is, before anything is chosen.
     let home = read("desktop/ui/src/lib/views/Home.svelte");
@@ -1309,16 +1318,16 @@ fn several_sessions_stay_open_as_tabs_and_none_replaces_another() {
     );
 
     // Every entry point goes through one function, so open-or-focus cannot be
-    // implemented in one of them and forgotten in the others.
-    // One definition and the four entry points: the sidebar tree, the
-    // composer, the sessions table and a session resuming another.
+    // implemented in one of them and forgotten in the others: the sidebar tree,
+    // the sessions table, a session resuming another — and the composer, which
+    // reaches it through `adoptComposerTab` when there is no composer tab to
+    // turn into the session (sesiones-en-la-barra design D4).
     assert_eq!(
         app.matches("openSessionTab(").count(),
         5,
         "every way into a session goes through one door"
     );
     for door in [
-        "onOpenSession={(sessionId) => openSessionTab(sessionId)}",
         "onOpen={(sessionId) => openSessionTab(sessionId)}",
         "onOpenSession={(id) => openSessionTab(id)}",
         "openSessionTab(sessionId);",
@@ -1328,6 +1337,24 @@ fn several_sessions_stay_open_as_tabs_and_none_replaces_another() {
             "an entry point still opens by hand: {door}"
         );
     }
+    assert!(
+        app.contains("onOpenSession={(sessionId) => adoptComposerTab(sessionId)}"),
+        "the composer's arrival goes through the adopter"
+    );
+    let adopter = app
+        .split("function adoptComposerTab")
+        .nth(1)
+        .expect("the shell declares the adopter")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        adopter.contains("openSessionTab(sessionId);"),
+        "and with no composer tab to turn into the session it uses the same one door: {adopter}"
+    );
     assert!(
         app.contains("const next = openTab(openSessions, sessionId)")
             && app.contains("pushNotice($t(\"sessions.tabs.full\""),
@@ -1401,6 +1428,109 @@ fn several_sessions_stay_open_as_tabs_and_none_replaces_another() {
             && escape.contains("else if (reviewOpen)")
             && escape.contains("else if (inSession) activeSession = null;"),
         "editor, then review, then back to the list — an assignment, not a close: {escape}"
+    );
+}
+
+// Scenario: Pedir una sesión nueva abre su pestaña y da el foco
+// Scenario: Pedirla de nuevo enfoca, no duplica
+// Scenario: Enviar convierte la pestaña en la sesión
+// Scenario: Llegar es llegar a la pestaña nueva
+// Scenario: Cerrar con borrador pide decisión
+#[test]
+fn a_new_session_is_born_as_a_tab_with_the_caret_already_in_it() {
+    // The reducers are executed by `session-tabs.test.ts`; this pins that those
+    // cases exist and that the shell consumes them rather than deciding inline.
+    let tests = read("desktop/ui/tests/session-tabs.test.ts");
+    for case in [
+        "asking for a new session twice focuses the composer instead of opening a second",
+        "sending turns the composer tab into the session's own, in place",
+        "the composer tab counts against the cap like any other",
+    ] {
+        assert!(tests.contains(case), "the executed case is missing: {case}");
+    }
+
+    let app = app();
+    // Asking opens or focuses ONE composer tab, inside the sessions view.
+    let door = app
+        .split("function openComposer(")
+        .nth(1)
+        .expect("the shell declares the door")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        door.contains("view = \"sessions\";")
+            && door.contains("openTab(openSessions, NEW_SESSION_TAB)"),
+        "the composer opens as a tab in the sessions view: {door}"
+    );
+    assert!(
+        door.contains("sessions.tabs.full"),
+        "and at the cap it refuses with the remedy named, like any other tab"
+    );
+
+    // The caret: the composer holds it while it is the tab in front, and lets
+    // go when it is not — a hidden field taking the focus would type into what
+    // nobody can see.
+    let home = read("desktop/ui/src/lib/views/Home.svelte");
+    assert!(
+        home.contains("if (focused) box?.focus();"),
+        "the composer takes the caret only while its tab is in front"
+    );
+    assert!(
+        app.contains("focused={tab.sessionId === activeSession}"),
+        "and the shell tells it which one that is"
+    );
+
+    // Sending turns THIS tab into the session's: no second tab is opened.
+    assert!(
+        app.contains("onOpenSession={(sessionId) => adoptComposerTab(sessionId)}"),
+        "the arrival adopts the composer tab"
+    );
+
+    // Arriving. A remembered `home` and a profile that remembered nothing both
+    // land on the composer tab — `home` stays the identity of the door.
+    assert!(
+        app.contains("if (state.lastView === \"home\") openComposer();"),
+        "a remembered `home` resolves to the composer tab"
+    );
+    assert!(
+        app.contains(
+            "} else {
+        openComposer();
+      }"
+        ),
+        "and a profile that remembered nothing lands there too"
+    );
+
+    // Closing it with an unsent instruction asks; empty, it just closes.
+    let closer = app
+        .split("function closeComposerTab")
+        .nth(1)
+        .expect("the shell declares the composer's closer")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        closer.contains("if (composerDirty) {") && closer.contains("discardComposer = true;"),
+        "an unsent instruction is a decision, not a discard: {closer}"
+    );
+    assert!(
+        closer.contains("closeSessionTab(NEW_SESSION_TAB);"),
+        "and an empty composer closes without a question: {closer}"
+    );
+    assert!(
+        app.contains("{#if discardComposer}") && app.contains("sessions.composer.discard.message"),
+        "the decision is asked with the shared dialog"
+    );
+    assert!(
+        home.contains("onDraftChange?.(text.trim() !== \"\");"),
+        "and what makes it dirty is an instruction, not whitespace"
     );
 }
 
@@ -4736,10 +4866,11 @@ fn sending_walks_in_and_every_entry_point_arrives_at_the_composer() {
     // One door, and every entry point goes through it.
     assert_eq!(
         app.matches("openComposer(").count(),
-        6,
-        "the definition plus its five call sites: the shortcut, the chrome's \
+        8,
+        "the definition plus its seven call sites: the shortcut, the chrome's \
          primary action, the empty state of Sessions, the Project view's \
-         Propose, and a project node of the nav"
+         Propose, a project node of the nav, and the two arrivals — a \
+         remembered `home` and a profile that remembered nothing"
     );
     for entry in [
         "openComposer();\n      return;",              // the shortcut

@@ -292,6 +292,8 @@ const es = {
   "nav.open.current": "al frente",
   "nav.open.close": "Cerrar la pestaña de {session}",
   "nav.open.newSession": "Nueva sesión",
+  "sessions.composer.discard.message": "Esta sesión nueva tiene una instrucción sin enviar. Si cierras la pestaña, se pierde.",
+  "sessions.composer.discard.confirm": "Descartar y cerrar",
 
   "projects.title": "Proyectos",
   "projects.switch": "Cambiar de proyecto",
@@ -965,6 +967,8 @@ const en: Record<MessageKey, string> = {
   "nav.open.current": "in front",
   "nav.open.close": "Close the tab of {session}",
   "nav.open.newSession": "New session",
+  "sessions.composer.discard.message": "This new session holds an unsent instruction. Closing the tab discards it.",
+  "sessions.composer.discard.confirm": "Discard and close",
 
   "projects.title": "Projects",
   "projects.switch": "Switch project",

@@ -13,7 +13,7 @@
   import type { MessageKey } from "../messages";
   import { allSessions } from "../stores";
   import { agentLabelOf, projectName } from "../tree";
-  import type { SessionTab } from "../session-tabs";
+  import { NEW_SESSION_TAB, type SessionTab } from "../session-tabs";
   import { groupOf, type GroupState } from "../tab-groups";
   import StatusBadge from "./StatusBadge.svelte";
   import TabStrip, { type TabItem } from "./TabStrip.svelte";
@@ -67,6 +67,16 @@
 
   const items: TabItem[] = $derived(
     tabs.map((tab) => {
+      // The composer tab: a session that does not exist yet, so it has no
+      // agent, no state and no title to derive. It is closable like any other —
+      // and closing it with an unsent instruction is what the shell asks about.
+      if (tab.sessionId === NEW_SESSION_TAB) {
+        return {
+          id: tab.sessionId,
+          label: $t("nav.open.newSession"),
+          closable: true,
+        };
+      }
       const info = infoOf(tab.sessionId);
       const agent = info ? agentLabelOf(info) : $t("sessions.tabs.gone");
       const group = groupOf(groups, tab.sessionId);
@@ -120,7 +130,8 @@
   onClose={(id) => onClose(id)}
 >
   {#snippet menu(item)}
-    <button
+    {#if item.id !== NEW_SESSION_TAB}
+      <button
         class="dots ghost"
         aria-haspopup="menu"
         aria-expanded={menuFor === item.id}
@@ -128,11 +139,12 @@
         title={$t("tabs.group.menu")}
         onclick={() => ((menuFor = menuFor === item.id ? null : item.id), (newName = ""))}
       >
-      ⋯
-    </button>
+        ⋯
+      </button>
+    {/if}
   {/snippet}
   {#snippet mark(item)}
-    {@const info = infoOf(item.id)}
+    {@const info = item.id === NEW_SESSION_TAB ? undefined : infoOf(item.id)}
     {#if info}
       <StatusBadge state={info.state} compact />
     {/if}
