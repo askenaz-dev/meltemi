@@ -16,6 +16,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use meltemi_proto::SessionState;
 
+use crate::shell::buckets;
 use crate::shell::glyphs::{self, Glyph};
 use crate::shell::live::{LiveData, ProjectRow, SessionRow};
 use crate::shell::messages::{Lang, Msg, text};
@@ -919,48 +920,72 @@ fn render_sessions(
             mark
         );
         lines.push(Line::styled(pan(&header, live.h_scroll), ctx.emphasis()));
-        for session in visible {
-            // The selection index is the flat one, so the cursor keeps working
-            // across groups exactly as it did in the flat list.
-            let index = live
-                .sessions
+        // Inside the project, by what each session asks of you. The cursor is a
+        // flat index over `live.sessions` and never learns about this: rows are
+        // reordered for reading, not renumbered (design D6).
+        for &bucket in buckets::BUCKET_ORDER {
+            let held: Vec<&SessionRow> = visible
                 .iter()
-                .position(|candidate| candidate.id == session.id)
-                .unwrap_or(usize::MAX);
-            let (glyph, word) = session_state_label(session.state, ctx.lang);
-            let marker = if index == live.selected {
-                glyphs::FOCUS.text(&ctx.present)
-            } else {
-                " "
-            };
-            let subscription = match &session.profile {
-                Some(profile) => format!("  [{profile}]"),
-                None => String::new(),
-            };
-            // What the session is about, after the id and the agent it already
-            // showed: the row keeps its columns and gains a tail, so nothing
-            // moves for a session the daemon could not name (titulo-de-sesion
-            // D6). The shell's own panning is what trims it to the width.
-            let named = match &session.title {
-                Some(title) => format!("  {title}"),
-                None => String::new(),
-            };
-            let label = format!(
-                "{marker}  {} {} {}  {}{}{}",
-                glyph.text(&ctx.present),
-                word,
-                session.id,
-                session.agent_label(),
-                subscription,
-                named
-            );
-            let panned = pan(&label, live.h_scroll);
-            if index == live.selected {
-                lines.push(Line::styled(panned, ctx.emphasis()));
-            } else {
-                lines.push(Line::from(panned));
+                .filter(|session| buckets::bucket_of(session.state) == bucket)
+                .map(|session| **session)
+                .collect();
+            if held.is_empty() {
+                // A header reading "working (0)" is noise; an empty bucket is
+                // not drawn at all.
+                continue;
             }
-            shown += 1;
+            // Glyph, word and count, like every other header in this terminal,
+            // and with the ASCII twin the presentation policy may ask for.
+            let bucket_header = format!(
+                "  {} {} ({})",
+                bucket.glyph().text(&ctx.present),
+                bucket.word(ctx.lang),
+                held.len()
+            );
+            lines.push(Line::from(pan(&bucket_header, live.h_scroll)));
+            for session in held {
+                // The selection index is the flat one, so the cursor keeps
+                // working across groups exactly as it did in the flat list.
+                let index = live
+                    .sessions
+                    .iter()
+                    .position(|candidate| candidate.id == session.id)
+                    .unwrap_or(usize::MAX);
+                let (glyph, word) = session_state_label(session.state, ctx.lang);
+                let marker = if index == live.selected {
+                    glyphs::FOCUS.text(&ctx.present)
+                } else {
+                    " "
+                };
+                let subscription = match &session.profile {
+                    Some(profile) => format!("  [{profile}]"),
+                    None => String::new(),
+                };
+                // What the session is about, after the id and the agent it
+                // already showed: the row keeps its columns and gains a tail,
+                // so nothing moves for a session the daemon could not name
+                // (titulo-de-sesion D6). The shell's own panning trims it.
+                let named = match &session.title {
+                    Some(title) => format!("  {title}"),
+                    None => String::new(),
+                };
+                let label = format!(
+                    "{marker}  {} {} {}  {}{}{}",
+                    glyph.text(&ctx.present),
+                    word,
+                    session.id,
+                    session.agent_label(),
+                    subscription,
+                    named
+                );
+                let panned = pan(&label, live.h_scroll);
+                if index == live.selected {
+                    lines.push(Line::styled(panned, ctx.emphasis()));
+                } else {
+                    lines.push(Line::from(panned));
+                }
+                shown += 1;
+            }
         }
     }
 
@@ -1965,6 +1990,111 @@ mod tests {
         assert!(!out.contains("worktrees"), "no phantom project node");
         // An absent root is marked, never dropped.
         assert!(out.contains("ausente"));
+    }
+
+    // Scenario: Cubetas dentro del proyecto en el terminal
+    // Scenario: El cursor no se entera de las cubetas
+    #[test]
+    fn the_terminal_groups_a_project_by_what_its_sessions_ask_of_you() {
+        use crate::shell::buckets::{BUCKET_ORDER, Bucket};
+
+        let mut live = LiveData::new();
+        live.apply(Update::Projects(vec![ProjectRow {
+            root: "/repos/alpha".into(),
+            exists: true,
+            sessions_total: 4,
+            active_sessions: 3,
+        }]));
+        let row = |id: &str, state: SessionState| SessionRow {
+            mode: None,
+            model: None,
+            id: id.into(),
+            agent: "claude".into(),
+            state,
+            project_root: "/repos/alpha".into(),
+            resumable: false,
+            agent_id: Some("claude-code".into()),
+            profile: None,
+            title: None,
+        };
+        // Deliberately out of signal order in the listing: the view is what
+        // orders them, not the order the daemon happened to answer in.
+        live.apply(Update::Sessions(vec![
+            row("s-ended", SessionState::Ended),
+            row("s-active", SessionState::Active),
+            row("s-idle", SessionState::WaitingInstruction),
+            row("s-perm", SessionState::WaitingPermission),
+        ]));
+
+        let out = draw(&ShellState::new(), &live, &ctx(default_present()), 110, 30);
+        // Every bucket, with its word and its count.
+        for bucket in BUCKET_ORDER {
+            let word = bucket.word(Lang::Es);
+            assert!(out.contains(word), "the bucket `{word}` is headed: {out}");
+        }
+        assert!(
+            out.contains("(1)"),
+            "and each header carries how many it holds: {out}"
+        );
+        // In signal order: a decision first, what is over last.
+        let at = |needle: &str| {
+            out.find(needle)
+                .unwrap_or_else(|| panic!("{needle}: {out}"))
+        };
+        assert!(
+            at(Bucket::Decision.word(Lang::Es)) < at(Bucket::Instruction.word(Lang::Es))
+                && at(Bucket::Instruction.word(Lang::Es)) < at(Bucket::Working.word(Lang::Es))
+                && at(Bucket::Working.word(Lang::Es)) < at(Bucket::Stopped.word(Lang::Es)),
+            "the four headers stand in signal order: {out}"
+        );
+        // The row ordering follows its header.
+        assert!(at("s-perm") < at("s-idle") && at("s-idle") < at("s-active"));
+        assert!(at("s-active") < at("s-ended"));
+
+        // The cursor is a flat index over the listing and did not learn about
+        // any of this: it still selects the row the daemon answered first.
+        assert_eq!(live.selected, 0, "the selection model is untouched");
+        assert!(
+            out.contains(&format!(
+                "{} ",
+                crate::shell::glyphs::FOCUS.text(&default_present())
+            )),
+            "and the focus marker is still drawn on it: {out}"
+        );
+    }
+
+    // Scenario: Cubetas dentro del proyecto en el terminal
+    #[test]
+    fn an_empty_bucket_gets_no_header_in_the_terminal_either() {
+        use crate::shell::buckets::Bucket;
+        let mut live = LiveData::new();
+        live.apply(Update::Projects(vec![ProjectRow {
+            root: "/repos/alpha".into(),
+            exists: true,
+            sessions_total: 1,
+            active_sessions: 1,
+        }]));
+        live.apply(Update::Sessions(vec![SessionRow {
+            mode: None,
+            model: None,
+            id: "s1".into(),
+            agent: "claude".into(),
+            state: SessionState::Active,
+            project_root: "/repos/alpha".into(),
+            resumable: false,
+            agent_id: Some("claude-code".into()),
+            profile: None,
+            title: None,
+        }]));
+        let out = draw(&ShellState::new(), &live, &ctx(default_present()), 110, 24);
+        assert!(out.contains(Bucket::Working.word(Lang::Es)), "OUT: {out}");
+        for empty in [Bucket::Decision, Bucket::Instruction, Bucket::Stopped] {
+            assert!(
+                !out.contains(empty.word(Lang::Es)),
+                "an empty bucket draws no header: {}",
+                empty.word(Lang::Es)
+            );
+        }
     }
 
     /// A board with three lanes: one committed, one that ran and produced

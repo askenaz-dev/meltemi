@@ -133,7 +133,7 @@ de paridad §4, y la TUI entra por paridad de superficies.
 
 ## 5. El terminal
 
-- [ ] 5.1 `tui/src/shell/render.rs`: cabeceras de cubeta dentro de cada
+- [x] 5.1 `tui/src/shell/render.rs`: cabeceras de cubeta dentro de cada
   proyecto con la misma tabla de D1 (glifo con gemelo ASCII, palabra, cuenta),
   cursor intacto; cadenas ES/EN en `tui/src/shell/messages.rs`; test de paridad
   de la tabla TS↔Rust que falle si divergen orden o estados; el pie de página
@@ -141,6 +141,15 @@ de paridad §4, y la TUI entra por paridad de superficies.
   «Cubetas dentro del proyecto en el terminal», «El cursor no se entera de las
   cubetas» y «Enviar y encolar con las teclas del terminal» — gates: suite de
   `tui`
+  <!-- 2026-09-15: la tabla vive en `tui/src/shell/buckets.rs` con un `match`
+  **exhaustivo** a propósito: un estado nuevo del contrato no compila hasta que
+  tenga cubeta, que es la misma garantía que el `Record` sobre la unión le da al
+  escritorio. El pin de paridad (`tui/tests/parity.rs`) lee **los dos archivos**
+  y compara orden y estados; comprobé que muerde cambiando una rama a mano —
+  falla nombrando el estado y las dos respuestas. El escenario «Enviar y encolar
+  con las teclas del terminal» ya estaba servido y **no se toca**: el gemelo del
+  terminal es `Tab` (alterna relevo) + `Enter`, y la spec viva prohíbe depender
+  de combinaciones Ctrl que el TTY captura. -->
 
 ## 6. Cierre
 

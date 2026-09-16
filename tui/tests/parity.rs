@@ -179,3 +179,113 @@ fn the_parity_matrix_documents_every_method() {
         );
     }
 }
+
+/// Extracts the states listed for each bucket in the desktop's table, in the
+/// order the table declares them.
+fn desktop_bucket_states(source: &str) -> Vec<(String, String)> {
+    let table = source
+        .split("export const BUCKET_OF: Record<SessionState, BucketId> = {")
+        .nth(1)
+        .expect("the desktop declares its bucket table")
+        .split("};")
+        .next()
+        .expect("the table closes");
+    table
+        .lines()
+        .filter_map(|line| line.trim().strip_suffix(','))
+        .filter_map(|entry| entry.split_once(": "))
+        .map(|(state, bucket)| {
+            (
+                state.trim().to_string(),
+                bucket.trim().trim_matches('"').to_string(),
+            )
+        })
+        .collect()
+}
+
+// Scenario: Cubetas dentro del proyecto en el terminal
+#[test]
+fn the_two_bucket_tables_are_one_table() {
+    // TypeScript and Rust share no function, so the terminal keeps its own copy
+    // of the table the desktop declares. What stops the two from drifting is
+    // this: both files are read, and the pin fails if the order of the buckets
+    // or the states inside any of them stop matching (sesiones-en-la-barra
+    // design D1).
+    let root = repo_root();
+    let desktop = fs::read_to_string(root.join("desktop/ui/src/lib/tree.ts")).expect("tree.ts");
+    let terminal = fs::read_to_string(root.join("tui/src/shell/buckets.rs")).expect("buckets.rs");
+
+    // The order of the buckets, side by side.
+    let desktop_order: Vec<String> = desktop
+        .split("export const BUCKET_ORDER: readonly BucketId[] = [")
+        .nth(1)
+        .expect("the desktop declares its order")
+        .split("];")
+        .next()
+        .expect("the list closes")
+        .split(',')
+        .map(|entry| entry.trim().trim_matches('"').to_string())
+        .filter(|entry| !entry.is_empty())
+        .collect();
+    let terminal_order: Vec<String> = terminal
+        .split("pub const BUCKET_ORDER: &[Bucket] = &[")
+        .nth(1)
+        .expect("the terminal declares its order")
+        .split("];")
+        .next()
+        .expect("the list closes")
+        .split(',')
+        .filter_map(|entry| entry.trim().strip_prefix("Bucket::"))
+        .map(|entry| entry.trim().to_ascii_lowercase())
+        .collect();
+    assert_eq!(
+        desktop_order, terminal_order,
+        "the two surfaces order the buckets differently"
+    );
+
+    // And which states each bucket holds.
+    let desktop_states = desktop_bucket_states(&desktop);
+    assert!(
+        !desktop_states.is_empty(),
+        "the desktop table could not be read"
+    );
+    let arms = terminal
+        .split("pub fn bucket_of(state: SessionState) -> Bucket {")
+        .nth(1)
+        .expect("the terminal declares its mapping")
+        .split(
+            "
+}",
+        )
+        .next()
+        .expect("the function closes");
+    for (state, bucket) in desktop_states {
+        // `waiting_permission` here, `WaitingPermission` there: the same state
+        // in each language's spelling.
+        let camel: String = state
+            .split('_')
+            .map(|part| {
+                let mut chars = part.chars();
+                match chars.next() {
+                    Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+                    None => String::new(),
+                }
+            })
+            .collect();
+        let expected = format!("Bucket::{}", {
+            let mut chars = bucket.chars();
+            match chars.next() {
+                Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+                None => String::new(),
+            }
+        });
+        let arm = arms
+            .lines()
+            .find(|line| line.contains(&format!("SessionState::{camel}")))
+            .unwrap_or_else(|| panic!("the terminal gives no bucket to `{state}`: {arms}"));
+        assert!(
+            arm.contains(&expected),
+            "`{state}` is `{bucket}` on the desktop but not in the terminal: {arm}"
+        );
+    }
+}
