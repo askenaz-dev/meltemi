@@ -109,7 +109,7 @@ de paridad §4, y la TUI entra por paridad de superficies.
 
 ## 4. Los acordes
 
-- [ ] 4.1 `Home.svelte`, `SessionDetail.svelte`, `Palette.svelte`: guardia
+- [x] 4.1 `Home.svelte`, `SessionDetail.svelte`, `Palette.svelte`: guardia
   `!event.shiftKey` en los tres `Ctrl+Enter`; `Ctrl+Shift+Enter` encola
   (`session/direct` sin `interrupt`); `Ctrl+Enter` con turno en vuelo y texto
   releva (`interrupt: true`), y con el compositor vacío no ofrece nada; el
@@ -120,6 +120,16 @@ de paridad §4, y la TUI entra por paridad de superficies.
   avisa antes y releva», «Con el compositor vacío no hay nada que relevar»,
   «Los acordes viejos no se pisan» y «Enter sigue siendo salto de línea» —
   gates: suite de cableado
+  <!-- 2026-09-15: la condición vive en un `$derived` con nombre (`relays`) y
+  **las teclas y las etiquetas la leen de ahí las dos**: separadas, tarde o
+  temprano una diría una cosa y la otra haría otra. El acorde que encola se
+  comprueba primero, porque un acorde que es superconjunto de otro tiene que
+  comprobarse antes. Y con turno en vuelo ningún control se llama «Enviar» —el
+  par es «Encolar» y «Interrumpir y enviar»—, que es exactamente lo que mantiene
+  cierto palabra por palabra el «Enviar no interrumpe» de
+  `conversational-session`; el test lo comprueba por el lado negativo.
+  La paleta gana `!event.shiftKey`: si no, el acorde de encolar significaría dos
+  cosas distintas según dónde esté el foco. -->
 
 ## 5. El terminal
 

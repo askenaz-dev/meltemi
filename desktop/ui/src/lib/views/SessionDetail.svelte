@@ -554,6 +554,15 @@
     field.focus();
   });
 
+  /**
+   * Whether `Ctrl+Enter` would relay rather than simply send: a turn is in
+   * flight and there is something to relay with. The same condition the pair of
+   * buttons is drawn under, so the keys and the labels cannot disagree.
+   */
+  const relays = $derived(
+    Boolean(canSend && session && WORKING.includes(session.state) && draft.trim() !== ""),
+  );
+
   async function direct(interrupt = false) {
     const instruction = draft.trim();
     if (!instruction || sending || !canSend || !session) return;
@@ -656,18 +665,41 @@
     }
   }
 
+  /**
+   * The two chords (design D5).
+   *
+   * `Ctrl+Shift+Enter` QUEUES, always and without exception: it never carries
+   * `interrupt`, so a turn in flight finishes. It is checked first, because a
+   * chord that is a superset of another has to be.
+   *
+   * `Ctrl+Enter` dispatches NOW. With a turn in flight and something written it
+   * relays — interrupts and sends — which is the only way "now" can differ from
+   * "queued". With the box empty it offers nothing, which is the standing rule
+   * of `redirigir-turno`: there is nothing to relay with.
+   *
+   * The normative text never calls the relaying chord "send", and with a turn
+   * in flight no control is labelled "Send": "sending does not interrupt" stays
+   * true word for word.
+   */
   function onDraftKeydown(event: KeyboardEvent) {
     event.stopPropagation();
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      // While a question is open, the box answers the question rather than
-      // queueing a turn — that is what the user was told it would do.
-      if (waitingOn && freeText) {
-        void answerFreely();
+    if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    // While a question is open, the box answers the question rather than
+    // queueing a turn — that is what the user was told it would do.
+    if (waitingOn && freeText) {
+      if (event.shiftKey) {
+        void direct();
         return;
       }
-      void direct();
+      void answerFreely();
+      return;
     }
+    if (event.shiftKey) {
+      void direct();
+      return;
+    }
+    void direct(relays);
   }
 
   /**
@@ -1137,18 +1169,30 @@
            confirmation on purpose: what it costs is the turn in flight, the
            session survives, and the label says so
            (redirigir-turno design D2). -->
-      {#if canSend && session && WORKING.includes(session.state) && draft.trim() !== ""}
+      {#if relays}
+        <!-- A turn is in flight and there is something to relay with. The pair
+             the requirement names, each labelled by what it does and each
+             carrying its chord: nobody interrupts out of habit without having
+             read the word first (design D5). No control here is called "Send",
+             which is what keeps "sending does not interrupt" literally true. -->
         <button
-          class="ghost relay"
+          class="ghost"
+          disabled={sending}
+          title={$t("conv.queueHint")}
+          onclick={() => void direct()}
+        >
+          {$t("conv.queue")} <kbd>{$t("conv.chord.queue")}</kbd>
+        </button>
+        <button
+          class="primary relay"
           disabled={sending}
           title={$t("conv.relayHint")}
           onclick={() => void direct(true)}
         >
-          ⤳ {$t("conv.relay")}
+          ⤳ {sending ? $t("common.loading") : $t("conv.relay")}
+          <kbd>{$t("conv.chord.dispatch")}</kbd>
         </button>
-      {/if}
-
-      {#if canSend}
+      {:else if canSend}
         <button
           class="primary"
           disabled={sending || draft.trim() === ""}
@@ -1160,6 +1204,7 @@
             : resumes
               ? $t("sessions.resume")
               : $t("home.send")}
+          <kbd>{$t("conv.chord.dispatch")}</kbd>
         </button>
       {/if}
     </div>

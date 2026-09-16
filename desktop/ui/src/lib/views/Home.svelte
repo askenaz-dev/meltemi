@@ -346,6 +346,12 @@
     }
   }
 
+  /**
+   * Both chords start the session here (design D5). There is no turn in flight
+   * to queue behind, so "dispatch now" and "queue" are the same act — and a
+   * chord that did nothing in the one place a new session is written would be
+   * the surface teaching a key and then ignoring it.
+   */
   function onBoxKeydown(event: KeyboardEvent): void {
     event.stopPropagation();
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -622,6 +628,7 @@
         >
           <Icon name="plus" size={14} />
           {running ? $t("common.loading") : $t("home.send")}
+          <kbd>{$t("conv.chord.dispatch")}</kbd>
         </button>
       </div>
     </div>

@@ -2442,6 +2442,116 @@ fn every_session_state_is_declared_by_every_surface_that_shows_state() {
     );
 }
 
+// Scenario: Ctrl+Enter despacha cuando la sesión espera
+// Scenario: Ctrl+Shift+Enter encola y nunca interrumpe
+// Scenario: Ctrl+Enter mientras trabaja avisa antes y releva
+// Scenario: Con el compositor vacío no hay nada que relevar
+// Scenario: Los acordes viejos no se pisan
+// Scenario: Enter sigue siendo salto de línea
+#[test]
+fn two_chords_that_say_what_they_do() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    let keys = detail
+        .split("function onDraftKeydown")
+        .nth(1)
+        .expect("the composer's key handler")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+
+    // A bare Enter is a newline, still: only a chord sends anything.
+    assert!(
+        keys.contains("if (event.key !== \"Enter\" || !(event.ctrlKey || event.metaKey)) return;"),
+        "Enter on its own is a line break: {keys}"
+    );
+    // Shift+chord queues, and the queueing path never carries `interrupt`.
+    assert!(
+        keys.contains(
+            "if (event.shiftKey) {
+      void direct();"
+        ),
+        "Ctrl+Shift+Enter queues: {keys}"
+    );
+    assert!(
+        !keys.contains("event.shiftKey")
+            || !keys.contains(
+                "direct(true)
+"
+            ),
+        "and it is never the one that interrupts"
+    );
+    // The plain chord dispatches NOW: relaying only when there is a turn to
+    // relay and something to relay with, which is what `relays` answers.
+    assert!(
+        keys.contains("void direct(relays);"),
+        "Ctrl+Enter dispatches now, relaying only when relaying is what now means: {keys}"
+    );
+    // The pair of buttons is drawn under the SAME answer, so the keys and the
+    // labels cannot disagree about what the chord will do.
+    assert!(
+        detail.contains("{#if relays}"),
+        "the labels are drawn from the same condition the keys read"
+    );
+    // With a turn in flight, nothing is labelled "Send" — which is what keeps
+    // `conversational-session`'s "sending does not interrupt" literally true.
+    let row = detail
+        .split("<div class=\"composerRow\">")
+        .nth(1)
+        .expect("the composer's row")
+        .split("</div>")
+        .next()
+        .expect("its body");
+    let in_flight = row
+        .split("{#if relays}")
+        .nth(1)
+        .expect("the in-flight pair")
+        .split("{:else if canSend}")
+        .next()
+        .expect("the pair closes");
+    assert!(
+        !in_flight.contains("$t(\"home.send\")"),
+        "with a turn in flight no control is called Send: {in_flight}"
+    );
+    // Both carry their chord where the eye is: the shortcut keeps its
+    // affordance rather than living only in a help screen.
+    assert!(
+        in_flight.contains("$t(\"conv.chord.queue\")")
+            && in_flight.contains("$t(\"conv.chord.dispatch\")"),
+        "each control says which chord performs it: {in_flight}"
+    );
+
+    // The older chords are not trodden on. The palette runs its command on the
+    // plain chord only, so the queueing chord does not mean two things
+    // depending on where the focus is.
+    let palette = read("desktop/ui/src/lib/components/Palette.svelte");
+    assert!(
+        palette.contains("(event.ctrlKey || event.metaKey) && !event.shiftKey"),
+        "the palette answers the plain chord and leaves the other alone"
+    );
+    // And the new-session composer sends on both, because there is no turn
+    // behind which to queue.
+    let home = read("desktop/ui/src/lib/views/Home.svelte");
+    assert!(
+        home.contains("if (event.key === \"Enter\" && (event.ctrlKey || event.metaKey)) {"),
+        "a new session starts on either chord"
+    );
+
+    // `help.keys` names them, in both languages.
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    for named in [
+        "Ctrl+Enter despachar ahora · Ctrl+Shift+Enter encolar",
+        "Ctrl+Enter dispatch now · Ctrl+Shift+Enter queue",
+    ] {
+        assert!(
+            catalog.contains(named),
+            "the help names the chords: {named}"
+        );
+    }
+}
+
 // Scenario: Interrumpir y enviar se ofrece con texto y sesión trabajando
 // Scenario: Sin texto no hay nada que relevar
 #[test]
@@ -2455,16 +2565,23 @@ fn interrupting_and_sending_sits_beside_the_send_that_queues() {
         .next()
         .expect("its body");
 
-    let relay = row
-        .split("{#if canSend && session && WORKING")
+    // The condition moved into a named derived so the keys and the labels are
+    // drawn from ONE answer; the guard it expresses is unchanged
+    // (sesiones-en-la-barra design D5).
+    let relay = detail
+        .split("const relays = $derived(")
         .nth(1)
         .expect("the relay control and its guard")
-        .split("{/if}")
+        .split(");")
         .next()
         .expect("the guard closes");
     assert!(
-        row.contains("class=\"ghost relay\""),
-        "interrupting is offered in the composer, beside the send: {row}"
+        row.contains("{#if relays}") && row.contains("class=\"primary relay\""),
+        "interrupting is offered in the composer, beside the send that queues: {row}"
+    );
+    assert!(
+        row.contains("$t(\"conv.queue\")"),
+        "and the queueing send is the one beside it, named for what it does: {row}"
     );
     // With text, and only with text: an empty box has nothing to relay with,
     // and offering it there would promise an action the daemon must refuse.
@@ -2475,8 +2592,8 @@ fn interrupting_and_sending_sits_beside_the_send_that_queues() {
     // While a turn is RUNNING — narrower than the stop beside it, which stays
     // offered while the session waits on a decision.
     assert!(
-        row.contains("{#if canSend && session && WORKING.includes(session.state)"),
-        "offered while a turn runs, not merely while the session is alive: {row}"
+        relay.contains("canSend && session && WORKING.includes(session.state)"),
+        "offered while a turn runs, not merely while the session is alive: {relay}"
     );
     assert!(
         detail.contains("const WORKING = [\"active\", \"starting\"]"),

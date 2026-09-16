@@ -254,7 +254,7 @@ const es = {
   "project.openReview": "Revisar diffs",
 
   "help.title": "Ayuda y atajos",
-  "help.keys": "Teclas: 1–5 vistas · : o Ctrl+K paleta · a permisos · Esc atrás/cerrar · ? esta ayuda",
+  "help.keys": "Teclas: 1–5 vistas · : o Ctrl+K paleta · a permisos · Ctrl+Enter despachar ahora · Ctrl+Shift+Enter encolar · Esc atrás/cerrar · ? esta ayuda",
 
   "nav.home": "Nueva sesión",
   "nav.editor": "Editor",
@@ -324,6 +324,10 @@ const es = {
   "home.placeholder.explore": "¿Qué quieres deliberar antes de escribir código?",
   "home.send": "Enviar",
   "home.sendHint": "Ctrl+Enter",
+  "conv.queue": "Encolar",
+  "conv.queueHint": "Encola la instrucción detrás del turno en vuelo; no lo interrumpe.",
+  "conv.chord.dispatch": "Ctrl Enter",
+  "conv.chord.queue": "Ctrl ⇧ Enter",
   "home.method": "método",
   "home.recent": "Continuar",
   "home.agent.none": "sin agentes detectados",
@@ -929,7 +933,7 @@ const en: Record<MessageKey, string> = {
   "project.openReview": "Review diffs",
 
   "help.title": "Help & shortcuts",
-  "help.keys": "Keys: 1–5 views · : or Ctrl+K palette · a permissions · Esc back/close · ? this help",
+  "help.keys": "Keys: 1–5 views · : or Ctrl+K palette · a permissions · Ctrl+Enter dispatch now · Ctrl+Shift+Enter queue · Esc back/close · ? this help",
 
   "nav.home": "New session",
   "nav.editor": "Editor",
@@ -999,6 +1003,10 @@ const en: Record<MessageKey, string> = {
   "home.placeholder.explore": "What do you want to think through before writing code?",
   "home.send": "Send",
   "home.sendHint": "Ctrl+Enter",
+  "conv.queue": "Queue",
+  "conv.queueHint": "Queues the instruction behind the turn in flight; it does not interrupt it.",
+  "conv.chord.dispatch": "Ctrl Enter",
+  "conv.chord.queue": "Ctrl ⇧ Enter",
   "home.method": "method",
   "home.recent": "Continue",
   "home.agent.none": "no agents detected",
