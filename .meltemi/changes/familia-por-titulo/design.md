@@ -138,18 +138,28 @@ ahorra es el gate intermedio, no el rastro.
 
 ### D5 — Qué verifica qué
 
-Los dos escenarios del delta se cubren con el mismo test que hoy falla, una vez
-corregida la lista:
+Cada escenario tiene un caso ejecutado en `desktop/ui/tests/forms.test.ts` y un
+enlace en `desktop/tests/scenarios_shell.rs`:
 
-- «Un schema nombrado por sus verbos pasa el gate» — el test recorre
-  `METHOD_FORMS` entero, de modo que los cuatro schemas del grupo (`implement`,
-  `validate`, `verify-archive`, `workspace`) pasan por la aserción en cada
-  ejecución.
-- «Los dos métodos del taller se ligan a su schema» — `change/workspace` y
-  `change/land` están ambos en `METHOD_FORMS` apuntando a
-  `workspace.schema.json`, así que el recorrido los afirma a los dos. Es el
-  escenario que prueba que el arreglo cubre el defecto **completo** y no solo el
-  primero que `assert` reportaba.
+- «Un schema nombrado por sus verbos pasa el gate» — el test de familia, una
+  vez corregida la lista, recorre `METHOD_FORMS` entero, de modo que los cuatro
+  schemas del grupo (`implement`, `validate`, `verify-archive`, `workspace`)
+  pasan por la aserción en cada ejecución.
+- «Los dos métodos del taller se ligan a su schema» — un caso propio, porque el
+  recorrido no basta: `assert` corta en el primer fallo, y fue justo eso lo que
+  escondió `change/land`. El caso afirma para los dos métodos que tienen
+  formulario, que apunta a `workspace.schema.json` y que el `title` de ese
+  schema los declara, que es la llave que el requisito nombra.
+
+**Por qué hace falta el enlace en Rust** (hallazgo al implementar, 2026-09-16):
+`meltemi verify` solo lee marcadores `Scenario:` en archivos `.rs`
+(`core/meltemid/src/verify.rs`, `linked_scenarios`), así que un marcador en un
+`.test.ts` no enlaza nada. Es una convención ya establecida, no un defecto:
+`desktop/tests/scenarios_shell.rs` existe para eso —lee el código del frontend
+y exige que el caso esté nombrado en el test que CI ejecuta, «so the link is to
+something that runs and not merely to something that exists»—. Se sigue esa
+convención en vez de marcar los escenarios a mano con `sdd/verify-mark`, que es
+para lo que ningún test puede probar.
 
 Como verificación negativa, y por mutación en vez de por observación: quitar
 `workspace` de la lista vuelve a poner el test rojo con el mensaje original. Se

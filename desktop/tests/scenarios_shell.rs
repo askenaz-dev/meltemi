@@ -527,6 +527,50 @@ fn typed_forms_mark_required_fields_and_their_freshness_is_a_gate() {
     );
 }
 
+// Scenario: Un schema nombrado por sus verbos pasa el gate
+// Scenario: Los dos métodos del taller se ligan a su schema
+#[test]
+fn the_form_gate_accepts_a_schema_named_after_its_verbs() {
+    // The generator binds a method through the claims of the schema's `title`,
+    // never through its filename, so a file named after the verbs it declares
+    // is as correct as one named after its family (familia-por-titulo D1).
+    let generator = read("desktop/ui/scripts/gen-method-forms.mjs");
+    assert!(
+        generator.contains("schema.claims.some"),
+        "the binding is decided by what the schema's title claims"
+    );
+
+    // One schema declares both workshop methods, and its name comes from its
+    // verbs — the same shape as verify-archive.schema.json.
+    let workspace = read("proto/schemas/v1/workspace.schema.json");
+    let title = workspace
+        .lines()
+        .find(|line| line.contains("\"title\""))
+        .expect("the workshop schema declares a title");
+    let forms = read("desktop/ui/src/lib/generated/method-forms.ts");
+    for method in ["change/workspace", "change/land"] {
+        assert!(
+            title.contains(method),
+            "the schema's title declares {method}, which is what binds its form"
+        );
+        assert!(
+            forms.contains(&format!("\"{method}\"")),
+            "{method} has a generated form"
+        );
+    }
+
+    let tests = read("desktop/ui/tests/forms.test.ts");
+    assert!(
+        tests.contains("\"workspace\","),
+        "the family gate accepts the schema named after its verbs"
+    );
+    assert!(
+        tests.contains("change/land"),
+        "and change/land is pinned by its own executed case, not left to the \
+         assert that stopped at change/workspace"
+    );
+}
+
 // ---- the session as the primary action ---------------------------------------
 
 // Scenario: Nueva sesión desde el chrome

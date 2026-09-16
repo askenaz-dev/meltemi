@@ -91,9 +91,12 @@ Dos hechos que conviene fijar porque el mensaje del test los esconde:
 
 ## Impact
 
-- Archivos: `desktop/ui/tests/forms.test.ts` (una línea de lista y un
-  comentario), `.meltemi/specs/gui-shell/spec.md` vía el delta de la change, y
-  `docs/plan-de-cambios.md` para registrar la change.
+- Archivos: `desktop/ui/tests/forms.test.ts` (una entrada de lista, su
+  comentario y un caso para los dos métodos del taller),
+  `desktop/tests/scenarios_shell.rs` (el enlace de los dos escenarios que
+  `meltemi verify` puede leer; design D5), `.meltemi/specs/gui-shell/spec.md`
+  vía el delta de la change, y `docs/plan-de-cambios.md` para registrar la
+  change.
 - **Cero cambios de comportamiento.** No se toca el generador, ni el módulo
   generado, ni un schema, ni el contrato `proto/`, ni el daemon. La GUI renderiza
   exactamente los mismos formularios antes y después; `change/workspace` y
@@ -102,9 +105,9 @@ Dos hechos que conviene fijar porque el mensaje del test los esconde:
 - **Ninguna dependencia nueva**, ningún crate, ningún paquete npm.
 - **No nace deber de paridad §4**: el daemon no gana capacidad. Esto es un gate
   del repositorio, no superficie de producto.
-- `cargo test --workspace` no queda afectado —ningún schema se mueve, así que el
-  test de conformidad de `proto/meltemi-proto` no ve diferencia—, pero se corre
-  igual como gate de la change.
+- El test de conformidad de `proto/meltemi-proto` no ve diferencia, porque
+  ningún schema se mueve. `cargo test --workspace` gana un solo test, el enlace
+  de escenarios de design D5, que lee archivos y no ejecuta nada del producto.
 
 ## Fuera de alcance
 
