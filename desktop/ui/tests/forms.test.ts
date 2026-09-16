@@ -34,10 +34,20 @@ test("every form resolves to a schema of its own family", () => {
     const ok =
       file.startsWith(family) ||
       family.startsWith(file.split("-")[0]) ||
-      // Single-method schemas keep their own names (validate, implement…).
-      ["validate", "implement", "verify-archive", "change", "spec", "repo-map", "commit"].includes(
-        file,
-      );
+      // Some schemas are named after the verbs they declare rather than after
+      // their family — the generator binds a method through the schema's
+      // `title`, so the filename is a label and never the key
+      // (familia-por-titulo D1).
+      [
+        "validate",
+        "implement",
+        "verify-archive",
+        "workspace",
+        "change",
+        "spec",
+        "repo-map",
+        "commit",
+      ].includes(file);
     assert.ok(ok, `${method} resolved to ${form.schema}`);
   }
 });
