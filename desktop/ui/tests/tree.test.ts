@@ -5,7 +5,14 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { agentLabelOf, groupSessions, projectName } from "../src/lib/tree.ts";
+import {
+  BUCKET_ORDER,
+  STOPPED_SHOWN,
+  agentLabelOf,
+  bucketSessions,
+  groupSessions,
+  projectName,
+} from "../src/lib/tree.ts";
 import type { ProjectInfo, SessionInfo } from "../src/lib/stores.ts";
 
 const TS = "2026-07-24T10:00:00Z";
@@ -131,4 +138,91 @@ test("the agent label falls back to the binary, without its extension", () => {
 test("the project name is the last path segment on both separators", () => {
   assert.equal(projectName("C:\\repos\\alpha"), "alpha");
   assert.equal(projectName("/home/g/repos/beta/"), "beta");
+});
+
+test("four states, four buckets in signal order", () => {
+  // Scenario: Cuatro estados, cuatro cubetas en orden de señal
+  const buckets = bucketSessions([
+    session("a", "C:\repos\alpha", { state: "ended" }),
+    session("b", "C:\repos\alpha", { state: "active" }),
+    session("c", "C:\repos\alpha", { state: "waiting_instruction" }),
+    session("d", "C:\repos\alpha", { state: "waiting_permission" }),
+  ]);
+  assert.deepEqual(
+    buckets.map((b) => b.id),
+    ["decision", "instruction", "working", "stopped"],
+    "what needs a human decision comes first, what is over comes last",
+  );
+  assert.deepEqual(
+    buckets.map((b) => b.sessions.map((s) => s.sessionId)),
+    [["d"], ["c"], ["b"], ["a"]],
+  );
+  // The header says the count, so every bucket carries one.
+  assert.deepEqual(buckets.map((b) => b.total), [1, 1, 1, 1]);
+});
+
+test("starting joins working, and interrupted joins stopped", () => {
+  // Scenario: Cuatro estados, cuatro cubetas en orden de señal. Six contract
+  // states, four buckets: the two pairs share a bucket on purpose.
+  const buckets = bucketSessions([
+    session("a", "C:\repos\alpha", { state: "starting" }),
+    session("b", "C:\repos\alpha", { state: "active" }),
+    session("c", "C:\repos\alpha", { state: "interrupted" }),
+    session("d", "C:\repos\alpha", { state: "ended" }),
+  ]);
+  assert.deepEqual(
+    buckets.map((b) => [b.id, b.total]),
+    [
+      ["working", 2],
+      ["stopped", 2],
+    ],
+  );
+});
+
+test("an empty bucket takes up no room", () => {
+  // Scenario: Una cubeta vacía no ocupa sitio. A header reading "Working 0" is
+  // noise, so the bucket is not returned at all rather than returned empty.
+  const buckets = bucketSessions([
+    session("a", "C:\repos\alpha", { state: "waiting_permission" }),
+  ]);
+  assert.deepEqual(buckets.map((b) => b.id), ["decision"]);
+  assert.deepEqual(bucketSessions([]), [], "no sessions, no headers");
+});
+
+test("the stopped bucket shows only the most recent, and says how many there are", () => {
+  // Scenario: Las detenidas no desbordan la barra. Handed over OLDEST first on
+  // purpose: the cap promises "the most recent", and a promise that depends on
+  // the caller having sorted is one that breaks the day someone calls this
+  // directly.
+  const many = Array.from({ length: STOPPED_SHOWN + 3 }, (_, i) =>
+    session(`s${i}`, "C:\repos\alpha", {
+      state: "ended",
+      startedAt: `2026-07-${String(10 + i).padStart(2, "0")}T10:00:00Z`,
+    }),
+  );
+  const [stopped] = bucketSessions(many);
+  assert.equal(stopped.id, "stopped");
+  assert.equal(stopped.sessions.length, STOPPED_SHOWN);
+  assert.equal(stopped.total, STOPPED_SHOWN + 3, "the count is the whole bucket, not the page");
+  assert.ok(stopped.capped, "so the bar can offer the way to see the rest");
+  assert.equal(stopped.sessions[0].sessionId, `s${STOPPED_SHOWN + 2}`, "newest first");
+});
+
+test("a live bucket is never capped: what is asking for you is all shown", () => {
+  // Scenario: Las detenidas no desbordan la barra — by its negative. Only what
+  // accumulates forever is capped; sessions that are asking for something are
+  // bounded by practice, not by a rule.
+  const many = Array.from({ length: STOPPED_SHOWN + 4 }, (_, i) =>
+    session(`w${i}`, "C:\repos\alpha", { state: "active" }),
+  );
+  const [working] = bucketSessions(many);
+  assert.equal(working.sessions.length, many.length);
+  assert.equal(working.capped, false);
+});
+
+test("the bucket order is the table, not a coincidence of the first input", () => {
+  // The terminal carries its own copy of this table in Rust; the pin that keeps
+  // them from diverging reads THIS constant, so it has to be the one the
+  // splitter uses.
+  assert.deepEqual([...BUCKET_ORDER], ["decision", "instruction", "working", "stopped"]);
 });

@@ -11,13 +11,21 @@ de paridad §4, y la TUI entra por paridad de superficies.
 
 ## 1. La partición
 
-- [ ] 1.1 `desktop/ui/src/lib/tree.ts`: `bucketSessions` — la tabla de cuatro
+- [x] 1.1 `desktop/ui/src/lib/tree.ts`: `bucketSessions` — la tabla de cuatro
   cubetas en orden de señal, pura y con test unitario en
   `desktop/ui/tests/tree.test.ts`; la cubeta de detenidas acotada a las más
   recientes con la cuenta total; claves `nav.bucket.*` ES/EN nuevas en
   `messages.ts` (la barra de estado tiene tres con `{n}` incrustado, no sirven)
   (design D1) — escenarios «Cuatro estados, cuatro cubetas en orden de señal» y
   «Una cubeta vacía no ocupa sitio» — gates: `npm test`
+  <!-- 2026-09-15: `BUCKET_OF` es un `Record` sobre la unión, como `LIVE_STATE`:
+  un estado nuevo del contrato es error de compilación **aquí**, una vez, en vez
+  de caerse de todas las cubetas y desaparecer de la barra sin que nada lo note.
+  Y la cubeta de detenidas **ordena ella misma** por fecha antes de acotar: su
+  tope promete «las más recientes», y una promesa que depende de que el llamador
+  haya ordenado se rompe el día que alguien la llama directo. Las cubetas vivas
+  conservan el orden que reciben y no se acotan — lo que se acumula para siempre
+  es lo terminado, y es lo único que empujaría el árbol fuera de pantalla. -->
 
 ## 2. La barra
 
