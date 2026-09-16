@@ -3,6 +3,7 @@
 // that lies about its method would send invalid params with a confident UI.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { METHOD_FORMS } from "../src/lib/generated/method-forms.ts";
@@ -27,6 +28,7 @@ test("apply-edit's form mirrors its schema exactly", () => {
   );
 });
 
+// Scenario: Un schema nombrado por sus verbos pasa el gate
 test("every form resolves to a schema of its own family", () => {
   for (const [method, form] of Object.entries(METHOD_FORMS)) {
     const family = method.split("/")[0];
@@ -34,11 +36,38 @@ test("every form resolves to a schema of its own family", () => {
     const ok =
       file.startsWith(family) ||
       family.startsWith(file.split("-")[0]) ||
-      // Single-method schemas keep their own names (validate, implement…).
-      ["validate", "implement", "verify-archive", "change", "spec", "repo-map", "commit"].includes(
-        file,
-      );
+      // Some schemas are named after the verbs they declare rather than after
+      // their family — the generator binds a method through the schema's
+      // `title`, so the filename is a label and never the key
+      // (familia-por-titulo D1).
+      [
+        "validate",
+        "implement",
+        "verify-archive",
+        "workspace",
+        "change",
+        "spec",
+        "repo-map",
+        "commit",
+      ].includes(file);
     assert.ok(ok, `${method} resolved to ${form.schema}`);
+  }
+});
+
+// Scenario: Los dos métodos del taller se ligan a su schema
+test("the workshop's two methods bind to the schema whose title declares them", () => {
+  // change/land is the half the family assertion never reported: `assert` stops
+  // at change/workspace, so one missing name silenced two failures. Both are
+  // pinned here, against the `title` that actually decides the binding.
+  const file = "workspace.schema.json";
+  const title = JSON.parse(
+    readFileSync(new URL(`../../../proto/schemas/v1/${file}`, import.meta.url), "utf-8"),
+  ).title;
+  for (const method of ["change/workspace", "change/land"]) {
+    const form = METHOD_FORMS[method];
+    assert.ok(form, `${method} has a typed form`);
+    assert.equal(form.schema, file);
+    assert.ok(title.includes(method), `${file} declares ${method} in its title (${title})`);
   }
 });
 
