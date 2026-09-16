@@ -528,7 +528,7 @@
                then what is over. The split is the tested pure function, so the
                terminal can be held to the same table (design D1). -->
           {#each bucketSessions(group.sessions) as bucket (bucket.id)}
-            <p class="bucket">
+            <p class="bucket" title={$t(("nav.bucket." + bucket.id) as never)}>
               <span aria-hidden="true">{BUCKET_GLYPH[bucket.id]}</span>
               <span class="bucketName">{$t(("nav.bucket." + bucket.id) as never)}</span>
               <span class="count">{bucket.total}</span>
@@ -867,8 +867,10 @@
     color: var(--text-faint);
   }
   .bucket .bucketName {
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    /* Deliberately NOT the uppercase + letter-spacing of `.sectionTitle`: the
+       conducted smoke measured "LISTAS PARA TU INSTRU…" truncated at the bar's
+       216 px, and those two properties were most of the reason. A bucket name
+       is a phrase about the rows under it, not the title of a region. */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

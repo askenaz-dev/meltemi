@@ -153,7 +153,7 @@ de paridad §4, y la TUI entra por paridad de superficies.
 
 ## 6. Cierre
 
-- [ ] 6.1 `docs/ux/design-system.md`: dos frases en «Shell architecture», una
+- [x] 6.1 `docs/ux/design-system.md`: dos frases en «Shell architecture», una
   en «Focus and keyboard» y dos filas en «Status vocabulary»
   (`waiting_instruction` ❯ / `>`; `interrupted` ■ / `x`, detenida), con change
   y fecha; `meltemi validate sesiones-en-la-barra` limpio y `meltemi verify`
@@ -161,3 +161,15 @@ de paridad §4, y la TUI entra por paridad de superficies.
   binario release con captura en `docs/qa/`; suite completa, clippy y fmt
   verdes; entrada en `docs/plan-de-cambios.md`; y la rama aterriza en `main`
   con `meltemi land sesiones-en-la-barra confirm`
+  <!-- 2026-09-16: `verify` **34/34 (completo)** — la primera pasada dio 33/34
+  porque «Enviar y encolar con las teclas del terminal» se daba por servido por
+  el gesto `Tab`+`Enter` que ya existía, sin test que lo enlazara a esta change.
+  El smoke conducido sobre el binario (`docs/qa/2026-09-16-…-smoke.md`) encontró
+  dos cosas: el nombre de la cubeta truncado por el `uppercase` heredado de
+  `.sectionTitle` —**corregido y re-medido**: 176 px en 153 → 131 px entero— y
+  que la superficie **nunca ve sus propias sesiones trabajando**, porque
+  `refreshSessions()` no corre durante un turno. Lo segundo es anterior a esta
+  change (el anillo de `compositor-que-trabaja` y el par de `redirigir-turno`
+  ya leían el mismo listado) y **no se cuela aquí**: sale a su propia change.
+  Mientras tanto la cubeta Trabajando y el par con turno en vuelo existen, están
+  probados por tests, y en la práctica casi no se dibujan. -->
