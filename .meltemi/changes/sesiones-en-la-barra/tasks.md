@@ -66,7 +66,7 @@ de paridad §4, y la TUI entra por paridad de superficies.
 
 ## 3. Las pestañas
 
-- [ ] 3.1 La lista deja de ser pestaña: `SessionTabs.svelte` y
+- [x] 3.1 La lista deja de ser pestaña: `SessionTabs.svelte` y
   `session-tabs.ts` sin el centinela `__list__`; `App.svelte` mantiene
   `activeSession === null` como «la tabla en pantalla»; los pines de
   `desktop/tests/scenarios_shell.rs` que fijaban `id: LIST` + `closable: false`
@@ -77,6 +77,16 @@ de paridad §4, y la TUI entra por paridad de superficies.
   guardia `migration.rs` no cubre `gui-shell` (design D2) — escenario «La lista
   es la vista, no una pestaña» y los diez restantes del bloque MODIFIED, ya
   cubiertos, re-pineados — gates: suite de cableado
+  <!-- 2026-09-15: quitar el centinela dejó al descubierto algo que el design no
+  había mirado: `TabStrip` ponía `tabindex=0` **solo** en la pestaña
+  seleccionada, y con la lista en pantalla ninguna lo estaría — un tablist sin
+  nada en el orden de tabulación, o sea sin manera de entrar con el teclado.
+  Ahora el tabindex sigue a un `focusIndex` que cae a la primera pestaña cuando
+  no hay selección: ARIA pide exactamente una pestaña tabulable, nunca que una
+  esté seleccionada. El panel de la lista deja además de declararse `tabpanel`
+  y de decir que lo etiqueta `tab-__list__`: sin la pestaña, eso era una promesa
+  al lector de pantalla que ya no sostenía nada. Y la clave `sessions.tabs.list`
+  —«Lista»— se borra del catálogo. -->
 - [ ] 3.2 La sesión nueva como pestaña: pestaña `__new__` con el compositor;
   `openComposer` abre-o-enfoca sin cambiar de vista y da el foco; al recibir
   `session_started` la pestaña se convierte en la de la sesión; la llegada

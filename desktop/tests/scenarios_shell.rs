@@ -1347,11 +1347,19 @@ fn several_sessions_stay_open_as_tabs_and_none_replaces_another() {
             && region.contains("aria-labelledby=\"tab-{tab.sessionId}\""),
         "each panel names the tab that controls it"
     );
-    // With no tabs open there is no tablist, and an orphan tabpanel is invalid.
+    // The listing is the view the strip sits in, not a panel a tab controls.
+    // It claims no tabpanel role and is labelled by no tab, because there is no
+    // longer a tab to be labelled by (sesiones-en-la-barra design D2).
     assert!(
-        region.contains("role={openSessions.length > 0 ? \"tabpanel\" : undefined}"),
-        "the list is only a tabpanel while a tablist exists"
+        region.contains("<div class=\"panel\" hidden={activeSession !== null}>"),
+        "the listing is shown when no tab is in front, and claims no tab role"
     );
+    for orphan in ["panel-__list__", "tab-__list__"] {
+        assert!(
+            !region.contains(orphan),
+            "no relation to a tab that no longer exists survives: {orphan}"
+        );
+    }
 
     // Navigating away keeps the tabs: approving a permission must not cost
     // three transcripts.
@@ -1396,32 +1404,84 @@ fn several_sessions_stay_open_as_tabs_and_none_replaces_another() {
     );
 }
 
-// Scenario: La lista es la primera pestaña y nunca se cierra
-// Scenario: El estado de cada pestaña se lee sin color
+// Scenario: La lista es la vista, no una pestaña
 #[test]
-fn the_list_is_the_first_tab_and_every_tab_states_its_condition_in_words() {
-    let tabs = read("desktop/ui/src/lib/components/SessionTabs.svelte");
-
-    // The list leads and cannot be closed: an empty selection is invalid in a
-    // tablist, and this is where Escape and the last close both land.
-    let items = tabs
-        .split("const items: TabItem[] = $derived([")
-        .nth(1)
-        .expect("the item list")
-        .split("]);")
-        .next()
-        .expect("body");
-    let list_first = items
-        .split("...tabs.map")
-        .next()
-        .expect("what comes before the sessions");
+fn the_renamed_scenario_replaces_the_old_one_in_the_living_truth() {
+    // The rename guard of `migration.rs` does NOT reach here: it walks the
+    // directories of `openspec/specs/`, and `gui-shell` was born after that
+    // migration, so a SUPERSEDED entry there would be dead code. This is the
+    // pin instead (sesiones-en-la-barra design D2).
+    let root = repo_root();
+    let old = "La lista es la primera pestaña y nunca se cierra";
+    let new = "La lista es la vista, no una pestaña";
+    let delta = root.join(".meltemi/changes/sesiones-en-la-barra/specs/gui-shell/spec.md");
+    if delta.is_file() {
+        // Still active: the delta is where the rename has to be declared, and
+        // it has to restate the whole living block to be a legal MODIFIED.
+        let text = std::fs::read_to_string(&delta).expect("the delta");
+        assert!(
+            text.contains("## MODIFIED Requirements")
+                && text.contains("### Requirement: Varias sesiones abiertas a la vez en pestañas"),
+            "the rename travels as a MODIFIED of the requirement that owns the sentence"
+        );
+        assert!(
+            text.contains(new) && !text.contains(old),
+            "the delta carries the new scenario and not the old one"
+        );
+        return;
+    }
+    // Archived: the living truth is what must have changed.
+    let living = std::fs::read_to_string(root.join(".meltemi/specs/gui-shell/spec.md"))
+        .expect("the living gui-shell spec");
     assert!(
-        list_first.contains("id: LIST") && list_first.contains("closable: false"),
-        "the list is the first item and has no close control: {list_first}"
+        living.contains(new),
+        "the living spec carries the renamed scenario"
     );
     assert!(
-        items.contains("closable: true"),
-        "every session tab can be closed: {items}"
+        !living.contains(old),
+        "and no longer carries the one it replaced"
+    );
+}
+
+// Scenario: La lista es la vista, no una pestaña
+// Scenario: El estado de cada pestaña se lee sin color
+#[test]
+fn the_listing_is_the_view_and_every_tab_states_its_condition_in_words() {
+    let tabs = read("desktop/ui/src/lib/components/SessionTabs.svelte");
+
+    // Every tab stands for a session, and every one of them can be closed. The
+    // listing is not among them: a tab that only took you to the page you were
+    // already on was a control with nothing to do.
+    let items = tabs
+        .split("const items: TabItem[] = $derived(")
+        .nth(1)
+        .expect("the item list")
+        .split(
+            "
+  );",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        items.starts_with(
+            "
+    tabs.map((tab) => {"
+        ),
+        "the items are the open sessions and nothing else: {items}"
+    );
+    assert!(
+        items.contains("closable: true") && !items.contains("closable: false"),
+        "every tab can be closed, because every tab is a session: {items}"
+    );
+    assert!(
+        !tabs.contains("__list__") && !tabs.contains("sessions.tabs.list"),
+        "no sentinel tab survives anywhere in the strip's vocabulary"
+    );
+    // With nothing in front the strip selects nothing, which is how the listing
+    // gets to be what is on screen.
+    assert!(
+        tabs.contains("activeId={active}"),
+        "the strip is handed the tab in front, or null when none is"
     );
 
     // Symbol and word, never colour alone — the badge that already covers all
@@ -2936,9 +2996,22 @@ fn the_tab_strip_is_traversable_by_arrow_keys() {
 
     // Roving tabindex: exactly one tab in the tab order at a time. This is what
     // the widened sweep is exempted for, and the exemption is paid for here.
+    //
+    // It follows `focusIndex`, not the selection, because a tablist may have
+    // nothing selected — the listing is on screen — and what it may never have
+    // is nothing focusable. `focusIndex` falls back to the first tab, so the
+    // keyboard always has a way in (sesiones-en-la-barra design D2).
     assert!(
-        strip.contains("tabindex={active ? 0 : -1}"),
+        strip.contains("tabindex={index === focusIndex ? 0 : -1}"),
         "one tab is in the tab order, and the arrows reach the others"
+    );
+    assert!(
+        strip.contains("items.findIndex((item) => item.id === activeId),")
+            && strip.contains(
+                "Math.max(
+      0,"
+            ),
+        "and with nothing selected the keyboard still enters on the first tab"
     );
 
     let keys = strip

@@ -1,9 +1,12 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!--
   The session vocabulary, kept out of both `TabStrip` and the shell: this is the
-  only place that knows a tab stands for a session. The list is the first tab
-  and is never closable — an empty selection is invalid in a tablist, and the
-  list is where Escape and the last close both land.
+  only place that knows a tab stands for a session.
+
+  Every tab here stands for a session. The listing is NOT one of them: it is the
+  view the strip sits in, and a tab that only took you to the page you were
+  already on was a control with nothing to do (sesiones-en-la-barra design D2).
+  With no tab in front the strip selects nothing and the listing is on screen.
 -->
 <script lang="ts">
   import { t } from "../i18n";
@@ -42,9 +45,6 @@
   let menuFor: string | null = $state(null);
   let newName = $state("");
 
-  /** The id the strip uses for the list. Sessions are UUIDs; this is not one. */
-  const LIST = "__list__";
-
   // Resolved against the FULL listing, not the project-scoped one: a tab holding
   // a session from another project must still render its agent and its state
   // rather than going blank after a project switch.
@@ -65,9 +65,8 @@
     ).size > 1,
   );
 
-  const items: TabItem[] = $derived([
-    { id: LIST, label: $t("sessions.tabs.list"), closable: false },
-    ...tabs.map((tab) => {
+  const items: TabItem[] = $derived(
+    tabs.map((tab) => {
       const info = infoOf(tab.sessionId);
       const agent = info ? agentLabelOf(info) : $t("sessions.tabs.gone");
       const group = groupOf(groups, tab.sessionId);
@@ -101,7 +100,7 @@
           : undefined,
       };
     }),
-  ]);
+  );
 
   function unreadOf(id: string): number {
     return tabs.find((tab) => tab.sessionId === id)?.unread ?? 0;
@@ -110,19 +109,18 @@
 
 <TabStrip
   {items}
-  activeId={active ?? LIST}
+  activeId={active}
   label={$t("sessions.tabs")}
   closeLabel={$t("sessions.tabs.close")}
   scrollLeftLabel={$t("tabs.scrollLeft")}
   scrollRightLabel={$t("tabs.scrollRight")}
   onToggleGroup={(id, collapsed) => onToggleGroup(id, collapsed)}
   collapsedLabel={(g) => $t("tabs.group.collapsed", { name: g.name, n: String(g.size) })}
-  onSelect={(id) => onSelect(id === LIST ? null : id)}
+  onSelect={(id) => onSelect(id)}
   onClose={(id) => onClose(id)}
 >
   {#snippet menu(item)}
-    {#if item.id !== LIST}
-      <button
+    <button
         class="dots ghost"
         aria-haspopup="menu"
         aria-expanded={menuFor === item.id}
@@ -130,24 +128,21 @@
         title={$t("tabs.group.menu")}
         onclick={() => ((menuFor = menuFor === item.id ? null : item.id), (newName = ""))}
       >
-        ⋯
-      </button>
-    {/if}
+      ⋯
+    </button>
   {/snippet}
   {#snippet mark(item)}
-    {#if item.id !== LIST}
-      {@const info = infoOf(item.id)}
-      {#if info}
-        <StatusBadge state={info.state} compact />
-      {/if}
-      {#if unreadOf(item.id) > 0}
-        <span
-          class="pill unread"
-          aria-label={$t("sessions.tabs.unread", { n: String(unreadOf(item.id)) })}
-        >
-          {unreadOf(item.id)}
-        </span>
-      {/if}
+    {@const info = infoOf(item.id)}
+    {#if info}
+      <StatusBadge state={info.state} compact />
+    {/if}
+    {#if unreadOf(item.id) > 0}
+      <span
+        class="pill unread"
+        aria-label={$t("sessions.tabs.unread", { n: String(unreadOf(item.id)) })}
+      >
+        {unreadOf(item.id)}
+      </span>
     {/if}
   {/snippet}
 </TabStrip>

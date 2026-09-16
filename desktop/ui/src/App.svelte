@@ -479,10 +479,12 @@
           onOpenFleet={() => navigate("fleet")}
         />
       {:else if view === "sessions"}
-        <!-- The list and every open session are peers here: the list is the
-             first tab, each session is a mounted panel, and the ones not in
-             front are hidden rather than unmounted — which is what keeps a
-             transcript, a search and an unsent draft alive (design D6). -->
+        <!-- The listing is the VIEW; the tabs are the sessions open inside it.
+             Each session is a mounted panel, and the ones not in front are
+             hidden rather than unmounted — which is what keeps a transcript, a
+             search and an unsent draft alive (design D6). With no tab in front
+             the listing is what is on screen, which is also where the last
+             close and Escape land (sesiones-en-la-barra design D2). -->
         <div class="sessionSurface">
           {#if openSessions.length > 0}
             <SessionTabs
@@ -500,13 +502,10 @@
               onClose={closeSessionTab}
             />
           {/if}
-          <div
-            class="panel"
-            role={openSessions.length > 0 ? "tabpanel" : undefined}
-            id="panel-__list__"
-            aria-labelledby={openSessions.length > 0 ? "tab-__list__" : undefined}
-            hidden={activeSession !== null}
-          >
+          <!-- Not a tabpanel: no tab controls it any more, and claiming the
+               role without a tab to be labelled by would be a promise to a
+               screen reader that nothing keeps. -->
+          <div class="panel" hidden={activeSession !== null}>
             <Sessions
               onOpen={(sessionId) => openSessionTab(sessionId)}
               onNavigate={navigate}
