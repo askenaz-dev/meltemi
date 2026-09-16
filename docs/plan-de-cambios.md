@@ -937,6 +937,37 @@ Y el cierre encontró lo suyo: `verify` dio 14/15 porque el escenario de la CLI
 estaba marcado hecho sin test que lo enlazara — el verbo existía y nadie lo
 probaba. Documentación en `docs/harness.md`.
 
+### `familia-por-titulo` — abierta el 2026-09-16, vía rápida
+
+Defecto en `main`, no idea nueva: `desktop/ui/tests/forms.test.ts` llevaba rojo
+el gate «every form resolves to a schema of its own family» desde que
+`rama-por-change` añadió `change/workspace` y `change/land`.
+`harness-global-y-por-agente` lo encontró al cerrar y lo **anotó sin colarlo**
+(tasks 6.3); esta change lo cobra por la puerta de siempre.
+
+El test no fallaba por un contrato roto sino por una regla que el contrato nunca
+tuvo. El generador liga método→schema por el `title` del schema (`claimsMethod`,
+`gen-method-forms.mjs:49–56`), no por el nombre del archivo: el nombre es una
+etiqueta que viaja al resultado, nunca una llave que se consulte. Y
+`workspace.schema.json` no es una anomalía — es el cuarto miembro de un grupo
+que ya tenía tres: `implement` (`sdd/implement`), `validate` (`sdd/validate`) y
+`verify-archive` (`sdd/verify · sdd/verify-mark · sdd/archive`) llevan todos el
+nombre de sus verbos y no el de su familia, y son exactamente las tres entradas
+que sostenían la lista de excepciones del test. Por eso **no se renombró nada**:
+renombrar habría cambiado el contrato para que una heurística de test dejara de
+quejarse, y para ser honesto el archivo habría tenido que partirse en dos,
+porque aloja `landParams` tanto como `workspaceParams`.
+
+Dos hechos que el mensaje del test escondía: `change/land` fallaba igual —no
+existe `land.schema.json` y el `assert` cortaba en el primero—, y cuatro de las
+siete entradas de la lista son inertes: `change`, `spec`, `repo-map` y `commit`
+ya pasan por `file.startsWith(family)`.
+
+**Propuesta futura anotada, no colada** (design D3): derivar la lista de los
+`title` del contrato en vez de escribirla a mano, lo que vigilaría la ligadura
+real en lugar de la forma de los nombres y haría imposible esta deriva; con ella
+desaparecerían solas las cuatro entradas inertes.
+
 ### `compositor-que-trabaja` — abierta e implementada el 2026-08-09
 
 `Home.svelte` llevaba `class:busy` desde el día que se escribió y **no había
