@@ -4368,6 +4368,84 @@ fn a_session_row_says_what_it_is_about_and_whether_it_is_open() {
     );
 }
 
+// Scenario: Seleccionar en la barra trae la pestaña al frente
+// Scenario: Cerrar desde la barra cae en la vecina
+// Scenario: Cerrar no es olvidar
+// Scenario: Plegada, la tira sigue siendo el camino
+#[test]
+fn the_bar_governs_the_open_tabs_without_becoming_a_second_truth() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    let app = app();
+
+    // The section is the strip seen from the side: same set, same order.
+    assert!(
+        sidebar.contains("nav.open.title") && sidebar.contains("{#each openRows as row"),
+        "the bar lists the open tabs in a section of its own, with the count"
+    );
+    assert!(
+        sidebar.contains("openSessions.map((sessionId) => ({"),
+        "driven by the open ids, so a tab whose session the listing has not          caught up with still has a row"
+    );
+    // Selecting goes through the ONE opener, which is what makes it focus an
+    // existing tab rather than create a second.
+    assert!(
+        sidebar.contains("onclick={() => onOpenSession(row.sessionId)}"),
+        "activating a row brings its tab to the front through the one opener"
+    );
+    assert!(
+        sidebar.contains("aria-current={current ? \"true\" : undefined}")
+            && sidebar.contains("nav.open.current"),
+        "the tab in front is marked by shape and word, not by colour alone"
+    );
+
+    // Closing is the SAME function the strip closes with, so the fallback —
+    // left neighbour, then last, then the listing — cannot drift between them.
+    assert!(
+        sidebar.contains("onCloseSession?.(row.sessionId)") && sidebar.contains("nav.open.close"),
+        "each row offers a close control with an accessible name"
+    );
+    assert!(
+        app.contains("onCloseSession={closeSessionTab}"),
+        "and the bar closes through the shell's own closer, not a copy of it"
+    );
+    assert!(
+        sidebar.contains("if (event.key !== \"Delete\") return;"),
+        "Delete on a focused row closes it, as in the strip"
+    );
+    // Closing a tab is not ending a session: the shell's closer only touches
+    // tab state, so the session stays in its bucket with its state.
+    let closer = app
+        .split("function closeSessionTab")
+        .nth(1)
+        .expect("the shell declares its closer")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    for ending in ["session/cancel", "cancelSession", "session/stop"] {
+        assert!(
+            !closer.contains(ending),
+            "closing a tab must not end the session: found `{ending}`"
+        );
+    }
+
+    // Folded to the rail the section goes with the tree, and the strip is still
+    // the way to every tab — nothing becomes unreachable.
+    assert!(
+        sidebar.contains(
+            "aside.folded .tree,
+  aside.folded .tabs,"
+        ),
+        "folded, the section hides with the tree"
+    );
+    assert!(
+        app.contains("<SessionTabs"),
+        "and the strip is mounted regardless of how the bar is folded"
+    );
+}
+
 // Scenario: Un cambio de estado salta de cubeta sin animarse
 #[test]
 fn nothing_in_the_bar_animates_its_position() {

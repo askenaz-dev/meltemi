@@ -35,6 +35,8 @@
     onOpenSession,
     onNewSessionIn,
     openSessions = [],
+    activeSession = null,
+    onCloseSession,
   }: {
     view: ViewId;
     onNavigate: (view: ViewId) => void;
@@ -48,10 +50,39 @@
      * never a second one.
      */
     openSessions?: string[];
+    /** The tab in front, or `null` when the listing is. */
+    activeSession?: string | null;
+    /** Close a tab, by the same rule the strip closes one with. */
+    onCloseSession?: (sessionId: string) => void;
   } = $props();
 
   /** Ids with a tab, as a set: the row asks this once per draw, not per tab. */
   const openIds = $derived(new Set(openSessions));
+
+  /**
+   * The open tabs, in the strip's own order, each with whatever the daemon
+   * knows about its session.
+   *
+   * Driven by `openSessions`, not by the session list: a tab whose session the
+   * listing has not caught up with is still open, and dropping its row would
+   * make the bar and the strip disagree about what exists.
+   */
+  const openRows = $derived(
+    openSessions.map((sessionId) => ({
+      sessionId,
+      session: $allSessions.find((s) => s.sessionId === sessionId) ?? null,
+    })),
+  );
+
+  /**
+   * `Delete` on a focused row closes it, as in the strip. Declared here rather
+   * than inline so the row markup stays a row.
+   */
+  function onOpenRowKeys(event: KeyboardEvent, sessionId: string) {
+    if (event.key !== "Delete") return;
+    event.preventDefault();
+    onCloseSession?.(sessionId);
+  }
 
   /** Collapsed project nodes, by root. The tree opens expanded. */
   let collapsed = $state(new Set<string>());
@@ -373,6 +404,56 @@
     onkeydown={onSplitKeys}
   ></div>
 
+  <!-- The open tabs, seen from the side. The same set, the same order, the same
+       one in front, closed by the same function — not a second truth about what
+       is open (design D3). Folded to the rail it goes with the tree, and the
+       strip stays the way to every tab. -->
+  {#if openRows.length > 0}
+    <div class="tabs">
+      <span class="sectionTitle">{$t("nav.open.title", { n: String(openRows.length) })}</span>
+      <ul>
+        {#each openRows as row (row.sessionId)}
+          {@const current = row.sessionId === activeSession}
+          <li>
+            <button
+              class="leaf ghost"
+              class:current
+              aria-current={current ? "true" : undefined}
+              onclick={() => onOpenSession(row.sessionId)}
+              onkeydown={(event) => onOpenRowKeys(event, row.sessionId)}
+            >
+              {#if row.session}
+                <Avatar id={agentLabelOf(row.session)} size={16} />
+              {/if}
+              <span class="agent"
+                >{row.session ? rowLabel(row.session) : row.sessionId.slice(0, 8)}</span
+              >
+              {#if current}
+                <!-- Shape and word, like every other state in this bar. -->
+                <span class="openMark">
+                  <span aria-hidden="true">▸</span>
+                  <span class="sr">{$t("nav.open.current")}</span>
+                </span>
+              {/if}
+            </button>
+            <button
+              class="quick ghost"
+              aria-label={$t("nav.open.close", {
+                session: row.session ? rowLabel(row.session) : row.sessionId.slice(0, 8),
+              })}
+              title={$t("nav.open.close", {
+                session: row.session ? rowLabel(row.session) : row.sessionId.slice(0, 8),
+              })}
+              onclick={() => onCloseSession?.(row.sessionId)}
+            >
+              <Icon name="close" size={12} />
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+
   <!-- The projects section is permanent chrome, not something a modal reveals:
        it is where the shell says what it knows about, and it stays put. -->
   <div class="section">
@@ -544,6 +625,7 @@
      nothing goes with it — its projects and sessions stay reachable through the
      Sessions entry and the project switcher, both of which remain on the rail. */
   aside.folded .tree,
+  aside.folded .tabs,
   aside.folded .split {
     display: none;
   }
@@ -799,6 +881,24 @@
   .openMark {
     flex: none;
     color: var(--accent);
+  }
+  .tabs {
+    display: grid;
+    gap: 2px;
+    padding: 0 var(--sp-2);
+  }
+  .tabs ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .tabs li {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .tabs .leaf.current {
+    color: var(--text);
   }
   .leaf {
     display: flex;

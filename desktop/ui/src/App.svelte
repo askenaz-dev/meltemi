@@ -390,6 +390,8 @@
   <Sidebar
     {view}
     openSessions={openSessions.map((t) => t.sessionId)}
+    {activeSession}
+    onCloseSession={closeSessionTab}
     onNavigate={navigate}
     onPickProject={() => (switcherOpen = true)}
     onNewSessionIn={(root) => openComposer("free", root)}

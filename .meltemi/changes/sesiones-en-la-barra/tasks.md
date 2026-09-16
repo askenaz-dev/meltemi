@@ -50,13 +50,19 @@ de paridad §4, y la TUI entra por paridad de superficies.
   superficie que lo escribía a su manera, y el test lee **las dos** fuentes
   —`docs/ux/design-system.md` y la función— en vez de fiarse de una lista
   escrita en el test. -->
-- [ ] 2.2 La sección «Abiertas (n)»: `Sidebar.svelte` recibe `openSessions` y
+- [x] 2.2 La sección «Abiertas (n)»: `Sidebar.svelte` recibe `openSessions` y
   `activeSession`, lista las pestañas en orden de tira, selecciona y cierra
   por el mismo `closeTab`, marca la actual por forma y palabra, `Delete`
   cierra la fila enfocada; plegada, la sección se va con el árbol (design D3)
   — escenarios «Seleccionar en la barra trae la pestaña al frente», «Cerrar
   desde la barra cae en la vecina», «Cerrar no es olvidar» y «Plegada, la tira
   sigue siendo el camino» — gates: suite de cableado
+  <!-- 2026-09-15: las filas se derivan de `openSessions`, **no** del listado de
+  sesiones: una pestaña cuya sesión el listado todavía no alcanzó sigue abierta,
+  y dejarla sin fila haría que la barra y la tira discreparan sobre qué existe.
+  El test comprueba «Cerrar no es olvidar» **por el lado negativo**: lee el
+  cuerpo de `closeSessionTab` y exige que no contenga ningún verbo de terminar
+  sesión — así el escenario no depende de que alguien se acuerde. -->
 
 ## 3. Las pestañas
 
