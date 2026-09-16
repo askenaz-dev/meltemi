@@ -1240,7 +1240,7 @@ propia no sigue el patrón ARIA; (2) un tope de líneas del transcript en la GUI
 el conjunto de pestañas al arrancar, cuya primera tarea sería medir el arranque
 con ocho.
 
-### `sesiones-en-la-barra` — abierta el 2026-09-06, vía completa
+### `sesiones-en-la-barra` — abierta el 2026-09-06, implementada el 2026-09-15
 
 Nace de la maqueta de acabado del shell y de cuatro frases del mantenedor: las
 sesiones «deben aparecer a la izquierda en el menú y diferenciadas por en
@@ -1278,6 +1278,52 @@ que la compuerta lo decida.
 de la lista se pinea con un test propio; y la tabla de cubetas vive dos veces
 —TypeScript y Rust no comparten función—, con un test de paridad que falla si
 divergen.
+
+**Cerrada 8/8, verify 34/34.** Tres cosas que solo aparecieron al implementar.
+
+(1) **El design se equivocó en un hecho**: daba por existente una guardia que
+prohíbe toda palabra de animación en `Sidebar.svelte`; ese archivo de tests ya
+no existe —se fundió en `scenarios_shell.rs`— y la prohibición solo cubría la
+bandeja. La guardia se escribió aquí, que es justo cuando se volvió portante: la
+barra pasó a contener la cubeta donde aterriza un permiso, y una fila que se
+deslizara sería movimiento bajo el cursor mientras se decide.
+
+(2) **Quitar la pestaña «Lista» destapó un fallo de accesibilidad**: `TabStrip`
+ponía `tabindex=0` **solo** en la pestaña seleccionada, y con la lista en
+pantalla ninguna lo estaría — un tablist sin nada en el orden de tabulación, o
+sea sin manera de entrar con el teclado. Ahora el tabindex sigue a un
+`focusIndex` que cae a la primera pestaña cuando no hay selección: ARIA pide
+exactamente una pestaña tabulable, nunca que una esté seleccionada.
+
+(3) **Dos decisiones que el design no había tomado** y que el código obligó a
+tomar: si la sesión arranca mientras se lee **otra** pestaña, la pestaña nace
+igual pero el frente no se mueve (llevarse al usuario sería que la superficie
+decidiera dónde mira); y el compositor toma el cursor solo mientras **es** la
+pestaña al frente, porque su panel queda montado detrás de otra y un campo
+oculto que roba el foco escribe donde nadie ve.
+
+Y el cierre encontró lo suyo: `verify` dio 33/34 porque el escenario de las
+teclas del terminal se daba por servido sin test que lo enlazara.
+
+**El smoke conducido sobre el binario encontró dos cosas más.** La primera se
+corrigió aquí: a 216 px la cabecera leía «LISTAS PARA TU INSTRU… 1», y la culpa
+no era la frase sino el `uppercase` + `letter-spacing` heredados de
+`.sectionTitle` — un nombre de cubeta es una frase sobre sus filas, no el título
+de una región.
+
+La segunda **no se corrige aquí, y es la que importa**: muestreando las cabeceras
+80 veces alrededor de un turno real, la cubeta **Trabajando nunca apareció**. En
+la misma corrida el daemon respondió `queued` y el compositor dijo «el turno en
+curso sigue intacto» — o sea que había turno en vuelo y el listado de la
+superficie no lo sabía. `refreshSessions()` se llama al conectar, al conmutar de
+proyecto y al terminar un envío, nunca **durante** un turno; y de ese listado
+salen tanto el anillo de `compositor-que-trabaja` como el par de esta change.
+**Es anterior a esta change** —las dos anteriores ya dependían del mismo
+listado—, pero esta lo puso donde se ve. Sale a su propia change en vez de
+colarse: refrescar durante un turno es conducta sobre un store compartido, roza
+la regla de que la barra no anima, y hay que decidir si repregunta el cliente o
+empuja el daemon. Nota completa en
+`docs/qa/2026-09-16-sesiones-en-la-barra-smoke.md`.
 
 ### `identidad-propia` — abierta el 2026-09-06, vía completa
 

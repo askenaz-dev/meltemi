@@ -8,6 +8,7 @@
 //! and forwards it, so the async loop never blocks on either source.
 
 pub mod bell;
+pub mod buckets;
 pub mod conn;
 pub mod glyphs;
 pub mod keymap;

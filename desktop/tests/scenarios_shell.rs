@@ -543,10 +543,19 @@ fn a_new_session_is_the_primary_action_and_propose_is_one_key_away() {
         app.contains("event.key.toLowerCase() === \"n\""),
         "and a key does the same"
     );
-    // Both go through the one door, and it opens the composer.
+    // Both go through the one door, and it opens the composer — which is now a
+    // TAB inside the sessions view, not a view of its own. `home` stays the
+    // ViewId of the door; what it resolves to is that tab in front
+    // (sesiones-en-la-barra design D4).
     assert!(
-        app.contains("onNewSession={() => openComposer()}") && app.contains("view = \"home\";"),
+        app.contains("onNewSession={() => openComposer()}")
+            && app.contains("setLastView(\"home\");")
+            && app.contains("openTab(openSessions, NEW_SESSION_TAB)"),
         "the primary action and its key open the conversational composer"
+    );
+    assert!(
+        !app.contains("{:else if view === \"home\"}"),
+        "and the composer is no longer routed to as a view of its own"
     );
     // Free is what a new session is, before anything is chosen.
     let home = read("desktop/ui/src/lib/views/Home.svelte");
@@ -1309,16 +1318,16 @@ fn several_sessions_stay_open_as_tabs_and_none_replaces_another() {
     );
 
     // Every entry point goes through one function, so open-or-focus cannot be
-    // implemented in one of them and forgotten in the others.
-    // One definition and the four entry points: the sidebar tree, the
-    // composer, the sessions table and a session resuming another.
+    // implemented in one of them and forgotten in the others: the sidebar tree,
+    // the sessions table, a session resuming another — and the composer, which
+    // reaches it through `adoptComposerTab` when there is no composer tab to
+    // turn into the session (sesiones-en-la-barra design D4).
     assert_eq!(
         app.matches("openSessionTab(").count(),
         5,
         "every way into a session goes through one door"
     );
     for door in [
-        "onOpenSession={(sessionId) => openSessionTab(sessionId)}",
         "onOpen={(sessionId) => openSessionTab(sessionId)}",
         "onOpenSession={(id) => openSessionTab(id)}",
         "openSessionTab(sessionId);",
@@ -1328,6 +1337,24 @@ fn several_sessions_stay_open_as_tabs_and_none_replaces_another() {
             "an entry point still opens by hand: {door}"
         );
     }
+    assert!(
+        app.contains("onOpenSession={(sessionId) => adoptComposerTab(sessionId)}"),
+        "the composer's arrival goes through the adopter"
+    );
+    let adopter = app
+        .split("function adoptComposerTab")
+        .nth(1)
+        .expect("the shell declares the adopter")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        adopter.contains("openSessionTab(sessionId);"),
+        "and with no composer tab to turn into the session it uses the same one door: {adopter}"
+    );
     assert!(
         app.contains("const next = openTab(openSessions, sessionId)")
             && app.contains("pushNotice($t(\"sessions.tabs.full\""),
@@ -1347,11 +1374,19 @@ fn several_sessions_stay_open_as_tabs_and_none_replaces_another() {
             && region.contains("aria-labelledby=\"tab-{tab.sessionId}\""),
         "each panel names the tab that controls it"
     );
-    // With no tabs open there is no tablist, and an orphan tabpanel is invalid.
+    // The listing is the view the strip sits in, not a panel a tab controls.
+    // It claims no tabpanel role and is labelled by no tab, because there is no
+    // longer a tab to be labelled by (sesiones-en-la-barra design D2).
     assert!(
-        region.contains("role={openSessions.length > 0 ? \"tabpanel\" : undefined}"),
-        "the list is only a tabpanel while a tablist exists"
+        region.contains("<div class=\"panel\" hidden={activeSession !== null}>"),
+        "the listing is shown when no tab is in front, and claims no tab role"
     );
+    for orphan in ["panel-__list__", "tab-__list__"] {
+        assert!(
+            !region.contains(orphan),
+            "no relation to a tab that no longer exists survives: {orphan}"
+        );
+    }
 
     // Navigating away keeps the tabs: approving a permission must not cost
     // three transcripts.
@@ -1396,32 +1431,187 @@ fn several_sessions_stay_open_as_tabs_and_none_replaces_another() {
     );
 }
 
-// Scenario: La lista es la primera pestaña y nunca se cierra
-// Scenario: El estado de cada pestaña se lee sin color
+// Scenario: Pedir una sesión nueva abre su pestaña y da el foco
+// Scenario: Pedirla de nuevo enfoca, no duplica
+// Scenario: Enviar convierte la pestaña en la sesión
+// Scenario: Llegar es llegar a la pestaña nueva
+// Scenario: Cerrar con borrador pide decisión
 #[test]
-fn the_list_is_the_first_tab_and_every_tab_states_its_condition_in_words() {
-    let tabs = read("desktop/ui/src/lib/components/SessionTabs.svelte");
+fn a_new_session_is_born_as_a_tab_with_the_caret_already_in_it() {
+    // The reducers are executed by `session-tabs.test.ts`; this pins that those
+    // cases exist and that the shell consumes them rather than deciding inline.
+    let tests = read("desktop/ui/tests/session-tabs.test.ts");
+    for case in [
+        "asking for a new session twice focuses the composer instead of opening a second",
+        "sending turns the composer tab into the session's own, in place",
+        "the composer tab counts against the cap like any other",
+    ] {
+        assert!(tests.contains(case), "the executed case is missing: {case}");
+    }
 
-    // The list leads and cannot be closed: an empty selection is invalid in a
-    // tablist, and this is where Escape and the last close both land.
-    let items = tabs
-        .split("const items: TabItem[] = $derived([")
+    let app = app();
+    // Asking opens or focuses ONE composer tab, inside the sessions view.
+    let door = app
+        .split("function openComposer(")
         .nth(1)
-        .expect("the item list")
-        .split("]);")
+        .expect("the shell declares the door")
+        .split(
+            "
+  }",
+        )
         .next()
         .expect("body");
-    let list_first = items
-        .split("...tabs.map")
-        .next()
-        .expect("what comes before the sessions");
     assert!(
-        list_first.contains("id: LIST") && list_first.contains("closable: false"),
-        "the list is the first item and has no close control: {list_first}"
+        door.contains("view = \"sessions\";")
+            && door.contains("openTab(openSessions, NEW_SESSION_TAB)"),
+        "the composer opens as a tab in the sessions view: {door}"
     );
     assert!(
-        items.contains("closable: true"),
-        "every session tab can be closed: {items}"
+        door.contains("sessions.tabs.full"),
+        "and at the cap it refuses with the remedy named, like any other tab"
+    );
+
+    // The caret: the composer holds it while it is the tab in front, and lets
+    // go when it is not — a hidden field taking the focus would type into what
+    // nobody can see.
+    let home = read("desktop/ui/src/lib/views/Home.svelte");
+    assert!(
+        home.contains("if (focused) box?.focus();"),
+        "the composer takes the caret only while its tab is in front"
+    );
+    assert!(
+        app.contains("focused={tab.sessionId === activeSession}"),
+        "and the shell tells it which one that is"
+    );
+
+    // Sending turns THIS tab into the session's: no second tab is opened.
+    assert!(
+        app.contains("onOpenSession={(sessionId) => adoptComposerTab(sessionId)}"),
+        "the arrival adopts the composer tab"
+    );
+
+    // Arriving. A remembered `home` and a profile that remembered nothing both
+    // land on the composer tab — `home` stays the identity of the door.
+    assert!(
+        app.contains("if (state.lastView === \"home\") openComposer();"),
+        "a remembered `home` resolves to the composer tab"
+    );
+    assert!(
+        app.contains(
+            "} else {
+        openComposer();
+      }"
+        ),
+        "and a profile that remembered nothing lands there too"
+    );
+
+    // Closing it with an unsent instruction asks; empty, it just closes.
+    let closer = app
+        .split("function closeComposerTab")
+        .nth(1)
+        .expect("the shell declares the composer's closer")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        closer.contains("if (composerDirty) {") && closer.contains("discardComposer = true;"),
+        "an unsent instruction is a decision, not a discard: {closer}"
+    );
+    assert!(
+        closer.contains("closeSessionTab(NEW_SESSION_TAB);"),
+        "and an empty composer closes without a question: {closer}"
+    );
+    assert!(
+        app.contains("{#if discardComposer}") && app.contains("sessions.composer.discard.message"),
+        "the decision is asked with the shared dialog"
+    );
+    assert!(
+        home.contains("onDraftChange?.(text.trim() !== \"\");"),
+        "and what makes it dirty is an instruction, not whitespace"
+    );
+}
+
+// Scenario: La lista es la vista, no una pestaña
+#[test]
+fn the_renamed_scenario_replaces_the_old_one_in_the_living_truth() {
+    // The rename guard of `migration.rs` does NOT reach here: it walks the
+    // directories of `openspec/specs/`, and `gui-shell` was born after that
+    // migration, so a SUPERSEDED entry there would be dead code. This is the
+    // pin instead (sesiones-en-la-barra design D2).
+    let root = repo_root();
+    let old = "La lista es la primera pestaña y nunca se cierra";
+    let new = "La lista es la vista, no una pestaña";
+    let delta = root.join(".meltemi/changes/sesiones-en-la-barra/specs/gui-shell/spec.md");
+    if delta.is_file() {
+        // Still active: the delta is where the rename has to be declared, and
+        // it has to restate the whole living block to be a legal MODIFIED.
+        let text = std::fs::read_to_string(&delta).expect("the delta");
+        assert!(
+            text.contains("## MODIFIED Requirements")
+                && text.contains("### Requirement: Varias sesiones abiertas a la vez en pestañas"),
+            "the rename travels as a MODIFIED of the requirement that owns the sentence"
+        );
+        assert!(
+            text.contains(new) && !text.contains(old),
+            "the delta carries the new scenario and not the old one"
+        );
+        return;
+    }
+    // Archived: the living truth is what must have changed.
+    let living = std::fs::read_to_string(root.join(".meltemi/specs/gui-shell/spec.md"))
+        .expect("the living gui-shell spec");
+    assert!(
+        living.contains(new),
+        "the living spec carries the renamed scenario"
+    );
+    assert!(
+        !living.contains(old),
+        "and no longer carries the one it replaced"
+    );
+}
+
+// Scenario: La lista es la vista, no una pestaña
+// Scenario: El estado de cada pestaña se lee sin color
+#[test]
+fn the_listing_is_the_view_and_every_tab_states_its_condition_in_words() {
+    let tabs = read("desktop/ui/src/lib/components/SessionTabs.svelte");
+
+    // Every tab stands for a session, and every one of them can be closed. The
+    // listing is not among them: a tab that only took you to the page you were
+    // already on was a control with nothing to do.
+    let items = tabs
+        .split("const items: TabItem[] = $derived(")
+        .nth(1)
+        .expect("the item list")
+        .split(
+            "
+  );",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        items.starts_with(
+            "
+    tabs.map((tab) => {"
+        ),
+        "the items are the open sessions and nothing else: {items}"
+    );
+    assert!(
+        items.contains("closable: true") && !items.contains("closable: false"),
+        "every tab can be closed, because every tab is a session: {items}"
+    );
+    assert!(
+        !tabs.contains("__list__") && !tabs.contains("sessions.tabs.list"),
+        "no sentinel tab survives anywhere in the strip's vocabulary"
+    );
+    // With nothing in front the strip selects nothing, which is how the listing
+    // gets to be what is on screen.
+    assert!(
+        tabs.contains("activeId={active}"),
+        "the strip is handed the tab in front, or null when none is"
     );
 
     // Symbol and word, never colour alone — the badge that already covers all
@@ -2252,6 +2442,116 @@ fn every_session_state_is_declared_by_every_surface_that_shows_state() {
     );
 }
 
+// Scenario: Ctrl+Enter despacha cuando la sesión espera
+// Scenario: Ctrl+Shift+Enter encola y nunca interrumpe
+// Scenario: Ctrl+Enter mientras trabaja avisa antes y releva
+// Scenario: Con el compositor vacío no hay nada que relevar
+// Scenario: Los acordes viejos no se pisan
+// Scenario: Enter sigue siendo salto de línea
+#[test]
+fn two_chords_that_say_what_they_do() {
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    let keys = detail
+        .split("function onDraftKeydown")
+        .nth(1)
+        .expect("the composer's key handler")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+
+    // A bare Enter is a newline, still: only a chord sends anything.
+    assert!(
+        keys.contains("if (event.key !== \"Enter\" || !(event.ctrlKey || event.metaKey)) return;"),
+        "Enter on its own is a line break: {keys}"
+    );
+    // Shift+chord queues, and the queueing path never carries `interrupt`.
+    assert!(
+        keys.contains(
+            "if (event.shiftKey) {
+      void direct();"
+        ),
+        "Ctrl+Shift+Enter queues: {keys}"
+    );
+    assert!(
+        !keys.contains("event.shiftKey")
+            || !keys.contains(
+                "direct(true)
+"
+            ),
+        "and it is never the one that interrupts"
+    );
+    // The plain chord dispatches NOW: relaying only when there is a turn to
+    // relay and something to relay with, which is what `relays` answers.
+    assert!(
+        keys.contains("void direct(relays);"),
+        "Ctrl+Enter dispatches now, relaying only when relaying is what now means: {keys}"
+    );
+    // The pair of buttons is drawn under the SAME answer, so the keys and the
+    // labels cannot disagree about what the chord will do.
+    assert!(
+        detail.contains("{#if relays}"),
+        "the labels are drawn from the same condition the keys read"
+    );
+    // With a turn in flight, nothing is labelled "Send" — which is what keeps
+    // `conversational-session`'s "sending does not interrupt" literally true.
+    let row = detail
+        .split("<div class=\"composerRow\">")
+        .nth(1)
+        .expect("the composer's row")
+        .split("</div>")
+        .next()
+        .expect("its body");
+    let in_flight = row
+        .split("{#if relays}")
+        .nth(1)
+        .expect("the in-flight pair")
+        .split("{:else if canSend}")
+        .next()
+        .expect("the pair closes");
+    assert!(
+        !in_flight.contains("$t(\"home.send\")"),
+        "with a turn in flight no control is called Send: {in_flight}"
+    );
+    // Both carry their chord where the eye is: the shortcut keeps its
+    // affordance rather than living only in a help screen.
+    assert!(
+        in_flight.contains("$t(\"conv.chord.queue\")")
+            && in_flight.contains("$t(\"conv.chord.dispatch\")"),
+        "each control says which chord performs it: {in_flight}"
+    );
+
+    // The older chords are not trodden on. The palette runs its command on the
+    // plain chord only, so the queueing chord does not mean two things
+    // depending on where the focus is.
+    let palette = read("desktop/ui/src/lib/components/Palette.svelte");
+    assert!(
+        palette.contains("(event.ctrlKey || event.metaKey) && !event.shiftKey"),
+        "the palette answers the plain chord and leaves the other alone"
+    );
+    // And the new-session composer sends on both, because there is no turn
+    // behind which to queue.
+    let home = read("desktop/ui/src/lib/views/Home.svelte");
+    assert!(
+        home.contains("if (event.key === \"Enter\" && (event.ctrlKey || event.metaKey)) {"),
+        "a new session starts on either chord"
+    );
+
+    // `help.keys` names them, in both languages.
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    for named in [
+        "Ctrl+Enter despachar ahora · Ctrl+Shift+Enter encolar",
+        "Ctrl+Enter dispatch now · Ctrl+Shift+Enter queue",
+    ] {
+        assert!(
+            catalog.contains(named),
+            "the help names the chords: {named}"
+        );
+    }
+}
+
 // Scenario: Interrumpir y enviar se ofrece con texto y sesión trabajando
 // Scenario: Sin texto no hay nada que relevar
 #[test]
@@ -2265,16 +2565,23 @@ fn interrupting_and_sending_sits_beside_the_send_that_queues() {
         .next()
         .expect("its body");
 
-    let relay = row
-        .split("{#if canSend && session && WORKING")
+    // The condition moved into a named derived so the keys and the labels are
+    // drawn from ONE answer; the guard it expresses is unchanged
+    // (sesiones-en-la-barra design D5).
+    let relay = detail
+        .split("const relays = $derived(")
         .nth(1)
         .expect("the relay control and its guard")
-        .split("{/if}")
+        .split(");")
         .next()
         .expect("the guard closes");
     assert!(
-        row.contains("class=\"ghost relay\""),
-        "interrupting is offered in the composer, beside the send: {row}"
+        row.contains("{#if relays}") && row.contains("class=\"primary relay\""),
+        "interrupting is offered in the composer, beside the send that queues: {row}"
+    );
+    assert!(
+        row.contains("$t(\"conv.queue\")"),
+        "and the queueing send is the one beside it, named for what it does: {row}"
     );
     // With text, and only with text: an empty box has nothing to relay with,
     // and offering it there would promise an action the daemon must refuse.
@@ -2285,8 +2592,8 @@ fn interrupting_and_sending_sits_beside_the_send_that_queues() {
     // While a turn is RUNNING — narrower than the stop beside it, which stays
     // offered while the session waits on a decision.
     assert!(
-        row.contains("{#if canSend && session && WORKING.includes(session.state)"),
-        "offered while a turn runs, not merely while the session is alive: {row}"
+        relay.contains("canSend && session && WORKING.includes(session.state)"),
+        "offered while a turn runs, not merely while the session is alive: {relay}"
     );
     assert!(
         detail.contains("const WORKING = [\"active\", \"starting\"]"),
@@ -2936,9 +3243,22 @@ fn the_tab_strip_is_traversable_by_arrow_keys() {
 
     // Roving tabindex: exactly one tab in the tab order at a time. This is what
     // the widened sweep is exempted for, and the exemption is paid for here.
+    //
+    // It follows `focusIndex`, not the selection, because a tablist may have
+    // nothing selected — the listing is on screen — and what it may never have
+    // is nothing focusable. `focusIndex` falls back to the first tab, so the
+    // keyboard always has a way in (sesiones-en-la-barra design D2).
     assert!(
-        strip.contains("tabindex={active ? 0 : -1}"),
+        strip.contains("tabindex={index === focusIndex ? 0 : -1}"),
         "one tab is in the tab order, and the arrows reach the others"
+    );
+    assert!(
+        strip.contains("items.findIndex((item) => item.id === activeId),")
+            && strip.contains(
+                "Math.max(
+      0,"
+            ),
+        "and with nothing selected the keyboard still enters on the first tab"
     );
 
     let keys = strip
@@ -4255,6 +4575,225 @@ fn the_projects_section_is_permanent_chrome() {
     );
 }
 
+// ---- the buckets inside each project ------------------------------------------
+
+// Scenario: Cuatro estados, cuatro cubetas en orden de señal
+// Scenario: Una cubeta vacía no ocupa sitio
+// Scenario: Las detenidas no desbordan la barra
+#[test]
+fn each_project_node_orders_its_sessions_by_what_they_ask_of_you() {
+    // The split itself is executed by `tree.test.ts`; this pins that those
+    // cases exist and that the bar consumes that module rather than deciding
+    // the order inline, where the executed test could not see it.
+    let tests = read("desktop/ui/tests/tree.test.ts");
+    for case in [
+        "four states, four buckets in signal order",
+        "an empty bucket takes up no room",
+        "the stopped bucket shows only the most recent, and says how many there are",
+    ] {
+        assert!(tests.contains(case), "the executed case is missing: {case}");
+    }
+
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        sidebar.contains("bucketSessions,") && sidebar.contains("bucketSessions(group.sessions)"),
+        "the tree iterates the tested buckets, not the flat listing"
+    );
+    assert!(
+        !sidebar.contains("group.sessions.slice("),
+        "no second cut of the sessions survives beside the bucket's own"
+    );
+    // Glyph AND word AND count in the header: the terminal rule applies here
+    // too, because colour alone is not a status.
+    assert!(
+        sidebar.contains("BUCKET_GLYPH[bucket.id]")
+            && sidebar.contains("$t((\"nav.bucket.\" + bucket.id) as never)")
+            && sidebar.contains("{bucket.total}"),
+        "a bucket header says its glyph, its word and how many it holds"
+    );
+    // The count is the whole bucket, so the offer to see the rest can only
+    // appear when the cap actually left something out.
+    assert!(
+        sidebar.contains("{#if bucket.capped}") && sidebar.contains("nav.bucket.seeAll"),
+        "a capped bucket offers the way to the rest, by the count it declared"
+    );
+    assert!(
+        sidebar.contains("switchProject(group.root); onNavigate(\"sessions\")"),
+        "and that way switches the project before it goes to the view"
+    );
+
+    // The glyph table of the bar and the design system's status vocabulary are
+    // one table. `waiting_permission` is the one the bar used to spell its own
+    // way, so it is the one worth reading out of both files.
+    let design = read("docs/ux/design-system.md");
+    assert!(
+        design.contains("| waiting_permission | `●`"),
+        "the design system spells a pending decision `●`"
+    );
+    let glyphs = sidebar
+        .split("function stateGlyph")
+        .nth(1)
+        .expect("the bar declares its glyphs")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        glyphs.contains("case \"waiting_permission\":") && glyphs.contains("return \"●\";"),
+        "and the bar spells it the same way: {glyphs}"
+    );
+}
+
+// Scenario: La fila dice el título y si está abierta
+#[test]
+fn a_session_row_says_what_it_is_about_and_whether_it_is_open() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    // The title the daemon derived, with the agent and a short id as the
+    // fallback — never a bare hash presented as a name.
+    assert!(
+        sidebar.contains("if (session.title) return session.title;")
+            && sidebar.contains("session.sessionId.slice(0, 8)"),
+        "the row leads with the title, and says agent + short id without one"
+    );
+    assert!(
+        sidebar.contains("{rowLabel(session)}"),
+        "and the row draws that label"
+    );
+    // The subscription pill survives this change: two subscriptions of the same
+    // agent have to stay distinguishable in the tree.
+    assert!(
+        sidebar.contains("{#if session.profile}") && sidebar.contains("class=\"pill sub\""),
+        "the row keeps the subscription name that tells two of the same agent apart"
+    );
+    // Open in a tab is shape AND word, never colour alone.
+    assert!(
+        sidebar.contains("openIds.has(session.sessionId)")
+            && sidebar.contains("class=\"openMark\"")
+            && sidebar.contains("nav.bucket.open"),
+        "a session that holds a tab is marked with a shape and a word"
+    );
+    // The bar reads the shell's list; it does not keep a second one.
+    let app = app();
+    assert!(
+        app.contains("openSessions={openSessions.map((t) => t.sessionId)}"),
+        "the open ids come from the shell's own tab state, not from a copy"
+    );
+    // Activating a row goes through the same opener as everywhere else, which
+    // is what makes it focus an existing tab instead of creating a second.
+    assert!(
+        sidebar.contains("onOpenSession(session.sessionId)"),
+        "and activating a row opens or focuses its tab through the one opener"
+    );
+}
+
+// Scenario: Seleccionar en la barra trae la pestaña al frente
+// Scenario: Cerrar desde la barra cae en la vecina
+// Scenario: Cerrar no es olvidar
+// Scenario: Plegada, la tira sigue siendo el camino
+#[test]
+fn the_bar_governs_the_open_tabs_without_becoming_a_second_truth() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    let app = app();
+
+    // The section is the strip seen from the side: same set, same order.
+    assert!(
+        sidebar.contains("nav.open.title") && sidebar.contains("{#each openRows as row"),
+        "the bar lists the open tabs in a section of its own, with the count"
+    );
+    assert!(
+        sidebar.contains("openSessions.map((sessionId) => ({"),
+        "driven by the open ids, so a tab whose session the listing has not          caught up with still has a row"
+    );
+    // Selecting goes through the ONE opener, which is what makes it focus an
+    // existing tab rather than create a second.
+    assert!(
+        sidebar.contains("onclick={() => onOpenSession(row.sessionId)}"),
+        "activating a row brings its tab to the front through the one opener"
+    );
+    assert!(
+        sidebar.contains("aria-current={current ? \"true\" : undefined}")
+            && sidebar.contains("nav.open.current"),
+        "the tab in front is marked by shape and word, not by colour alone"
+    );
+
+    // Closing is the SAME function the strip closes with, so the fallback —
+    // left neighbour, then last, then the listing — cannot drift between them.
+    assert!(
+        sidebar.contains("onCloseSession?.(row.sessionId)") && sidebar.contains("nav.open.close"),
+        "each row offers a close control with an accessible name"
+    );
+    assert!(
+        app.contains("onCloseSession={closeSessionTab}"),
+        "and the bar closes through the shell's own closer, not a copy of it"
+    );
+    assert!(
+        sidebar.contains("if (event.key !== \"Delete\") return;"),
+        "Delete on a focused row closes it, as in the strip"
+    );
+    // Closing a tab is not ending a session: the shell's closer only touches
+    // tab state, so the session stays in its bucket with its state.
+    let closer = app
+        .split("function closeSessionTab")
+        .nth(1)
+        .expect("the shell declares its closer")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    for ending in ["session/cancel", "cancelSession", "session/stop"] {
+        assert!(
+            !closer.contains(ending),
+            "closing a tab must not end the session: found `{ending}`"
+        );
+    }
+
+    // Folded to the rail the section goes with the tree, and the strip is still
+    // the way to every tab — nothing becomes unreachable.
+    assert!(
+        sidebar.contains(
+            "aside.folded .tree,
+  aside.folded .tabs,"
+        ),
+        "folded, the section hides with the tree"
+    );
+    assert!(
+        app.contains("<SessionTabs"),
+        "and the strip is mounted regardless of how the bar is folded"
+    );
+}
+
+// Scenario: Un cambio de estado salta de cubeta sin animarse
+#[test]
+fn nothing_in_the_bar_animates_its_position() {
+    // The bar now holds the bucket a permission request lands in. A row that
+    // slid into place would be movement under the cursor while a decision is
+    // being made, which the signal rules forbid — so the rule is enforced on
+    // the file rather than left to discipline.
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    for forbidden in [
+        "transition:",
+        "animate:",
+        "@keyframes",
+        "animation-name",
+        "animation:",
+    ] {
+        assert!(
+            !sidebar.contains(forbidden),
+            "the bar must not animate: found `{forbidden}`"
+        );
+    }
+    // A bucket is a plain element in document order: a row that changes state
+    // is drawn in its new bucket on the next pass, and nothing moves it there.
+    assert!(
+        sidebar.contains("{#each bucketSessions(group.sessions) as bucket (bucket.id)}"),
+        "the buckets are re-derived per draw rather than mutated in place"
+    );
+}
+
 // Scenario: Acción rápida por proyecto lleva al compositor
 #[test]
 fn each_project_node_can_start_work_in_it() {
@@ -4444,10 +4983,11 @@ fn sending_walks_in_and_every_entry_point_arrives_at_the_composer() {
     // One door, and every entry point goes through it.
     assert_eq!(
         app.matches("openComposer(").count(),
-        6,
-        "the definition plus its five call sites: the shortcut, the chrome's \
+        8,
+        "the definition plus its seven call sites: the shortcut, the chrome's \
          primary action, the empty state of Sessions, the Project view's \
-         Propose, and a project node of the nav"
+         Propose, a project node of the nav, and the two arrivals — a \
+         remembered `home` and a profile that remembered nothing"
     );
     for entry in [
         "openComposer();\n      return;",              // the shortcut

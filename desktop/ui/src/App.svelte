@@ -36,6 +36,8 @@
     markUnread,
     openTab,
     type SessionTab,
+    NEW_SESSION_TAB,
+    adoptTab,
   } from "./lib/session-tabs";
   import Sidebar from "./lib/components/Sidebar.svelte";
   import SessionTabs from "./lib/components/SessionTabs.svelte";
@@ -78,6 +80,14 @@
    */
   let openSessions: SessionTab[] = $state([]);
   let activeSession: string | null = $state(null);
+  /**
+   * Whether the composer tab is holding an unsent instruction. A long prompt is
+   * work, so closing that tab asks before discarding it; closing it empty asks
+   * nothing (design D4).
+   */
+  let composerDirty = $state(false);
+  /** The composer tab awaiting a decision about its unsent draft. */
+  let discardComposer = $state(false);
   /**
    * Tab groups. Not persisted, for the same reason the tabs are not: a group of
    * tabs that no longer exist has nothing to restore (D7 of the tab change).
@@ -186,7 +196,14 @@
       if (state.locale) setLocale(state.locale);
       await initProjectScope(state.activeProject);
       if (state.lastView && ["home", ...KEYED_VIEWS, "editor", "settings"].includes(state.lastView)) {
-        view = state.lastView as ViewId;
+        // `home` is still the remembered identity of the door; what it resolves
+        // to is the composer tab, in front, with the caret in the field. A
+        // profile that never chose anything gets the same thing, because `home`
+        // is where `view` starts (design D4).
+        if (state.lastView === "home") openComposer();
+        else view = state.lastView as ViewId;
+      } else {
+        openComposer();
       }
       const seen = await invoke<boolean>("onboarding_seen");
       if (!seen) onboardingOpen = true;
@@ -282,13 +299,55 @@
     project: string | null = null,
   ) {
     leaveEditor(() => {
-      view = "home";
+      // The composer is a TAB now, inside the sessions view, so asking for a
+      // new session no longer takes the strip off screen. `home` stays the
+      // ViewId of the door — the nav entry, Ctrl+N, the palette and the
+      // remembered view all still say it — and it resolves to this tab in
+      // front (design D4).
+      view = "sessions";
       reviewOpen = false;
       editorContext = null;
       composerMode = mode;
       composerProject = project;
       setLastView("home");
+      const next = openTab(openSessions, NEW_SESSION_TAB);
+      if ("full" in next && next.full) {
+        pushNotice($t("sessions.tabs.full", { n: String(MAX_SESSION_TABS) }), "warn");
+        return;
+      }
+      openSessions = next.tabs;
+      activeSession = next.active;
     });
+  }
+
+  /**
+   * A session just started. If the composer tab is open it BECOMES that
+   * session's tab, in place; otherwise the session opens a tab of its own —
+   * a session can start from somewhere that never had a composer.
+   */
+  function adoptComposerTab(sessionId: string) {
+    const adopted = adoptTab(openSessions, activeSession, sessionId);
+    if (!adopted) {
+      openSessionTab(sessionId);
+      return;
+    }
+    view = "sessions";
+    openSessions = adopted.tabs;
+    activeSession = adopted.active;
+    composerDirty = false;
+  }
+
+  /**
+   * Closing the composer tab. With an unsent instruction in it the decision is
+   * the user's, with the same dialog a dirty editor tab uses; empty, it just
+   * closes.
+   */
+  function closeComposerTab() {
+    if (composerDirty) {
+      discardComposer = true;
+      return;
+    }
+    closeSessionTab(NEW_SESSION_TAB);
   }
 
   /** Focuses the first pending request of the tray, once it has rendered. */
@@ -389,6 +448,9 @@
 <div class="shell">
   <Sidebar
     {view}
+    openSessions={openSessions.map((t) => t.sessionId)}
+    {activeSession}
+    onCloseSession={closeSessionTab}
     onNavigate={navigate}
     onPickProject={() => (switcherOpen = true)}
     onNewSessionIn={(root) => openComposer("free", root)}
@@ -468,18 +530,13 @@
           }}
           onBack={() => (reviewOpen = false)}
         />
-      {:else if view === "home"}
-        <Home
-          initialMode={composerMode}
-          initialProject={composerProject}
-          onOpenSession={(sessionId) => openSessionTab(sessionId)}
-          onOpenFleet={() => navigate("fleet")}
-        />
       {:else if view === "sessions"}
-        <!-- The list and every open session are peers here: the list is the
-             first tab, each session is a mounted panel, and the ones not in
-             front are hidden rather than unmounted — which is what keeps a
-             transcript, a search and an unsent draft alive (design D6). -->
+        <!-- The listing is the VIEW; the tabs are the sessions open inside it.
+             Each session is a mounted panel, and the ones not in front are
+             hidden rather than unmounted — which is what keeps a transcript, a
+             search and an unsent draft alive (design D6). With no tab in front
+             the listing is what is on screen, which is also where the last
+             close and Escape land (sesiones-en-la-barra design D2). -->
         <div class="sessionSurface">
           {#if openSessions.length > 0}
             <SessionTabs
@@ -494,16 +551,13 @@
                 activeSession = id;
                 if (id !== null) openSessions = clearUnread(openSessions, id);
               }}
-              onClose={closeSessionTab}
+              onClose={(id) => (id === NEW_SESSION_TAB ? closeComposerTab() : closeSessionTab(id))}
             />
           {/if}
-          <div
-            class="panel"
-            role={openSessions.length > 0 ? "tabpanel" : undefined}
-            id="panel-__list__"
-            aria-labelledby={openSessions.length > 0 ? "tab-__list__" : undefined}
-            hidden={activeSession !== null}
-          >
+          <!-- Not a tabpanel: no tab controls it any more, and claiming the
+               role without a tab to be labelled by would be a promise to a
+               screen reader that nothing keeps. -->
+          <div class="panel" hidden={activeSession !== null}>
             <Sessions
               onOpen={(sessionId) => openSessionTab(sessionId)}
               onNavigate={navigate}
@@ -511,21 +565,43 @@
             />
           </div>
           {#each openSessions as tab (tab.sessionId)}
-            <div
-              class="panel"
-              role="tabpanel"
-              id="panel-{tab.sessionId}"
-              aria-labelledby="tab-{tab.sessionId}"
-              hidden={tab.sessionId !== activeSession}
-            >
-              <SessionDetail
-                sessionId={tab.sessionId}
-                active={tab.sessionId === activeSession}
-                onBack={() => (activeSession = null)}
-                onOpenSession={(id) => openSessionTab(id)}
-                onActivity={() => (openSessions = markUnread(openSessions, tab.sessionId))}
-              />
-            </div>
+            {#if tab.sessionId === NEW_SESSION_TAB}
+              <!-- The composer, as a panel of its own tab. Hidden rather than
+                   unmounted like every other tab, which is what keeps an unsent
+                   instruction alive while you look at something else. -->
+              <div
+                class="panel"
+                role="tabpanel"
+                id="panel-{tab.sessionId}"
+                aria-labelledby="tab-{tab.sessionId}"
+                hidden={tab.sessionId !== activeSession}
+              >
+                <Home
+                  initialMode={composerMode}
+                  initialProject={composerProject}
+                  focused={tab.sessionId === activeSession}
+                  onDraftChange={(dirty) => (composerDirty = dirty)}
+                  onOpenSession={(sessionId) => adoptComposerTab(sessionId)}
+                  onOpenFleet={() => navigate("fleet")}
+                />
+              </div>
+            {:else}
+              <div
+                class="panel"
+                role="tabpanel"
+                id="panel-{tab.sessionId}"
+                aria-labelledby="tab-{tab.sessionId}"
+                hidden={tab.sessionId !== activeSession}
+              >
+                <SessionDetail
+                  sessionId={tab.sessionId}
+                  active={tab.sessionId === activeSession}
+                  onBack={() => (activeSession = null)}
+                  onOpenSession={(id) => openSessionTab(id)}
+                  onActivity={() => (openSessions = markUnread(openSessions, tab.sessionId))}
+                />
+              </div>
+            {/if}
           {/each}
         </div>
       {:else if view === "project"}
@@ -551,6 +627,20 @@
 
 {#if paletteOpen}
   <Palette onClose={() => (paletteOpen = false)} onNavigate={navigate} />
+{/if}
+
+{#if discardComposer}
+  <ConfirmDialog
+    title={$t("confirm.title")}
+    message={$t("sessions.composer.discard.message")}
+    confirmLabel={$t("sessions.composer.discard.confirm")}
+    onConfirm={() => {
+      discardComposer = false;
+      composerDirty = false;
+      closeSessionTab(NEW_SESSION_TAB);
+    }}
+    onCancel={() => (discardComposer = false)}
+  />
 {/if}
 
 {#if onboardingOpen}

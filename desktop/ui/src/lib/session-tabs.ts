@@ -16,6 +16,15 @@ export interface SessionTab {
 export const MAX_SESSION_TABS = 8;
 
 /**
+ * The id of the composer tab — a session that does not exist yet.
+ *
+ * Sessions are UUIDs, so this can never collide with one. It is a real tab in
+ * every other respect: it counts against the cap, it can be closed, and it sits
+ * where it was opened (sesiones-en-la-barra design D4).
+ */
+export const NEW_SESSION_TAB = "__new__";
+
+/**
  * Open a session, or focus it if it is already open.
  *
  * At the cap this REFUSES rather than evicting: a background tab can hold an
@@ -68,4 +77,42 @@ export function markUnread(tabs: SessionTab[], sessionId: string): SessionTab[] 
 /** It has been read: the tab came to the front. */
 export function clearUnread(tabs: SessionTab[], sessionId: string): SessionTab[] {
   return tabs.map((tab) => (tab.sessionId === sessionId ? { ...tab, unread: 0 } : tab));
+}
+
+/**
+ * The composer tab becomes the tab of the session it just started.
+ *
+ * Same place in the strip, same panel: `session/start` knows the session's
+ * identity before the first token, so there is nothing to open — only a name to
+ * settle. Opening a second tab would leave the composer behind as a tab nobody
+ * asked to keep.
+ *
+ * Returns `null` when there is no composer tab to adopt from, so the caller can
+ * fall back to opening a tab the ordinary way — a session can start from
+ * somewhere that never had a composer.
+ */
+export function adoptTab(
+  tabs: SessionTab[],
+  active: string | null,
+  sessionId: string,
+): { tabs: SessionTab[]; active: string | null } | null {
+  const index = tabs.findIndex((tab) => tab.sessionId === NEW_SESSION_TAB);
+  if (index < 0) return null;
+  const onComposer = active === NEW_SESSION_TAB;
+  const already = tabs.some((tab) => tab.sessionId === sessionId);
+  if (already) {
+    // Nothing to rename onto. Drop the composer rather than leave two tabs
+    // claiming the same session.
+    return {
+      tabs: tabs.filter((tab) => tab.sessionId !== NEW_SESSION_TAB),
+      active: onComposer ? sessionId : active,
+    };
+  }
+  return {
+    tabs: tabs.map((tab, i) => (i === index ? { sessionId, unread: 0 } : tab)),
+    // Only when the composer was the one in front. Someone who moved to another
+    // tab while the session started is reading it, and pulling them away would
+    // be the surface deciding where they look.
+    active: onComposer ? sessionId : active,
+  };
 }
