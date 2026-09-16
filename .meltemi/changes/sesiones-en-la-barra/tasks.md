@@ -29,7 +29,7 @@ de paridad §4, y la TUI entra por paridad de superficies.
 
 ## 2. La barra
 
-- [ ] 2.1 `Sidebar.svelte`: las cubetas dentro de cada proyecto (cabecera con
+- [x] 2.1 `Sidebar.svelte`: las cubetas dentro de cada proyecto (cabecera con
   glifo, palabra y cuenta; filas con avatar, título, pastilla de suscripción y
   marca de abierta; «Ver las {n}» hacia Sesiones), `stateGlyph` alineado con la
   tabla del design system (● para `waiting_permission`), sin una sola palabra
@@ -38,6 +38,18 @@ de paridad §4, y la TUI entra por paridad de superficies.
   de estado salta de cubeta sin animarse»; conserva el pin vivo «Dos
   suscripciones del mismo agente distinguibles»
   (`scenarios_multiproyecto.rs:285`) — gates: suite de cableado
+  <!-- 2026-09-15: **el design se equivocó en un hecho**. Daba por existente una
+  guardia que prohíbe toda palabra de animación en `Sidebar.svelte`
+  (`scenarios_multiproyecto.rs:328`); ese archivo ya no existe —se fundió en
+  `scenarios_shell.rs`— y la prohibición **solo cubría la bandeja**, no la
+  barra. Así que la guardia se escribe aquí, que es justo lo que el escenario
+  «Un cambio de estado salta de cubeta sin animarse» pedía: ahora la barra
+  contiene la cubeta donde aterriza un permiso, y una fila que se deslizara
+  sería movimiento bajo el cursor mientras se decide.
+  El glifo de `waiting_permission` pasa de `‖` a `●`: la barra era la única
+  superficie que lo escribía a su manera, y el test lee **las dos** fuentes
+  —`docs/ux/design-system.md` y la función— en vez de fiarse de una lista
+  escrita en el test. -->
 - [ ] 2.2 La sección «Abiertas (n)»: `Sidebar.svelte` recibe `openSessions` y
   `activeSession`, lista las pestañas en orden de tira, selecciona y cierra
   por el mismo `closeTab`, marca la actual por forma y palabra, `Delete`

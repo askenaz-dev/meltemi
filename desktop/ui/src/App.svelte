@@ -389,6 +389,7 @@
 <div class="shell">
   <Sidebar
     {view}
+    openSessions={openSessions.map((t) => t.sessionId)}
     onNavigate={navigate}
     onPickProject={() => (switcherOpen = true)}
     onNewSessionIn={(root) => openComposer("free", root)}

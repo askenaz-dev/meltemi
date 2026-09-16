@@ -4255,6 +4255,147 @@ fn the_projects_section_is_permanent_chrome() {
     );
 }
 
+// ---- the buckets inside each project ------------------------------------------
+
+// Scenario: Cuatro estados, cuatro cubetas en orden de señal
+// Scenario: Una cubeta vacía no ocupa sitio
+// Scenario: Las detenidas no desbordan la barra
+#[test]
+fn each_project_node_orders_its_sessions_by_what_they_ask_of_you() {
+    // The split itself is executed by `tree.test.ts`; this pins that those
+    // cases exist and that the bar consumes that module rather than deciding
+    // the order inline, where the executed test could not see it.
+    let tests = read("desktop/ui/tests/tree.test.ts");
+    for case in [
+        "four states, four buckets in signal order",
+        "an empty bucket takes up no room",
+        "the stopped bucket shows only the most recent, and says how many there are",
+    ] {
+        assert!(tests.contains(case), "the executed case is missing: {case}");
+    }
+
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        sidebar.contains("bucketSessions,") && sidebar.contains("bucketSessions(group.sessions)"),
+        "the tree iterates the tested buckets, not the flat listing"
+    );
+    assert!(
+        !sidebar.contains("group.sessions.slice("),
+        "no second cut of the sessions survives beside the bucket's own"
+    );
+    // Glyph AND word AND count in the header: the terminal rule applies here
+    // too, because colour alone is not a status.
+    assert!(
+        sidebar.contains("BUCKET_GLYPH[bucket.id]")
+            && sidebar.contains("$t((\"nav.bucket.\" + bucket.id) as never)")
+            && sidebar.contains("{bucket.total}"),
+        "a bucket header says its glyph, its word and how many it holds"
+    );
+    // The count is the whole bucket, so the offer to see the rest can only
+    // appear when the cap actually left something out.
+    assert!(
+        sidebar.contains("{#if bucket.capped}") && sidebar.contains("nav.bucket.seeAll"),
+        "a capped bucket offers the way to the rest, by the count it declared"
+    );
+    assert!(
+        sidebar.contains("switchProject(group.root); onNavigate(\"sessions\")"),
+        "and that way switches the project before it goes to the view"
+    );
+
+    // The glyph table of the bar and the design system's status vocabulary are
+    // one table. `waiting_permission` is the one the bar used to spell its own
+    // way, so it is the one worth reading out of both files.
+    let design = read("docs/ux/design-system.md");
+    assert!(
+        design.contains("| waiting_permission | `●`"),
+        "the design system spells a pending decision `●`"
+    );
+    let glyphs = sidebar
+        .split("function stateGlyph")
+        .nth(1)
+        .expect("the bar declares its glyphs")
+        .split(
+            "
+  }",
+        )
+        .next()
+        .expect("body");
+    assert!(
+        glyphs.contains("case \"waiting_permission\":") && glyphs.contains("return \"●\";"),
+        "and the bar spells it the same way: {glyphs}"
+    );
+}
+
+// Scenario: La fila dice el título y si está abierta
+#[test]
+fn a_session_row_says_what_it_is_about_and_whether_it_is_open() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    // The title the daemon derived, with the agent and a short id as the
+    // fallback — never a bare hash presented as a name.
+    assert!(
+        sidebar.contains("if (session.title) return session.title;")
+            && sidebar.contains("session.sessionId.slice(0, 8)"),
+        "the row leads with the title, and says agent + short id without one"
+    );
+    assert!(
+        sidebar.contains("{rowLabel(session)}"),
+        "and the row draws that label"
+    );
+    // The subscription pill survives this change: two subscriptions of the same
+    // agent have to stay distinguishable in the tree.
+    assert!(
+        sidebar.contains("{#if session.profile}") && sidebar.contains("class=\"pill sub\""),
+        "the row keeps the subscription name that tells two of the same agent apart"
+    );
+    // Open in a tab is shape AND word, never colour alone.
+    assert!(
+        sidebar.contains("openIds.has(session.sessionId)")
+            && sidebar.contains("class=\"openMark\"")
+            && sidebar.contains("nav.bucket.open"),
+        "a session that holds a tab is marked with a shape and a word"
+    );
+    // The bar reads the shell's list; it does not keep a second one.
+    let app = app();
+    assert!(
+        app.contains("openSessions={openSessions.map((t) => t.sessionId)}"),
+        "the open ids come from the shell's own tab state, not from a copy"
+    );
+    // Activating a row goes through the same opener as everywhere else, which
+    // is what makes it focus an existing tab instead of creating a second.
+    assert!(
+        sidebar.contains("onOpenSession(session.sessionId)"),
+        "and activating a row opens or focuses its tab through the one opener"
+    );
+}
+
+// Scenario: Un cambio de estado salta de cubeta sin animarse
+#[test]
+fn nothing_in_the_bar_animates_its_position() {
+    // The bar now holds the bucket a permission request lands in. A row that
+    // slid into place would be movement under the cursor while a decision is
+    // being made, which the signal rules forbid — so the rule is enforced on
+    // the file rather than left to discipline.
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    for forbidden in [
+        "transition:",
+        "animate:",
+        "@keyframes",
+        "animation-name",
+        "animation:",
+    ] {
+        assert!(
+            !sidebar.contains(forbidden),
+            "the bar must not animate: found `{forbidden}`"
+        );
+    }
+    // A bucket is a plain element in document order: a row that changes state
+    // is drawn in its new bucket on the next pass, and nothing moves it there.
+    assert!(
+        sidebar.contains("{#each bucketSessions(group.sessions) as bucket (bucket.id)}"),
+        "the buckets are re-derived per draw rather than mutated in place"
+    );
+}
+
 // Scenario: Acción rápida por proyecto lleva al compositor
 #[test]
 fn each_project_node_can_start_work_in_it() {

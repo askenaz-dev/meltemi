@@ -15,7 +15,13 @@
     sessions,
     switchProject,
   } from "../stores";
-  import { agentLabelOf, groupSessions, projectName as leafOf } from "../tree";
+  import {
+    type BucketId,
+    agentLabelOf,
+    bucketSessions,
+    groupSessions,
+    projectName as leafOf,
+  } from "../tree";
   import Avatar from "./Avatar.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
@@ -28,6 +34,7 @@
     onPickProject,
     onOpenSession,
     onNewSessionIn,
+    openSessions = [],
   }: {
     view: ViewId;
     onNavigate: (view: ViewId) => void;
@@ -35,7 +42,16 @@
     onOpenSession: (sessionId: string) => void;
     /** Start work in this project: to the composer, with it already chosen. */
     onNewSessionIn: (root: string) => void;
+    /**
+     * The session ids that currently hold a tab. The bar marks its rows with
+     * it; the shell owns the list, so this is the same truth read sideways and
+     * never a second one.
+     */
+    openSessions?: string[];
   } = $props();
+
+  /** Ids with a tab, as a set: the row asks this once per draw, not per tab. */
+  const openIds = $derived(new Set(openSessions));
 
   /** Collapsed project nodes, by root. The tree opens expanded. */
   let collapsed = $state(new Set<string>());
@@ -127,7 +143,9 @@
       case "starting":
         return "◔";
       case "waiting_permission":
-        return "‖";
+        // The design system's status vocabulary spells this one `●` (glyph +
+        // count + word). The bar used `‖` and was the odd surface out.
+        return "●";
       case "waiting_instruction":
         return "❯";
       case "interrupted":
@@ -139,6 +157,27 @@
         // that. This arm exists only for a daemon newer than this build.
         return "■";
     }
+  }
+
+  /**
+   * The glyph of a bucket header. Taken from the state that defines the bucket
+   * so the header and the rows under it cannot disagree (design D1).
+   */
+  const BUCKET_GLYPH: Record<BucketId, string> = {
+    decision: "●",
+    instruction: "❯",
+    working: "▸",
+    stopped: "■",
+  };
+
+  /**
+   * What a row says it is. The title the daemon derived when there is one, and
+   * the agent plus a short id when there is not — never a bare hash pretending
+   * to be a name.
+   */
+  function rowLabel(session: { title?: string; sessionId: string; agentCommand: string[]; agentId?: string }): string {
+    if (session.title) return session.title;
+    return `${agentLabelOf(session as never)} ${session.sessionId.slice(0, 8)}`;
   }
 
   /**
@@ -403,32 +442,58 @@
         {/if}
 
         {#if open}
-          <ul role="group">
-            {#each group.sessions.slice(0, 8) as session (session.sessionId)}
-              <li>
-                <button class="leaf ghost" onclick={() => onOpenSession(session.sessionId)}>
-                  <Avatar id={agentLabelOf(session)} size={16} />
-                  <span class="agent">{agentLabelOf(session)}</span>
-                  {#if session.profile}
-                    <span class="pill sub">{session.profile}</span>
-                  {/if}
-                  <span class="leafState" data-state={session.state}>
-                    <span aria-hidden="true">{stateGlyph(session.state)}</span>
-                    <span class="sr">{$t(("state." + session.state) as never)}</span>
-                  </span>
-                </button>
-              </li>
-            {/each}
-            {#if group.sessions.length === 0}
+          <!-- Inside the project, the sessions are ordered by what they ask of
+               you: a decision first, then an instruction, then what is working,
+               then what is over. The split is the tested pure function, so the
+               terminal can be held to the same table (design D1). -->
+          {#each bucketSessions(group.sessions) as bucket (bucket.id)}
+            <p class="bucket">
+              <span aria-hidden="true">{BUCKET_GLYPH[bucket.id]}</span>
+              <span class="bucketName">{$t(("nav.bucket." + bucket.id) as never)}</span>
+              <span class="count">{bucket.total}</span>
+            </p>
+            <ul role="group" aria-label={$t(("nav.bucket." + bucket.id) as never)}>
+              {#each bucket.sessions as session (session.sessionId)}
+                <li>
+                  <button
+                    class="leaf ghost"
+                    title={$t(("state." + session.state) as never)}
+                    onclick={() => onOpenSession(session.sessionId)}
+                  >
+                    <Avatar id={agentLabelOf(session)} size={16} />
+                    <span class="agent">{rowLabel(session)}</span>
+                    {#if session.profile}
+                      <span class="pill sub">{session.profile}</span>
+                    {/if}
+                    {#if openIds.has(session.sessionId)}
+                      <!-- Shape AND word: a dot alone would be colour by
+                           another name. -->
+                      <span class="openMark">
+                        <span aria-hidden="true">•</span>
+                        <span class="sr">{$t("nav.bucket.open")}</span>
+                      </span>
+                    {/if}
+                    <span class="leafState" data-state={session.state}>
+                      <span aria-hidden="true">{stateGlyph(session.state)}</span>
+                      <span class="sr">{$t(("state." + session.state) as never)}</span>
+                    </span>
+                  </button>
+                </li>
+              {/each}
+              {#if bucket.capped}
+                <li class="hint">
+                  <button class="ghost more" onclick={() => { switchProject(group.root); onNavigate("sessions"); }}>
+                    {$t("nav.bucket.seeAll", { n: String(bucket.total) })}
+                  </button>
+                </li>
+              {/if}
+            </ul>
+          {/each}
+          {#if group.sessions.length === 0}
+            <ul role="group">
               <li class="hint">{$t("nav.tree.empty")}</li>
-            {:else if group.sessions.length > 8}
-              <li class="hint">
-                <button class="ghost more" onclick={() => { switchProject(group.root); onNavigate("sessions"); }}>
-                  {$t("sessions.showAll", { n: String(group.sessions.length) })}
-                </button>
-              </li>
-            {/if}
-          </ul>
+            </ul>
+          {/if}
         {/if}
       </div>
     {/each}
@@ -706,6 +771,34 @@
     list-style: none;
     margin: 0;
     padding: 0 0 0 18px;
+  }
+  /* A bucket header: glyph, word, count. Drawn only when the bucket holds
+     something, so the tree never carries a line reading "Working 0". */
+  .bucket {
+    display: flex;
+    /* Deliberately tighter than the skin's --sp-2, like the leaves it heads. */
+    gap: 6px;
+    align-items: baseline;
+    margin: var(--sp-1) 0 0;
+    padding: 0 4px 0 18px;
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
+  }
+  .bucket .bucketName {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bucket .count {
+    margin-left: auto;
+  }
+  /* A session that holds a tab. A mark with a word behind it, never a colour
+     carrying the meaning on its own. */
+  .openMark {
+    flex: none;
+    color: var(--accent);
   }
   .leaf {
     display: flex;

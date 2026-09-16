@@ -28,8 +28,7 @@ fn write_rule(root: &std::path::Path, relative: &[&str], front: &str, body: &str
 // Scenario: El verbo muestra de qué capa viene cada pieza
 #[tokio::test]
 async fn the_cli_verb_shows_the_layer_each_piece_came_from_and_what_does_not_apply() {
-    let fixture =
-        std::env::temp_dir().join(format!("meltemi-cli-harness-{}", std::process::id()));
+    let fixture = std::env::temp_dir().join(format!("meltemi-cli-harness-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&fixture);
     let harness = fixture.join(".meltemi").join("harness");
 
