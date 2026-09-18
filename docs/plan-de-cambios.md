@@ -1395,6 +1395,62 @@ reescribe con ella, conservando sus tres marcadores.
 
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 
+### `apagado-entero-y-modos` — abierta el 2026-09-17, vía completa
+
+Nace de una revisión que el mantenedor pidió el 2026-09-17: contrastar nuestro
+enfoque de adaptadores con **claudian** (plugin de Obsidian, MIT, que pilota
+Claude Code, Codex, OpenCode, Grok y Pi) y decidir qué rescatar. La revisión
+—los 1.671 archivos del árbol, a fondo su modelo neutral, su capa ACP y los
+cinco proveedores— concluyó que nuestro enfoque resuelve lo mismo en una capa
+mejor: normalizamos en el estándar y no en un modelo de eventos propio (seis
+agentes de nivel 1 sin una línea de adaptador; ellos ~40 archivos por
+proveedor, incluso para los que hablan ACP nativo), los adaptadores son
+binarios gobernados fuera del proceso, Claude va por el binario oficial y no
+por el SDK que sus términos nombran, y los checkpoints son git para todos y no
+`rewindFiles` para uno. Lo que sí hacemos peor son **dos cosas medidas**, y
+esta change son esas dos.
+
+**Apagado entero.** En Windows, un CLI instalado por npm es un shim `.cmd`
+bajo `cmd.exe`, y `TerminateProcess` sobre el shim deja vivo al `node` (o al
+binario nativo) de abajo. Reproducido con un shim y un `Stop-Process`: el
+nieto siguió vivo. Lo tenemos en las dos capas que lanzan proveedores: los
+adaptadores (`supervisor.rs`, `kill` tras la gracia y `kill_on_drop`) y el
+daemon, que delega el nivel 1 en `AcpAgent` del crate oficial, cuyo
+`ChildGuard` mata igual. La spec viva promete «no queda ningún proceso
+huérfano»; con un shim, hoy es falso. Remedio: un crate `meltemi-process` con
+un *Job Object* por proveedor y `KILL_ON_JOB_CLOSE` —termina el árbol a
+cualquier profundidad y, como cerrar el handle también termina, un crash del
+lanzador tampoco deja huérfanos—, en vez del `taskkill /t` de claudian, que
+no cubre el crash. Cero dependencias nuevas: `windows-sys` ya está pineado y
+gana una feature. El daemon pasa a lanzar él mismo por `spawn_process` (que
+el crate expone) y a conectar con `Lines` (también público), con lo que
+conoce el pid y lo anota.
+
+**Modos anunciados.** El esquema ACP pineado trae `modes` y `config_options`
+en las respuestas de sesión; el daemon lee solo el segundo
+(`acp.rs:257,283`). Un agente que anuncie por el campo de modos aparece sin
+opción alguna — y `modelo-y-esfuerzo` concluyó «ningún proveedor anuncia
+opciones» mirando una sola forma. Tampoco se miran `current_mode_update` ni
+`config_option_update`. Remedio: leer las dos formas con la opción de
+configuración ganando entera, fijar el modo heredado por `session/set_mode`,
+y reflejar lo que el agente cambia por su cuenta. El contrato no cambia.
+Primera tarea de esa parte: verificar contra cada agente instalado qué forma
+anuncia, y persistirlo — para no repetir el error en dirección contraria.
+
+**Lo que la revisión dejó para el próximo re-anclaje de Codex**, medido
+contra el `codex-cli 0.77.0` instalado: su esquema declara cuatro peticiones
+de servidor y el adaptador cubre las dos de la generación v2; `turn/steer`,
+`item/tool/requestUserInput`, `item/permissions/requestApproval` y
+`thread/fork|rollback|compact` **no existen en 0.77.0**. Cuando existan, una
+frase de claudian vale la pena: *relevar a mitad de turno se resuelve como
+aceptado solo con la aceptación nativa definitiva; ante ambigüedad se rechaza,
+para que quien llamó conserve el texto.*
+
+**Descartado por escrito**: la vía del SDK (§2, §6), leer almacenes nativos
+de los agentes, inyectar prompt de sistema en la config de un agente,
+herramientas dinámicas, alias de nombres de método; y los huérfanos por crash
+del daemon en macOS/Linux, que son otra clase y otro remedio.
+
 ### Prerrequisitos de daemon del Agent Boss (antes de `companero-movil`, sirven a TUI/GUI hoy)
 
 | Change | Alcance |
