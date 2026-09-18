@@ -14,14 +14,16 @@
 //! filling in the proposal. Real agents ignore the marker line.
 
 use agent_client_protocol::schema::v1::{
-    AgentCapabilities, CancelNotification, ContentBlock, ContentChunk, InitializeRequest,
-    InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
-    NewSessionResponse, PermissionOption, PermissionOptionKind, PromptRequest, PromptResponse,
-    RequestPermissionOutcome, RequestPermissionRequest, SessionConfigBoolean, SessionConfigKind,
-    SessionConfigOption, SessionConfigOptionCategory, SessionConfigOptionValue,
-    SessionConfigSelect, SessionConfigSelectOption, SessionId, SessionNotification, SessionUpdate,
-    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, StopReason, TextContent,
-    ToolCallUpdate, ToolCallUpdateFields,
+    AgentCapabilities, CancelNotification, ConfigOptionUpdate, ContentBlock, ContentChunk,
+    CurrentModeUpdate, InitializeRequest, InitializeResponse, LoadSessionRequest,
+    LoadSessionResponse, NewSessionRequest, NewSessionResponse, PermissionOption,
+    PermissionOptionKind, PromptRequest, PromptResponse, RequestPermissionOutcome,
+    RequestPermissionRequest, SessionConfigBoolean, SessionConfigKind, SessionConfigOption,
+    SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelect,
+    SessionConfigSelectOption, SessionId, SessionMode, SessionModeId, SessionModeState,
+    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+    SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
+    TextContent, ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Result, Stdio};
 use std::sync::Mutex;
@@ -38,11 +40,64 @@ const ALLOW_OPTION: &str = "allow";
 const MODEL_OPTION: &str = "model";
 const THINKING_OPTION: &str = "thinking";
 
+/// The two modes the mock announces under `--modes`, by the protocol's OLDER
+/// field — the one that describes modes and nothing else.
+///
+/// This is the shape of an agent born before configuration options existed,
+/// and it is the case the daemon used not to read at all. A mock that could
+/// only announce the newer shape could not exercise it.
+const DEFAULT_MODE: &str = "default";
+const ACCEPT_EDITS_MODE: &str = "acceptEdits";
+
 /// What the announced options currently hold. Real state, not a canned answer:
 /// the point of the flag is that `session/set_config_option` actually changes
 /// what the next announcement says, which is what the daemon reads back.
 static CURRENT_MODEL: Mutex<String> = Mutex::new(String::new());
 static CURRENT_THINKING: AtomicBool = AtomicBool::new(false);
+/// Which mode the mock is in, for the same reason: `session/set_mode` has to
+/// change something a later announcement reflects.
+static CURRENT_MODE: Mutex<String> = Mutex::new(String::new());
+
+/// The modes as they stand right now, in the older form.
+fn announced_modes() -> SessionModeState {
+    let current = CURRENT_MODE.lock().expect("mock mode state").clone();
+    let current = if current.is_empty() {
+        DEFAULT_MODE.to_string()
+    } else {
+        current
+    };
+    SessionModeState::new(
+        SessionModeId::new(current),
+        vec![
+            SessionMode::new(SessionModeId::new(DEFAULT_MODE), "Ask first"),
+            SessionMode::new(SessionModeId::new(ACCEPT_EDITS_MODE), "Accept edits")
+                .description("Writes without asking"),
+        ],
+    )
+}
+
+/// A second announcement of configuration options, deliberately NOT the one
+/// `announced_options` returns: one option, of an id the first set never had.
+///
+/// It is what `--options-drift` sends, and its whole job is to be
+/// distinguishable from what came before, so a test can tell "replaced" from
+/// "merged" without reading the daemon's mind.
+fn drifted_options() -> Vec<SessionConfigOption> {
+    vec![
+        SessionConfigOption::new(
+            "verbosity",
+            "Verbosity",
+            SessionConfigKind::Select(SessionConfigSelect::new(
+                "brief",
+                vec![
+                    SessionConfigSelectOption::new("brief", "Brief"),
+                    SessionConfigSelectOption::new("full", "Full"),
+                ],
+            )),
+        )
+        .category(SessionConfigOptionCategory::Other("output".into())),
+    ]
+}
 
 /// The options as they stand right now.
 fn announced_options() -> Vec<SessionConfigOption> {
@@ -106,6 +161,18 @@ async fn main() -> Result<()> {
     // start emit a `config_options_announced` event that the tests reading the
     // log were never written to expect.
     let announces_config = std::env::args().any(|a| a == "--config-options");
+    // `--modes` makes the mock announce its modes by the protocol's older
+    // field and honour `session/set_mode`. Off by default like every other
+    // switch, and mutually exclusive with `--config-options` in practice: an
+    // agent announcing both is the precedence case, which the unit tests
+    // cover without needing a process (apagado-entero-y-modos design D6).
+    let announces_modes = std::env::args().any(|a| a == "--modes");
+    // `--mode-drift` makes the mock change its own mode mid-turn and say so,
+    // which is the agent acting on its own account rather than answering.
+    let drifts_mode = std::env::args().any(|a| a == "--mode-drift");
+    // `--options-drift` makes it send a wholly different list of options
+    // mid-turn, so "replaced whole" can be told apart from "merged".
+    let drifts_options = std::env::args().any(|a| a == "--options-drift");
 
     Agent
         .builder()
@@ -134,12 +201,14 @@ async fn main() -> Result<()> {
         )
         .on_receive_request(
             async move |_new_session: NewSessionRequest, responder, _cx| {
-                let response = NewSessionResponse::new(SessionId::new(SESSION_ID));
-                responder.respond(if announces_config {
-                    response.config_options(announced_options())
-                } else {
-                    response
-                })
+                let mut response = NewSessionResponse::new(SessionId::new(SESSION_ID));
+                if announces_config {
+                    response = response.config_options(announced_options());
+                }
+                if announces_modes {
+                    response = response.modes(announced_modes());
+                }
+                responder.respond(response)
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -147,12 +216,14 @@ async fn main() -> Result<()> {
             // Loading a prior session succeeds (the mock keeps no real state);
             // its presence lets the daemon exercise the resume path.
             async move |_load: LoadSessionRequest, responder, _cx| {
-                let response = LoadSessionResponse::new();
-                responder.respond(if announces_config {
-                    response.config_options(announced_options())
-                } else {
-                    response
-                })
+                let mut response = LoadSessionResponse::new();
+                if announces_config {
+                    response = response.config_options(announced_options());
+                }
+                if announces_modes {
+                    response = response.modes(announced_modes());
+                }
+                responder.respond(response)
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -181,6 +252,21 @@ async fn main() -> Result<()> {
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
+            // The protocol's own mode verb. It answers with no list at all, so
+            // acceptance is the whole answer -- which is exactly why the mock
+            // has to keep real state: a later announcement is the only place
+            // the change can be seen.
+            async move |set: SetSessionModeRequest, responder, _cx| {
+                if announces_modes
+                    && matches!(set.mode_id.0.as_ref(), DEFAULT_MODE | ACCEPT_EDITS_MODE)
+                {
+                    *CURRENT_MODE.lock().expect("mock mode state") = set.mode_id.0.to_string();
+                }
+                responder.respond(SetSessionModeResponse::new())
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
             async move |prompt: PromptRequest, responder, cx: ConnectionTo<Client>| {
                 // Run the turn on a spawned task: it sends a permission request
                 // and awaits it, which must NOT happen on the dispatch loop —
@@ -189,6 +275,27 @@ async fn main() -> Result<()> {
                 cx.spawn({
                     let cx = cx.clone();
                     async move {
+                        // The agent changing things on its own account, before
+                        // it does any work: nobody asked, and the daemon has to
+                        // notice anyway.
+                        if drifts_mode {
+                            *CURRENT_MODE.lock().expect("mock mode state") =
+                                ACCEPT_EDITS_MODE.to_string();
+                            let _ = cx.send_notification(SessionNotification::new(
+                                prompt.session_id.clone(),
+                                SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(
+                                    SessionModeId::new(ACCEPT_EDITS_MODE),
+                                )),
+                            ));
+                        }
+                        if drifts_options {
+                            let _ = cx.send_notification(SessionNotification::new(
+                                prompt.session_id.clone(),
+                                SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(
+                                    drifted_options(),
+                                )),
+                            ));
+                        }
                         run_scripted_turn(&prompt, &cx).await;
                         // The stop reason is read AFTER the turn, and reset, so a
                         // session that keeps going reports the next turn on its

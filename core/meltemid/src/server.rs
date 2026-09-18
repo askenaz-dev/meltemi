@@ -2016,7 +2016,8 @@ async fn handle_session_set_config_option(
     state: &Arc<DaemonState>,
 ) -> Result<Value, RpcError> {
     use agent_client_protocol::schema::v1::{
-        SessionConfigId, SessionId, SetSessionConfigOptionRequest,
+        SessionConfigId, SessionId, SessionModeId, SetSessionConfigOptionRequest,
+        SetSessionModeRequest,
     };
     use meltemi_proto::{
         SessionEventKind, SessionSetConfigOptionParams, SessionSetConfigOptionResult, error_codes,
@@ -2082,6 +2083,8 @@ async fn handle_session_set_config_option(
             )
         })?;
 
+    // Validated the same way either way: the announcement decides what may be
+    // chosen, and one refusal serves both verbs.
     let value = crate::session_config::chosen_value(option, &params.value).map_err(|reason| {
         RpcError::application(
             error_codes::CONFIG_OPTION_NOT_ANNOUNCED,
@@ -2091,6 +2094,53 @@ async fn handle_session_set_config_option(
             None,
         )
     })?;
+
+    // A mode Meltemi synthesised from the protocol's older announcement is not
+    // an option the agent has: sending it the configuration-option verb would
+    // name something it never announced. It travels by the verb it came from
+    // (apagado-entero-y-modos design D7).
+    if config.mode_is_inherited && option.id == crate::session_config::MODE_OPTION_ID {
+        config
+            .connection
+            .send_request(SetSessionModeRequest::new(
+                SessionId::new(config.acp_session_id.clone()),
+                SessionModeId::new(params.value.clone()),
+            ))
+            .block_task()
+            .await
+            .map_err(|e| {
+                RpcError::internal(format!(
+                    "session/set-config-option: the agent did not accept the mode: {e}"
+                ))
+            })?;
+
+        // This verb answers with no list, so acceptance IS the answer: the
+        // agent was asked for a mode and did not refuse. The rule that the
+        // agent's report is the record still holds -- it spoke by accepting --
+        // and a `current_mode_update` afterwards has the last word.
+        let options = state
+            .sessions
+            .set_current_mode(&params.session_id, &params.value)
+            .await
+            .unwrap_or_else(|| {
+                // The session went away between reading it and answering. What
+                // is reported is still the truth of what was asked and
+                // accepted, rather than the value it had before.
+                let mut options = config.options.clone();
+                crate::session_config::set_current_mode(&mut options, &params.value);
+                options
+            });
+        {
+            let mut log = config.log.lock().await;
+            let _ = log.append(SessionEventKind::ConfigOptionsAnnounced {
+                options: options.clone(),
+            });
+        }
+        return Ok(
+            serde_json::to_value(SessionSetConfigOptionResult { options })
+                .expect("SessionSetConfigOptionResult serializes"),
+        );
+    }
 
     // ACP's own verb, over the live connection: nothing is relaunched, and the
     // agent is the one that decides what the option ends up being.

@@ -32,7 +32,8 @@ use agent_client_protocol::schema::v1::{
     CancelNotification, ContentBlock, InitializeRequest, LoadSessionRequest, NewSessionRequest,
     PermissionOption as AcpPermissionOption, PermissionOptionKind as AcpPermissionOptionKind,
     PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionId, SessionNotification, StopReason, TextContent,
+    SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, StopReason,
+    TextContent,
 };
 use agent_client_protocol::{AcpAgent, Agent, ByteStreams, Client, ConnectionTo};
 use meltemi_process::Scope;
@@ -701,9 +702,47 @@ fn cancelled_resolution() -> Resolution {
 /// belongs to the log itself (lanzador-conversacional D3), so this appends and
 /// nothing more — publishing here as well would deliver every update twice.
 async fn forward_update(state: &HandlerState, notification: SessionNotification) {
+    // Three of these updates are not only history. They say the session's
+    // announcement has changed, and a surface reading the old one offers a
+    // lever the agent no longer has — or hides one it just gained. So the
+    // state moves first, and the log records both facts in the order they
+    // happened (apagado-entero-y-modos design D7).
+    let reannounced = match &notification.update {
+        // The agent changed its own mode. Which of the two forms the option
+        // came from does not matter here: either way it is the session's mode
+        // option, and this is its new value.
+        SessionUpdate::CurrentModeUpdate(update) => {
+            state
+                .sessions
+                .set_current_mode(&state.session_id, &update.current_mode_id.0)
+                .await
+        }
+        // A new list replaces the old one WHOLE. It is what the agent says it
+        // has now, and merging would invent an announcement that is neither
+        // what it said before nor what it says now.
+        SessionUpdate::ConfigOptionUpdate(update) => {
+            let options = crate::session_config::from_acp(&update.config_options);
+            state
+                .sessions
+                .update_config_options(&state.session_id, options.clone())
+                .await;
+            Some(options)
+        }
+        // Seen, and deliberately not taken: commands are not options. They
+        // have no value to set and no announcement to validate a choice
+        // against, so folding them into this list would put something in front
+        // of the human that nothing here can honour. Giving them a place of
+        // their own is another change.
+        SessionUpdate::AvailableCommandsUpdate(_) => None,
+        _ => None,
+    };
+
     let update = serde_json::to_value(&notification.update).unwrap_or(Value::Null);
     let mut log = state.log.lock().await;
     let _ = log.append(SessionEventKind::AgentUpdate { update });
+    if let Some(options) = reannounced {
+        let _ = log.append(SessionEventKind::ConfigOptionsAnnounced { options });
+    }
 }
 
 /// Decides a permission request: consult the rules first (allow/deny without

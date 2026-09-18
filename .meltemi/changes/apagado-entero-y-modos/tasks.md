@@ -109,7 +109,7 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
   `LiveConfig`. Se añade `set_current_mode`, que busca la opción de modo **por
   categoría y no por id**, porque las dos formas coinciden en la categoría y la
   nueva puede llamar a la opción como quiera. -->
-- [ ] 2.2 `server.rs`: `session/set-config-option` sobre la opción heredada
+- [x] 2.2 `server.rs`: `session/set-config-option` sobre la opción heredada
   manda `session/set_mode` y fija el valor aceptado; `acp.rs`
   (`forward_update`) reconoce `current_mode_update` y
   `config_option_update`, actualiza lo anunciado y registra
@@ -119,6 +119,23 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
   y «Una lista de opciones nueva reemplaza a la anterior» — gates: suite de
   `meltemid`, e2e con `mock-agent` (que gana un guion con modos y otro con
   `current_mode_update`)
+  <!-- 2026-09-18: el agente simulado gana **tres** guiones y no dos:
+  `--modes`, `--mode-drift` y `--options-drift`, porque el escenario de la
+  lista nueva necesita una lista **distinta** de la del apretón de manos para
+  poder distinguir «reemplazada» de «fusionada» sin leerle la mente al daemon.
+  El discriminador del verbo también está construido en el simulado y no
+  asertado de memoria: bajo `--modes` no anuncia opciones de configuración, así
+  que su verbo de opciones responde lista vacía — un daemon que tomara el verbo
+  equivocado volvería sin nada anunciado, y el test lo dice con esas palabras.
+  **Comprobado que los tres muerden**: neutralizado el ruteo y las dos ramas de
+  `forward_update`, los tres fallan.
+  **Consecuencia declarada, no escondida** (`session.rs`): una lista nueva
+  reemplaza entera, así que un agente que anunciara sus modos por el campo
+  viejo **y** opciones por el nuevo perdería su selector de modo al cambiar
+  cualquier otra opción, porque la lista que reemplaza no lleva modo. Es lo que
+  cuesta «reemplazar entera, nunca fusionar» (D7), y volver a sintetizar ahí
+  sería justo la fusión que esa regla prohíbe. Ningún agente instalado tiene
+  esa forma (ver 2.3). -->
 - [ ] 2.3 Verificación manual, opt-in, contra cada agente de nivel 1
   instalado en este equipo: abrir una sesión ACP y anotar qué campo pobló
   —modos, opciones, ninguno— con versión y fecha, en
