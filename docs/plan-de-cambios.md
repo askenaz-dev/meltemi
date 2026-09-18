@@ -1395,7 +1395,7 @@ reescribe con ella, conservando sus tres marcadores.
 
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 
-### `apagado-entero-y-modos` — abierta el 2026-09-17, vía completa
+### `apagado-entero-y-modos` — abierta el 2026-09-17, implementada el 2026-09-18, vía completa
 
 Nace de una revisión que el mantenedor pidió el 2026-09-17: contrastar nuestro
 enfoque de adaptadores con **claudian** (plugin de Obsidian, MIT, que pilota
@@ -1436,6 +1436,39 @@ configuración ganando entera, fijar el modo heredado por `session/set_mode`,
 y reflejar lo que el agente cambia por su cuenta. El contrato no cambia.
 Primera tarea de esa parte: verificar contra cada agente instalado qué forma
 anuncia, y persistirlo — para no repetir el error en dirección contraria.
+
+**Desenlace (implementada el 2026-09-18).** Ocho tareas, ocho commits. El
+crate `meltemi-process` existe y lo usan las dos capas que lanzan proveedores.
+Los tres tests que miden el defecto se comprobaron mordiendo: neutralizada la
+adopción, el `mock-agent` sobrevive al final de la sesión y el test lo dice por
+su identificador; neutralizado el ruteo del verbo de modos y las dos ramas de
+`forward_update`, los tres e2e nuevos fallan. Dos desvíos del design, los dos
+escritos en el proposal: el contrato gana el evento de log `agent_process`
+—porque los dos eventos que podían llevar el pid se escriben antes del
+lanzamiento— y `meltemid` declara `futures` como dependencia directa, que ya
+viajaba en el lockfile.
+
+**Lo que la verificación manual encontró, y no es lo que se esperaba.** De las
+seis entradas de nivel 1 del catálogo, solo `opencode` está instalada en este
+equipo, y **puebla las dos formas a la vez**: el campo de modos con `build` y
+`plan`, y las opciones de configuración con `model` (317 valores) y `mode`
+(categoría `mode`, los mismos dos modos). El design D6 planteó la precedencia
+como una regla para un caso incómodo; resultó ser el único caso real medible
+aquí, y fusionar las dos formas habría dado dos selectores de modo o uno con
+valores duplicados. La otra cara: **la síntesis del campo viejo no queda
+ejercitada por ningún binario real** —haría falta un agente que puebla modos y
+no opciones—, y `docs/conformidad-manual.md` lo dice con esas palabras en vez
+de dejarlo implícito. Hallazgo lateral: la conclusión D9 de
+`modelo-y-esfuerzo-por-sesion` («ningún proveedor pineado anuncia opciones de
+sesión») ya no es cierta, no por error de entonces sino por su fecha.
+
+**Deuda declarada de una decisión, no de un olvido.** Reemplazar la lista
+anunciada **entera** (D7) tiene un costo: un agente que anunciara sus modos por
+el campo viejo y sus opciones por el nuevo perdería el selector de modo al
+cambiar cualquier otra opción, porque la lista que reemplaza no lleva modo.
+Volver a sintetizarlo ahí sería la fusión que esa misma regla prohíbe, así que
+se deja como está, escrito en el código y aquí. Ningún agente instalado tiene
+esa forma.
 
 **Lo que la revisión dejó para el próximo re-anclaje de Codex**, medido
 contra el `codex-cli 0.77.0` instalado: su esquema declara cuatro peticiones

@@ -169,10 +169,27 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
 
 ## 3. Cierre
 
-- [ ] 3.1 `meltemi validate apagado-entero-y-modos` limpio; `meltemi verify`
+- [x] 3.1 `meltemi validate apagado-entero-y-modos` limpio; `meltemi verify`
   con los diez escenarios enlazados (los dos de Windows con el test
   `#[cfg(windows)]` como su evidencia, declarado en la nota de la tarea);
   suite completa, clippy y fmt verdes en este equipo; `cargo deny check`
   verde; entrada en `docs/plan-de-cambios.md` con lo que la verificación
   manual encontró; y la rama aterriza en `main` con `meltemi land
   apagado-entero-y-modos confirm`
+  <!-- 2026-09-18: `validate` limpio; `verify` 10/10 enlazados; `fmt --check`,
+  `clippy --workspace --all-targets -D warnings`, `cargo deny check`
+  (advisories, bans, licenses, sources) y `cargo test --workspace
+  --no-fail-fast` verdes en este equipo: 1.090 tests, 99 binarios, cero
+  fallos. La primera corrida completa **no** estaba verde: el evento
+  `agent_process` no tenía glifo en la transcripción de la GUI, y un test de
+  paridad lo exigía (corregido como seguimiento de 1.3). Y esa corrida se había
+  detenido en el primer binario rojo, así que se repitió con `--no-fail-fast`
+  para que ningún binario quedara sin informar. **Los dos escenarios de Windows tienen por evidencia tests
+  `#[cfg(windows)]`**: «Un lanzador intermedio no deja huérfanos» (el mecanismo
+  en `meltemi-process` y el daemon de punta a punta en
+  `e2e_apagado_entero.rs`) y «El daemon termina de golpe y nada le sobrevive»
+  (el cierre del handle, que es el mismo comportamiento del kernel que un
+  crash). En macOS y Linux el ámbito es inerte por diseño, y esos tests no
+  compilan allí en vez de pasar vacíos: la verificación que dan es de Windows,
+  y así se declara. Lo que solo un CLI real puede confirmar queda en
+  `docs/conformidad-manual.md`, con su procedimiento de dos piernas. -->
