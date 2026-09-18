@@ -136,12 +136,28 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
   cuesta «reemplazar entera, nunca fusionar» (D7), y volver a sintetizar ahí
   sería justo la fusión que esa regla prohíbe. Ningún agente instalado tiene
   esa forma (ver 2.3). -->
-- [ ] 2.3 Verificación manual, opt-in, contra cada agente de nivel 1
+- [x] 2.3 Verificación manual, opt-in, contra cada agente de nivel 1
   instalado en este equipo: abrir una sesión ACP y anotar qué campo pobló
   —modos, opciones, ninguno— con versión y fecha, en
   `docs/conformidad-manual.md` (design D8). Si todos pueblan opciones, la
   nota del backlog lo dice y la síntesis se queda igual — gates: ninguno
   automático; el resultado se persiste como documento
+  <!-- 2026-09-18: **corrida hecha**, y el resultado no es el que ninguna de
+  las dos hipótesis del design anticipaba. De las seis entradas de nivel 1 del
+  catálogo solo `opencode 1.14.33` está instalada en este equipo, y **puebla
+  las dos formas a la vez**: `modes` con `build`/`plan`, y `configOptions` con
+  `model` (317 valores) y `mode` (categoría `mode`, los mismos dos). Es decir:
+  el caso de precedencia de D6 no era teórico, era el único caso real medible
+  aquí, y fusionar habría dado dos selectores de modo. La síntesis del campo
+  viejo **no queda ejercitada por ningún binario real** —haría falta un agente
+  que puebla `modes` y no `configOptions`—, y la página lo dice con esas
+  palabras en vez de dejarlo implícito; la cubren los unitarios y el simulado.
+  Hallazgo lateral: `modelo-y-esfuerzo-por-sesion` D9 («ningún proveedor
+  pineado anuncia opciones de sesión») ya no es cierto — no por error de
+  entonces, sino por su fecha.
+  La corrida abre sesión y no manda prompt, así que no gasta turno de
+  proveedor. `claude 2.1.261` y `codex-cli 0.77.0` están instalados pero son
+  de nivel 2 y quedan fuera del alcance que D8 fijó. -->
 
 ## 3. Cierre
 

@@ -236,6 +236,46 @@ cargo run -q -p meltemi --example rpc -- sdd/verify-mark '{
 La nota es el registro. Debe decir contra qué binario, en qué versión, en qué
 fecha y qué se observó — nunca «verificado» a secas, y nunca de memoria.
 
+## Formas de anuncio de modo — corrida del 2026-09-18
+
+Windows 11 (26200), x86_64. Corrida de apertura de sesión únicamente: se envía
+`initialize` y `session/new`, se lee la respuesta y se cierra la entrada.
+**No se envía prompt**, así que no gasta turno de proveedor.
+
+**Inventario del equipo**: de las seis entradas de nivel 1 del catálogo, solo
+una está instalada — `opencode`. `gemini`, `copilot`, `agent` (Cursor),
+`kiro-cli` y `kilo` no se encuentran en este equipo, así que no se midieron y
+esta página no dice nada sobre ellas. `claude 2.1.261` y `codex-cli 0.77.0`
+están instalados pero son de **nivel 2**: no responden ACP por sí mismos, sino
+a través de nuestros adaptadores, y quedan fuera del alcance de esta
+comprobación (design D8 acota a nivel 1).
+
+### `opencode 1.14.33`: **las dos formas, pobladas**
+
+| Campo | Poblado | Contenido |
+| --- | --- | --- |
+| `modes` | **sí** | `build` (actual) y `plan`, con descripción |
+| `configOptions` | **sí** | `model` (categoría `model`, 317 valores) y `mode` (categoría `mode`, 2 valores, actual `build`) |
+
+Tres cosas que esta medición decide, y que no se podían decidir suponiendo:
+
+1. **La precedencia de D6 no es teórica: es el caso real.** El único agente de
+   nivel 1 instalado puebla las dos formas a la vez, con los mismos dos modos
+   en ambas. Fusionarlas habría producido dos selectores de modo, o uno con
+   valores duplicados. La regla «gana la opción de configuración, entera» deja
+   exactamente un selector, que es lo que el agente ofrece.
+2. **La síntesis del campo viejo no se ejercita contra este agente**, y sigue
+   haciendo falta igual: es la rama para el agente que puebla `modes` y **no**
+   `configOptions`, que es el agente nacido antes de que las opciones de
+   configuración existieran. Ninguno de los instalados aquí lo es. Queda
+   cubierta por los tests unitarios y por el agente simulado bajo `--modes`,
+   y esta página dice explícitamente que ningún binario real la ha ejercido
+   todavía.
+3. **`modelo-y-esfuerzo-por-sesion` D9 quedó desactualizada.** Concluyó que
+   «ningún proveedor pineado anuncia opciones de sesión»; `opencode 1.14.33`
+   anuncia dos, una de ellas con 317 modelos. No es un error de aquella
+   conclusión sino su fecha: lo que no anunciaba entonces, anuncia ahora.
+
 ## Última corrida — 2026-07-31
 
 Windows 11 (26200), x86_64. Ambos CLIs presentes y con sesión iniciada. Primera
