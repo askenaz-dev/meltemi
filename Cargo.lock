@@ -2422,6 +2422,7 @@ version = "0.1.1"
 dependencies = [
  "agent-client-protocol",
  "jsonschema",
+ "meltemi-process",
  "serde",
  "serde_json",
  "tokio",

@@ -35,7 +35,7 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
   que «se puede abrir» no es «sigue vivo». Se pregunta por el código de salida
   (`GetExitCodeProcess` → `STATUS_PENDING`), que es la pregunta real. El
   mecanismo estaba bien desde la primera corrida: el nieto ya moría. -->
-- [ ] 1.2 Adaptadores: `supervisor.rs` lanza dentro de un `Scope`,
+- [x] 1.2 Adaptadores: `supervisor.rs` lanza dentro de un `Scope`,
   `ProcessControl::kill` termina el ámbito, y `kill_on_drop` deja de ser una
   promesa del destructor; `tests/process_lifecycle.rs` gana el caso del
   `.cmd` que ignora el fin de entrada hasta agotar la gracia; la auditoría
@@ -43,6 +43,16 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
   D2, D5) — escenarios «El intermediario del proveedor no deja huérfanos» y
   «El adaptador cae y el proveedor no le sobrevive» — gates: suite de
   `meltemi-adapters`
+  <!-- 2026-09-18: el orden del apagado es **primero el hijo, después el
+  ámbito**. Al revés, el ámbito mata al hijo y el `kill` posterior de tokio
+  opera sobre un proceso que ya no está; así el hijo se mata y se cosecha
+  mientras existe, y el ámbito recoge lo que había debajo. Un ámbito que no se
+  puede abrir **rehúsa el lanzamiento**, con remedio propio y no el de «instala
+  el CLI»: el CLI está, y lo que falló fue que la plataforma no dejó a este
+  proceso hacerse cargo de lo que lanza. Comprobado que el test muerde
+  neutralizando `scope.end()`: el nieto sobrevive y el test lo dice. El de
+  soltar sigue verde con `end()` neutralizado, y debe: lo que prueba es el
+  cierre del handle, no la llamada. -->
 - [ ] 1.3 Daemon: `acp.rs` llama a `AcpAgent::spawn_process` él mismo,
   adopta el hijo por su `id()`, conecta con `Lines` sobre su stdio,
   replica del crate el colector de `stderr` y el vigilante del hijo

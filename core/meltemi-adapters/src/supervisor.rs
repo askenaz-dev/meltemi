@@ -17,6 +17,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use meltemi_process::Scope;
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -80,12 +81,21 @@ pub trait ProcessControl: Send {
     fn kill(&mut self) -> impl Future<Output = std::io::Result<()>> + Send;
 }
 
-/// A real child process.
-pub struct ChildProcess(Child);
+/// A real child process, inside the scope that owns what it launched.
+///
+/// The two are one thing on purpose: the process this adapter launched is very
+/// often not the process doing the work — on Windows the official CLI of more
+/// than one provider installs as a `.cmd` shim, and what runs under it is what
+/// has to end (apagado-entero-y-modos design D1). Holding the scope beside the
+/// child is what makes "end the provider" mean the same thing either way.
+pub struct ChildProcess {
+    child: Child,
+    scope: Scope,
+}
 
 impl ProcessControl for ChildProcess {
     async fn wait_within(&mut self, grace: Duration) -> std::io::Result<bool> {
-        match tokio::time::timeout(grace, self.0.wait()).await {
+        match tokio::time::timeout(grace, self.child.wait()).await {
             Ok(status) => {
                 status?;
                 Ok(true)
@@ -95,8 +105,15 @@ impl ProcessControl for ChildProcess {
     }
 
     async fn kill(&mut self) -> std::io::Result<()> {
-        // tokio's `kill` also reaps the child, so nothing is left as a zombie.
-        self.0.kill().await
+        // The child first, while it is still there to be killed and reaped —
+        // tokio's `kill` does both, so nothing is left as a zombie.
+        let killed = self.child.kill().await;
+        // Then the scope, which is what reaches whatever the child had launched
+        // underneath it. Ending a scope whose processes are already gone is not
+        // an error, so this is safe in the ordinary case where the child was the
+        // only thing in it.
+        self.scope.end()?;
+        killed
     }
 }
 
@@ -267,6 +284,12 @@ fn located(_named: &str, _path_var: Option<&std::ffi::OsStr>) -> Option<String> 
 /// did not authorize, which is the one thing this architecture exists to
 /// prevent.
 pub fn spawn(command: &ProviderCommand, layer: &str) -> Result<SpawnedProvider, Refusal> {
+    // The scope comes first, and a scope that cannot be opened is a launch that
+    // does not happen: a provider nobody can fully end is the defect this
+    // exists to prevent, and starting one anyway would trade a loud failure for
+    // a quiet one (apagado-entero-y-modos design D1).
+    let scope = Scope::new().map_err(|error| scope_refusal(&command.program, layer, &error))?;
+
     let mut child = Command::new(&command.program)
         .args(&command.args)
         .current_dir(&command.cwd)
@@ -275,11 +298,36 @@ pub fn spawn(command: &ProviderCommand, layer: &str) -> Result<SpawnedProvider, 
         // The provider's diagnostics travel to the adapter's own stderr, where
         // the daemon already collects them; they are never parsed as protocol.
         .stderr(std::process::Stdio::inherit())
-        // If this adapter's future is dropped, the provider goes with it: no
-        // orphan holding a worktree open.
+        // Still asked for, and no longer the only thing asked. Where the scope
+        // binds lives to this process it is the kernel that keeps this promise,
+        // including when this process dies without running a destructor; where
+        // the scope is inert this is what keeps it.
         .kill_on_drop(true)
         .spawn()
         .map_err(|error| launch_refusal(&command.program, layer, &error))?;
+
+    // Adopted immediately, and before anything is read or written: see
+    // `Scope::adopt_pid` for the window between the launch and this call, why
+    // it is accepted, and what watches it. The child is alive and held here, so
+    // its identifier cannot have been handed to anything else.
+    match child.id() {
+        Some(pid) => {
+            if let Err(error) = scope.adopt_pid(pid) {
+                // Nothing may run outside a scope: kill what was just launched
+                // rather than pilot a provider that cannot be fully ended.
+                let _ = child.start_kill();
+                return Err(scope_refusal(&command.program, layer, &error));
+            }
+        }
+        None => {
+            let _ = child.start_kill();
+            return Err(scope_refusal(
+                &command.program,
+                layer,
+                &std::io::Error::other("the launched process reported no identifier"),
+            ));
+        }
+    }
 
     let stdin = child.stdin.take().ok_or_else(|| {
         Refusal::new(
@@ -304,7 +352,26 @@ pub fn spawn(command: &ProviderCommand, layer: &str) -> Result<SpawnedProvider, 
         )
     })?;
 
-    Ok(ProviderProcess::new(ChildProcess(child), stdin, stdout))
+    Ok(ProviderProcess::new(
+        ChildProcess { child, scope },
+        stdin,
+        stdout,
+    ))
+}
+
+/// The refusal for a provider that could be launched but not scoped.
+///
+/// Worded apart from [`launch_refusal`] because the remedy is different: the
+/// CLI is there and the platform would not let this process take
+/// responsibility for what it launches, which is not something reinstalling the
+/// CLI would change.
+fn scope_refusal(program: &str, layer: &str, error: &std::io::Error) -> Refusal {
+    Refusal::new(
+        "provider_cli_not_launchable",
+        layer,
+        format!("`{program}` could not be launched inside a process scope ({error})"),
+        "Meltemi will not pilot a provider it could not fully end. Report this with the          error above: it means the platform refused to let this process own what it          launches.",
+    )
 }
 
 /// The refusal for a provider CLI that cannot be launched.
