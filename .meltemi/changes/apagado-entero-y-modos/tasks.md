@@ -78,7 +78,15 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
   → `mock-agent`) y mide lo único que los demás e2e no pueden. **Comprobado que
   muerde**: neutralizando la adopción, el test falla con «process 33672
   outlived the session», y el shim y el `mock-agent` de debajo quedan vivos en
-  la tabla de procesos tras completarse la sesión. -->
+  la tabla de procesos tras completarse la sesión.
+  **Corrección tras la suite completa**: el evento nuevo entró al contrato sin
+  glifo en la transcripción de la GUI, y el test de paridad que exige uno por
+  cada tipo declarado lo detectó en `cargo test --workspace` — no en la suite
+  del daemon, que es la que esta tarea declaraba como gate. La GUI ya lo habría
+  pintado con el glifo por defecto; el test existe para que un evento nuevo sea
+  una decisión y no un fallback, y se tomó: el mismo tono tenue que
+  `agent_resolved`, porque es el mismo tipo de hecho. La TUI no nombra tipos de
+  evento, así que no había nada que añadir allí. -->
 - [x] 1.4 `docs/agentes.md` (sección Windows: qué pasa con un shim y por qué
   ya no importa) y `docs/conformidad-manual.md` (comprobación opt-in contra
   un CLI real instalado por npm: abrir sesión, cancelar, listar procesos)
