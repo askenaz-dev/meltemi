@@ -144,6 +144,80 @@ el puente.
 verificado junto al declarado. Declarado ≠ verificado es información, no
 vergüenza.
 
+## Apagado entero contra un CLI instalado por npm (Windows, opt-in)
+
+Esta comprobación no es un test: es un procedimiento de cinco minutos que
+alguien corre a mano, en Windows, contra un CLI real. Existe porque lo que la
+suite puede probar y lo que hay que creer no coinciden aquí. Los tests lanzan
+un `.cmd` que ellos mismos escriben; lo que un instalador de npm genera es un
+script que Meltemi no controla y que puede cambiar con la versión del CLI, del
+gestor de paquetes o de Node. Un ensayo contra el shim real es el único que
+responde por el shim real.
+
+**Se corre**: cuando se toca el lanzamiento o el apagado de agentes, y cuando
+se sube la versión de un CLI de nivel 1 que instale por npm.
+
+**Qué hace falta**: Windows, un CLI de nivel 1 instalado con `npm i -g`, y una
+sesión abierta en él.
+
+1. Confirme que la ruta que Meltemi va a lanzar es un shim y no un ejecutable.
+   Un `.cmd` o un `.bat` es un shim; un `.exe` no, y entonces esta comprobación
+   no tiene nada que medir en ese agente.
+
+   ```powershell
+   (Get-Command claude).Source
+   ```
+
+2. Abra una sesión con ese agente, desde cualquier superficie, y deje que
+   empiece a trabajar.
+
+3. Con la sesión en vuelo, mire el árbol. Anote los identificadores: el del
+   shim y el del proceso que cuelga de él.
+
+   ```powershell
+   Get-CimInstance Win32_Process | Where-Object { $_.Name -in 'cmd.exe','node.exe' } | Select-Object ProcessId, ParentProcessId, CommandLine | Format-List
+   ```
+
+4. Cancele la sesión.
+
+5. Repita el paso 3. **Ninguno de los identificadores anotados debe seguir
+   ahí.** Que desaparezca el shim y sobreviva el proceso de debajo es
+   exactamente el defecto que el ámbito de proceso previene, y verlo aquí
+   significa que el ámbito no se aplicó a esa ruta de lanzamiento.
+
+6. La otra mitad, la que un apagado ordenado no ejercita: repita del 2 al 3, y
+   en lugar de cancelar, **mate el daemon sin darle ocasión de limpiar**.
+
+   ```powershell
+   Stop-Process -Name meltemid -Force
+   ```
+
+   Vuelva al paso 3. Tampoco debe quedar nada: el sistema cierra los handles
+   del proceso muerto, y el ámbito se lleva consigo lo que tenía dentro. Si
+   sobrevive algo, el ámbito no se abrió o el agente no llegó a entrar en él.
+
+**Qué se registra**: el resultado va abajo, en la corrida del día, con el CLI,
+su versión, la fecha y qué se observó — nunca «verificado» a secas. Un
+resultado negativo es un hallazgo, no un fallo del procedimiento.
+
+## Qué campo pobló cada agente para sus modos
+
+El protocolo deja anunciar los modos de sesión de dos maneras: por el campo de
+modos, que llegó primero, y como una opción de configuración de categoría modo,
+que llegó después. Meltemi lee las dos y da precedencia a la segunda, pero
+**cuál usa cada CLI real es una medición, no una suposición** — y de eso
+depende que la síntesis del campo viejo siga haciendo falta o sea código muerto
+esperando a que alguien lo note.
+
+Para cada agente de nivel 1 instalado: abra una sesión ACP y anote cuál de los
+dos campos vino poblado en la respuesta de apertura — modos, opciones de
+configuración, las dos, o ninguno — con la versión del CLI y la fecha. El log
+de la sesión lo dice sin herramientas extra: el evento `config_options_announced`
+lleva lo anunciado ya traducido, y una opción de id `mode` y categoría `mode`
+que el agente no anunció como tal es la señal de que vino del campo viejo.
+
+El resultado se anota abajo, en la corrida del día.
+
 ## Cómo se registra en el método
 
 Los escenarios que **solo** un CLI real ejerce se marcan con nota, fuente y
@@ -161,6 +235,46 @@ cargo run -q -p meltemi --example rpc -- sdd/verify-mark '{
 
 La nota es el registro. Debe decir contra qué binario, en qué versión, en qué
 fecha y qué se observó — nunca «verificado» a secas, y nunca de memoria.
+
+## Formas de anuncio de modo — corrida del 2026-09-18
+
+Windows 11 (26200), x86_64. Corrida de apertura de sesión únicamente: se envía
+`initialize` y `session/new`, se lee la respuesta y se cierra la entrada.
+**No se envía prompt**, así que no gasta turno de proveedor.
+
+**Inventario del equipo**: de las seis entradas de nivel 1 del catálogo, solo
+una está instalada — `opencode`. `gemini`, `copilot`, `agent` (Cursor),
+`kiro-cli` y `kilo` no se encuentran en este equipo, así que no se midieron y
+esta página no dice nada sobre ellas. `claude 2.1.261` y `codex-cli 0.77.0`
+están instalados pero son de **nivel 2**: no responden ACP por sí mismos, sino
+a través de nuestros adaptadores, y quedan fuera del alcance de esta
+comprobación (design D8 acota a nivel 1).
+
+### `opencode 1.14.33`: **las dos formas, pobladas**
+
+| Campo | Poblado | Contenido |
+| --- | --- | --- |
+| `modes` | **sí** | `build` (actual) y `plan`, con descripción |
+| `configOptions` | **sí** | `model` (categoría `model`, 317 valores) y `mode` (categoría `mode`, 2 valores, actual `build`) |
+
+Tres cosas que esta medición decide, y que no se podían decidir suponiendo:
+
+1. **La precedencia de D6 no es teórica: es el caso real.** El único agente de
+   nivel 1 instalado puebla las dos formas a la vez, con los mismos dos modos
+   en ambas. Fusionarlas habría producido dos selectores de modo, o uno con
+   valores duplicados. La regla «gana la opción de configuración, entera» deja
+   exactamente un selector, que es lo que el agente ofrece.
+2. **La síntesis del campo viejo no se ejercita contra este agente**, y sigue
+   haciendo falta igual: es la rama para el agente que puebla `modes` y **no**
+   `configOptions`, que es el agente nacido antes de que las opciones de
+   configuración existieran. Ninguno de los instalados aquí lo es. Queda
+   cubierta por los tests unitarios y por el agente simulado bajo `--modes`,
+   y esta página dice explícitamente que ningún binario real la ha ejercido
+   todavía.
+3. **`modelo-y-esfuerzo-por-sesion` D9 quedó desactualizada.** Concluyó que
+   «ningún proveedor pineado anuncia opciones de sesión»; `opencode 1.14.33`
+   anuncia dos, una de ellas con 317 modelos. No es un error de aquella
+   conclusión sino su fecha: lo que no anunciaba entonces, anuncia ahora.
 
 ## Última corrida — 2026-07-31
 

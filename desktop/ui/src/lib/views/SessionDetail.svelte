@@ -92,6 +92,7 @@
     checkpoint_created: { glyph: "·", tone: "info" },
     checkpoint_restored: { glyph: "·", tone: "info" },
     agent_resolved: { glyph: "·", tone: "faint" },
+    agent_process: { glyph: "·", tone: "faint" },
     task_started: { glyph: "▸", tone: "accent" },
     task_committed: { glyph: "■", tone: "ok" },
     instruction_queued: { glyph: "▸", tone: "info" },

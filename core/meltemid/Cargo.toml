@@ -12,8 +12,13 @@ publish = false
 meltemi-client.workspace = true
 meltemi-proto.workspace = true
 meltemi-spec.workspace = true
+# Process scopes: ending the agent ends what the agent launched, which on
+# Windows is the difference between ending a `.cmd` shim and ending the CLI
+# underneath it (apagado-entero-y-modos design D1).
+meltemi-process.workspace = true
 agent-client-protocol.workspace = true
 anyhow.workspace = true
+futures.workspace = true
 directories.workspace = true
 ignore.workspace = true
 serde.workspace = true

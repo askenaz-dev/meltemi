@@ -125,14 +125,27 @@ archivo de la otra.
 - Workspace: crate nuevo `core/meltemi-process` (biblioteca, sin binarios);
   `meltemid` y `meltemi-adapters` dependen de él. Feature
   `Win32_System_JobObjects` en la entrada `windows-sys` del workspace. Cero
-  dependencias externas nuevas (§10).
+  dependencias externas nuevas en la clausura (§10): lo que entra al grafo es
+  el crate propio. Sí se **declara** una que ya estaba: `meltemid` pasa a
+  depender de `futures` de forma directa, porque el colector de `stderr` que
+  el daemon replica del crate ACP usa sus traits de lectura asíncrona. Ya
+  viajaba en el lockfile como dependencia del propio crate ACP, y se pinea
+  igual que el resto.
 - `core/meltemid`: `acp.rs` (lanzamiento con ámbito, pid en el log,
   actualizaciones de modo y de opciones), `session_config.rs` (dos formas),
   `server.rs` (ruteo de `set_mode`). `core/meltemi-adapters`:
   `supervisor.rs` y `tests/process_lifecycle.rs`.
-- `proto/`: **no cambia**. Nada nuevo que exponer: la opción de modo viaja
-  como `SessionConfigOption` y `session/set-config-option` sigue siendo la
-  puerta.
+- `proto/`: **un evento de log más, y nada del verbo**. La opción de modo
+  viaja como `SessionConfigOption` y `session/set-config-option` sigue siendo
+  la puerta, tal como se propuso. Lo que la implementación encontró es que el
+  requisito «el identificador de proceso y el programa efectivo del agente
+  SHALL constar en el log de sesión» no tenía dónde constar: `agent_resolved`
+  y `session_started` se escriben **antes** del lanzamiento, así que ninguno
+  puede llevar un pid que todavía no existe. Se añade `agent_process
+  {pid, binary}` al catálogo de eventos del log y su entrada en el schema.
+  Es aditivo —una variante nueva de una unión etiquetada, que ningún cliente
+  anterior leía— y no toca ningún método ni ningún tipo de petición o
+  respuesta.
 - Docs: `docs/agentes.md` (sección Windows), `docs/conformidad-manual.md`
   (una comprobación más y una tabla de formas anunciadas),
   `docs/plan-de-cambios.md`.

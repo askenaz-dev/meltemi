@@ -391,6 +391,19 @@
         },
         {
           "properties": {
+            "type": { "const": "agent_process" },
+            "payload": {
+              "type": "object",
+              "required": ["pid", "binary"],
+              "properties": {
+                "pid": { "type": "integer", "minimum": 0 },
+                "binary": { "type": "string" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "type": { "const": "task_started" },
             "payload": {
               "type": "object",
