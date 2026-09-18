@@ -45,12 +45,12 @@
   `npm ci`, lo que no es un defecto sino el precio de un árbol recién creado.
 
   **Un gate rojo que no era de esta change, y que ya no está**: sobre la base del
-  taller (`85122c7`), `cargo fmt --all --check` fallaba en
+  taller (`a36657b`), `cargo fmt --all --check` fallaba en
   `tui/tests/harness_mapping.rs:28` —un `let fixture =` partido en dos líneas que
   rustfmt quiere en una—, y era el único diff del workspace: esta change no
   añade ninguno. Lo introdujo `harness-global-y-por-agente` en su cierre
   (`0d69d59`), cuya nota declaraba fmt limpio. No se tocó aquí, y no hizo falta:
   mientras esta change se implementaba, `sesiones-en-la-barra` aterrizó en `main`
-  (`072a9d1`) y su commit `e76d4ac` ya une esa línea. El fmt limpio se comprueba
+  (`ce7f501`) y su commit `0cd2d52` ya une esa línea. El fmt limpio se comprueba
   sobre el resultado de traer `main` al taller, antes de aterrizar. -->
 
