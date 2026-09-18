@@ -79,10 +79,16 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
   muerde**: neutralizando la adopción, el test falla con «process 33672
   outlived the session», y el shim y el `mock-agent` de debajo quedan vivos en
   la tabla de procesos tras completarse la sesión. -->
-- [ ] 1.4 `docs/agentes.md` (sección Windows: qué pasa con un shim y por qué
+- [x] 1.4 `docs/agentes.md` (sección Windows: qué pasa con un shim y por qué
   ya no importa) y `docs/conformidad-manual.md` (comprobación opt-in contra
   un CLI real instalado por npm: abrir sesión, cancelar, listar procesos)
   (design D5) — gates: `cargo test -p meltemi --test docs`
+  <!-- 2026-09-18: la comprobación manual quedó con **dos piernas**, no una.
+  Cancelar la sesión ejercita el apagado ordenado; matar el daemon sin darle
+  ocasión de limpiar ejercita la otra mitad —la que un destructor no puede
+  prometer y el kernel sí—, y es precisamente la que ningún apagado ordenado
+  toca. Se añade también el procedimiento de 2.3 (qué campo pobló cada agente
+  para sus modos) en la misma página, porque su resultado se persiste ahí. -->
 
 ## 2. Modos anunciados
 

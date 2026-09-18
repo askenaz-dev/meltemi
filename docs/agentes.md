@@ -172,6 +172,47 @@ as `.ps1`, which **cannot** be launched directly by the OS: Meltemi reports a
 If your agent shows `not_launchable`, reinstall it so its executable shim is
 present (a global npm install normally drops both).
 
+#### What a shim means for ending an agent
+
+A `.cmd` shim is not the agent. Windows runs it with `cmd.exe`, and the script
+then starts the process that actually speaks the protocol — usually `node`. So
+the thing Meltemi launches and the thing doing the work are two different
+processes, one under the other:
+
+```text
+meltemid ──launch──> cmd.exe (agent.cmd) ──launch──> node (the agent) ──ACP──> meltemid
+```
+
+Ending a process on Windows ends that process and nothing below it. Ending the
+shim alone therefore used to leave the agent running: holding its worktree,
+holding its files, and invisible to anything that thought the session was over.
+Measured on Windows 11 with a shim whose body was `node -e
+"setTimeout(()=>{},60000)"` — after the shim was terminated, the `node` was
+still alive.
+
+This no longer happens, and not because Meltemi hunts for children. Every agent
+is launched inside a **process scope** (a Job Object), which owns the whole tree
+underneath it. Two consequences, and the second is the one that matters:
+
+- Ending the agent ends the shim and everything it started, at any depth.
+  Meltemi does not need to know what the shim runs, which is good, because the
+  shim's contents belong to whoever generated it.
+- **If the daemon dies without running any shutdown** — a crash, a kill from
+  Task Manager, signing out — the system closes its handles, and the agents go
+  with them. A destructor cannot promise that. The kernel can.
+
+Nothing here reads, signals or inspects another vendor's process: the scope is
+opened before the launch and the agent is placed in it, which is the whole
+mechanism.
+
+If a scope cannot be opened, Meltemi **refuses the launch** and says so, rather
+than starting an agent it would not be able to fully end. That is deliberate: a
+loud failure at the start is worth more than a quiet orphan an hour later.
+
+On macOS and Linux there is no equivalent step, and none is needed: the shims
+there are scripts with a shebang, so the process Meltemi launches *is* the
+interpreter doing the work, and ending it ends the work.
+
 ### macOS and Linux
 
 A layer counts as found when the file exists and carries an execute bit.
