@@ -34,7 +34,8 @@ use agent_client_protocol::schema::v1::{
     PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionId, SessionNotification, StopReason, TextContent,
 };
-use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo};
+use agent_client_protocol::{AcpAgent, Agent, ByteStreams, Client, ConnectionTo};
+use meltemi_process::Scope;
 
 use meltemi_proto::{
     PermissionDecidedBy, PermissionOption, PermissionOptionKind, PermissionOutcome,
@@ -178,6 +179,60 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
     let agent = AcpAgent::from_args(&launch_argv)
         .map_err(|e| anyhow::anyhow!("invalid agent command: {e:?}"))?;
 
+    // The launch happens **here**, not inside the protocol crate, and the only
+    // reason is the scope (apagado-entero-y-modos design D3). What the platform
+    // runs for an agent installed by a package manager is frequently not the
+    // agent: on Windows it is a `.cmd` shim, and the process doing the work is
+    // underneath it. Ending the shim leaves that process holding the worktree,
+    // and the crate's own wiring — which ends the child it launched and nothing
+    // else — cannot reach it. So the crate still parses the command and still
+    // spawns it (`spawn_process` is public, and is what its `connect_to` calls),
+    // and the wiring is replicated below so the child can be adopted into a
+    // scope before a byte travels.
+    let (agent_stdin, agent_stdout, agent_stderr, mut child) = agent
+        .spawn_process()
+        .map_err(|e| anyhow::anyhow!("failed to launch the agent: {e:?}"))?;
+    let scope = Scope::new().map_err(|e| anyhow::anyhow!("no process scope for the agent: {e}"))?;
+    let agent_pid = child.id();
+    scope
+        .adopt_pid(agent_pid)
+        .map_err(|e| anyhow::anyhow!("the agent could not be scoped: {e}"))?;
+    {
+        // Which process this session's agent actually is. `AgentResolved` says
+        // which binary will run and is written before anything is launched, so
+        // it cannot carry an identifier that does not exist yet; this is the
+        // line a session log needs when somebody is looking at a process that
+        // outlived something it should not have.
+        let mut log = log.lock().await;
+        let _ = log.append(SessionEventKind::AgentProcess {
+            pid: agent_pid,
+            binary: launch_argv
+                .last()
+                .cloned()
+                .unwrap_or_else(|| "?".to_string()),
+        });
+    }
+
+    // The agent's diagnostics have to be drained: a pipe nobody reads fills,
+    // and an agent blocked writing to it is an agent that has stopped speaking
+    // the protocol. The crate collected them into a string it used only for a
+    // non-zero exit; each line reaches the daemon's own log here as it arrives,
+    // which is the same draining and strictly more than it used to say.
+    let stderr_session = meltemi_session_id.clone();
+    let stderr_drain = tokio::spawn(async move {
+        use futures::{AsyncBufReadExt, StreamExt};
+        let mut lines = futures::io::BufReader::new(agent_stderr).lines();
+        while let Some(line) = lines.next().await {
+            match line {
+                Ok(line) if !line.trim().is_empty() => {
+                    tracing::debug!(session = %stderr_session, "agent stderr: {line}");
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+    });
+
     let denials = Arc::new(AtomicU32::new(0));
 
     // Handler state (the connect_with closure keeps the originals).
@@ -214,7 +269,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         cancel: Arc::clone(&cancel),
     };
 
-    let result = Client
+    let connecting = Client
         .builder()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
@@ -230,236 +285,274 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
             },
             agent_client_protocol::on_receive_request!(),
         )
-        .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
-            // Handshake: capture whether the agent supports session load, so
-            // resume is only offered honestly (sesiones-reanudables D3).
-            let init = connection
-                .send_request(InitializeRequest::new(ProtocolVersion::V1))
-                .block_task()
-                .await?;
-            let supports_load = init.agent_capabilities.load_session;
+        .connect_with(
+            ByteStreams::new(agent_stdin, agent_stdout),
+            async move |connection: ConnectionTo<Agent>| {
+                // Handshake: capture whether the agent supports session load, so
+                // resume is only offered honestly (sesiones-reanudables D3).
+                let init = connection
+                    .send_request(InitializeRequest::new(ProtocolVersion::V1))
+                    .block_task()
+                    .await?;
+                let supports_load = init.agent_capabilities.load_session;
 
-            // Open the session: resume by loading the prior agent session when
-            // asked (and possible), otherwise create a new one.
-            // What the agent announces about itself when the session opens. A
-            // loaded session announces its own set; a new one announces with
-            // the response to `session/new`. Either way the list is the
-            // AGENT's, and an agent that announces nothing leaves this empty —
-            // which is the answer that stops any surface from offering a live
-            // change (modelo-y-esfuerzo design D2).
-            let (acp_session_id, announced_options) = match &load_session_id {
-                Some(prev) if supports_load => {
-                    let loaded = connection
-                        .send_request(LoadSessionRequest::new(prev.clone(), project_root.clone()))
-                        .block_task()
-                        .await?;
-                    let announced = crate::session_config::from_acp(
-                        loaded.config_options.as_deref().unwrap_or_default(),
-                    );
-                    (SessionId::new(prev.clone()), announced)
-                }
-                _ => {
-                    // Inject declared MCP servers only when the agent announced
-                    // support; otherwise open the session without them and
-                    // record the omission (mcp-passthrough D2/D3).
-                    let mut request = NewSessionRequest::new(project_root.clone());
-                    if !mcp_servers.is_empty() {
-                        if crate::mcp::announces_mcp(&init.agent_capabilities.mcp_capabilities) {
-                            request = request
-                                .mcp_servers(mcp_servers.iter().map(crate::mcp::to_acp).collect());
-                            let mut log = log.lock().await;
-                            let _ = log.append(SessionEventKind::McpInjected {
-                                servers: crate::mcp::names(&mcp_servers),
-                            });
-                        } else {
-                            let mut log = log.lock().await;
-                            let _ = log.append(SessionEventKind::McpNotDelivered {
-                                reason: "the agent does not announce MCP support".into(),
-                            });
-                        }
+                // Open the session: resume by loading the prior agent session when
+                // asked (and possible), otherwise create a new one.
+                // What the agent announces about itself when the session opens. A
+                // loaded session announces its own set; a new one announces with
+                // the response to `session/new`. Either way the list is the
+                // AGENT's, and an agent that announces nothing leaves this empty —
+                // which is the answer that stops any surface from offering a live
+                // change (modelo-y-esfuerzo design D2).
+                let (acp_session_id, announced_options) = match &load_session_id {
+                    Some(prev) if supports_load => {
+                        let loaded = connection
+                            .send_request(LoadSessionRequest::new(
+                                prev.clone(),
+                                project_root.clone(),
+                            ))
+                            .block_task()
+                            .await?;
+                        let announced = crate::session_config::from_acp(
+                            loaded.config_options.as_deref().unwrap_or_default(),
+                        );
+                        (SessionId::new(prev.clone()), announced)
                     }
-                    let opened = connection.send_request(request).block_task().await?;
-                    let announced = crate::session_config::from_acp(
-                        opened.config_options.as_deref().unwrap_or_default(),
-                    );
-                    (opened.session_id, announced)
-                }
-            };
-            let agent_session_id = session_id_string(&acp_session_id);
+                    _ => {
+                        // Inject declared MCP servers only when the agent announced
+                        // support; otherwise open the session without them and
+                        // record the omission (mcp-passthrough D2/D3).
+                        let mut request = NewSessionRequest::new(project_root.clone());
+                        if !mcp_servers.is_empty() {
+                            if crate::mcp::announces_mcp(&init.agent_capabilities.mcp_capabilities)
+                            {
+                                request = request.mcp_servers(
+                                    mcp_servers.iter().map(crate::mcp::to_acp).collect(),
+                                );
+                                let mut log = log.lock().await;
+                                let _ = log.append(SessionEventKind::McpInjected {
+                                    servers: crate::mcp::names(&mcp_servers),
+                                });
+                            } else {
+                                let mut log = log.lock().await;
+                                let _ = log.append(SessionEventKind::McpNotDelivered {
+                                    reason: "the agent does not announce MCP support".into(),
+                                });
+                            }
+                        }
+                        let opened = connection.send_request(request).block_task().await?;
+                        let announced = crate::session_config::from_acp(
+                            opened.config_options.as_deref().unwrap_or_default(),
+                        );
+                        (opened.session_id, announced)
+                    }
+                };
+                let agent_session_id = session_id_string(&acp_session_id);
 
-            // The connection is kept so a configuration change can travel over
-            // it without relaunching the agent, and the announcement is
-            // recorded even when empty: "connected and announced nothing" and
-            // "not connected yet" are different refusals and must not read the
-            // same.
-            sessions
-                .set_live_config(
-                    &meltemi_session_id,
-                    acp_session_id.0.to_string(),
-                    connection.clone(),
-                    announced_options.clone(),
-                    log.clone(),
-                )
-                .await;
-            if !announced_options.is_empty() {
-                let mut log = log.lock().await;
-                let _ = log.append(SessionEventKind::ConfigOptionsAnnounced {
-                    options: announced_options,
-                });
-            }
-
-            // Turns while the queue has work. The first turn runs the initial
-            // prompt; each subsequent turn runs the next directed instruction on
-            // the SAME live agent session (control-remoto-asistido). A session
-            // that does not accept direction (no queue) runs exactly one turn —
-            // identical to the prior single-turn behavior.
-            let mut current_prompt = prompt;
-            let mut idle_reason: Option<&'static str> = None;
-            let final_status = loop {
-                // Human edits since the agent's last turn ride in the prompt
-                // itself (never a push outside ACP — design D4); the drain is
-                // announce-exactly-once.
-                if let Some(scope) = &edit_scope
-                    && let Some(note) = scope.note_prefix()
-                {
-                    current_prompt = format!("{note}\n\n{current_prompt}");
-                }
-                {
+                // The connection is kept so a configuration change can travel over
+                // it without relaunching the agent, and the announcement is
+                // recorded even when empty: "connected and announced nothing" and
+                // "not connected yet" are different refusals and must not read the
+                // same.
+                sessions
+                    .set_live_config(
+                        &meltemi_session_id,
+                        acp_session_id.0.to_string(),
+                        connection.clone(),
+                        announced_options.clone(),
+                        log.clone(),
+                    )
+                    .await;
+                if !announced_options.is_empty() {
                     let mut log = log.lock().await;
-                    let _ = log.append(SessionEventKind::PromptSent {
-                        text: current_prompt.clone(),
+                    let _ = log.append(SessionEventKind::ConfigOptionsAnnounced {
+                        options: announced_options,
                     });
                 }
 
-                // Send the prompt, racing the client's cancellation. On cancel we
-                // forward an ACP session/cancel and let the agent drain the turn
-                // to its Cancelled stop reason.
-                let prompt_request = PromptRequest::new(
-                    acp_session_id.clone(),
-                    vec![ContentBlock::Text(TextContent::new(current_prompt.clone()))],
-                );
-                let prompt_future = connection.send_request(prompt_request).block_task();
-                tokio::pin!(prompt_future);
-                in_flight.store(true, Ordering::SeqCst);
-                if let Some(scope) = &edit_scope {
-                    scope.begin_turn();
-                }
-                let response = tokio::select! {
-                    r = &mut prompt_future => r,
-                    _ = cancel.notified() => {
-                        let _ = connection
-                            .send_notification(CancelNotification::new(acp_session_id.clone()));
-                        (&mut prompt_future).await
+                // Turns while the queue has work. The first turn runs the initial
+                // prompt; each subsequent turn runs the next directed instruction on
+                // the SAME live agent session (control-remoto-asistido). A session
+                // that does not accept direction (no queue) runs exactly one turn —
+                // identical to the prior single-turn behavior.
+                let mut current_prompt = prompt;
+                let mut idle_reason: Option<&'static str> = None;
+                let final_status = loop {
+                    // Human edits since the agent's last turn ride in the prompt
+                    // itself (never a push outside ACP — design D4); the drain is
+                    // announce-exactly-once.
+                    if let Some(scope) = &edit_scope
+                        && let Some(note) = scope.note_prefix()
+                    {
+                        current_prompt = format!("{note}\n\n{current_prompt}");
                     }
-                };
-                if let Some(scope) = &edit_scope {
-                    scope.end_turn();
-                }
-                in_flight.store(false, Ordering::SeqCst);
-                let response = response?;
-                let status = map_stop_reason(response.stop_reason);
-
-                // Turn boundary. A cancellation request stops further dispatch
-                // even if the agent reported a non-cancelled stop reason, and so
-                // does a cancelled turn: a directed instruction that arrives late
-                // must take the resume path, never queue into a turn that will
-                // not run. Otherwise dispatch the next queued instruction.
-                // A stopped turn means two different things, and the queue is
-                // what knows which (redirigir-turno design D2): the user
-                // cancelled the SESSION, or interrupted the TURN and left a
-                // relay behind. A `Cancelled` the agent reported on its own —
-                // with no interruption asked for — still ends the session, and
-                // that prudence is untouched: an agent that cancels itself is
-                // not an invitation to keep sending it work.
-                // Consumed unconditionally: a flag raised against a turn that
-                // ended on its own before the signal landed must not survive to
-                // govern a later one.
-                let relayed = match &instruction_queue {
-                    Some(queue) => queue.take_interrupted().await,
-                    None => false,
-                };
-                if cancelled.load(Ordering::SeqCst) || matches!(status, TurnStatus::Cancelled) {
-                    if !relayed {
-                        if let Some(queue) = &instruction_queue {
-                            queue.close().await;
-                        }
-                        break status;
-                    }
-                    // Interrupted with a relay: the session continues. The flag
-                    // was consumed above, so it governs this turn and not the
-                    // next one.
-                    //
-                    // The history says so in its own event. `TurnCompleted
-                    // { cancelled }` reads identically whether the agent stopped
-                    // itself or a human stopped it, and a record that cannot tell
-                    // those apart misreports who decided (design D4). The
-                    // instruction that relayed it travels with it, because
-                    // "interrupted" without "in favour of what" is half a fact.
-                    if let Some(queue) = &instruction_queue {
-                        let next = queue.peek().await;
+                    {
                         let mut log = log.lock().await;
-                        let _ = log.append(SessionEventKind::TurnInterrupted {
-                            instruction: next.unwrap_or_default(),
+                        let _ = log.append(SessionEventKind::PromptSent {
+                            text: current_prompt.clone(),
                         });
                     }
-                }
-                // The boundary. An empty queue no longer ends the session: it
-                // parks here, inside `connect_with`, which is the only place the
-                // agent subprocess can survive — returning from this closure IS
-                // killing it (design D1).
-                //
-                // A session with no queue is single-turn by construction and
-                // must NOT gain a wait nobody asked for: the authoring flows
-                // pass `None` and expect exactly one turn.
-                let Some(queue) = &instruction_queue else {
-                    break status;
-                };
-                match queue.try_take().await {
-                    Some(next) => current_prompt = next,
-                    None => {
-                        // Declared AFTER any human wait has ended, never before:
-                        // `end_waiting` restores `Active` unconditionally and
-                        // would overwrite this (design D7).
-                        if let Some(evicted) = sessions
-                            .begin_idle(&meltemi_session_id, max_idle_sessions)
-                            .await
-                        {
-                            tracing::info!(
-                                evicted,
-                                max = max_idle_sessions,
-                                "idle cap reached: closing the oldest waiting session"
-                            );
+
+                    // Send the prompt, racing the client's cancellation. On cancel we
+                    // forward an ACP session/cancel and let the agent drain the turn
+                    // to its Cancelled stop reason.
+                    let prompt_request = PromptRequest::new(
+                        acp_session_id.clone(),
+                        vec![ContentBlock::Text(TextContent::new(current_prompt.clone()))],
+                    );
+                    let prompt_future = connection.send_request(prompt_request).block_task();
+                    tokio::pin!(prompt_future);
+                    in_flight.store(true, Ordering::SeqCst);
+                    if let Some(scope) = &edit_scope {
+                        scope.begin_turn();
+                    }
+                    let response = tokio::select! {
+                        r = &mut prompt_future => r,
+                        _ = cancel.notified() => {
+                            let _ = connection
+                                .send_notification(CancelNotification::new(acp_session_id.clone()));
+                            (&mut prompt_future).await
                         }
-                        match wait_for_instruction(
-                            queue,
-                            &cancel,
-                            &clients,
-                            no_client_grace,
-                            idle_timeout,
-                        )
-                        .await
-                        {
-                            Waking::Instruction(next) => {
-                                sessions.end_idle(&meltemi_session_id).await;
-                                sessions
-                                    .set_state(&meltemi_session_id, SessionState::Active)
-                                    .await;
-                                current_prompt = next;
-                            }
-                            Waking::Ended(reason) => {
-                                sessions.end_idle(&meltemi_session_id).await;
+                    };
+                    if let Some(scope) = &edit_scope {
+                        scope.end_turn();
+                    }
+                    in_flight.store(false, Ordering::SeqCst);
+                    let response = response?;
+                    let status = map_stop_reason(response.stop_reason);
+
+                    // Turn boundary. A cancellation request stops further dispatch
+                    // even if the agent reported a non-cancelled stop reason, and so
+                    // does a cancelled turn: a directed instruction that arrives late
+                    // must take the resume path, never queue into a turn that will
+                    // not run. Otherwise dispatch the next queued instruction.
+                    // A stopped turn means two different things, and the queue is
+                    // what knows which (redirigir-turno design D2): the user
+                    // cancelled the SESSION, or interrupted the TURN and left a
+                    // relay behind. A `Cancelled` the agent reported on its own —
+                    // with no interruption asked for — still ends the session, and
+                    // that prudence is untouched: an agent that cancels itself is
+                    // not an invitation to keep sending it work.
+                    // Consumed unconditionally: a flag raised against a turn that
+                    // ended on its own before the signal landed must not survive to
+                    // govern a later one.
+                    let relayed = match &instruction_queue {
+                        Some(queue) => queue.take_interrupted().await,
+                        None => false,
+                    };
+                    if cancelled.load(Ordering::SeqCst) || matches!(status, TurnStatus::Cancelled) {
+                        if !relayed {
+                            if let Some(queue) = &instruction_queue {
                                 queue.close().await;
-                                idle_reason = Some(reason);
-                                break status;
+                            }
+                            break status;
+                        }
+                        // Interrupted with a relay: the session continues. The flag
+                        // was consumed above, so it governs this turn and not the
+                        // next one.
+                        //
+                        // The history says so in its own event. `TurnCompleted
+                        // { cancelled }` reads identically whether the agent stopped
+                        // itself or a human stopped it, and a record that cannot tell
+                        // those apart misreports who decided (design D4). The
+                        // instruction that relayed it travels with it, because
+                        // "interrupted" without "in favour of what" is half a fact.
+                        if let Some(queue) = &instruction_queue {
+                            let next = queue.peek().await;
+                            let mut log = log.lock().await;
+                            let _ = log.append(SessionEventKind::TurnInterrupted {
+                                instruction: next.unwrap_or_default(),
+                            });
+                        }
+                    }
+                    // The boundary. An empty queue no longer ends the session: it
+                    // parks here, inside `connect_with`, which is the only place the
+                    // agent subprocess can survive — returning from this closure IS
+                    // killing it (design D1).
+                    //
+                    // A session with no queue is single-turn by construction and
+                    // must NOT gain a wait nobody asked for: the authoring flows
+                    // pass `None` and expect exactly one turn.
+                    let Some(queue) = &instruction_queue else {
+                        break status;
+                    };
+                    match queue.try_take().await {
+                        Some(next) => current_prompt = next,
+                        None => {
+                            // Declared AFTER any human wait has ended, never before:
+                            // `end_waiting` restores `Active` unconditionally and
+                            // would overwrite this (design D7).
+                            if let Some(evicted) = sessions
+                                .begin_idle(&meltemi_session_id, max_idle_sessions)
+                                .await
+                            {
+                                tracing::info!(
+                                    evicted,
+                                    max = max_idle_sessions,
+                                    "idle cap reached: closing the oldest waiting session"
+                                );
+                            }
+                            match wait_for_instruction(
+                                queue,
+                                &cancel,
+                                &clients,
+                                no_client_grace,
+                                idle_timeout,
+                            )
+                            .await
+                            {
+                                Waking::Instruction(next) => {
+                                    sessions.end_idle(&meltemi_session_id).await;
+                                    sessions
+                                        .set_state(&meltemi_session_id, SessionState::Active)
+                                        .await;
+                                    current_prompt = next;
+                                }
+                                Waking::Ended(reason) => {
+                                    sessions.end_idle(&meltemi_session_id).await;
+                                    queue.close().await;
+                                    idle_reason = Some(reason);
+                                    break status;
+                                }
                             }
                         }
                     }
-                }
-            };
+                };
 
-            Ok((final_status, supports_load, agent_session_id, idle_reason))
-        })
-        .await;
+                Ok((final_status, supports_load, agent_session_id, idle_reason))
+            },
+        );
+
+    // The protocol, raced against the process that speaks it. The streams
+    // closing would end the connection on its own, so this is not what makes an
+    // early exit visible — it is what makes it legible: an agent that died at
+    // launch says so, instead of arriving as a protocol error with no cause.
+    // `biased` prefers the protocol, so the ordinary ending — the agent exiting
+    // once the conversation is over — is never reported as an early exit.
+    tokio::pin!(connecting);
+    let result = tokio::select! {
+        biased;
+        outcome = &mut connecting => outcome,
+        status = child.status() => Err(agent_client_protocol::Error::internal_error().data(
+            serde_json::json!({
+                "reason": "the agent process ended before the session did",
+                "status": match &status {
+                    Ok(status) => status.to_string(),
+                    Err(error) => error.to_string(),
+                },
+            }),
+        )),
+    };
+
+    // Whatever happened, the agent goes — and with it everything it launched.
+    // Ending the scope is the half that reaches an intermediary's children;
+    // dropping it afterwards is the half that would have run even if this line
+    // never did.
+    if let Err(error) = scope.end() {
+        tracing::warn!(pid = agent_pid, "could not end the agent's scope: {error}");
+    }
+    let _ = child.try_status();
+    stderr_drain.abort();
 
     let (status, supports_load, agent_session_id, idle_reason) =
         result.map_err(|e| anyhow::anyhow!("acp session failed: {e:?}"))?;

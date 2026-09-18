@@ -2240,6 +2240,23 @@ pub enum SessionEventKind {
         /// Approved out-of-tree operations that remain in effect.
         irreversible: Vec<String>,
     },
+    /// The agent's process, once it is running: which process this session's
+    /// agent actually is (apagado-entero-y-modos design D3).
+    ///
+    /// Separate from `AgentResolved`, which answers "which binary will run" and
+    /// is written when the fleet resolves the name — before anything is
+    /// launched, so it cannot carry an identifier that does not exist yet. This
+    /// one is written after the launch, and it is what lets a session log
+    /// answer "which process was this?" when somebody is looking at a process
+    /// that outlived something it should not have.
+    AgentProcess {
+        /// The operating system's identifier for the launched process.
+        pid: u32,
+        /// The program that was launched, as the platform resolved it. On
+        /// Windows this is frequently a script shim rather than the CLI
+        /// itself, which is exactly why the identifier beside it matters.
+        binary: String,
+    },
     /// A session's agent was resolved from the fleet (flota-multiproveedor):
     /// the effective binary and how the name resolved. Carries the binary and
     /// source ONLY — never the profile's env values (fair play §2).

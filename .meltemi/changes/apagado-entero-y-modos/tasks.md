@@ -53,7 +53,7 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
   neutralizando `scope.end()`: el nieto sobrevive y el test lo dice. El de
   soltar sigue verde con `end()` neutralizado, y debe: lo que prueba es el
   cierre del handle, no la llamada. -->
-- [ ] 1.3 Daemon: `acp.rs` llama a `AcpAgent::spawn_process` él mismo,
+- [x] 1.3 Daemon: `acp.rs` llama a `AcpAgent::spawn_process` él mismo,
   adopta el hijo por su `id()`, conecta con `Lines` sobre su stdio,
   replica del crate el colector de `stderr` y el vigilante del hijo
   (citando `acp_agent.rs:280-372` de 1.2.0), y anota pid y programa
@@ -63,6 +63,22 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
   intermedio no deja huérfanos», «El daemon termina de golpe y nada le
   sobrevive» y «Cancelación de sesión» re-pineado — gates: suite de
   `meltemid`
+  <!-- 2026-09-18: **dos desvíos del design, los dos declarados en el
+  proposal.** (1) El requisito «el identificador de proceso y el programa
+  efectivo SHALL constar en el log» no tenía dónde constar: `agent_resolved` y
+  `session_started` se escriben **antes** del lanzamiento y no pueden llevar un
+  pid que aún no existe. Se añade al contrato el evento `agent_process
+  {pid, binary}` y su entrada en el schema — aditivo, una variante más de una
+  unión etiquetada, ningún método ni tipo de petición tocado. (2) `meltemid`
+  pasa a depender de `futures` de forma **directa**: el colector de `stderr`
+  que se replica del crate ACP usa sus traits de lectura asíncrona. No entra
+  nada nuevo a la clausura —ya viajaba como dependencia del propio crate ACP—
+  y se pinea igual que el resto.
+  El e2e nuevo pone el intermediario real en la cadena (`meltemid` → `cmd.exe`
+  → `mock-agent`) y mide lo único que los demás e2e no pueden. **Comprobado que
+  muerde**: neutralizando la adopción, el test falla con «process 33672
+  outlived the session», y el shim y el `mock-agent` de debajo quedan vivos en
+  la tabla de procesos tras completarse la sesión. -->
 - [ ] 1.4 `docs/agentes.md` (sección Windows: qué pasa con un shim y por qué
   ya no importa) y `docs/conformidad-manual.md` (comprobación opt-in contra
   un CLI real instalado por npm: abrir sesión, cancelar, listar procesos)
