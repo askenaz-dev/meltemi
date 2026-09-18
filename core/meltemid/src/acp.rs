@@ -304,6 +304,12 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                 // AGENT's, and an agent that announces nothing leaves this empty —
                 // which is the answer that stops any surface from offering a live
                 // change (modelo-y-esfuerzo design D2).
+                //
+                // Both of the protocol's ways of announcing a mode are read
+                // here, because an agent born before configuration options
+                // announces its modes by the older field and would otherwise
+                // look like an agent with nothing to offer
+                // (apagado-entero-y-modos design D6).
                 let (acp_session_id, announced_options) = match &load_session_id {
                     Some(prev) if supports_load => {
                         let loaded = connection
@@ -313,8 +319,9 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                             ))
                             .block_task()
                             .await?;
-                        let announced = crate::session_config::from_acp(
+                        let announced = crate::session_config::announced(
                             loaded.config_options.as_deref().unwrap_or_default(),
+                            loaded.modes.as_ref(),
                         );
                         (SessionId::new(prev.clone()), announced)
                     }
@@ -341,8 +348,9 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                             }
                         }
                         let opened = connection.send_request(request).block_task().await?;
-                        let announced = crate::session_config::from_acp(
+                        let announced = crate::session_config::announced(
                             opened.config_options.as_deref().unwrap_or_default(),
+                            opened.modes.as_ref(),
                         );
                         (opened.session_id, announced)
                     }
@@ -363,10 +371,10 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                         log.clone(),
                     )
                     .await;
-                if !announced_options.is_empty() {
+                if !announced_options.options.is_empty() {
                     let mut log = log.lock().await;
                     let _ = log.append(SessionEventKind::ConfigOptionsAnnounced {
-                        options: announced_options,
+                        options: announced_options.options,
                     });
                 }
 

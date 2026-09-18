@@ -92,12 +92,23 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
 
 ## 2. Modos anunciados
 
-- [ ] 2.1 `session_config::from_acp(config_options, modes)` con la
+- [x] 2.1 `session_config::from_acp(config_options, modes)` con la
   precedencia de D6 y la síntesis de la opción de modo; el daemon recuerda
   por sesión que esa opción es de forma heredada; tests unitarios de las
   tres combinaciones (solo modos, solo opciones, las dos) — escenarios
   «Modos sin opción de configuración se ofrecen como opción» y «Con las dos
   formas gana la opción de configuración» — gates: suite de `meltemid`
+  <!-- 2026-09-18: la función nueva se llama `announced` y **no** reemplaza a
+  `from_acp`: la traducción pura sigue haciendo falta donde no hay campo de
+  modos que leer (la respuesta a un cambio de opción, y la lista que el agente
+  manda por su cuenta), y fundirlas habría obligado a pasar `None` en esos
+  sitios para decir «aquí no aplica». Devuelve `Announced { options,
+  mode_is_inherited }` en vez de una lista suelta, porque el dato que decide
+  qué verbo fija la opción **no se puede leer de la opción**: un agente puede
+  anunciar la suya con el mismo id y la misma categoría. El daemon lo guarda en
+  `LiveConfig`. Se añade `set_current_mode`, que busca la opción de modo **por
+  categoría y no por id**, porque las dos formas coinciden en la categoría y la
+  nueva puede llamar a la opción como quiera. -->
 - [ ] 2.2 `server.rs`: `session/set-config-option` sobre la opción heredada
   manda `session/set_mode` y fija el valor aceptado; `acp.rs`
   (`forward_update`) reconoce `current_mode_update` y

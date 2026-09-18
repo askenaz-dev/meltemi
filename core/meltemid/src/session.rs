@@ -38,6 +38,16 @@ pub struct LiveConfig {
     /// Exactly what the agent announced. Empty means it announced nothing, and
     /// no surface may offer a live change (modelo-y-esfuerzo design D2).
     pub options: Vec<SessionConfigOption>,
+    /// Whether the mode option in `options` was synthesised from the
+    /// protocol's older modes field rather than announced as a configuration
+    /// option (apagado-entero-y-modos design D6).
+    ///
+    /// It decides which verb sets it, and nothing else. It cannot be read off
+    /// the option: an agent is free to announce its own option with the same
+    /// id and category, and that one is set through the verb it was announced
+    /// with. So the derivation's answer is remembered here, per session,
+    /// internal, and never travels in the contract.
+    pub mode_is_inherited: bool,
     /// The session's append-only log, so a change lands where the session's
     /// history is read. Without it `agent_resolved` would name one model while
     /// the session finished under another, and nothing would say when it
@@ -416,14 +426,15 @@ impl SessionRegistry {
         session_id: &str,
         acp_session_id: String,
         connection: ConnectionTo<Agent>,
-        options: Vec<SessionConfigOption>,
+        announced: crate::session_config::Announced,
         log: Arc<Mutex<SessionLog>>,
     ) {
         if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
             entry.config = Some(LiveConfig {
                 acp_session_id,
                 connection,
-                options,
+                options: announced.options,
+                mode_is_inherited: announced.mode_is_inherited,
                 log,
             });
         }
@@ -443,7 +454,38 @@ impl SessionRegistry {
             && let Some(config) = entry.config.as_mut()
         {
             config.options = options;
+            // A list that replaces the announcement replaces where the mode
+            // came from too: whatever mode option the new list carries is one
+            // the agent announced as a configuration option, and is set with
+            // the verb it was announced with. A list with none leaves the flag
+            // with nothing to describe (apagado-entero-y-modos design D7).
+            //
+            // The consequence, said rather than hidden: an agent that
+            // announces its modes by the older field AND configuration options
+            // by the newer one loses its mode selector when any other option
+            // is changed, because the replacing list has no mode in it. It is
+            // what "replace whole, never merge" costs, and re-deriving the
+            // synthesised option here would be the merge that rule forbids.
+            config.mode_is_inherited = false;
         }
+    }
+
+    /// Moves the session's mode option to `mode_id` and hands back the
+    /// announcement as it now stands.
+    ///
+    /// `None` when this session has no live configuration or no mode option to
+    /// move — an agent may have replaced its announcement with one that has
+    /// none, and a notification about something nobody announces changes
+    /// nothing.
+    pub async fn set_current_mode(
+        &self,
+        session_id: &str,
+        mode_id: &str,
+    ) -> Option<Vec<SessionConfigOption>> {
+        let mut inner = self.inner.lock().await;
+        let config = inner.get_mut(session_id)?.config.as_mut()?;
+        crate::session_config::set_current_mode(&mut config.options, mode_id)
+            .then(|| config.options.clone())
     }
 
     /// Updates the lifecycle state of a session, if still present.
