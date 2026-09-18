@@ -11,7 +11,7 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
 
 ## 1. Apagado entero
 
-- [ ] 1.1 Crate `core/meltemi-process` (biblioteca): `Scope` con `new`,
+- [x] 1.1 Crate `core/meltemi-process` (biblioteca): `Scope` con `new`,
   `adopt(&tokio::process::Child)`, `adopt_pid(u32)`, `end()` y `Drop` que
   cierra el handle; Windows con Job Object y
   `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, resto de plataformas un no-op
@@ -22,6 +22,19 @@ taller (`meltemi workspace apagado-entero-y-modos`) y aterriza en `main` con
   escenario «Un lanzador intermedio no deja huérfanos» (la parte del
   mecanismo; el daemon lo re-ejercita en 1.3) — gates: suite del crate,
   `cargo deny check bans`
+  <!-- 2026-09-18: **la API queda solo con `adopt_pid`**. El design pedía
+  además `adopt(&tokio::process::Child)`, y el hijo que el daemon tiene que
+  adoptar es un `async_process::Child` —el crate ACP lanza con `async-process`,
+  no con tokio—, así que un `adopt` tipado habría servido a uno solo de los dos
+  llamadores y el otro habría necesitado igual la vía del identificador. A
+  cambio, el contrato escribe lo que el tipo ya no puede garantizar: el llamador
+  debe seguir sujetando su `Child`, porque un identificador cuyo proceso ya fue
+  cosechado puede quedar reasignado y adoptaríamos a un desconocido.
+  El test del nieto costó un falso fallo antes de medir bien: `OpenProcess`
+  **también abre un proceso ya terminado** cuyo lanzador no lo ha cosechado, así
+  que «se puede abrir» no es «sigue vivo». Se pregunta por el código de salida
+  (`GetExitCodeProcess` → `STATUS_PENDING`), que es la pregunta real. El
+  mecanismo estaba bien desde la primera corrida: el nieto ya moría. -->
 - [ ] 1.2 Adaptadores: `supervisor.rs` lanza dentro de un `Scope`,
   `ProcessControl::kill` termina el ámbito, y `kill_on_drop` deja de ser una
   promesa del destructor; `tests/process_lifecycle.rs` gana el caso del

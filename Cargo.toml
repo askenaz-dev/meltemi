@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "core/meltemi-adapters",
     "core/meltemi-client",
+    "core/meltemi-process",
     "core/meltemid",
     "core/meltemi-spec",
     "core/mock-agent",
@@ -30,6 +31,10 @@ meltemi-client = { path = "core/meltemi-client" }
 # The spec engine: parsing of `.meltemi/` and the pure context-projection
 # compiler the daemon writes into agent instruction files.
 meltemi-spec = { path = "core/meltemi-spec" }
+# Process scopes: ending a launched process ends everything it launched. One
+# `unsafe` module for the two layers that launch providers, rather than two
+# copies of the same FFI (apagado-entero-y-modos design D2).
+meltemi-process = { path = "core/meltemi-process" }
 meltemid = { path = "core/meltemid" }
 
 # All third-party dependencies are pinned exactly (constitution §10) and
@@ -79,5 +84,8 @@ features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Authorization",
+    # Process scopes (apagado-entero-y-modos design D2): a job object per
+    # provider process, so ending it ends the whole tree a shim left behind.
+    "Win32_System_JobObjects",
     "Win32_System_Threading",
 ]
