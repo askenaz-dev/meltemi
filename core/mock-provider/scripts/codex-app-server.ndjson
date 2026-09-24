@@ -17,6 +17,10 @@
 #
 #   * The approval is granted and the file change completes; in the recording
 #     it was declined.
+#   * The thread comes back under the gate the adapter asks for (`untrusted`,
+#     `user`, a read-only sandbox without network), which is what the real
+#     server answered when asked (measured 2026-09-24); the vendored recording
+#     was taken without asking, and shows the maintainer's own `on-request`.
 #   * Ids, paths, texts and the model are the ones the end-to-end tests pin.
 #   * Fields the real server sends that the stable dump does not declare
 #     (`runtimeWorkspaceRoots`, `activePermissionProfile`, `multiAgentMode`,
@@ -48,7 +52,7 @@
 {"mock":"respond","result":{"userAgent":"meltemi-codex-acp/0.156.1 (mock-codex-wire; scripted) unknown (meltemi-codex-acp; 0.1.1)","codexHome":"/mock/codex-home","platformFamily":"unix","platformOs":"linux"}}
 # 2. A thread is the conversation the ACP session maps onto.
 {"mock":"await-request","method":"thread/start"}
-{"mock":"respond","result":{"thread":{"id":"mock-thread-1","sessionId":"mock-thread-1","forkedFromId":null,"parentThreadId":null,"preview":"","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"paginated","modelProvider":"mock","model":"mock-model","reasoningEffort":"xhigh","createdAt":1790000000,"updatedAt":1790000000,"recencyAt":1790000000,"status":{"type":"idle"},"path":"/mock/codex-home/sessions/mock-thread-1.jsonl","cwd":"/mock/project","cliVersion":"0.156.1","originator":"meltemi-codex-acp","source":"vscode","threadSource":null,"agentNickname":null,"agentRole":null,"gitInfo":null,"name":null,"turns":[]},"model":"mock-model","modelProvider":"mock","serviceTier":"default","disabledPluginIds":[],"cwd":"/mock/project","instructionSources":[],"approvalPolicy":"on-request","approvalsReviewer":"user","sandbox":{"type":"readOnly","networkAccess":false},"reasoningEffort":"xhigh"}}
+{"mock":"respond","result":{"thread":{"id":"mock-thread-1","sessionId":"mock-thread-1","forkedFromId":null,"parentThreadId":null,"preview":"","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"paginated","modelProvider":"mock","model":"mock-model","reasoningEffort":"xhigh","createdAt":1790000000,"updatedAt":1790000000,"recencyAt":1790000000,"status":{"type":"idle"},"path":"/mock/codex-home/sessions/mock-thread-1.jsonl","cwd":"/mock/project","cliVersion":"0.156.1","originator":"meltemi-codex-acp","source":"vscode","threadSource":null,"agentNickname":null,"agentRole":null,"gitInfo":null,"name":null,"turns":[]},"model":"mock-model","modelProvider":"mock","serviceTier":"default","disabledPluginIds":[],"cwd":"/mock/project","instructionSources":[],"approvalPolicy":"untrusted","approvalsReviewer":"user","sandbox":{"type":"readOnly","networkAccess":false},"reasoningEffort":"xhigh"}}
 # 3. A turn: answered at once, then streamed as items.
 {"mock":"await-request","method":"turn/start"}
 {"mock":"respond","result":{"turn":{"id":"turn-1","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}

@@ -11,6 +11,7 @@
 //! inside this process, which constitution §2 forbids however permissive the
 //! licence is.
 
+pub mod gate;
 pub mod mapping;
 pub mod permission;
 pub mod version;
@@ -113,6 +114,8 @@ pub struct Provenance {
     pub version: String,
     /// The user agent the server announced, verbatim.
     pub user_agent: String,
+    /// The gate the CLI made effective, once the thread is open.
+    pub gate: Option<gate::Effective>,
 }
 
 impl Provenance {
@@ -125,15 +128,18 @@ impl Provenance {
     /// say the same thing the same way.
     #[must_use]
     pub fn meta(&self) -> Meta {
+        let mut meltemi = json!({
+            "providerBin": self.program,
+            "providerVersion": self.version,
+            "providerUserAgent": self.user_agent,
+        });
+        if let Some(gate) = &self.gate {
+            meltemi["providerApprovalPolicy"] = gate.approval_policy.clone();
+            meltemi["providerApprovalsReviewer"] = gate.approvals_reviewer.clone();
+            meltemi["providerSandbox"] = gate.sandbox.clone();
+        }
         let mut meta = Meta::new();
-        meta.insert(
-            "meltemi".into(),
-            json!({
-                "providerBin": self.program,
-                "providerVersion": self.version,
-                "providerUserAgent": self.user_agent,
-            }),
-        );
+        meta.insert("meltemi".into(), meltemi);
         meta
     }
 }
@@ -660,7 +666,7 @@ impl ProviderDialect for CodexDialect {
         // From here on the process exists, so every refusal has to end it. A
         // session that failed to open and left a CLI running would leak one
         // process per attempt, holding the worktree it was launched in.
-        let provenance = match handshake(&mut provider, &self.program).await {
+        let mut provenance = match handshake(&mut provider, &self.program).await {
             Ok(provenance) => provenance,
             Err(refusal) => {
                 let _ = provider.shutdown(self.shutdown).await;
@@ -675,7 +681,10 @@ impl ProviderDialect for CodexDialect {
         let (peer, incoming) = Peer::start(writer, reader, HANDSHAKE_ID + 1);
 
         let thread_id = match open_thread(&peer, &request).await {
-            Ok(thread_id) => thread_id,
+            Ok((thread_id, effective)) => {
+                provenance.gate = Some(effective);
+                thread_id
+            }
             Err(refusal) => {
                 peer.close_input().await;
                 let _ = supervisor::end(&mut control, self.shutdown).await;
@@ -716,24 +725,22 @@ impl ProviderDialect for CodexDialect {
 async fn open_thread<W: AsyncWrite + Unpin + Send>(
     peer: &Peer<W>,
     request: &NewSessionRequest,
-) -> Result<String, Refusal> {
-    let params = wire::ThreadStartParams {
-        cwd: request.cwd.display().to_string(),
-        // The user's choice, carried verbatim to where this provider's schema
-        // accepts it: the thread.
-        model: crate::session_model(),
-    };
+) -> Result<(String, gate::Effective), Refusal> {
+    // The user's model, carried verbatim to where this provider's schema
+    // accepts it (the thread), under the strictest gate the CLI offers.
+    let params =
+        wire::ThreadStartParams::gated(request.cwd.display().to_string(), crate::session_model());
     let answer = peer
         .request(wire::THREAD_START, &params)
         .await
         .map_err(|error| thread_refused(&error.to_string()))?;
-    serde_json::from_value::<wire::ThreadStartResult>(answer)
-        .map(|result| result.thread.id)
-        .map_err(|error| {
-            thread_refused(&format!(
-                "the server opened a thread this adapter cannot read ({error})"
-            ))
-        })
+    let result = serde_json::from_value::<wire::ThreadStartResult>(answer).map_err(|error| {
+        thread_refused(&format!(
+            "the server opened a thread this adapter cannot read ({error})"
+        ))
+    })?;
+    let effective = gate::verify(SPEC.provider_layer, &result)?;
+    Ok((result.thread.id, effective))
 }
 
 /// Shakes hands with the server and checks that it is a version this adapter
@@ -810,6 +817,7 @@ where
         program: program.to_string(),
         version: version::render(version),
         user_agent: result.user_agent,
+        gate: None,
     })
 }
 
@@ -918,10 +926,10 @@ mod tests {
         // Verified against the vendored schema rather than remembered: `model`
         // is a thread field and `effort` is a turn field, and the adapter keeps
         // that split instead of flattening the two into one place.
-        let started = serde_json::to_value(wire::ThreadStartParams {
-            cwd: "/repo".into(),
-            model: Some("some-provider-model".into()),
-        })
+        let started = serde_json::to_value(wire::ThreadStartParams::gated(
+            "/repo".into(),
+            Some("some-provider-model".into()),
+        ))
         .expect("thread start serializes");
         assert_eq!(started["model"], "some-provider-model");
         assert!(
@@ -941,13 +949,10 @@ mod tests {
             "and model is not a turn field: {turn}"
         );
 
-        // Nothing chosen means nothing sent: the CLI's own configuration
+        // No model chosen means no model sent: the CLI's own configuration
         // decides, exactly as before these fields existed.
-        let bare = serde_json::to_value(wire::ThreadStartParams {
-            cwd: "/repo".into(),
-            model: None,
-        })
-        .expect("serializes");
+        let bare = serde_json::to_value(wire::ThreadStartParams::gated("/repo".into(), None))
+            .expect("serializes");
         assert!(bare.get("model").is_none(), "{bare}");
     }
 
@@ -1103,6 +1108,56 @@ mod tests {
                 says: provider_out,
             },
         )
+    }
+
+    #[tokio::test]
+    async fn the_thread_is_opened_under_the_strictest_gate_and_checked() {
+        // Scenario: El adaptador pide la compuerta más estricta
+        let (peer, _incoming, _turn, mut server) = wired(Duration::from_millis(50));
+        let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
+        let opening = tokio::spawn(async move { open_thread(&peer, &request).await });
+
+        let call = server.next_call().await;
+        assert_eq!(call["method"], wire::THREAD_START);
+        assert_eq!(call["params"]["approvalPolicy"], "untrusted");
+        assert_eq!(call["params"]["sandbox"], "read-only");
+        assert_eq!(call["params"]["approvalsReviewer"], "user");
+        server
+            .say(&json!({"id": call["id"], "result": {
+                "thread": {"id": "thread-1"},
+                "approvalPolicy": "untrusted", "approvalsReviewer": "user",
+                "sandbox": {"type": "readOnly", "networkAccess": false}
+            }}))
+            .await;
+        let (thread, effective) = opening.await.unwrap().expect("the gate came back as asked");
+        assert_eq!(thread, "thread-1");
+        assert_eq!(effective.approval_policy, json!("untrusted"));
+    }
+
+    #[tokio::test]
+    async fn a_thread_that_comes_back_under_another_gate_is_refused() {
+        // Scenario: Un valor efectivo distinto del pedido rehúsa la sesión
+        //
+        // A configuration that overrides the request — here, approvals routed
+        // to the provider's own reviewer — never becomes a session.
+        let (peer, _incoming, _turn, mut server) = wired(Duration::from_millis(50));
+        let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
+        let opening = tokio::spawn(async move { open_thread(&peer, &request).await });
+
+        let call = server.next_call().await;
+        server
+            .say(&json!({"id": call["id"], "result": {
+                "thread": {"id": "thread-1"},
+                "approvalPolicy": "untrusted", "approvalsReviewer": "auto_review",
+                "sandbox": {"type": "readOnly", "networkAccess": false}
+            }}))
+            .await;
+        let refusal = opening
+            .await
+            .unwrap()
+            .expect_err("the reviewer is not the client");
+        assert_eq!(refusal.kind, "provider_gate_refused");
+        assert!(refusal.detail.contains("auto_review"), "{}", refusal.detail);
     }
 
     fn turn_params() -> wire::TurnStartParams {
@@ -1609,8 +1664,14 @@ mod tests {
         // (design D7), which any agent may fill the same way.
         let provenance = Provenance {
             program: "/opt/homebrew/bin/codex".into(),
-            version: "0.77.0".into(),
-            user_agent: "codex_cli_rs/0.77.0 (macOS)".into(),
+            version: "0.156.1".into(),
+            user_agent: "meltemi-codex-acp/0.156.1 (macOS) unknown (meltemi-codex-acp; 0.1.1)"
+                .into(),
+            gate: Some(gate::Effective {
+                approval_policy: json!("untrusted"),
+                approvals_reviewer: json!("user"),
+                sandbox: json!({"type": "readOnly", "networkAccess": false}),
+            }),
         };
         let update =
             SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta()));
@@ -1619,10 +1680,25 @@ mod tests {
             logged["_meta"]["meltemi"]["providerBin"],
             "/opt/homebrew/bin/codex"
         );
-        assert_eq!(logged["_meta"]["meltemi"]["providerVersion"], "0.77.0");
+        assert_eq!(logged["_meta"]["meltemi"]["providerVersion"], "0.156.1");
         assert_eq!(
             logged["_meta"]["meltemi"]["providerUserAgent"],
-            "codex_cli_rs/0.77.0 (macOS)"
+            "meltemi-codex-acp/0.156.1 (macOS) unknown (meltemi-codex-acp; 0.1.1)"
+        );
+        // Scenario: La compuerta efectiva consta en el log
+        //
+        // And the gate the CLI ran under, as it reported it.
+        assert_eq!(
+            logged["_meta"]["meltemi"]["providerApprovalPolicy"],
+            "untrusted"
+        );
+        assert_eq!(
+            logged["_meta"]["meltemi"]["providerApprovalsReviewer"],
+            "user"
+        );
+        assert_eq!(
+            logged["_meta"]["meltemi"]["providerSandbox"],
+            json!({"type": "readOnly", "networkAccess": false})
         );
     }
 

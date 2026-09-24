@@ -335,10 +335,10 @@ fn every_key_the_adapter_sends_is_one_the_schema_declares() {
         ),
         (
             "ThreadStartParams.json",
-            serde_json::to_value(ThreadStartParams {
-                model: Some("a-model-name".into()),
-                cwd: "/project/worktree".into(),
-            })
+            serde_json::to_value(ThreadStartParams::gated(
+                "/project/worktree".into(),
+                Some("a-model-name".into()),
+            ))
             .unwrap(),
         ),
         (
@@ -379,10 +379,10 @@ fn every_key_the_adapter_sends_is_one_the_schema_declares() {
 
     // And the thread it opens carries nothing beyond what design D9 lists: no
     // analytics classification, no service name, no session source.
-    let thread = serde_json::to_value(ThreadStartParams {
-        model: Some("a-model-name".into()),
-        cwd: "/project/worktree".into(),
-    })
+    let thread = serde_json::to_value(ThreadStartParams::gated(
+        "/project/worktree".into(),
+        Some("a-model-name".into()),
+    ))
     .unwrap();
     for key in thread.as_object().unwrap().keys() {
         assert!(
@@ -397,6 +397,84 @@ fn every_key_the_adapter_sends_is_one_the_schema_declares() {
             "`thread/start` carries only what the adapter decided to send: {key}"
         );
     }
+}
+
+#[test]
+fn the_governance_values_the_dump_declares_are_the_ones_the_adapter_knows() {
+    // Scenario: Los valores de gobierno del esquema están pineados
+    //
+    // The gate fails closed on anything it does not know, which keeps a
+    // session safe; this keeps the list honest. A value the provider adds to
+    // any of the three fails the next re-anchoring, naming it, instead of
+    // arriving unannounced in a CLI nobody verified.
+    use meltemi_adapters::codex::gate;
+
+    let doc = schema_doc("ThreadStartResponse.json");
+    let definitions = &doc["definitions"];
+    let names = |values: Vec<String>| {
+        let mut values = values;
+        values.sort();
+        values
+    };
+
+    let policies = names(
+        definitions["AskForApproval"]["oneOf"]
+            .as_array()
+            .expect("the policy is a union")
+            .iter()
+            .flat_map(|branch| match branch["enum"].as_array() {
+                Some(values) => values
+                    .iter()
+                    .map(|v| v.as_str().unwrap().to_string())
+                    .collect::<Vec<_>>(),
+                None => branch["properties"]
+                    .as_object()
+                    .expect("the object form is named by its key")
+                    .keys()
+                    .cloned()
+                    .collect(),
+            })
+            .collect(),
+    );
+    assert_eq!(policies, gate::KNOWN_APPROVAL_POLICIES, "approval policies");
+
+    let reviewers = names(
+        definitions["ApprovalsReviewer"]["enum"]
+            .as_array()
+            .expect("the reviewer is an enum")
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect(),
+    );
+    assert_eq!(reviewers, gate::KNOWN_REVIEWERS, "reviewers");
+
+    let sandboxes = names(
+        definitions["SandboxPolicy"]["oneOf"]
+            .as_array()
+            .expect("the sandbox is a union")
+            .iter()
+            .map(|branch| {
+                branch["properties"]["type"]["enum"][0]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect(),
+    );
+    assert_eq!(sandboxes, gate::KNOWN_SANDBOXES, "sandboxes");
+
+    // And what the adapter asks for is one of them, in the thread's own terms.
+    assert!(gate::KNOWN_APPROVAL_POLICIES.contains(&gate::APPROVAL_POLICY));
+    assert!(gate::KNOWN_REVIEWERS.contains(&gate::APPROVALS_REVIEWER));
+    assert!(gate::KNOWN_SANDBOXES.contains(&gate::SANDBOX_TYPE));
+    let params = schema_doc("ThreadStartParams.json");
+    assert!(
+        params["definitions"]["SandboxMode"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(gate::SANDBOX_MODE)),
+        "the sandbox asked for is one `thread/start` takes"
+    );
 }
 
 #[test]
@@ -443,11 +521,10 @@ fn what_the_adapter_sends_conforms_to_the_dumped_schema() {
         &serde_json::to_value(&initialize).unwrap(),
     );
 
-    let thread_start = ThreadStartParams {
-        // The provider's schema accepts it here; the conformance proves the shape.
-        model: Some("a-model-name".into()),
-        cwd: "/project/worktree".into(),
-    };
+    // The model, which the provider's schema accepts here, and the gate the
+    // adapter always asks for: the conformance proves the shape of both.
+    let thread_start =
+        ThreadStartParams::gated("/project/worktree".into(), Some("a-model-name".into()));
     assert_conforms(
         "ThreadStartParams.json",
         "the thread the session maps onto",

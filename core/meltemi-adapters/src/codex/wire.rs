@@ -152,16 +152,19 @@ pub struct InitializeResult {
 
 /// `thread/start` parameters.
 ///
-/// The working directory, and the model when the SESSION named one. Sandbox and
-/// approval policy stay with the CLI's own configuration: choosing those here
-/// would make Meltemi assume a provider's semantics, which §5 forbids the core
-/// to do and which the adapter has no better information to do either.
+/// The working directory, the model when the SESSION named one, and the CLI's
+/// native hard gate at its strictest (codex-al-dia design D5). The gate used to
+/// be left to the user's own CLI configuration, on the argument that choosing
+/// it would make Meltemi assume a provider's semantics; but that argument
+/// governs the core, not an adapter that exists for one provider, and the
+/// living `own-adapters` requirement asks the adapter to configure the CLI's
+/// hard gate even in its permissive modes. The adapter asks for the strictest
+/// gate the CLI offers and verifies what the CLI made effective (`gate.rs`).
 ///
-/// The model is different in exactly one way, and it is why it belongs here:
-/// the user chose it. Carrying a choice is not assuming one
-/// (modelo-y-esfuerzo-por-sesion design D1). It rides on the THREAD because
-/// this provider's schema puts it there — `effort` is not accepted here at all,
-/// only per turn, and the adapter respects that split rather than flattening it.
+/// The model rides on the THREAD because this provider's schema puts it there
+/// — `effort` is not accepted here at all, only per turn, and the adapter
+/// respects that split rather than flattening it (modelo-y-esfuerzo-por-sesion
+/// design D1).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadStartParams {
@@ -171,6 +174,51 @@ pub struct ThreadStartParams {
     /// The provider's own model name, verbatim, when the session named one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Ask before every command the CLI does not consider a trusted read.
+    pub approval_policy: ApprovalPolicy,
+    /// Write nothing without asking.
+    pub sandbox: SandboxMode,
+    /// Send every question to the client — here, the permission proxy.
+    pub approvals_reviewer: ApprovalsReviewer,
+}
+
+impl ThreadStartParams {
+    /// A thread under the strictest gate the CLI offers, the only way this
+    /// adapter opens one.
+    #[must_use]
+    pub fn gated(cwd: String, model: Option<String>) -> Self {
+        Self {
+            cwd,
+            model,
+            approval_policy: ApprovalPolicy::Untrusted,
+            sandbox: SandboxMode::ReadOnly,
+            approvals_reviewer: ApprovalsReviewer::User,
+        }
+    }
+}
+
+/// The approval policies this adapter asks for: one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ApprovalPolicy {
+    /// Ask for every command that is not one of the CLI's trusted reads.
+    #[serde(rename = "untrusted")]
+    Untrusted,
+}
+
+/// The sandboxes this adapter asks for: one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum SandboxMode {
+    /// Read anything, write nothing without an approved escalation.
+    #[serde(rename = "read-only")]
+    ReadOnly,
+}
+
+/// The reviewers this adapter asks for: one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ApprovalsReviewer {
+    /// The client that opened the thread.
+    #[serde(rename = "user")]
+    User,
 }
 
 /// A thread, of which the adapter reads only its identity.
@@ -182,11 +230,24 @@ pub struct Thread {
 }
 
 /// `thread/start` result.
+///
+/// Besides the thread, the gate the CLI made effective, read as opaque values:
+/// whether they are the ones asked for is `gate.rs`'s question, and an unknown
+/// or missing value must reach it as such rather than fail parsing here.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadStartResult {
     /// The thread that was opened.
     pub thread: Thread,
+    /// The effective approval policy.
+    #[serde(default)]
+    pub approval_policy: Option<serde_json::Value>,
+    /// Who the effective approvals go to.
+    #[serde(default)]
+    pub approvals_reviewer: Option<serde_json::Value>,
+    /// The effective sandbox.
+    #[serde(default)]
+    pub sandbox: Option<serde_json::Value>,
 }
 
 /// One piece of the user's message.

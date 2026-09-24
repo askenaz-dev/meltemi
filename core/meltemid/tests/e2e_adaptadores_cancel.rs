@@ -36,7 +36,7 @@ const HELD_OPEN: &str = r#"
 {"mock":"await-request","method":"initialize"}
 {"mock":"respond","result":{"userAgent":"meltemi-codex-acp/0.156.1 (held-open fixture) unknown (meltemi-codex-acp; 0.1.1)","codexHome":"/mock/codex-home","platformFamily":"unix","platformOs":"linux"}}
 {"mock":"await-request","method":"thread/start"}
-{"mock":"respond","result":{"approvalPolicy":"on-request","approvalsReviewer":"user","cwd":"/mock/project","model":"mock-model","modelProvider":"mock","sandbox":{"type":"readOnly","networkAccess":false},"thread":{"id":"mock-thread-1","sessionId":"mock-thread-1","cliVersion":"0.156.1","createdAt":1790000000,"updatedAt":1790000000,"cwd":"/mock/project","modelProvider":"mock","preview":"held open","ephemeral":false,"projectId":null,"status":{"type":"idle"},"source":"appServer","turns":[]}}}
+{"mock":"respond","result":{"approvalPolicy":"untrusted","approvalsReviewer":"user","cwd":"/mock/project","model":"mock-model","modelProvider":"mock","sandbox":{"type":"readOnly","networkAccess":false},"thread":{"id":"mock-thread-1","sessionId":"mock-thread-1","cliVersion":"0.156.1","createdAt":1790000000,"updatedAt":1790000000,"cwd":"/mock/project","modelProvider":"mock","preview":"held open","ephemeral":false,"projectId":null,"status":{"type":"idle"},"source":"appServer","turns":[]}}}
 {"mock":"await-request","method":"turn/start"}
 {"mock":"notify","method":"turn/started","params":{"threadId":"mock-thread-1","turn":{"id":"turn-1","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":1790000001,"completedAt":null,"durationMs":null}}}
 {"mock":"notify","method":"item/agentMessage/delta","params":{"threadId":"mock-thread-1","turnId":"turn-1","itemId":"item-1","delta":"Thinking about it forever."}}

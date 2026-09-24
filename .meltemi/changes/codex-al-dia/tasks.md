@@ -61,7 +61,7 @@ archivo del volcado llega con la tarea que lo usa.
 
 ## 2. Compuerta y gobierno del turno
 
-- [ ] 2.1 Compuerta: `approvalPolicy: "untrusted"`, `sandbox: "read-only"` y
+- [x] 2.1 Compuerta: `approvalPolicy: "untrusted"`, `sandbox: "read-only"` y
   `approvalsReviewer: "user"` en `ThreadStartParams`; lectura de los valores
   efectivos y lista blanca que falla cerrada (distinto, desconocido o ausente
   rehúsa; red en el sandbox rehúsa); valores efectivos en la procedencia;
@@ -74,6 +74,14 @@ archivo del volcado llega con la tarea que lo usa.
   compuerta efectiva consta en el log», «Los valores de gobierno del esquema
   están pineados», «Compuerta dura sobre modo permisivo del CLI» — gates: suite
   de `meltemi-adapters`, e2e del adaptador
+  <!-- 2026-09-24: **R5 medido antes de implementar**, contra codex-cli 0.156.1
+  en Windows: pedida la compuerta, el servidor devolvió exactamente
+  `untrusted`, `user` y `{"type":"readOnly","networkAccess":false}`; un cambio
+  de archivo pidió aprobación y, aprobado, se aplicó bajo el sandbox de solo
+  lectura (`GATE.txt` con «gated»); y `git status --short`, que no es lectura
+  de confianza, pidió aprobación de comando (`kind: "command"`) y corrió al
+  concederla. La alternativa `workspace-write` que R5 dejaba abierta no hace
+  falta. -->
 - [ ] 2.2 Pérdidas visibles: una fila al abrir la sesión que nombra lo que la
   compuerta de Codex no cubre, y una fila por servidor MCP que el CLI informa
   arrancando (`McpServerStartupStatusUpdatedNotification.json` vendorizado, en
