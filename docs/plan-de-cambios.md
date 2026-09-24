@@ -165,7 +165,10 @@ strings opacos por sesión y por perfil — la palanca de cuotas) ·
 `hooks-eventos` · `plugins-skills-sdk` · `i18n-superficies` ·
 `metricas-sdd-locales` · `lsp-superficie-revision`.
 (`pulido-pre-anuncio`, la vía rápida del acabado pre-anuncio, quedó archivada
-el 2026-07-27.)
+el 2026-07-27.) **Las 39 changes abiertas el 2026-09-24 tras el comparativo
+con Orca** tienen su propio orden de abordaje más abajo («Orden de abordaje
+tras el comparativo con Orca»); su fuente es
+`docs/research/comparativo-orca-2026-09-24.md`.
 
 ### Orden de abordaje de las changes activas — declarado el 2026-08-09
 
@@ -223,6 +226,113 @@ eventos externos no gasta turno. Toda desviación se anota aquí.
 > `metricas-sdd-locales`, `lsp-superficie-revision`, `harness-skills`,
 > `harness-hooks`, `harness-subagentes`, `ruteo-declarativo-de-perfiles`, el
 > `.rpm` de Fedora/RHEL y la extensión ACP de usage.
+
+### Orden de abordaje tras el comparativo con Orca — declarado el 2026-09-24
+
+Fuente: `docs/research/comparativo-orca-2026-09-24.md` — 23 agentes
+verificando siete dimensiones contra el árbol y contra onorca.dev, más una
+**prueba integrada real** en Windows con Claude Code 2.1.280, Codex y
+OpenCode sobre un daemon aislado de `main` @ 4bc8e9e. Sesenta brechas
+verificadas se cubren con **39 changes** (todas con `proposal.md`, en
+`.meltemi/changes/`; design/specs/tasks just-in-time al llegar al frente de
+la cola). Ninguna exige enmendar la constitución; dos traen enmiendas de
+rumbo/§11 con ratificación como gate.
+
+**Criterios, en orden**: (1) lo que la prueba integrada rompió se arregla
+antes que cualquier feature; (2) confianza ejecutable antes de anunciar
+(procedencia cerrada, corrida publicada); (3) el estado vivo antes que
+cualquier animación de trabajo, porque sin él la animación miente; (4) el
+remoto se construye de adentro hacia afuera (cliente → máquinas → lectura →
+aviso → móvil); (5) lo bloqueado por eventos externos —ratificaciones,
+ollama, clave pública— no gasta turno. Toda desviación se anota aquí.
+
+**Consolidación de nombres**: el informe nombra changes chicas que aquí se
+funden por compartir archivos y capability. `arranque-solo-en-endpoint-propio`
++ `tunel-resiliente` + `acceso-remoto-documentado` → `acceso-remoto-afinado`;
+`estados-de-carga` + `pulso-de-la-tui` + `senal-de-vida-del-turno` +
+`ventana-hasta-el-primer-frame` + `vocabulario-de-movimiento` →
+`senales-de-vida`; `canales-de-comunidad` + `cadencia-y-changelog` +
+`quickstart-sin-cargo` (+ FAQ y privacidad) → `antes-de-anunciar`;
+`pestanas-que-vuelven` + `bandeja-de-avisos` + `la-sesion-dice-su-rama` (+
+exportar sesión) → `escritorio-que-recuerda`; `paleta-que-encuentra` +
+`buscar-en-las-sesiones` + `markdown-que-se-lee` + `previsualizar-binarios` →
+`buscar-y-leer`; `abrir-pr-con` + `abrir-terminal-aqui` (+ enmienda de rumbo)
+→ `abrir-con-lo-tuyo`; `distribucion-gestores-paquetes` + `avisos-de-version`
+→ `distribucion-y-actualizacion`; `perfil-con-entorno` se absorbe en
+`guia-modelos-locales` porque `[[fleet.profile]].env` ya existe.
+
+#### Tanda 1 — confianza ejecutable (≤ 2 semanas)
+
+| Orden | Change | Vía | Brechas | Por qué aquí | Depende de |
+|---|---|---|---|---|---|
+| 1º | `codex-al-dia` | completa | AI-1 | Codex no arranca con ninguna versión (0.77: modelo de cuenta; 0.156: user agent que el adaptador no lee) | — |
+| 2º | `turno-vacio-es-error` | rápida | AI-11 | un turno sin mensajes ni herramientas se reportó como éxito | — |
+| 3º | `aprobador-en-el-cli` | completa | AI-12 | el CLI deniega todo permiso: con Claude Code solo sirve para charlar | — |
+| 4º | `modelo-por-opcion-anunciada` | completa | LM-3, LM-6 | `--model` rehusado a un agente que anuncia modelos; el `model` del perfil se pierde en propose/dispatch/implement | — |
+| 5º | `usage-desde-acp` | rápida | LM-7 | `usage_update` está en el log y `usage` dice «no reportado» | — |
+| 6º | `guia-modelos-locales` | rápida | LM-1/2/5/8, P5 | la única vía funcional (OpenCode) sin escribir; corrige «Aider funciona hoy» | ollama en la máquina del mantenedor (pierna local) |
+| 7º | `verbos-del-agent-boss` | rápida | MOB-5, C-F | aprobar, seguir y cancelar por SSH sin TUI; la CLI como herramienta de agentes | — |
+| 8º | `acceso-remoto-afinado` | rápida | R3, R9, R4, MOB-6, R-V1 | un endpoint caído arranca un daemon equivocado; túnel sin latido; Windows servido sin guía | — |
+| 9º | `corrida-integrada` | rápida | AI-2, AI-V1, P9 | la matriz agente × verbo × superficie con informe fechado; el informe de aceptación v0.1 | 1º; ollama para la pierna local |
+| 10º | `senales-de-vida` | completa | VIS-3/4/5/6/7/9 | esqueletos, cronómetro, spinner de la TUI, ventana al primer frame, vocabulario de movimiento | — (solo cliente) |
+| 11º | `comandos-del-agente` | rápida | D2, AI-7 | el `/` del agente, anunciado y hoy descartado | — |
+| 12º | `arrastrar-referencias` | rápida | D3 (texto) | soltar archivos como `@ruta` | — |
+| 13º | `antes-de-anunciar` | rápida | P2, P3, P6, P-V1 | canales, CHANGELOG, quickstart sin cargo, FAQ, privacidad | **gate: `procedencia-de-release` cerrada** |
+| ⏳ | `procedencia-de-release` (cerrar 2/8) | — | P1 | la clave pública en el árbol es lo único que separa un anuncio de una primera impresión quemada | mantenedor |
+
+Paralelizable: 10º–12º son solo `desktop/ui`/`tui` y avanzan mientras 1º–5º
+tocan daemon, adaptadores y `proto/`; 6º, 8º y 13º son documentación y
+scripts. Lo que 1º–5º cierran es la deuda que la prueba del 2026-09-24
+encontró en una tarde.
+
+#### Tanda 2 — estado vivo, transcript rico, remoto usable (1–2 meses)
+
+| Orden | Change | Vía | Brechas | Por qué aquí | Depende de |
+|---|---|---|---|---|---|
+| 14º | `estado-en-vivo` | completa | VIS-1 | `session/state` a todo cliente; «0 working» con un agente trabajando | — |
+| 15º | `herramientas-a-la-vista` | completa | D1, VIS-2, AI-4, D9, VIS-8 | filas de herramienta con resultado, diff ACP, subagentes, calles vivas | 10º, 14º |
+| 16º | `via-ssh-del-cliente` | completa | MOB-8, R1 | el cliente lanza `ssh pc meltemi bridge` y habla por su stdio; Windows servido por fin | 8º |
+| 17º | `maquinas-remotas` | completa (MODIFIED en `remote-access`) | R2, R10, MOB-7, R8 | lista de máquinas con nombre, chip, prueba de conexión | 16º; `identidad-propia` para presencia |
+| 18º | `lectura-por-el-daemon` | completa | R7 | editor, búsqueda y ajustes leen el disco del daemon, acotados | 16º |
+| 19º | `aviso-de-espera-opt-in` | completa | MOB-3, R6 | el push que la spec permite: comando del usuario, contenido mínimo publicado | 14º; archivar `avisos-de-escritorio` |
+| 20º | `flota-ampliada` | rápida | AI-3, AI-9 (L1) | de 10 a ~18 agentes nivel 1 verificados vendor por vendor | 9º (para medirlos) |
+| 21º | `codex-reanudar-y-mcp` | completa | AI-8 | Codex reanuda hilos y recibe MCP por el cable | 1º |
+| 22º | `mcp-stdio-passthrough` | rápida | AI-V1 | stdio es el piso de ACP y hoy se omite | — |
+| 23º | `extension-acp-usage` | completa | LM-7, AI-6 | tokens de Claude Code y Codex por `_meta` con espacio de nombres | 5º |
+| 24º | `escritorio-que-recuerda` | rápida | C-C, C-D, D13, D-V1 | pestañas que vuelven, bandeja con historial, rama por sesión, exportar | 14º (avisos) |
+| 25º | `buscar-y-leer` | completa | D7, D5, C-A | `session/search`, paleta unificada, Markdown renderizado, imágenes | 18º (imágenes remotas) |
+| 26º | `anotar-el-diff` | completa | D6 | comentarios por línea devueltos al agente (meltemi.md §6.8) | 15º |
+| 27º | `abrir-con-lo-tuyo` | completa (enmienda de rumbo) | D11, D12 | «Abrir PR con…» y «Abrir terminal aquí»; terminal como no-objetivo escrito | ratificación del mantenedor |
+| 28º | `demo-animada-del-sitio` | rápida | P4 | el producto en movimiento en la portada, sin JS | 10º |
+| 29º | `meltemi-doctor` | rápida | P-V1 | el diagnóstico que costó una tarde, en una pantalla | 1º (rangos de versión) |
+| 30º | `docs-en-el-sitio` | completa (enmienda §11) | P7 | docs navegables sin JS y la política de idioma decidida | ratificación del mantenedor |
+| 31º | `distribucion-y-actualizacion` | completa | P8, D-V1 | winget/brew/scoop tras la release firmada; la actualización la hace el gestor | 13º |
+
+#### Tanda 3 — apuestas grandes
+
+| Orden | Change | Vía | Brechas | Por qué aquí | Depende de |
+|---|---|---|---|---|---|
+| 32º | `companero-movil` | completa | MOB-1/2/4/9 | Android primero, SSH confinado, canal `exec` → `bridge` | `identidad-propia`, 16º, 17º, 14º, 19º, 7º |
+| 33º | `motor-propio-byok` | completa | LM-4 | la cuña BYO-modelo sin depender de OpenCode | 6º, 23º |
+| 34º | `adjuntos-en-el-compositor` | completa | D3 (imágenes) | bloques de imagen ACP condicionados a la capacidad anunciada | 12º, 25º |
+| 35º | `panel-dividido` | completa | D4 | dos paneles, sin anidamiento | 24º, 10º |
+| 36º | `volver-a-este-turno` | completa | D8 | punto de restauración por turno en worktree gestionado | 15º |
+| 37º | `segunda-ventana` | completa | C-B | una pestaña en el otro monitor | 35º, 24º |
+| 38º | `demo-guiada` | completa | P3 | `meltemi demo` con el agente simulado etiquetado | 13º, 10º |
+| 39º | `runner-nivel-3` (opcional) | completa | LM-1, AI-9 | solo si Aider u otro CLI headless lo justifica | 6º |
+| 40º | `sucesion-y-custodia` | rápida | P10 | inventario de claves y segundo custodio | `procedencia-de-release` cerrada |
+
+**Lo que Meltemi no copia de Orca**, y por qué, está en la sección 6 del
+informe: relé en la nube y push sin túnel (§3), cuentas y uso por API del
+proveedor (§2/§5), pty sin gobierno, Chromium embebido, GitHub/CI en el
+daemon, yolo por defecto, telemetría, releases automáticas, JS en el sitio.
+
+**Siguen nombradas sin abrir** (no cuentan en este orden):
+`registro-agentes-en-superficie`, `menu-nativo-aplicacion`, `sandbox-propio`,
+`hooks-eventos`, `plugins-skills-sdk`, `i18n-superficies`,
+`metricas-sdd-locales`, `lsp-superficie-revision`, `harness-skills`,
+`harness-hooks`, `harness-subagentes`, `ruteo-declarativo-de-perfiles` y el
+`.rpm` de Fedora/RHEL.
 
 ### `motor-propio-byok` — propuesta activa desde el 2026-07-25
 
@@ -1494,7 +1604,7 @@ del daemon en macOS/Linux, que son otra clase y otro remedio.
 
 ## Fase 3 — se planifica al cerrar Fase 2
 
-`companero-movil` (gobernada por las specs `mobile-companion` y `remote-access`: el puesto remoto del Agent Boss, cuatro verbos, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in; su design debe resolver la frontera Windows del túnel — named pipe no reenviable por OpenSSH — sin abrir jamás un puerto de red del daemon) · funciones de equipo y organización (meltemi.md §3).
+`companero-movil` (**propuesta abierta el 2026-09-24**, 32º del orden del comparativo con Orca, sin arrancar hasta sus prerrequisitos; gobernada por las specs `mobile-companion` y `remote-access`: el puesto remoto del Agent Boss, cuatro verbos, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in; su design debe resolver la frontera Windows del túnel — named pipe no reenviable por OpenSSH — sin abrir jamás un puerto de red del daemon) · funciones de equipo y organización (meltemi.md §3).
 
 ## Namespaces del proyecto
 
@@ -1509,3 +1619,7 @@ del daemon en macOS/Linux, que son otra clase y otro remedio.
 1c. ⬜ **Ratificar la enmienda de la promesa de producto** — v1.4→v1.5 de meltemi.md y el párrafo «Qué es Meltemi» de `.meltemi/rumbo/product.md` (`lanzador-conversacional`, design D5, aplicada el 2026-07-31): toda sesión corre gobernada y la disciplina spec-first deja de presentarse como condición previa. A diferencia de las anteriores, **esta ratificación es gate de archivo**: sin la firma, `lanzador-conversacional` no archiva. Ambos textos están aplicados y marcados como pendientes en sus propios documentos. Al ratificar quedan dos cosas por hacer, en este orden: correr `meltemi project` (el bloque proyectado compila el rumbo) y refrescar la frase pública, que sigue diciendo lo viejo en `README.md`, `LEEME.md`, `site/index.html` y `site/es/index.html` — deliberadamente sin tocar, porque anunciar al mundo una promesa sin firmar sería exactamente lo que la enmienda evita. Con ese refresco va también la fila de `docs/sesion-libre.md` en el índice de documentación de los dos READMEs: enlazar «trabajo sin spec» bajo la promesa vieja publicaría la contradicción en vez de resolverla.
 2. **Registrar**: ✅ org GitHub `askenaz-dev` · ✅ org npm `askenaz-dev` · 🟡 dominio `meltemi.dev` (comprado el 2026-07-25; falta apuntar el DNS a Pages) · ⬜ crates `meltemi`, `meltemid`, `meltemi-proto` en crates.io (verificados LIBRES el 2026-07-11 — reservar con un `cargo publish` placeholder o en el primer release para evitar squatting).
 3. **Decidir** el mecanismo de firma del CLA cuando llegue #21.
+4. ⬜ **Instalar ollama** en la máquina de desarrollo (`winget install Ollama.Ollama` + `ollama pull qwen2.5-coder:7b`) para la pierna local de `guia-modelos-locales` y `corrida-integrada`; sin eso la receta se publica como «verificada en forma».
+5. ⬜ **Decidir las versiones pineadas de Codex y OpenCode**: la prueba del 2026-09-24 las dejó en 0.156.1 y 1.18.32 (`npm i -g @openai/codex@0.77.0` / `opencode-ai@1.14.33` para volver). `codex-al-dia` re-ancla el esquema a la que se elija.
+6. ⬜ **Ratificar las dos enmiendas** que traen `abrir-con-lo-tuyo` (rumbo: la terminal integrada como no-objetivo) y `docs-en-el-sitio` (§11: inglés como lengua fuente de la documentación de producto, método en español); ambas quedan aplicadas y marcadas pendientes hasta la firma.
+7. ⬜ **Designar el segundo custodio de claves** (`sucesion-y-custodia`) y publicar la clave minisign en el árbol (`procedencia-de-release`); gate de `antes-de-anunciar`.
