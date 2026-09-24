@@ -229,7 +229,7 @@ mod tests {
         // belongs to the request, and only the request knows its id.
         let steps = parse(
             "{\"mock\":\"await-request\",\"method\":\"initialize\"}\n\
-             {\"mock\":\"respond\",\"result\":{\"userAgent\":\"codex_cli_rs/0.77.0\"}}\n\
+             {\"mock\":\"respond\",\"result\":{\"userAgent\":\"meltemi-codex-acp/0.156.1\"}}\n\
              {\"mock\":\"notify\",\"method\":\"turn/started\",\"params\":{\"threadId\":\"t1\"}}\n",
         )
         .unwrap();
@@ -249,7 +249,7 @@ mod tests {
             sent[0]["id"], 41,
             "the answer carries the id it was asked with"
         );
-        assert_eq!(sent[0]["result"]["userAgent"], "codex_cli_rs/0.77.0");
+        assert_eq!(sent[0]["result"]["userAgent"], "meltemi-codex-acp/0.156.1");
         assert_eq!(sent[1]["method"], "turn/started");
         assert!(sent[1].get("id").is_none(), "a notification has no id");
     }

@@ -243,7 +243,7 @@ async fn the_daemon_pilots_the_real_adapter_and_the_provider_reaches_the_permiss
             .contains("mock-codex-wire"),
         "the log names what was launched: {provenance:#}"
     );
-    assert_eq!(provenance["providerVersion"], "0.77.0");
+    assert_eq!(provenance["providerVersion"], "0.156.1");
 
     // And the turn streamed: the message the wire sent in chunks is in the log.
     let said: String = updates

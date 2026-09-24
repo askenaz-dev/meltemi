@@ -84,6 +84,37 @@ fn assert_conforms(file: &str, what: &str, instance: &Value) {
     );
 }
 
+/// The transcript of the real server the scripted wire follows, one JSON
+/// object per line: `{"from": "client" | "server", "message": …}`.
+fn recording() -> Vec<Value> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("mock-provider")
+        .join("scripts")
+        .join("codex-app-server-0.156.1.transcript.ndjson");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| serde_json::from_str(line).expect("a transcript line is JSON"))
+        .collect()
+}
+
+/// What a server message is, for comparing orders: a notification or request
+/// by its method (an item one by its method and item type), an answer by the
+/// method it answers.
+fn step_name(method: Option<&str>, answered: Option<&str>, params: &Value) -> String {
+    match (method, answered) {
+        (Some(method), _) => match params["item"]["type"].as_str() {
+            Some(kind) => format!("{method}:{kind}"),
+            None => method.to_string(),
+        },
+        (None, Some(answered)) => format!("answer:{answered}"),
+        (None, None) => "answer:?".to_string(),
+    }
+}
+
 /// The dumped schema of a method's parameters, for every method this adapter
 /// speaks or is spoken to with.
 ///
@@ -120,6 +151,21 @@ fn params_schema() -> BTreeMap<&'static str, &'static str> {
         (
             wire::FILE_CHANGE_APPROVAL,
             "FileChangeRequestApprovalParams.json",
+        ),
+        // Said by the server in the middle of every turn, and mapped by
+        // nothing: the scripted wire carries them to prove that ignoring them
+        // costs nothing (codex-al-dia design D4), so they are validated too.
+        (
+            "thread/status/changed",
+            "ThreadStatusChangedNotification.json",
+        ),
+        (
+            "thread/tokenUsage/updated",
+            "ThreadTokenUsageUpdatedNotification.json",
+        ),
+        (
+            "serverRequest/resolved",
+            "ServerRequestResolvedNotification.json",
         ),
     ])
 }
@@ -287,6 +333,68 @@ fn the_scripted_wire_conforms_to_the_dumped_schema() {
 }
 
 #[test]
+fn the_scripted_wire_follows_the_order_the_real_server_answered_in() {
+    // Scenario: El guion simulado sigue al cable real
+    //
+    // The dump says what may be said; only a recording says in what order. The
+    // script is evidence while every step it plays is one the real server
+    // played, in the same order — skipping some is allowed, reordering is not.
+    let mut asked: BTreeMap<i64, String> = BTreeMap::new();
+    let mut recorded = Vec::new();
+    for line in recording() {
+        let message = &line["message"];
+        let method = message["method"].as_str();
+        match line["from"].as_str() {
+            Some("client") => {
+                if let (Some(id), Some(method)) = (message["id"].as_i64(), method) {
+                    asked.insert(id, method.to_string());
+                }
+            }
+            Some("server") => {
+                let answered = message["id"].as_i64().and_then(|id| asked.get(&id));
+                recorded.push(step_name(
+                    method,
+                    answered.map(String::as_str),
+                    &message["params"],
+                ));
+            }
+            other => panic!("a transcript line says who spoke: {other:?}"),
+        }
+    }
+
+    let mut awaited: Option<String> = None;
+    let mut scripted = Vec::new();
+    for step in transcript_steps() {
+        match step["mock"].as_str() {
+            Some("await-request") => awaited = step["method"].as_str().map(str::to_string),
+            Some("respond") => scripted.push(step_name(None, awaited.as_deref(), &Value::Null)),
+            Some("notify" | "request") => {
+                scripted.push(step_name(step["method"].as_str(), None, &step["params"]));
+            }
+            other => panic!("unknown directive {other:?}"),
+        }
+    }
+
+    let mut rest = recorded.iter();
+    for (at, step) in scripted.iter().enumerate() {
+        assert!(
+            rest.any(|played| played == step),
+            "step {at} of the script, `{step}`, is not where the real server played it.\n\
+             script: {scripted:#?}\nrecording: {recorded:#?}"
+        );
+    }
+
+    // The one ordering the old script had to guess, stated on its own: the
+    // real server answers `turn/start` before it says the turn started.
+    let answered = scripted.iter().position(|s| s == "answer:turn/start");
+    let started = scripted.iter().position(|s| s == "turn/started");
+    assert!(
+        matches!((answered, started), (Some(a), Some(s)) if a < s),
+        "the turn is answered, still in progress, before it is announced: {scripted:?}"
+    );
+}
+
+#[test]
 fn the_adapters_types_parse_what_that_wire_says() {
     // Scenario: Tipos validados contra el esquema volcado
     //
@@ -314,19 +422,22 @@ fn the_adapters_types_parse_what_that_wire_says() {
     };
 
     let handshake: InitializeResult = serde_json::from_value(result_of(wire::INITIALIZE)).unwrap();
-    assert!(
-        handshake
-            .user_agent
-            .starts_with(&format!("{}/", wire::USER_AGENT_PRODUCT)),
-        "the user agent carries the CLI's version, which the skew check reads: {}",
+    let read = meltemi_adapters::codex::version::of(&handshake.user_agent, "meltemi-codex-acp");
+    assert_eq!(
+        read.map(meltemi_adapters::codex::version::render)
+            .as_deref(),
+        Some(wire::VENDORED_SCHEMA_VERSION),
+        "the user agent carries the CLI's version where the skew check reads it: {}",
         handshake.user_agent
     );
 
     let thread: ThreadStartResult = serde_json::from_value(result_of(wire::THREAD_START)).unwrap();
     assert_eq!(thread.thread.id, "mock-thread-1");
 
+    // Answered at once and still running, which is how the real CLI answers
+    // (recorded against 0.156.1): the turn ends on `turn/completed`.
     let turn: TurnStartResult = serde_json::from_value(result_of(wire::TURN_START)).unwrap();
-    assert_eq!(turn.turn.status, TurnStatus::Completed);
+    assert_eq!(turn.turn.status, TurnStatus::InProgress);
 
     let started: TurnNotification =
         serde_json::from_value(params_of(wire::TURN_STARTED)[0].clone()).unwrap();
@@ -364,7 +475,7 @@ fn the_adapters_types_parse_what_that_wire_says() {
         items.iter().any(|item| matches!(
             item,
             ThreadItem::FileChange { status, changes, .. }
-                if *status == ItemStatus::Completed && changes[0].path == "NOTES.md"
+                if *status == ItemStatus::Completed && changes[0].path.ends_with("NOTES.md")
         )),
         "and so does the file change the approval was about: {items:?}"
     );

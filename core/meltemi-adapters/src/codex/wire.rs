@@ -27,24 +27,30 @@
 use serde::{Deserialize, Serialize};
 
 /// The CLI version whose dumped schema is vendored, and against which every
-/// type in this module was verified.
-pub const VENDORED_SCHEMA_VERSION: &str = "0.77.0";
+/// type in this module was verified (re-anchored by codex-al-dia).
+pub const VENDORED_SCHEMA_VERSION: &str = "0.156.1";
 
 /// Lowest CLI version this adapter accepts, as `(major, minor, patch)`.
 ///
 /// It is the version the vendored dump came from: below it, nobody has checked
 /// that the thread/turn/item surface is the one described there, and the
-/// adapter refuses rather than assume (design D6).
-pub const SUPPORTED_FLOOR: (u64, u64, u64) = (0, 77, 0);
+/// adapter refuses rather than assume. Measured on 2026-09-24, it is also what
+/// the provider demands: 0.77.0 no longer serves an account's default model.
+pub const SUPPORTED_FLOOR: (u64, u64, u64) = (0, 156, 1);
 
 /// First CLI version this adapter refuses, as `(major, minor, patch)`.
 ///
-/// A major bump is where a wire is allowed to change out from under a client,
-/// so that is where the refusal sits. Within the current major the surface has
-/// grown additively, and the incoming types above are permissive on purpose so
-/// that growth costs nothing — but the claim is only ever as fresh as the last
-/// re-anchoring of the vendored dump, which is what task 5.2's manual run
-/// against a real CLI exists to check.
+/// It stays at the next major, and that is a choice with its cost written down
+/// (codex-al-dia design D2). In `0.x` a minor may break a client — the user
+/// agent changed shape in 0.81 — but the provider ships a minor about twice a
+/// week and stops serving its default models to old CLIs, so a ceiling at the
+/// next minor would leave every user who updates without an agent within days
+/// of each re-anchoring. What changes instead is honesty: a version above
+/// [`VENDORED_SCHEMA_VERSION`] and below this ceiling opens with the distance
+/// declared in the session and in the log, never as verified. Nothing that
+/// guards the permission path depends on this number: the reviewer and the
+/// approval policy are read from every thread and enforced, unknown requests
+/// are refused and unknown items are shown.
 pub const SUPPORTED_CEILING: (u64, u64, u64) = (1, 0, 0);
 
 /// The CLI's own product name, which prefixed its version in the handshake's

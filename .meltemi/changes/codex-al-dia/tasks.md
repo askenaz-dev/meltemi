@@ -30,7 +30,7 @@ archivo del volcado llega con la tarea que lo usa.
   `mapping.rs` con el ítem tal como lo emite 0.156.1 (design D8) — escenario
   «El eco del mensaje del usuario no se muestra» — gates: suite de
   `meltemi-adapters`
-- [ ] 1.3 Re-anclaje a 0.156.1: los 20 archivos que difieren, byte a byte, y
+- [x] 1.3 Re-anclaje a 0.156.1: los 20 archivos que difieren, byte a byte, y
   `ThreadStatusChangedNotification.json`,
   `ThreadTokenUsageUpdatedNotification.json` y
   `ServerRequestResolvedNotification.json`; `PROVENANCE.md`;

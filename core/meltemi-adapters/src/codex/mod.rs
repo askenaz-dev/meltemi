@@ -1438,17 +1438,22 @@ mod tests {
         // Scenario: Versión efectiva registrada en el log
         //
         // Note the server's answer carries no `jsonrpc` member: that is what the
-        // real CLI sends (verified against 0.77.0), and an adapter that demanded
-        // it would refuse every real session while every fixture stayed green.
+        // real CLI sends (verified against 0.77.0 and again against 0.156.1),
+        // and an adapter that demanded it would refuse every real session while
+        // every fixture stayed green.
         let (outcome, sent) = handshake_against(&announcing(
-            "codex_cli_rs/0.77.0 (Windows 10.0.26200; x86_64) (meltemi-codex-acp; 0.1.0)",
+            "meltemi-codex-acp/0.156.1 (Windows 10.0.26200; x86_64) xterm-256color (meltemi-codex-acp; 0.1.1)",
         ))
         .await;
 
         let provenance = outcome.expect("a supported version opens the session");
         assert_eq!(provenance.program, "codex");
-        assert_eq!(provenance.version, "0.77.0");
-        assert!(provenance.user_agent.starts_with("codex_cli_rs/0.77.0"));
+        assert_eq!(provenance.version, "0.156.1");
+        assert!(
+            provenance
+                .user_agent
+                .starts_with("meltemi-codex-acp/0.156.1")
+        );
 
         assert_eq!(sent[0]["method"], wire::INITIALIZE);
         assert_eq!(sent[0]["id"], HANDSHAKE_ID);
@@ -1490,16 +1495,16 @@ mod tests {
         let noise = concat!(
             "starting up\n",
             "{\"method\":\"deprecationNotice\",\"params\":{\"summary\":\"soon\"}}\n",
-            "{\"id\":99,\"result\":{\"userAgent\":\"codex_cli_rs/0.1.0\"}}\n",
+            "{\"id\":99,\"result\":{\"userAgent\":\"meltemi-codex-acp/0.1.0\"}}\n",
         );
         let (outcome, _) = handshake_against(&format!(
             "{noise}{}",
-            announcing("codex_cli_rs/0.77.0 (linux)")
+            announcing("meltemi-codex-acp/0.156.1 (linux)")
         ))
         .await;
         assert_eq!(
             outcome.expect("the answer was the one with our id").version,
-            "0.77.0"
+            "0.156.1"
         );
     }
 
@@ -1516,6 +1521,31 @@ mod tests {
             refusal.detail
         );
         assert!(refusal.remedy.contains("Update"), "{}", refusal.remedy);
+    }
+
+    #[tokio::test]
+    async fn a_cli_older_than_the_verified_one_is_told_to_update_not_that_it_is_unreadable() {
+        // Scenario: Desfase de versión rehusado con remedio
+        //
+        // The shape 0.77.0 really answers (measured), which still writes the
+        // CLI's own name first. It is read — that is why `codex_cli_rs` is kept
+        // — and refused as what it is: a CLI below the verified floor.
+        let (outcome, _) = handshake_against(&announcing(
+            "codex_cli_rs/0.77.0 (Windows 10.0.26200; x86_64) xterm-256color (meltemi-codex-acp; 0.1.0)",
+        ))
+        .await;
+        let refusal = outcome.expect_err("0.77.0 is below the verified floor");
+        assert_eq!(refusal.kind, "provider_version_skew");
+        assert!(
+            refusal.detail.contains("0.77.0") && refusal.detail.contains("0.156.1"),
+            "{}",
+            refusal.detail
+        );
+        assert!(
+            refusal.remedy.contains("Update the provider CLI"),
+            "{}",
+            refusal.remedy
+        );
     }
 
     #[tokio::test]
