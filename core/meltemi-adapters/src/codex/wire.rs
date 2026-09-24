@@ -47,9 +47,18 @@ pub const SUPPORTED_FLOOR: (u64, u64, u64) = (0, 77, 0);
 /// against a real CLI exists to check.
 pub const SUPPORTED_CEILING: (u64, u64, u64) = (1, 0, 0);
 
-/// The token that prefixes the CLI's own version inside the user agent string
-/// the handshake returns (`codex_cli_rs/0.77.0 (…)`).
+/// The CLI's own product name, which prefixed its version in the handshake's
+/// user agent up to 0.80 (`codex_cli_rs/0.77.0 (…)`). Since 0.81 the first
+/// token carries the name the client introduced itself with instead; both are
+/// read (`version::of`, codex-al-dia design D1).
 pub const USER_AGENT_PRODUCT: &str = "codex_cli_rs";
+
+/// The environment variable that makes the CLI announce a name of its own
+/// choosing as the first token of its user agent, whatever the client said.
+///
+/// The provider marks it internal; the adapter neither sets it nor reads it,
+/// and names it only so that the refusal it causes can say where it came from.
+pub const ORIGINATOR_OVERRIDE_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 
 /// The argument that puts the official CLI in its server mode.
 pub const SERVER_MODE_ARG: &str = "app-server";

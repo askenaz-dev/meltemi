@@ -787,8 +787,12 @@ where
         ))
     })?;
 
-    let Some(version) = version::of(&result.user_agent) else {
-        return Err(version::unreadable(SPEC.provider_layer, &result.user_agent));
+    let Some(version) = version::of(&result.user_agent, SPEC.name) else {
+        return Err(version::unreadable(
+            SPEC.provider_layer,
+            &result.user_agent,
+            SPEC.name,
+        ));
     };
     if !version::supported(version) {
         return Err(version::skew(SPEC.provider_layer, version));
@@ -1458,6 +1462,23 @@ mod tests {
             sent[1].get("id").is_none(),
             "and it is a notification: nothing answers it"
         );
+    }
+
+    #[tokio::test]
+    async fn the_handshake_reads_the_version_the_cli_writes_beside_the_clients_name() {
+        // Scenario: El CLI escribe el nombre del cliente en su user agent
+        //
+        // The shape measured against 0.156.1: the first token names the client
+        // this adapter introduced itself as, and the version beside it is the
+        // CLI's. The name read back is the very name that was sent.
+        let (outcome, sent) = handshake_against(&announcing(
+            "meltemi-codex-acp/0.156.1 (Windows 10.0.26200; x86_64) xterm-256color (meltemi-codex-acp; 0.1.1)",
+        ))
+        .await;
+
+        let provenance = outcome.expect("the echoed form carries a version that is read");
+        assert_eq!(provenance.version, "0.156.1");
+        assert_eq!(sent[0]["params"]["clientInfo"]["name"], SPEC.name);
     }
 
     #[tokio::test]

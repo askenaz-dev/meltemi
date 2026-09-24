@@ -13,7 +13,7 @@ eco) y el eco `userMessage` silenciado antes también (el guion nuevo lo trae).
 
 ## 1. Versión y re-anclaje
 
-- [ ] 1.1 `version::of(user_agent, announced)`: solo el primer token,
+- [x] 1.1 `version::of(user_agent, announced)`: solo el primer token,
   producto `codex_cli_rs` o `announced`; el rehúso `provider_version_unreadable`
   dice lo visto y las dos formas esperadas y nombra
   `CODEX_INTERNAL_ORIGINATOR_OVERRIDE`; el handshake pasa `SPEC.name`. Tests en
