@@ -3,364 +3,434 @@
 ## Context
 
 Verificado el 2026-09-24 contra el código, contra el volcado de esquema del
-CLI instalado y contra una transcripción del servidor real:
+CLI instalado, contra una transcripción del servidor real y contra el código
+fuente de Codex en el tag `rust-v0.156.1`. Revisado después por tres lentes
+adversariales (constitución, evidencia, cobertura de escenarios); este texto ya
+incorpora sus correcciones.
 
 - **Qué falla hoy.** Con `codex-cli 0.77.0`, la versión a la que
   `adaptadores-propios-acp` ancló el esquema, el handshake pasa y el proveedor
   rechaza cada turno («The 'gpt-5.6-sol' model requires a newer version of
   Codex»). Con `codex-cli 0.156.1`, el adaptador rehúsa el handshake: el user
   agent es `meltemi-codex-acp/0.156.1 (Windows 10.0.26200; x86_64)
-  xterm-256color (meltemi-codex-acp; 0.1.1)` y `version::of`
-  (`core/meltemi-adapters/src/codex/version.rs:26-41`) busca un token
+  xterm-256color (meltemi-codex-acp; 0.1.1)` y `version::of` buscaba un token
   `codex_cli_rs/` que ya no existe.
-- **Por qué cambió el user agent.** Código fuente de Codex, tag
-  `rust-v0.156.1`: `codex-rs/login/src/auth/default_client.rs:150-177` arma el
-  user agent como `{originator}/{build_version} ({os} {os_version}; {arch})
-  {terminal}` y le añade ` ({name}; {version})`; `build_version` es la versión
-  del workspace, la del CLI. Desde `rust-v0.81.0` el manejador de `initialize`
-  fija el originator al `clientInfo.name` del cliente
+- **Por qué cambió el user agent.** `codex-rs/login/src/auth/default_client.rs:150-177`
+  arma el user agent como `{originator}/{build_version} ({os} {os_version};
+  {arch}) {terminal}` y le añade ` ({name}; {version})`; `build_version` es la
+  versión del CLI. Desde `rust-v0.81.0` el manejador de `initialize` fija el
+  originator al `clientInfo.name` del cliente
   (`codex-rs/app-server/src/request_processors/initialize_processor.rs:124-165`),
   salvo que el entorno traiga `CODEX_INTERNAL_ORIGINATOR_OVERRIDE`, que gana
-  (`default_client.rs:62-81`). El token de versión es siempre el primero.
+  (`default_client.rs:62-81`). El token de versión es siempre el primero. La
+  respuesta de `thread/start` trae además `thread.cliVersion`, obligatorio,
+  con la versión del CLI que creó el hilo.
 - **El volcado nuevo.** `codex app-server generate-json-schema --out <dir>`
-  sobre 0.156.1 produce 310 archivos (raíz, `v1/` con solo el handshake, y
-  `v2/`). De los 21 vendorizados cambian 20; `TurnInterruptResponse.json` queda
-  igual. Lo que el adaptador **envía** sigue siendo válido contra el volcado
-  nuevo, medido con el mismo validador de la suite: ninguna petición ganó un
-  campo obligatorio ni perdió uno de los que el adaptador usa. Lo que el
-  adaptador **lee** (`userAgent`, `thread.id`, `turn.id`, `turn.status`, los
-  campos de aprobación) conserva tipo y obligatoriedad.
-- **Lo que se rompe al re-anclar** son los fixtures: el guion del cable
-  (`core/mock-provider/scripts/codex-app-server.ndjson`) no trae los campos
-  que ahora son obligatorios (`codexHome`, `platformFamily`, `platformOs`,
-  `approvalsReviewer`, `startedAtMs`, `completedAtMs`, varios del hilo), y
-  varios tests fijan el prefijo `codex_cli_rs/` o `required == ["userAgent"]`.
+  (sin `--experimental`) sobre 0.156.1 produce 310 archivos. De los 21
+  vendorizados, 20 difieren en bytes y 16 en contenido (cuatro solo reordenan
+  claves); `TurnInterruptResponse.json` queda igual. Todo lo que el adaptador
+  **envía** sigue validando, medido con el mismo validador de la suite, y lo
+  que **lee** conserva tipo y obligatoriedad.
+- **Lo que el servidor envía además.** Sin `experimentalApi`, la respuesta
+  real de `thread/start` trae campos que el volcado estable no declara
+  (`runtimeWorkspaceRoots`, `activePermissionProfile`, `multiAgentMode`, y en
+  `thread`: `environments`, `extra`, `canAcceptDirectInput`,
+  `daybreakEnabled`). Validan solo porque ningún esquema entrante declara
+  `additionalProperties: false`. El adaptador se apoya únicamente en lo que el
+  volcado estable declara.
 - **La transcripción real.** Grabada el 2026-09-24 con un cliente mínimo que
   se presenta con el mismo `clientInfo` que el adaptador: un turno de solo
   texto y un turno que pide escribir un archivo, cuya aprobación se declinó.
-  Tres cosas que el guion de 0.77.0 tenía que adivinar y que la grabación
-  decide: la respuesta a `turn/start` llega **primero**, con
+  Lo que decide: la respuesta a `turn/start` llega **primero**, con
   `status: "inProgress"`, y el turno cierra con `turn/completed`; el servidor
-  **devuelve el mensaje del usuario** como ítem `userMessage` en cada turno; y
-  entre los ítems del turno llegan `thread/status/changed`,
-  `thread/tokenUsage/updated`, `serverRequest/resolved` y
-  `account/rateLimits/updated`. Las notificaciones llevan además un miembro
-  `emittedAtMs` junto a `params`, y las respuestas siguen sin `"jsonrpc"`.
-- **Gobierno de aprobaciones.** 0.156.1 añade `approvalsReviewer`
-  (`user | auto_review | guardian_subagent`) a `thread/start` y lo devuelve,
-  obligatorio, en su respuesta. `auto_review` hace que un subagente del
-  proveedor apruebe o deniegue en lugar del cliente. En la transcripción, con
-  la configuración del mantenedor: `approvalPolicy: "on-request"`,
-  `approvalsReviewer: "user"`, `sandbox: {"type": "readOnly"}`.
+  **devuelve el mensaje del usuario** como ítem `userMessage` en cada turno;
+  antes de la respuesta de `thread/start` llegan `remoteControl/status/changed`
+  y `account/updated`; después, `thread/started`; durante el turno,
+  `mcpServer/startupStatus/updated` (tres servidores MCP de la configuración
+  del mantenedor: `codex_apps`, `cua_repl`, `node_repl`),
+  `thread/status/changed`, `thread/tokenUsage/updated`,
+  `serverRequest/resolved` y `account/rateLimits/updated`. Las notificaciones
+  llevan `emittedAtMs` junto a `params`, las respuestas siguen sin
+  `"jsonrpc"`, y el CLI etiqueta el hilo con `source: "vscode"` aunque el
+  cliente se presentó con su propio nombre.
+- **Política efectiva observada** con la configuración del mantenedor y sin
+  que el cliente pidiera nada: `approvalPolicy: "on-request"`,
+  `approvalsReviewer: "user"`, `sandbox: {"type": "readOnly",
+  "networkAccess": false}`, en Windows.
+- **Gobierno de aprobaciones.** `approvalsReviewer`
+  (`user | auto_review | guardian_subagent`) es nuevo: con `auto_review` un
+  subagente del proveedor aprueba o deniega en lugar del cliente. Y la
+  política vigente de `own-adapters` («Passthrough de permisos con compuerta
+  dura y pérdidas visibles») exige que el adaptador configure la compuerta dura
+  nativa del CLI «incluso en los modos permisivos». El adaptador de Codex nunca
+  la configuró: dejaba política y sandbox a la configuración del usuario. Con
+  `on-request` y `dangerFullAccess`, con `externalSandbox`, con
+  `workspaceWrite` y red, con `never`, o con una política `granular` que no
+  pregunta, herramientas corren sin pasar por el proxy.
+- **MCP del propio CLI.** Los servidores MCP que el usuario configuró en su
+  Codex corren fuera del sandbox del CLI, y la aprobación de sus llamadas la
+  decide el CLI según política (`codex-rs/codex-mcp/src/elicitation.rs`);
+  cuando pide aprobación lo hace por `mcpServer/elicitation/request`, que el
+  adaptador hoy rehúsa.
+- **Control remoto.** `remoteControl/status/changed`
+  (`disabled | connecting | connected | errored`) llega en cada conexión. Con
+  el control remoto de Codex activo, otro cliente podría engancharse a los
+  hilos y contestar aprobaciones fuera del proxy: un canal remoto que la
+  constitución §3 no admite (el acceso remoto es únicamente por túnel SSH).
 - **Peticiones del servidor.** `ServerRequest.json` enumera diez. El adaptador
-  releva dos (aprobación de comando y de cambio de archivo) y responde
-  `-32601` a toda otra (`mod.rs:503-515`). Leído el código del tag: el
-  servidor trata una respuesta de error como rechazo en las diez, así que
-  ninguna cuelga un turno y el efecto es siempre «no».
-- **Ámbito de lo que llega.** El adaptador no filtra por `threadId` ni por
-  `turnId` (`mapping.rs:102-121`, `mod.rs:429-446`), y la cola `incoming` se
-  comparte entre turnos (`mod.rs:146,166`). Un `error` sin reintento termina el
-  turno; un `turn/completed` rezagado del mismo turno queda en cola y hace
-  fallar de inmediato el prompt siguiente. 0.156.1 añade ítems de subagente
-  que referencian otros hilos.
-- **Mapeo de ítems.** Un tipo desconocido se muestra como herramienta con su
-  tipo crudo (`mapping.rs:306-319`). Con 0.156.1 eso incluye `userMessage`:
-  cada turno mostraría el propio prompt del usuario como una herramienta.
-- **El rango.** `SUPPORTED_FLOOR = (0,77,0)` y `SUPPORTED_CEILING = (1,0,0)`
-  (`wire.rs:38,48`). La propuesta afirmó que el techo rehusaría 0.156.1; es
-  falso: `(0,156,1) < (1,0,0)`. El rango vigente ya aceptaba 79 minors sin
-  verificar, y lo único que lo impidió fue que la versión no se podía leer.
-  Codex publica un minor estable unas dos veces por semana.
+  releva dos y responde `-32601` a las demás (`mod.rs:503-515`); el efecto de
+  ese error, leído el servidor, se tabula en D7.
+- **Ámbito de lo que llega.** El adaptador no filtraba por `threadId` ni por
+  `turnId` y la cola `incoming` se comparte entre turnos: un `error` sin
+  reintento termina el turno, y un `turn/completed` rezagado del mismo turno
+  hace fallar de inmediato el prompt siguiente.
+- **El rango.** `SUPPORTED_FLOOR = (0,77,0)` y `SUPPORTED_CEILING = (1,0,0)`.
+  La propuesta afirmó que el techo rehusaría 0.156.1; es falso: `(0,156,1) <
+  (1,0,0)`. El rango vigente ya aceptaba 79 minors sin verificar, y lo único
+  que lo impidió fue que la versión no se podía leer. Codex publica un minor
+  estable unas dos veces por semana.
+- **El catálogo.** `fleet/list` reporta nivel verificado y fecha de la última
+  corrida persistida (`fleet.rs:1039-1045`), pero no la versión del CLI contra
+  la que se midió: con otro CLI instalado, la flota sigue pintando verificado.
 
 ## Goals / Non-Goals
 
 **Goals**
 
-- Que el adaptador lea la versión del CLI donde el CLI la escribe, sin
-  adivinarla ni suplantar a nadie para recuperarla.
-- Re-anclar el volcado vendorizado y el guion simulado a 0.156.1, con el guion
-  siguiendo la forma y el orden del cable real.
-- Mapear lo que cambió en el cable y toca a este adaptador: el revisor de
-  aprobaciones, el contexto de red de una aprobación, el eco del usuario, las
-  peticiones nuevas del servidor, y el ámbito por hilo y turno.
-- Declarar el rango con honestidad: verificado frente a aceptado.
+- Leer la versión del CLI donde el CLI la escribe, sin adivinarla ni
+  presentarse como otro cliente.
+- Re-anclar el volcado y el guion a 0.156.1, con el guion siguiendo el orden
+  del cable real y validado contra una transcripción vendorizada.
+- Configurar la compuerta dura nativa de Codex, verificarla contra lo que el
+  CLI hizo efectivo y rehusar cuando no se cumple; declarar a la vista lo que
+  Codex sigue corriendo sin el proxy.
+- Mapear lo que cambió en el cable y toca a este adaptador: el eco del
+  usuario, el contexto de una aprobación (red, terminal, raíz de escritura),
+  las peticiones nuevas, el ámbito por hilo y turno, los avisos del proveedor.
+- Declarar el rango con honestidad: verificado frente a aceptado, en la
+  sesión, en el log y en el catálogo.
 - Medir contra el binario real y otorgar el nivel verificado solo si se mide.
 
 **Non-Goals**
 
-- Relevar al proxy las peticiones nuevas que hoy se rechazan: escalada de
-  permisos del sandbox (`item/permissions/requestApproval`), elicitaciones
-  MCP (`mcpServer/elicitation/request`) y preguntas de herramienta
-  (`item/tool/requestUserInput`). Van a `codex-reanudar-y-mcp` (las
-  elicitaciones de aprobación MCP) y a una change propia de escaladas de
-  sandbox; las preguntas, a `preguntas-del-agente`.
-- Reanudar hilos y entregar MCP a Codex: `codex-reanudar-y-mcp`.
-- Tokens y límites de uso (`thread/tokenUsage/updated`,
-  `account/rateLimits/updated`): `extension-acp-usage`.
-- Diffs y salida de comandos en vivo, subagentes, plan del agente:
-  `herramientas-a-la-vista`.
-- Atender peticiones del servidor fuera de un turno, en una tarea propia:
-  anotado como riesgo (R3).
-- Cambiar la política de aprobación o el sandbox que el usuario configuró en
-  su Codex, salvo la única combinación que D5 rehúsa.
+- Relevar al proxy las peticiones que hoy se rechazan: escaladas de permisos
+  del sandbox (`item/permissions/requestApproval`), elicitaciones MCP
+  (`mcpServer/elicitation/request`) y preguntas de herramienta
+  (`item/tool/requestUserInput`). Las elicitaciones de aprobación MCP y el
+  gobierno de los servidores MCP que Codex arranca van a
+  `codex-reanudar-y-mcp`; las preguntas, a `preguntas-del-agente`; las
+  escaladas de sandbox, a una change propia que se nombra al archivar esta.
+- Reanudar hilos, `turn/steer`, `thread/fork` y `thread/compact/start`, que ya
+  existen en `ClientRequest.json` de 0.156.1: `codex-reanudar-y-mcp` y, para
+  relevar un turno, `redirigir-turno` si el esquema lo sostiene.
+- Tokens y límites (`thread/tokenUsage/updated`, `account/rateLimits/updated`):
+  `extension-acp-usage`.
+- Diffs y salida de comandos en vivo, subagentes, plan del agente
+  (`turn/diff/updated`, `item/commandExecution/outputDelta`, `turn/plan/updated`,
+  ítems `plan`, `collabAgentToolCall`, `subAgentActivity`):
+  `herramientas-a-la-vista`. El resto de las 82 notificaciones de 0.156.1 que
+  el adaptador no mapea se sigue ignorando sin nota.
+- Atender peticiones del servidor fuera de un turno en una tarea propia
+  (riesgo R3).
 
 ## Decisions
 
 ### D1 — La versión se lee del primer token, con el producto que el adaptador anunció
 
-`version::of(user_agent, announced)` lee **solo el primer token** del user
-agent (`split_whitespace().next()`), lo parte en el primer `/` y acepta
-exactamente dos productos: `codex_cli_rs` y `announced`, que es la misma
-constante `SPEC.name` que viaja en `clientInfo.name`. La versión es la parte
-`major.minor.patch` de lo que sigue, con cualquier sufijo de prerelease o de
-build ignorado, como hoy.
-
+- `version::of(user_agent, announced)` lee **solo el primer token**, lo parte
+  en el primer `/` y acepta exactamente dos productos: `codex_cli_rs` y
+  `announced`, la misma constante `SPEC.name` que viaja en `clientInfo.name`.
+  Sufijos de prerelease o de build se ignoran, como antes.
 - **Por qué el primer token.** Es la posición que el código del proveedor
-  fija. Hoy se busca en todos los tokens, y el token de terminal puede traer su
-  propia versión (`vscode/1.95.3`, `WezTerm/…`); si el producto aceptado
-  incluye un nombre que elige el cliente, cualquier token posterior podría
-  leerse como la versión del CLI.
-- **Por qué conservar `codex_cli_rs`.** Un CLI entre 0.77 y 0.80 no hace eco;
-  aceptarlo hace que su usuario reciba el desfase con «actualiza el CLI» en
-  vez de un «ilegible» engañoso.
-- **Descartado: volver a la forma vieja enviando `codex_cli_rs` como
-  `clientInfo.name`.** El nombre es el header `originator` de todas las
-  peticiones del CLI a su backend, y `codex_cli_rs`, `codex_vscode`,
-  `codex-tui` y `Codex *` cuentan como clientes de primera parte
-  (`default_client.rs:139-144`). Presentarse así sería suplantar a otro
-  cliente (constitución §2).
-- **`CODEX_INTERNAL_ORIGINATOR_OVERRIDE`.** Si el entorno del CLI trae esa
-  variable, el primer token es su valor y la regla de dos productos rehúsa.
-  Se rehúsa, y el detalle nombra la variable. Aceptarla como tercer producto
-  acoplaría el adaptador a un nombre que el proveedor declara interno; quitarla
-  del entorno del hijo sería intervenir en lo que el CLI dice a su backend.
-- **El rehúso deja de culpar al CLI.** El detalle de
-  `provider_version_unreadable` dice lo que se vio y las dos formas esperadas,
-  sin sugerir que el binario no sea el oficial.
+  fija; el token de terminal puede traer su propia versión, y un nombre que
+  elige el cliente no debe dejar pasar una de esas por la del CLI.
+- **Por qué conservar `codex_cli_rs`.** Un CLI anterior a 0.81 no hace eco;
+  así recibe el desfase con «actualiza el CLI» y no un «ilegible».
+- **Contraste con `thread.cliVersion`.** El desfase se decide en el handshake,
+  antes de abrir un hilo, porque la regla es rehusar antes de hablar. Al abrir
+  el hilo, el adaptador contrasta la versión leída con `thread.cliVersion` y
+  rehúsa si difieren: el CLI que responde no sería el que se leyó. En un hilo
+  reanudado ese campo es la versión del creador; lo decide
+  `codex-reanudar-y-mcp`.
+- **Descartado: presentarse como `codex_cli_rs`.** El nombre es el header
+  `originator` de todas las peticiones del CLI a su backend, y `codex_cli_rs`,
+  `codex_vscode`, `codex-tui` y `Codex *` cuentan como clientes de primera
+  parte (`default_client.rs:139-144`). Sería suplantar a otro cliente (§2). El
+  adaptador tampoco envía `threadSource`, `serviceName`, `sessionStartSource`
+  ni `capabilities`: la etiqueta `source: "vscode"` que el CLI pone al hilo es
+  suya, y la guía de agentes lo dice.
+- **`CODEX_INTERNAL_ORIGINATOR_OVERRIDE`.** Si el entorno lo trae, el primer
+  token es su valor y se rehúsa, con un detalle que nombra la variable.
+  Aceptarla acoplaría el adaptador a un nombre interno; quitarla del entorno
+  del hijo sería intervenir en lo que el CLI dice a su backend.
 
 ### D2 — Rango: piso verificado, techo en el mayor siguiente, y la distancia dicha
 
 - `VENDORED_SCHEMA_VERSION = "0.156.1"` y `SUPPORTED_FLOOR = (0,156,1)`: el
-  piso sigue siendo la versión de la que viene el volcado, y el test que lo
-  exige se conserva. Debajo del piso se rehúsa con «actualiza el CLI», y la
-  medición de hoy le da la razón: 0.77.0 no sirve el modelo por defecto de una
-  cuenta actual.
-- `SUPPORTED_CEILING = (1,0,0)` se conserva. En `0.x` un minor puede romper,
-  y esta change lo vio: el eco del originator llegó en 0.81. Pero un techo en
-  el minor siguiente rehusaría a todo usuario que actualice Codex en la semana
-  siguiente a cada re-anclaje, y el proveedor, a su vez, deja de servir los
-  modelos por defecto a los CLI viejos. Entre las dos rigideces, esta change
-  elige la que no deja al usuario sin agente y hace visible lo que no está
-  verificado.
-- **Lo que cambia es la honestidad del rango.** Una versión por encima de la
-  verificada y por debajo del techo **abre la sesión declarando la distancia**:
-  la procedencia gana `providerVerifiedVersion` junto a `providerVersion`, y
-  la sesión recibe una nota visible («Codex 0.160.0 es más nuevo que 0.156.1,
-  la versión contra la que se verificó este adaptador») antes del primer
-  turno. Nunca se presenta como verificado lo que no lo está.
-- **Por qué esto no abre un agujero de gobierno.** Nada de lo que protege el
-  camino de permisos depende del número de versión: el revisor y la política
-  se leen de la respuesta de `thread/start` y se exigen en cada sesión (D5), las
-  peticiones desconocidas se rechazan (D7), y los ítems desconocidos se
-  muestran. Lo que el número protege es que el mapeo funcione, y cuando no
-  funciona, falla a la vista y en la dirección segura: un ítem ilegible se
-  anota, una respuesta de aprobación que el servidor no entienda cuenta como
-  rechazo.
-- **Enmienda de spec.** La regla viva dice «nunca asumirse compatible». El
-  rango vigente ya la incumplía en silencio; esta change la reemplaza por una
-  que se puede cumplir: fuera del rango se rehúsa; dentro, por encima de lo
-  verificado, se declara. Es un MODIFIED sobre `own-adapters` («Conformidad
-  por versión y desfase rehusado»), y por eso esta change es de vía completa.
+  piso es la versión de la que viene el volcado. Debajo se rehúsa con
+  «actualiza el CLI», y el proveedor le da la razón: 0.77.0 ya no sirve el
+  modelo por defecto de una cuenta actual.
+- `SUPPORTED_CEILING = (1,0,0)` se conserva. Un techo en el minor siguiente
+  dejaría sin agente, en días, a todo usuario que actualice, y el proveedor deja
+  de servir sus modelos por defecto a los CLI viejos. Lo que cambia es la
+  honestidad: una versión posterior a la verificada **abre declarando la
+  distancia** —una fila visible en la sesión antes del primer turno, y
+  `providerVerifiedVersion` junto a `providerVersion` en la procedencia— y el
+  catálogo dice contra qué versión se midió su nivel (D11).
+- **Supuestos que dependen de la versión**, enumerados porque el margen
+  descansa en ellos: que un error JSON-RPC a una petición del servidor se trate
+  como el efecto tabulado en D7; que una respuesta ilegible a una aprobación
+  cuente como denegación; que el revisor y la política pedidos se respeten; y
+  que `sandbox` refleje lo efectivo (el volcado lo marca como legado en favor de
+  un campo experimental).
+- **Por qué el gobierno no queda expuesto a ellos.** La compuerta de D5 falla
+  cerrada: un valor de política, revisor o sandbox desconocido o ausente
+  rehúsa la sesión, así que un minor que cambie esos valores deja al usuario sin
+  sesión, nunca con una sesión sin compuerta. La conformidad pinea los enums de
+  `AskForApproval`, `SandboxPolicy` y `ApprovalsReviewer` del volcado: si crecen,
+  el próximo re-anclaje falla. Y lo demás falla a la vista: un ítem ilegible se
+  anota, un ítem desconocido se muestra, una petición desconocida se rehúsa.
+- **Enmienda de spec.** La regla viva decía «nunca asumirse compatible» y el
+  rango vigente la incumplía en silencio. Esta change la reemplaza por una que
+  se puede cumplir: fuera del rango se rehúsa; dentro, por encima de lo
+  verificado, se declara; y un valor de gobierno no reconocido rehúsa. Es un
+  MODIFIED sobre `own-adapters`, acotado con `WHERE` a los adaptadores que
+  pueden volcar su esquema (hoy solo este: el de Claude no declara rango).
 
-### D3 — Re-anclaje: el volcado estable, byte a byte, y cuatro archivos más
+### D3 — Re-anclaje: el volcado estable, byte a byte, repartido por tarea
 
-- Se copian byte a byte desde el volcado de 0.156.1 los 20 archivos que
-  cambiaron (`v1/` para el handshake, `v2/` para hilo, turno, ítems y deltas,
-  la raíz para las aprobaciones y `JSONRPCMessage.json`).
-- Se añaden: `ServerRequest.json` (para que la conformidad exija una política
-  por cada petición posible, D7), `ClientNotification.json` (para validar el
-  `initialized` que el adaptador envía y que hoy nadie valida), y
+- Los 20 archivos que difieren se copian byte a byte del volcado (`v1/` para
+  el handshake, `v2/` para hilo, turno, ítems y deltas, la raíz para las
+  aprobaciones y `JSONRPCMessage.json`), junto con
   `ThreadStatusChangedNotification.json`,
   `ThreadTokenUsageUpdatedNotification.json` y
-  `ServerRequestResolvedNotification.json` (las tres notificaciones que el
-  guion lleva para probar que ignorarlas no cuesta nada, D4).
+  `ServerRequestResolvedNotification.json`, que el guion lleva.
+- `ClientNotification.json` entra con la conformidad estricta (tarea 1.4) y
+  `ServerRequest.json` con la tabla de peticiones (tarea 2.4): cada archivo
+  llega con quien lo usa.
 - El volcado se genera **sin `--experimental`** y el adaptador no declara
-  `capabilities`: la superficie anclada es la estable, que es exactamente la
-  que el servidor sirve a una conexión que no pidió lo experimental. Queda
-  escrito en `PROVENANCE.md` y junto a `InitializeParams`.
-- `PROVENANCE.md` corrige además dos cosas: la fecha del binario anterior y
-  la frase que decía que la generación de métodos v1 seguía existiendo (en
-  0.156.1 ya no hay `newConversation` ni `sendUserTurn` en `ClientRequest.json`).
-- Las claves del volcado nuevo vienen en orden alfabético; el diff textual
-  contra el anterior es ruidoso y no se lee así: lo que cuenta es la
-  conformidad.
+  `capabilities`. Es la superficie en la que el adaptador puede apoyarse; el
+  servidor envía además campos que no declara (Context), y el adaptador no los
+  lee.
+- `PROVENANCE.md` corrige la fecha del binario anterior (publicado el
+  2025-12-21, volcado el 2026-07-27) y la frase que decía que la generación de
+  métodos v1 seguía existiendo.
 
-### D4 — El guion simulado sigue la transcripción real
+### D4 — El guion sigue el cable real, y la transcripción viaja con él
 
-El guion se reescribe desde la grabación del 2026-09-24, con ids, rutas y
-modelo simulados: handshake con el user agent en forma de eco, respuesta de
-`thread/start` con la forma real, respuesta de `turn/start` **primero** y en
-curso, el eco `userMessage`, un mensaje del agente en dos fragmentos con
-`phase`, un cambio de archivo cuya aprobación se pide con `startedAtMs`, las
-tres notificaciones intercaladas, y el cierre con `turn/completed`. El orden
-adverso (la respuesta al final) sigue cubierto por los tests unitarios del
-bucle del turno, que es donde se prueban los dos órdenes. El guion no lleva
-`emittedAtMs` y sí `"jsonrpc"`; el adaptador tolera las dos formas y el
-comentario de cabecera lo dice.
+- El guion se reescribe con el orden de la grabación: respuesta de
+  `turn/start` primero y en curso, eco `userMessage`, mensaje del agente con
+  `phase`, un cambio de archivo cuya aprobación se pide con `startedAtMs`, las
+  tres notificaciones intercaladas y el cierre con `turn/completed`. Conserva
+  los ids y textos que los e2e ya fijan (`mock-thread-1`, `turn-1`, `item-2`,
+  «Working on it.», `NOTES.md`), el user agent lleva el token de terminal
+  (`unknown`), y el `serverRequest/resolved` apunta a la petición que el cable
+  simulado numera (`1`).
+- **Diferencias declaradas en su cabecera**, y solo esas: la aprobación se
+  concede y el ítem cierra `completed` (en la grabación se declinó), se omiten
+  `emittedAtMs` y los campos que el volcado estable no declara, y se envía
+  `"jsonrpc"`. El adaptador tolera las dos formas.
+- **La transcripción se vendoriza saneada** como
+  `core/mock-provider/scripts/codex-app-server-0.156.1.transcript.ndjson`: ids,
+  rutas, nombre de máquina, identificador de instalación, plan y límites
+  reemplazados. Un test exige que la secuencia de métodos del guion sea una
+  subsecuencia ordenada de la de la transcripción, incluida la respuesta de
+  `turn/start` antes de `turn/started`.
+- Los guiones retenidos que llevan dentro los tests del daemon
+  (`conformance_suite.rs`, `e2e_adaptadores_cancel.rs`) pasan a la forma de
+  0.156.1, con los campos obligatorios nuevos.
 
-### D5 — Las aprobaciones llegan al proxy, o la sesión no abre
+### D5 — La compuerta dura nativa, pedida, verificada y con sus pérdidas dichas
 
-- El adaptador envía `approvalsReviewer: "user"` en `thread/start`. No elige
-  **qué** se pregunta —eso es la política y el sandbox del usuario, que siguen
-  siendo suyos—, elige **quién** contesta lo que el CLI ya decidió preguntar,
-  y en este adaptador quien contesta es el proxy. Es el contrato del propio
-  adaptador («las aprobaciones que el servidor solicite SHALL relevarse»), y
-  solo puede estrechar lo que corre sin decisión, nunca ensancharlo.
-- La respuesta de `thread/start` trae la política efectiva. El adaptador la
-  lee con tipos permisivos —`approvalPolicy` como valor opaco,
-  `approvalsReviewer` como texto, el `type` del sandbox— y **rehúsa la
-  sesión** en dos casos, con diagnóstico y remedio:
-  1. El revisor efectivo no es `user` aunque se pidió (una configuración
-     gestionada que lo impone): las aprobaciones no llegarían al proxy.
-  2. La política efectiva es `never` y el sandbox no es `readOnly`: el CLI
-     declara que no preguntará nunca y puede escribir o ejecutar sin límite de
-     sandbox, así que ninguna herramienta pasaría por el proxy.
-  Toda otra combinación abre, porque en ella el sandbox del CLI y las
-  preguntas que el CLI hace son la compuerta. Es la lectura literal de los
-  valores que el proveedor documenta, no una semántica que el adaptador
-  invente.
-- La política efectiva viaja en la procedencia (`providerApprovalPolicy`,
-  `providerApprovalsReviewer`, `providerSandbox`), así que el log de la sesión
-  dice bajo qué reglas corrió el CLI.
-- **Descartado: fijar `approvalPolicy` o `sandbox`.** Forzar `on-request`
-  ensancharía a quien eligió `untrusted`; forzar un sandbox sería asumir su
-  semántica de riesgo (§5). Rehusar la única combinación que anula el proxy
-  cumple el requisito vivo de compuerta dura sin tocar lo demás.
+- El adaptador **pide la compuerta más estricta que el CLI ofrece** en
+  `thread/start`: `approvalPolicy: "untrusted"` (pregunta por todo comando que
+  no sea de confianza), `sandbox: "read-only"` (toda escritura se pide como
+  escalada) y `approvalsReviewer: "user"` (quien contesta es el cliente, es
+  decir, el proxy). Es la configuración que el requisito vivo exige («la
+  compuerta dura nativa del CLI … incluso en los modos permisivos») y solo
+  estrecha: lo que el proxy decide, lo decide por reglas o por el humano, y los
+  modos de autonomía del daemon relajan desde ahí, nunca el CLI por su cuenta.
+- **Lista blanca que falla cerrada.** La respuesta de `thread/start` trae la
+  política efectiva. La sesión abre solo si `approvalPolicy` es `"untrusted"`,
+  `approvalsReviewer` es `"user"` y `sandbox` es `{"type": "readOnly"}` sin
+  `networkAccess: true`. Cualquier otro valor —una configuración gestionada que
+  impone otra cosa, un valor que un minor añada, un campo ausente— rehúsa con
+  diagnóstico y remedio. `granular`, `never`, `on-request`, `dangerFullAccess`,
+  `externalSandbox` y `workspaceWrite` quedan fuera sin tener que enumerarlos.
+- La política efectiva viaja en la procedencia
+  (`providerApprovalPolicy`, `providerApprovalsReviewer`, `providerSandbox`).
+- **Pérdidas visibles.** Lo que Codex sigue corriendo sin preguntar bajo esa
+  compuerta se declara en una fila visible al abrir la sesión: comandos que el
+  CLI considera de confianza (lecturas, dentro del sandbox de solo lectura), la
+  búsqueda web del proveedor, y las llamadas a servidores MCP de la
+  configuración del CLI que el propio CLI no somete a aprobación. Cada servidor
+  MCP que el CLI informa arrancando (`mcpServer/startupStatus/updated`) se
+  nombra en una fila visible, una vez por sesión: corre fuera del sandbox del
+  CLI y fuera del proxy. Gobernarlos es de `codex-reanudar-y-mcp`.
+- **Control remoto.** Si una notificación `remoteControl/status/changed` dice
+  algo distinto de `disabled` —antes del primer turno o durante uno—, la
+  sesión se rehúsa (o el turno se interrumpe y falla) con remedio: otro cliente
+  podría contestar aprobaciones fuera del proxy (§3).
+- **Descartado: dejar política y sandbox a la configuración del usuario.**
+  Era la regla anterior del adaptador, apoyada en §5; pero §5 rige el núcleo,
+  no un adaptador que existe para un proveedor, y el requisito de compuerta
+  dura la contradecía.
+- **Enmienda de spec.** El requisito vivo de compuerta dura dice que «ninguna
+  herramienta SHALL ejecutarse sin decisión del proxy», y ni la compuerta más
+  estricta de Codex lo cumple: las lecturas de confianza, la búsqueda web y
+  parte de MCP no preguntan. El MODIFIED añade lo que ya prometía su nombre —
+  pérdidas visibles— para lo que el proveedor corre sin relevar, y exige
+  declararlo al abrir la sesión.
 
-### D6 — Un turno solo lo mueve lo que es suyo
+### D6 — Un turno solo lo mueve lo que es suyo, y lo que se declina se ve
 
-- El adaptador conoce el hilo de su sesión desde `thread/start`. Toda
-  notificación o petición cuyo `threadId` no sea ese se ignora con una nota en
-  el registro del adaptador; si es una aprobación, se declina sin preguntar al
-  proxy.
-- Dentro del turno: una vez conocido el id del turno en curso, lo que trae un
-  `turnId` distinto se ignora (o se declina, si es aprobación). Los turnos ya
-  terminados se recuerdan, de modo que un `turn/completed` rezagado de un turno
-  anterior no cierra el siguiente aunque llegue antes de que el siguiente tenga
-  id.
-- Cierra el defecto latente del `error` seguido de `turn/completed(failed)`, y
-  deja preparado el terreno para los hilos de subagente de 0.156.1, que el
-  mapeo todavía no muestra.
+- El adaptador conoce el hilo de su sesión desde `thread/start`. Una
+  notificación con `threadId` de otro hilo no mueve el turno; se anota. Una
+  notificación **sin** `threadId` (`configWarning`, `deprecationNotice`,
+  `warning`) no se filtra por ese eje, ni una sin `turnId` por el suyo.
+- Una vez conocido el turno en curso, lo de otro turno no lo mueve, y los
+  turnos terminados se recuerdan para que un `turn/completed` rezagado no
+  cierre el siguiente aunque llegue antes de que el siguiente tenga id.
+- Una aprobación de otro hilo o de otro turno se **declina sin preguntar y a
+  la vista**: una herramienta fallida que dice por qué, como en D7.
+- Un hilo que el CLI abre como hijo del de la sesión (`thread/started` con
+  `parentThreadId` igual) se declara en una fila visible: su actividad todavía
+  no se muestra (`herramientas-a-la-vista`) y sus aprobaciones se declinan.
 
 ### D7 — Toda petición del servidor tiene una respuesta declarada
 
-- Una tabla en el adaptador asigna a cada método de `ServerRequest.json` una
-  política: **relevar** (aprobación de comando y de cambio de archivo) o
-  **rehusar** (todas las demás). El rehúso sigue siendo `-32601`, la respuesta
-  del protocolo y no una inventada; leído el servidor, equivale a «no» en las
-  diez.
-- El rehúso **se ve en la sesión**: se emite una herramienta fallida titulada
-  con el método y el motivo («rehusada: el adaptador no releva esta petición»),
-  igual que un ítem desconocido se muestra por su tipo. No se presenta como
-  palabra del agente.
-- La conformidad recorre el `ServerRequest.json` vendorizado y exige que cada
-  método tenga política; el día que el proveedor añada una petición, el
-  re-anclaje falla nombrándola.
-- `account/chatgptAuthTokens/refresh` y `attestation/generate` quedan
-  pineadas por test: reciben error y jamás llegan al proxy. Responderlas con un
-  token sería manejar credenciales ajenas o atestiguar ser otro cliente (§2).
-- **Contexto de red y escritura a una terminal.** Una aprobación de comando
-  puede traer `networkApprovalContext` (host y protocolo, con `command` y `cwd`
-  nulos) o `kind: "writeStdin"`. El adaptador lee ambos y los lleva al título y
-  al contenido de la petición de permiso, para que el humano vea qué decide.
-  Las enmiendas persistentes (`acceptWithExecpolicyAmendment`,
-  `applyNetworkPolicyAmendment`) siguen sin ofrecerse: son reglas del
-  proveedor que el adaptador no puede prometer en nombre del humano.
+- Una tabla asigna a cada método de `ServerRequest.json` **relevar**
+  (aprobación de comando y de cambio de archivo) o **rehusar** (las demás). El
+  rehúso es `-32601`, la respuesta del protocolo. Efecto en el servidor, leído
+  en el tag:
+
+  | Petición | Efecto de `-32601` |
+  | --- | --- |
+  | `item/permissions/requestApproval` | concesión vacía para el turno |
+  | `mcpServer/elicitation/request` | declinada |
+  | `item/tool/requestUserInput` | respuestas vacías; el turno sigue |
+  | `item/tool/call` | `success: false`; solo llega con herramientas dinámicas declaradas, que el adaptador no declara |
+  | `account/chatgptAuthTokens/refresh` | la llamada al backend falla; solo existe en autenticación externa |
+  | `attestation/generate` | nunca llega: exige `capabilities.requestAttestation` |
+  | `applyPatchApproval`, `execCommandApproval` | nunca llegan: son de turnos v1, que ya no se pueden iniciar |
+
+- El rehúso **se ve**: una herramienta fallida con `toolCallId`
+  `server-request:<id>`, clase «otra», título con el método y el motivo, y sin
+  los parámetros. El refresco de credenciales y la atestación quedan pineados
+  por test: reciben error, jamás llegan al proxy y sus parámetros no se
+  registran (§2).
+- La conformidad recorre el `ServerRequest.json` vendorizado y exige política
+  para cada método, con un test negativo que prueba que un método nuevo falla
+  nombrándolo.
+- **Contexto de una aprobación.** Una aprobación de comando puede traer
+  `networkApprovalContext` (host y protocolo, con `command` y `cwd` nulos) o
+  `kind: "writeStdin"` (escribir en una terminal en curso); una de cambio de
+  archivo puede traer `grantRoot` (pide escribir bajo esa raíz por el resto de
+  la sesión). El adaptador lleva cada uno al título, al contenido y a la
+  ubicación de la petición de permiso, para que el humano y las reglas decidan
+  sobre lo que de verdad se concede. Si el `toolCallId` de la aprobación nunca
+  se anunció como ítem (el caso de red), el adaptador emite antes una
+  herramienta con ese id. Las enmiendas persistentes
+  (`acceptWithExecpolicyAmendment`, `applyNetworkPolicyAmendment`) siguen sin
+  ofrecerse.
 
 ### D8 — Lo que el mapeo muestra, calla y anota
 
-- `userMessage` no se muestra: el daemon ya registró el prompt. Mostrarlo
-  sería una herramienta fantasma por turno.
-- Un turno `failed` se explica con las palabras del proveedor: el rehúso
-  lleva `turn.error.message` (y `additionalDetails` cuando viene) en vez de
-  «the server reported the turn failed».
+- `userMessage` no se muestra: el daemon ya registró el prompt.
+- Un turno `failed` se rehúsa con `turn.error.message` y, si viene,
+  `additionalDetails`.
 - Los avisos que el proveedor escribe para el humano —`warning`,
-  `configWarning`, `deprecationNotice` y `model/rerouted`— se anotan en el
-  registro del adaptador (que el daemon recoge) con su texto; `configWarning`
-  sin su ruta. No van al transcript como si los dijera el agente.
-- Nada de esto lee `codexHome`: la ruta del estado del CLI, credenciales
-  incluidas, no se tipa, no se registra y no viaja (§2).
+  `configWarning`, `deprecationNotice`, `guardianWarning`,
+  `windows/worldWritableWarning` y `model/rerouted`— se anotan en el registro
+  del adaptador (que el daemon recoge), también cuando llegan durante el
+  handshake. No van al transcript como palabra del agente.
+- **Privacidad de rutas.** No se tipa, no se registra y no viaja `codexHome`,
+  `thread.path`, `instructionSources` ni ruta alguna de `configWarning`: son
+  rutas del estado del CLI, credenciales incluidas (§2).
 
-### D9 — Conformidad estricta en lo que sale
+### D9 — Conformidad estricta en lo que sale, e identidad pineada
 
-Los esquemas salientes no declaran `additionalProperties: false`, así que la
-validación actual detecta faltantes y tipos pero no un nombre mal escrito o
-renombrado. La conformidad gana una comprobación recursiva: cada clave que el
-adaptador serializa existe en `properties` del esquema volcado. Se aplica a
-todo lo que el adaptador envía, `initialized` incluido.
+- Cada clave que el adaptador serializa en `params` y `result` existe en las
+  propiedades del esquema volcado, resolviendo `$ref` y la rama de `oneOf` por
+  discriminante; en `initialized` se valida el mensaje sin el miembro
+  `jsonrpc` del sobre, que ningún esquema declara. Un test negativo con una
+  clave mal escrita prueba que el fallo la nombra.
+- El `thread/start` que el adaptador envía no lleva más claves que `cwd`,
+  `model`, `approvalPolicy`, `approvalsReviewer` y `sandbox`, y
+  `clientInfo.name` es el nombre propio del adaptador: ningún nombre de cliente
+  de primera parte y ninguna clave de clasificación analítica.
 
 ### D10 — La corrida real decide el nivel
 
-Tras el código, se corre la conformidad manual de dos piernas contra
-`codex-cli 0.156.1` (sesión, streaming, permisos y cancelación) y una sesión
-real por Meltemi con aprobación. Se registra en `docs/conformidad-manual.md`
-con fecha, versión y la política efectiva observada. El nivel 2 se otorga solo
-si las cuatro comprobaciones pasan; si alguna falla, la página lo dice con las
-palabras del proveedor. Manual y opt-in: CI no ejecuta agentes reales
-(constitución §5).
+Tras el código, la conformidad manual de dos piernas contra `codex-cli
+0.156.1` (sesión, streaming, permisos, cancelación) y una sesión real por
+Meltemi con una escritura aprobada. Se registra en `docs/conformidad-manual.md`
+con fecha, versión, plataforma, la política efectiva observada y la
+consecuencia de la configuración MCP del mantenedor; y se registra también la
+corrida fallida de 0.77.0 ya medida, con las palabras del proveedor. El nivel 2
+se otorga solo si las cuatro comprobaciones pasan (constitución §5: manual y
+opt-in).
 
-### D11 — Tests y dónde se enlaza cada escenario
+### D11 — El catálogo dice contra qué versión se midió
 
-- `version.rs`: la lectura (dos productos, primer token, token de terminal con
-  versión, variable de override, nombre sin versión, CLI viejo que da desfase).
-- `tests/codex_conformance.rs`: volcado, guion, claves salientes,
-  `initialized`, tabla de peticiones, piso anclado, página de agentes.
-- `codex/mod.rs`: handshake con la forma de eco, procedencia con versión
-  verificada y política efectiva, rehúsos de D5, ámbito de D6, rehúso visible
-  y pineado de D7, turno fallido con palabras del proveedor.
-- `codex/mapping.rs` y `codex/permission.rs`: eco silenciado, avisos
-  anotados, contexto de red y `writeStdin` en la petición de permiso.
-- `core/mock-provider/tests/codex_wire.rs` y los e2e de `core/meltemid` que
-  reproducen el guion: la forma nueva del handshake y el orden real.
-- El escenario de nivel re-otorgado se verifica por documentación
-  (`sdd/verify-mark`) con la corrida registrada.
+La corrida persistida ya guarda la versión del agente. `fleet/list` gana, de
+forma aditiva, `verifiedVersion` junto a `verifiedLevel` y `verifiedAt`, y las
+dos superficies lo muestran («verificado con 0.156.1»). Es un campo del
+contrato consumido por GUI y TUI (§4).
+
+### D12 — Tests y dónde se enlaza cada escenario
+
+- `version.rs` y `codex/mod.rs`: lectura de versión, identidad, contraste con
+  `cliVersion`, compuerta de D5, versión posterior, control remoto, ámbito de
+  D6, rehúso visible de D7, turno fallido, avisos del handshake.
+- `mapping.rs` y `permission.rs`: eco silenciado, avisos, contexto de red,
+  terminal y raíz de escritura, servidores MCP y pérdidas declaradas.
+- `tests/codex_conformance.rs`: volcado, guion frente a transcripción, claves
+  salientes, `initialized`, tabla de peticiones, enums de gobierno, piso
+  anclado, guía de agentes.
+- `core/mock-provider/tests/codex_wire.rs` y los e2e de `core/meltemid`: la
+  forma nueva y el orden real.
+- `core/meltemid` y las superficies: `verifiedVersion` en el catálogo.
+- Los escenarios de la corrida real se verifican por documentación
+  (`sdd/verify-mark`).
 
 ## Risks / Trade-offs
 
-- **R1 — Un minor futuro rompe el mapeo.** Aceptado y declarado (D2). Las
-  roturas posibles fallan a la vista; `meltemi-doctor` y `corrida-integrada`
-  harán barato detectarlas y re-anclar.
-- **R2 — El backend rechaza turnos con un originator que no es de primera
-  parte.** La grabación de hoy corrió dos turnos con `meltemi-codex-acp` y el
-  backend los atendió. Si algún día los rechaza, la respuesta no puede ser
-  cambiar el nombre (§2); sería decir al usuario, con las palabras del
-  proveedor, que Codex no admite este cliente.
-- **R3 — Peticiones fuera de un turno.** La cola se lee solo dentro de un
-  turno. Una elicitación MCP entre turnos espera al siguiente prompt, y el
-  servidor aborta las aprobaciones pendientes en cada transición de turno.
-  Con D6, una aprobación de un turno que ya no es el actual se declina sin
-  preguntar, así que no se pregunta al humano en vano; atenderlas en una tarea
-  propia queda para quien releve elicitaciones (`codex-reanudar-y-mcp`).
-- **R4 — `serverRequest/resolved` durante una espera del proxy.** Mientras
-  el humano decide, el adaptador no lee otras notificaciones. Con el revisor
-  fijado en `user` el servidor no resuelve por su cuenta; lo haría al abortar
-  por transición de turno, que solo ocurre tras una interrupción, y la espera
-  ya cede ante la interrupción (`mod.rs:533-536`).
-- **R5 — El rehúso de D5 sorprende a quien configuró `never`.** Es la
-  intención: bajo Meltemi, una configuración que anula el proxy no abre. El
-  remedio dice qué valor usar y dónde.
+- **R1 — Un minor futuro rompe el mapeo.** Declarado (D2). La compuerta falla
+  cerrada; el resto falla a la vista.
+- **R2 — El backend rechaza un originator que no es de primera parte.** Dos
+  turnos corrieron con `meltemi-codex-acp`. Si algún día se rechaza, la
+  respuesta no es cambiar el nombre (§2).
+- **R3 — Peticiones fuera de un turno.** La cola se lee dentro de un turno; el
+  servidor aborta las aprobaciones pendientes en cada transición, y con D6 las
+  de un turno que ya no es el actual se declinan a la vista.
+- **R4 — La compuerta estricta cuesta preguntas.** Con `untrusted` y
+  `read-only`, cada escritura y cada comando que no sea de confianza pasan por
+  el proxy. Es la misma postura que el adaptador de Claude; las reglas y los
+  modos de autonomía del daemon son el lugar para relajarla.
+- **R5 — Que una escritura aprobada bajo `read-only` no se aplique.** La
+  grabación declinó; la corrida real de D10 aprueba una. Si Codex no aplica la
+  escritura escalada, la alternativa medida es `workspace-write` sin red, con
+  las escrituras dentro del worktree declaradas como pérdida visible; se decide
+  con la medición, por escrito.
+- **R6 — Configuraciones que ahora rehúsan.** Quien configuró `never`,
+  `auto_review`, control remoto o un sandbox abierto no abre sesión de Codex
+  bajo Meltemi. Es la intención; el remedio dice qué cambiar.
+- **R7 — `serverRequest/resolved` durante una espera del proxy.** Con el
+  revisor fijado en `user`, el servidor no resuelve por su cuenta; la espera ya
+  cede ante la interrupción.
 
 ## Migration
 
-No hay datos que migrar. Un usuario con Codex por debajo de 0.156.1 recibe el
-desfase con «actualiza el CLI»; uno con una versión posterior abre con la
-distancia declarada. `docs/agentes.md` gana la versión mínima.
+No hay datos que migrar. Un Codex por debajo de 0.156.1 recibe el desfase con
+«actualiza el CLI»; uno posterior abre con la distancia declarada. La guía de
+agentes gana la versión mínima, la postura de la compuerta y el nombre con que
+el adaptador se presenta.
 
 ## Lo que solo la corrida real confirma
 
-- Que el turno con aprobación, la cancelación y el streaming funcionan de
-  punta a punta con 0.156.1 bajo Meltemi, y cuánto tarda un turno.
-- Si el Codex del mantenedor tiene servidores MCP o conectores, que harían
-  aparecer `mcpServer/elicitation/request` sin opt-in del adaptador.
-- Qué muestra la bandeja ante una aprobación de red, cuyo `toolCallId` nunca
-  se anunció como ítem.
+- Que una escritura aprobada bajo `read-only` se aplica (R5), y el streaming,
+  la cancelación y los tiempos de un turno.
+- Cómo se comporta el sandbox de solo lectura en Windows con una escalada
+  aprobada.
+- Qué muestra la bandeja ante una aprobación de red.
