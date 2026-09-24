@@ -344,6 +344,13 @@ pub struct FileUpdateChange {
     rename_all_fields = "camelCase"
 )]
 pub enum ThreadItem {
+    /// The user's own message, echoed back by the server at the start of every
+    /// turn (measured against 0.156.1). The prompt is already on the session's
+    /// record, so the mapping shows nothing for it (codex-al-dia design D8).
+    UserMessage {
+        /// The item id.
+        id: String,
+    },
     /// Something the agent said.
     AgentMessage {
         /// The item id, shared with its streamed chunks.
@@ -462,7 +469,8 @@ impl ThreadItem {
     #[must_use]
     pub fn id(&self) -> Option<&str> {
         match self {
-            ThreadItem::AgentMessage { id, .. }
+            ThreadItem::UserMessage { id }
+            | ThreadItem::AgentMessage { id, .. }
             | ThreadItem::Reasoning { id }
             | ThreadItem::CommandExecution { id, .. }
             | ThreadItem::FileChange { id, .. }

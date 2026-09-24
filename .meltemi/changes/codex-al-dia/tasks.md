@@ -23,7 +23,7 @@ eco) y el eco `userMessage` silenciado antes también (el guion nuevo lo trae).
   CLI escribe el nombre del cliente en su user agent», «Un token posterior con
   versión no se confunde con el CLI», «Una forma desconocida se rehúsa sin
   culpar al binario» — gates: suite de `meltemi-adapters`
-- [ ] 1.2 `ThreadItem::UserMessage` en `wire.rs` y el mapeo lo calla; test en
+- [x] 1.2 `ThreadItem::UserMessage` en `wire.rs` y el mapeo lo calla; test en
   `mapping.rs` con el ítem tal como lo emite 0.156.1 (design D8) — escenario
   «El eco del mensaje del usuario no se muestra» — gates: suite de
   `meltemi-adapters`

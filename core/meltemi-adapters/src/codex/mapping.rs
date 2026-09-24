@@ -160,7 +160,15 @@ impl Mapper {
         }
         // Reasoning arrives as chunks too, and its completed form carries a
         // structure this adapter does not map. Repeating it would be noise.
-        if matches!(item, ThreadItem::Reasoning { .. }) {
+        //
+        // The user's message comes back from the server as an item of the turn.
+        // What the user said is already on the record — the daemon wrote the
+        // prompt before the turn began — and shown here it would be a tool call
+        // that is really the prompt, once per turn.
+        if matches!(
+            item,
+            ThreadItem::Reasoning { .. } | ThreadItem::UserMessage { .. }
+        ) {
             return Mapped::default();
         }
 
@@ -318,7 +326,9 @@ fn render(item: &ThreadItem, raw: &Value, completed: bool) -> Option<Rendered> {
             locations: Vec::new(),
         },
         // Handled before this point: they are text, not tool calls.
-        ThreadItem::AgentMessage { .. } | ThreadItem::Reasoning { .. } => return None,
+        ThreadItem::AgentMessage { .. }
+        | ThreadItem::Reasoning { .. }
+        | ThreadItem::UserMessage { .. } => return None,
     })
 }
 
@@ -495,6 +505,33 @@ mod tests {
             Some(1),
             "so a client can follow along to the file"
         );
+    }
+
+    #[test]
+    fn the_echo_of_the_users_own_message_is_not_shown() {
+        // Scenario: El eco del mensaje del usuario no se muestra
+        //
+        // Exactly as 0.156.1 emits it, measured on 2026-09-24: at the start of
+        // every turn, started and completed, with the prompt as content.
+        let mut mapper = Mapper::new();
+        let item = json!({
+            "type": "userMessage", "id": "item-0", "clientId": null,
+            "content": [{"type": "text", "text": "write the proposal", "text_elements": []}]
+        });
+        for (method, stamp) in [
+            (wire::ITEM_STARTED, "startedAtMs"),
+            (wire::ITEM_COMPLETED, "completedAtMs"),
+        ] {
+            let mapped = mapper.map(
+                method,
+                &json!({"threadId": "t", "turnId": "turn-1", "item": item, stamp: 1_790_000_001_100_u64}),
+            );
+            assert!(
+                mapped.updates.is_empty(),
+                "the prompt is already on the record, not a tool call: {mapped:?}"
+            );
+            assert!(mapped.noted.is_none() && mapped.signal.is_none());
+        }
     }
 
     #[test]
