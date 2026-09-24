@@ -800,12 +800,11 @@ where
 
     // The wire expects this once the handshake is done. It is a notification:
     // nothing answers it, and nothing should wait for anything to.
-    provider
-        .send(&json!({"jsonrpc": "2.0", "method": wire::INITIALIZED}))
-        .await
-        .map_err(|error| {
-            handshake_failed(&format!("the server closed during the handshake ({error})"))
-        })?;
+    let mut initialized = wire::initialized();
+    initialized["jsonrpc"] = json!("2.0");
+    provider.send(&initialized).await.map_err(|error| {
+        handshake_failed(&format!("the server closed during the handshake ({error})"))
+    })?;
 
     Ok(Provenance {
         program: program.to_string(),
@@ -1484,6 +1483,35 @@ mod tests {
         let provenance = outcome.expect("the echoed form carries a version that is read");
         assert_eq!(provenance.version, "0.156.1");
         assert_eq!(sent[0]["params"]["clientInfo"]["name"], SPEC.name);
+    }
+
+    #[tokio::test]
+    async fn the_adapter_introduces_itself_by_its_own_name() {
+        // Scenario: El adaptador se presenta con su propio nombre
+        //
+        // The name the handshake sends is the `originator` the CLI reports to
+        // its own backend. It is this adapter's, and never one of the names the
+        // provider counts as its own clients (constitution §2).
+        let (_, sent) = handshake_against(&announcing(
+            "meltemi-codex-acp/0.156.1 (linux) unknown (meltemi-codex-acp; 0.1.1)",
+        ))
+        .await;
+        let name = sent[0]["params"]["clientInfo"]["name"]
+            .as_str()
+            .expect("the handshake names the client");
+        assert_eq!(name, SPEC.name);
+        for first_party in ["codex_cli_rs", "codex_vscode", "codex-tui"] {
+            assert_ne!(name, first_party, "never a first-party client's name");
+        }
+        assert!(
+            !name.starts_with("Codex "),
+            "never a first-party client's name: {name}"
+        );
+        assert!(
+            sent[0]["params"].get("capabilities").is_none(),
+            "and nothing that opts into the experimental surface: {}",
+            sent[0]
+        );
     }
 
     #[tokio::test]

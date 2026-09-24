@@ -75,6 +75,15 @@ pub const SERVER_MODE_ARG: &str = "app-server";
 pub const INITIALIZE: &str = "initialize";
 /// Sent once after the handshake, as the wire expects.
 pub const INITIALIZED: &str = "initialized";
+
+/// The `initialized` notification, without the JSON-RPC envelope member the
+/// transport adds. Built here so that what the conformance validates against
+/// the dumped `ClientNotification.json` is exactly what the adapter sends
+/// (codex-al-dia design D9).
+#[must_use]
+pub fn initialized() -> serde_json::Value {
+    serde_json::json!({ "method": INITIALIZED })
+}
 /// Opens the thread an ACP session maps onto.
 pub const THREAD_START: &str = "thread/start";
 /// Starts a turn on a thread.

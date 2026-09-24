@@ -49,7 +49,7 @@ archivo del volcado llega con la tarea que lo usa.
   escenarios «Tipos validados contra el esquema volcado», «El guion simulado
   sigue al cable real», «Desfase de versión rehusado con remedio» — gates:
   suites de `meltemi-adapters` y `mock-provider`, e2e del adaptador
-- [ ] 1.4 Conformidad estricta e identidad: comprobación recursiva de las
+- [x] 1.4 Conformidad estricta e identidad: comprobación recursiva de las
   claves de `params` y `result` contra las propiedades del esquema (con `$ref`
   y rama de `oneOf` por discriminante); `initialized` sin el miembro `jsonrpc`
   del sobre, validado contra `ClientNotification.json` (vendorizado aquí, con su

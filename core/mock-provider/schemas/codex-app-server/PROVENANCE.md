@@ -33,6 +33,9 @@ como los escribe el generador de esta versión). `InitializeParams.json` e
 raíz. No hay colisión de nombres entre esas tres procedencias para este
 subconjunto.
 
+`ClientNotification.json` valida el `initialized` que el adaptador envía, que
+de otro modo sería lo único saliente sin contrastar con el volcado.
+
 Además de lo que el adaptador envía y mapea, se vendorizan
 `ThreadStatusChangedNotification.json`,
 `ThreadTokenUsageUpdatedNotification.json` y

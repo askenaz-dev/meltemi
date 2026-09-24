@@ -38,6 +38,7 @@ macro_rules! vendored_schemas {
 /// that the adapter's wire touches (see `schemas/codex-app-server/PROVENANCE.md`).
 const SCHEMAS: &[(&str, &str)] = vendored_schemas![
     "AgentMessageDeltaNotification.json",
+    "ClientNotification.json",
     "CommandExecutionRequestApprovalParams.json",
     "CommandExecutionRequestApprovalResponse.json",
     "ErrorNotification.json",
