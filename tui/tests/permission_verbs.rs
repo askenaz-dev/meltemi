@@ -222,6 +222,7 @@ async fn the_permission_verbs_end_to_end() {
     several_approvals_and_options_held_to_the_agents_list(&endpoint).await;
     denying_without_a_rejection_cancels(&endpoint).await;
     what_no_longer_waits_is_not_decided(&endpoint).await;
+    from_a_shell_with_no_terminal(&endpoint).await;
 
     daemon.abort();
 }
@@ -458,5 +459,64 @@ async fn what_no_longer_waits_is_not_decided(endpoint: &str) {
         "{stderr}"
     );
     surface.finished().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The shipped binary as `ssh <pc> meltemi …` runs it: stdin closed, stdout
+/// and stderr pipes — no terminal anywhere.
+async fn binary(endpoint: &str, args: &[&str]) -> std::process::Output {
+    let child = tokio::process::Command::new(env!("CARGO_BIN_EXE_meltemi"))
+        .args(args)
+        .env("MELTEMI_ENDPOINT", endpoint)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        // A failing assertion must not leave the binary running: an orphan
+        // holds the built executable open and the next build fails on a lock.
+        .kill_on_drop(true)
+        .spawn()
+        .expect("spawn meltemi");
+    tokio::time::timeout(Duration::from_secs(60), child.wait_with_output())
+        .await
+        .expect("the command answered without a terminal")
+        .expect("its output")
+}
+
+// Scenario: Aprobar sin terminal desde otra conexión
+async fn from_a_shell_with_no_terminal(endpoint: &str) {
+    let root = fixture("remote", &[], "");
+    let surface = open_session(endpoint, &root, "look around").await;
+    let waiting = next_request(endpoint, &[]).await;
+    let request = id_of(&waiting);
+    let session = waiting["sessionId"].as_str().unwrap().to_string();
+
+    let listed = binary(endpoint, &["permissions"]).await;
+    let stdout = String::from_utf8_lossy(&listed.stdout);
+    assert!(
+        listed.status.success(),
+        "{stdout} / {}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    assert!(stdout.starts_with("1 waiting for a decision"), "{stdout}");
+    assert!(stdout.contains(&request), "{stdout}");
+
+    let approved = binary(endpoint, &["approve", &request]).await;
+    let stdout = String::from_utf8_lossy(&approved.stdout);
+    assert!(
+        approved.status.success(),
+        "{stdout} / {}",
+        String::from_utf8_lossy(&approved.stderr)
+    );
+    assert!(stdout.contains(&format!("approved {request}")), "{stdout}");
+
+    // The session goes on with its turn, decided by this client.
+    let result = surface.finished().await;
+    assert_eq!(result["deniedPermissions"], 0, "{result}");
+    let decided = decisions(endpoint, &root, &session).await;
+    assert_eq!(decided[0]["decidedBy"], "client", "{decided:?}");
+    assert_eq!(
+        decided[0]["outcome"],
+        json!({ "outcome": "selected", "optionId": "allow" })
+    );
     let _ = std::fs::remove_dir_all(&root);
 }

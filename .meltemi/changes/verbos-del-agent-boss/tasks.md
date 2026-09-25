@@ -38,7 +38,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   decide», «Un comodín no es un id» — gates: `cargo build --workspace`, `-p
   meltemi --test permission_verbs`
 
-- [ ] 2.3 Remoto sin terminal: el binario real, con stdio en tuberías y sin TTY,
+- [x] 2.3 Remoto sin terminal: el binario real, con stdio en tuberías y sin TTY,
   lista y aprueba una petición de una sesión abierta por otra superficie
   (design D11) — escenario «Aprobar sin terminal desde otra conexión» — gates:
   `-p meltemi --test permission_verbs`
