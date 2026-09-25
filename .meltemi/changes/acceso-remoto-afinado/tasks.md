@@ -5,7 +5,7 @@ pruebas del arranque cargan el `meltemid` ya construido.
 
 ## 1. El arranque solo en el endpoint propio
 
-- [ ] 1.1 `connect_or_start` lanza el daemon solo en el endpoint propio
+- [x] 1.1 `connect_or_start` lanza el daemon solo en el endpoint propio
   (`paths::default_endpoint()`, ahora público) o con `MELTEMI_START_HERE`
   (ausente, vacía o `0` es no), y en otro caso rehúsa de inmediato con el
   diagnóstico y los dos remedios; unit tests de la regla y del texto (design
