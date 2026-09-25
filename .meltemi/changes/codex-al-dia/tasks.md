@@ -125,7 +125,7 @@ archivo del volcado llega con la tarea que lo usa.
   se conecta», «Una escritura en una terminal se distingue de un comando», «Una
   raíz de escritura para toda la sesión se muestra» — gates: suite de
   `meltemi-adapters`, e2e del adaptador
-- [ ] 2.8 Turno fallido con `turn.error.message` y `additionalDetails` en el
+- [x] 2.8 Turno fallido con `turn.error.message` y `additionalDetails` en el
   rehúso (design D8) — escenario «Un turno fallido se explica con las palabras
   del proveedor» — gates: suite de `meltemi-adapters`, e2e del adaptador
 - [ ] 2.9 Avisos del proveedor (`warning`, `configWarning`,

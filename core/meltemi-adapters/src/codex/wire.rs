@@ -364,6 +364,9 @@ pub struct Turn {
     pub id: String,
     /// How the turn ended.
     pub status: TurnStatus,
+    /// Why it failed, when it did (codex-al-dia design D8).
+    #[serde(default)]
+    pub error: Option<TurnError>,
 }
 
 /// `turn/start` result.
@@ -431,6 +434,35 @@ pub struct DeltaNotification {
 pub struct TurnError {
     /// The message, as the provider words it.
     pub message: String,
+    /// What the provider adds to it, when it does.
+    #[serde(default)]
+    pub additional_details: Option<String>,
+}
+
+impl TurnError {
+    /// The provider's own words for what went wrong: the message, and the
+    /// details beside it when there are any.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        match self
+            .additional_details
+            .as_deref()
+            .map(str::trim)
+            .filter(|details| !details.is_empty())
+        {
+            Some(details) => format!("{} ({details})", self.message),
+            None => self.message.clone(),
+        }
+    }
+}
+
+/// What a failed turn says when the provider did not say why.
+pub const TURN_FAILED_UNEXPLAINED: &str = "the server reported the turn failed without saying why";
+
+/// A failed turn, in the provider's words when it gave any.
+#[must_use]
+pub fn failure(error: Option<&TurnError>) -> String {
+    error.map_or_else(|| TURN_FAILED_UNEXPLAINED.to_string(), TurnError::describe)
 }
 
 /// The `error` notification.

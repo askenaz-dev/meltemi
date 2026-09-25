@@ -467,7 +467,7 @@ where
                     return Err(turn_failed("the server started a turn this adapter cannot read"));
                 };
                 learned_turn_id(peer, turn, &result.turn.id).await;
-                if let Some(outcome) = ended(result.turn.status)? {
+                if let Some(outcome) = ended(result.turn.status, result.turn.error.as_ref())? {
                     // The answer says the turn is over, and everything the
                     // server already said belongs to it. Returning without
                     // showing what is still queued would silently swallow the
@@ -567,7 +567,7 @@ where
                     learned_turn_id(peer, turn, &id).await;
                     Ok(None)
                 }
-                Some(mapping::Signal::TurnEnded(status)) => ended(status),
+                Some(mapping::Signal::TurnEnded(status)) => ended(status, None),
                 Some(mapping::Signal::TurnFailed(message)) => Err(turn_failed(&message)),
                 Some(mapping::Signal::RemoteControl(status)) => {
                     Err(remote_control_refused(&status))
@@ -739,14 +739,16 @@ async fn learned_turn_id<W: AsyncWrite + Unpin + Send>(
 /// A failed turn is an error, not a stop reason: ACP has no way to say "the
 /// turn did not work", and answering `end_turn` would report a failure as a
 /// finished piece of work.
-fn ended(status: wire::TurnStatus) -> Result<Option<TurnOutcome>, Refusal> {
+fn ended(
+    status: wire::TurnStatus,
+    error: Option<&wire::TurnError>,
+) -> Result<Option<TurnOutcome>, Refusal> {
     Ok(match status {
         wire::TurnStatus::InProgress => None,
         wire::TurnStatus::Completed => Some(TurnOutcome::Ended(StopReason::EndTurn)),
         wire::TurnStatus::Interrupted => Some(TurnOutcome::Ended(StopReason::Cancelled)),
-        wire::TurnStatus::Failed => {
-            return Err(turn_failed("the server reported the turn failed"));
-        }
+        // In the provider's words (codex-al-dia design D8).
+        wire::TurnStatus::Failed => return Err(turn_failed(&wire::failure(error))),
     })
 }
 
@@ -1692,6 +1694,58 @@ mod tests {
             "i2",
             "against the very item the server asked about"
         );
+    }
+
+    #[tokio::test]
+    async fn a_failed_turn_refuses_with_what_the_provider_said() {
+        // Scenario: Un turno fallido se explica con las palabras del proveedor
+        for answered_first in [false, true] {
+            let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+            let stream = Collected::default();
+            let params = turn_params();
+            let session = SessionId::new("s-1");
+            let mut mapper = mapping::Mapper::for_thread("thread-1");
+            let failed = json!({"id": "turn-1", "status": "failed", "items": [],
+                                "error": {"message": "You've hit your usage limit.",
+                                          "additionalDetails": "Try again at 3:05 PM."}});
+            let driving = drive_turn(
+                &peer,
+                &mut incoming,
+                &turn,
+                &stream,
+                &session,
+                &params,
+                &mut mapper,
+            );
+            let serving = async {
+                let start = server.next_call().await;
+                if answered_first {
+                    // The answer itself says the turn failed.
+                    server
+                        .say(&json!({"id": start["id"], "result": {"turn": failed}}))
+                        .await;
+                } else {
+                    server
+                        .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                        .await;
+                    server
+                        .notify(
+                            wire::TURN_COMPLETED,
+                            json!({"threadId": "thread-1", "turn": failed}),
+                        )
+                        .await;
+                }
+            };
+            let (outcome, ()) = tokio::join!(driving, serving);
+            let refusal = outcome.expect_err("a failed turn is not a stop reason");
+            assert_eq!(refusal.kind, "provider_turn_failed");
+            assert!(
+                refusal.detail.contains("You've hit your usage limit.")
+                    && refusal.detail.contains("Try again at 3:05 PM."),
+                "in the provider's words: {}",
+                refusal.detail
+            );
+        }
     }
 
     /// A remote control report as 0.156.1 sends it.

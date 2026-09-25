@@ -206,6 +206,13 @@ impl Mapper {
                     // Over, and remembered as over: a late copy of this must
                     // not close the next turn.
                     self.finished.insert(turn.turn.id);
+                    if turn.turn.status == wire::TurnStatus::Failed {
+                        // In the provider's words: why the turn failed is
+                        // what the human needs, and a bare "failed" is not it.
+                        return Mapped::signal(Signal::TurnFailed(wire::failure(
+                            turn.turn.error.as_ref(),
+                        )));
+                    }
                     Mapped::signal(Signal::TurnEnded(turn.turn.status))
                 }
                 None => Mapped::noted(format!("unreadable `{method}`: {params}")),
@@ -407,7 +414,7 @@ impl Mapper {
                 error.error.message
             ));
         }
-        Mapped::signal(Signal::TurnFailed(error.error.message))
+        Mapped::signal(Signal::TurnFailed(error.error.describe()))
     }
 }
 
@@ -1091,6 +1098,48 @@ mod tests {
         assert_eq!(
             fatal.signal,
             Some(Signal::TurnFailed("context window exceeded".into()))
+        );
+    }
+
+    #[test]
+    fn a_failed_turn_is_explained_in_the_providers_words() {
+        // Scenario: Un turno fallido se explica con las palabras del proveedor
+        let mut mapper = Mapper::new();
+        let failed = mapper.map(
+            wire::TURN_COMPLETED,
+            &json!({"threadId": "t", "turn": {"id": "turn-1", "status": "failed", "items": [],
+                    "error": {"message": "You've hit your usage limit.",
+                              "additionalDetails": "Try again at 3:05 PM.",
+                              "codexErrorInfo": "usageLimitExceeded"}}}),
+        );
+        assert_eq!(
+            failed.signal,
+            Some(Signal::TurnFailed(
+                "You've hit your usage limit. (Try again at 3:05 PM.)".into()
+            ))
+        );
+
+        // Failed without a word: still a failure, and said to be unexplained.
+        let bare = mapper.map(
+            wire::TURN_COMPLETED,
+            &json!({"threadId": "t", "turn": {"id": "turn-2", "status": "failed", "items": []}}),
+        );
+        assert_eq!(
+            bare.signal,
+            Some(Signal::TurnFailed(wire::TURN_FAILED_UNEXPLAINED.into()))
+        );
+
+        // And the `error` notification carries the details too.
+        let fatal = mapper.map(
+            wire::ERROR,
+            &json!({"threadId": "t", "turnId": "turn-3", "willRetry": false,
+                    "error": {"message": "stream disconnected", "additionalDetails": "idle timeout"}}),
+        );
+        assert_eq!(
+            fatal.signal,
+            Some(Signal::TurnFailed(
+                "stream disconnected (idle timeout)".into()
+            ))
         );
     }
 
