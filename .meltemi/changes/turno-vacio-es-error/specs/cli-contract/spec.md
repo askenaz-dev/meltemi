@@ -28,19 +28,20 @@ desenlace.
 - **AND** una validación limpia SHALL terminar con el código `0`
 
 #### Scenario: Turno vacío distinguible
-- **WHEN** un verbo que arranca o dirige una sesión recibe una respuesta que declara vacío el turno que informa
+- **WHEN** un subcomando recibe una respuesta que declara vacío el turno que informa
 - **THEN** el binario SHALL terminar con el código `15`
-- **AND** el mismo verbo con un turno que llevó trabajo SHALL terminar con el código `0`
+- **AND** el mismo subcomando con un turno que llevó trabajo SHALL terminar con el código `0`
 
 ## ADDED Requirements
 
 ### Requirement: Un turno vacío se advierte con remedio
-WHEN la respuesta de `session`, `propose`, `direct`, `dispatch` o `explore`
-declara vacío el turno que informa, el binario SHALL escribir en stderr, en
-modo humano, una advertencia que diga que el agente terminó sin decir ni hacer
-nada y un remedio en condicional: probar el agente por su cuenta y revisar su
-proveedor y sus credenciales. En modo `--json` la respuesta SHALL viajar íntegra
-por stdout, con el campo que declara el turno vacío.
+WHEN la respuesta de un subcomando declara vacío el turno que informa, el
+binario SHALL escribir en stderr, en modo humano, una advertencia que diga que
+el agente terminó sin decir ni hacer nada y un remedio en condicional: probar el
+agente por su cuenta y revisar su proveedor y sus credenciales. En modo `--json`
+la respuesta SHALL viajar íntegra por stdout, con el campo que declara el turno
+vacío. La regla SHALL depender del campo de la respuesta y no de una lista de
+subcomandos.
 
 #### Scenario: La advertencia va a stderr con su remedio
 - **WHEN** `meltemi session` termina con un turno vacío en modo humano
@@ -48,5 +49,9 @@ por stdout, con el campo que declara el turno vacío.
 - **AND** stdout SHALL contener solo la salida útil del comando
 
 #### Scenario: La salida de máquina lleva el veredicto
-- **WHEN** un verbo que arranca sesión termina con un turno vacío en modo `--json`
+- **WHEN** un subcomando que arranca sesión termina con un turno vacío en modo `--json`
 - **THEN** stdout SHALL contener la respuesta con `emptyTurn` en `true`
+
+#### Scenario: Un verbo de autoría sigue la misma regla
+- **WHEN** `meltemi plan` recibe una respuesta con `emptyTurn` en `true`
+- **THEN** el binario SHALL advertir en stderr y terminar con el código `15`

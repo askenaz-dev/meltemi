@@ -6,8 +6,8 @@
 WHEN el log de una sesión registra un turno vacío, la conversación de esa
 sesión SHALL mostrarlo en su lugar como un estado propio, con glifo y palabra,
 nunca solo con color, y con el remedio en condicional: probar el agente por su
-cuenta y revisar su proveedor y sus credenciales. El texto SHALL existir en
-español y en inglés.
+cuenta y revisar su proveedor y sus credenciales. El log de operador SHALL darle
+glifo y tono propios. El texto SHALL existir en español y en inglés.
 
 #### Scenario: El turno vacío se lee en la conversación
 - **WHEN** la conversación pliega un log con un `turn_empty`

@@ -38,15 +38,18 @@ llama éxito enseña a desconfiar de todos sus éxitos.
   un campo de `TurnCompleted`, que se escribe una vez por sesión y que dos
   runners no escriben (design D1, D2). El motivo de parada del agente se
   conserva intacto: Meltemi no interpreta al agente, lo mide.
-- **Las respuestas que informan un turno lo dicen**: `session/start`,
-  `propose`, `session/direct` (reanudación), `worktree/dispatch` y los verbos
-  `sdd/*` devuelven `emptyTurn: true` (aditivo). El CLI imprime en stderr una
-  advertencia con remedio y termina con un código nuevo, `15`, porque un `0`
-  con aviso es lo que un script no lee (design D4).
+- **Las respuestas que informan un turno lo dicen**: `session/start` sin
+  `detach`, `propose`, `session/direct` (reanudación), `worktree/dispatch` y
+  `sdd/explore`, `sdd/propose`, `sdd/plan`, `sdd/constitution` y `sdd/gate`
+  devuelven `emptyTurn: true` (aditivo). Cualquier verbo del CLI cuya respuesta
+  lo traiga imprime en stderr una advertencia con remedio y termina con un
+  código nuevo, `15`, porque un `0` con aviso es lo que un script no lee
+  (design D4). Un turno que el humano detuvo nunca se declara vacío (design D2).
 - **GUI y TUI lo pintan como estado, no como ausencia**: la conversación dice
   «turno vacío» con el remedio, con glifo y palabra (nunca solo color); la TUI,
-  con palabras en su transcript. La barra lateral no cambia: la sesión sigue
-  «detenida».
+  con palabras en su transcript en vivo y en el detalle histórico. La barra
+  lateral no cambia, por decisión: el veredicto vive en la conversación
+  (design D5).
 - **La analítica local lo cuenta**: `analytics/usage` gana `emptyTurns` en la
   actividad de cada celda, aditivo, para que un agente que falla en silencio
   se vea en el resumen de la semana.
@@ -64,6 +67,10 @@ llama éxito enseña a desconfiar de todos sus éxitos.
 
 - `acp-session`: + requisito «Un turno que no llevó nada se declara vacío»
   (evento `turn_empty` por turno; el motivo del agente se conserva).
+- `acp-session` además: + «Las respuestas de sesión dicen si el turno fue
+  vacío».
+- `propose-flow`, `worktree-orchestration` y `sdd-authoring`: + un requisito
+  cada una para `emptyTurn` en la respuesta que poseen.
 - `cli-contract`: MODIFIED «Taxonomía de códigos de salida» (+ `15`) y ADDED
   «Un turno vacío se advierte con remedio».
 - `gui-shell` y `tui-shell`: + el estado «turno vacío» en la conversación y
