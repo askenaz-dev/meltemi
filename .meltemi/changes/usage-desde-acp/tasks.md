@@ -21,6 +21,13 @@ los e2e cargan el binario `mock-agent` ya construido.
   sus unit tests (design D9) — gates: `cargo build -p mock-agent`, suite de
   `mock-agent`
 
+- [x] 1.3 (Hallazgo al correr el gate de la 2.1) La prueba de control remoto que
+  cancela con una instrucción encolada espera a que el turno esté en vuelo antes
+  de dirigir y cancelar: desde `modelo-por-opcion-anunciada` (design D3) una
+  cancelación anterior al primer prompt termina la sesión sin enviarlo, y la
+  prueba corría contra esa carrera — gates: `-p meltemid --test
+  e2e_control_remoto`, repetida
+
 ## 2. El plegado
 
 - [ ] 2.1 `facts_of_log` parte el log en conversaciones en cada `agent_process`
