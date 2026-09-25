@@ -68,7 +68,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   --test` y `lint:i18n` de `desktop/ui` (con la unión temporal a los
   `node_modules` de `main`, retirada al terminar)
 
-- [ ] 3.2 Documentación: la ayuda de `usage` dice que el contexto y el costo son
+- [x] 3.2 Documentación: la ayuda de `usage` dice que el contexto y el costo son
   los que el agente reporta, con `docs/referencia-cli.md` regenerada, y
   `docs/paridad-nucleo.md` gana `agentReport`, el motivo y la clave nuevos por
   superficie — gates: tests de docs

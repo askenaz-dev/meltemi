@@ -91,7 +91,10 @@ SUBCOMMANDS:
     usage [day|week|month|total] [--project <root>|--all] [--since <ts>] [--until <ts>]
                         local usage accounting folded from the session records;
                         tokens only where the agent's official output reports
-                        them, never estimated (`--all` spans every project)
+                        them, never estimated; the context and the cost an
+                        agent reports over ACP are shown as its own figures,
+                        summed per currency and never converted (`--all`
+                        spans every project)
     changes             list changes (active and archived) with their state
     show <change>       show a change: its artifacts and per-capability deltas
     workspace <change> [--branch <branch>|--unique]

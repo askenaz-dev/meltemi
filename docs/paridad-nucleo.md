@@ -126,6 +126,24 @@ The TUI's `usage` home stays reserved, as it is for the rest of the activity.
 This is **not** a §4 break: the capability is the verdict, and it reaches all
 three surfaces; each reads it from the carrier it already consumes.
 
+### What an agent reports over ACP, and where each surface shows it
+
+An agent may report over ACP the context it holds and its cumulative cost
+(`usage_update`). The accounting reads it as the agent's figures, apart from the
+tokens — one conversation at a time, once, summed per currency, never converted
+(usage-desde-acp):
+
+| Contract | CLI | TUI | GUI |
+|---|---|---|---|
+| `agentReport` in a cell (sessions, fullest context, cost per currency) | a line under the cell, labelled as reported by the agent | — (the `usage` home stays reserved) | «Context (max)» and «Cost (agent-reported)» columns |
+| `agentReport` in the totals (sessions, cost per currency; no context) | a totals line | — | the cost in the totals row |
+| reason `protocol_carries_context_not_consumption` | in the coverage line | — | in the absence marker's reason |
+| disclosure key `agent-reported-context-and-cost` | printed with the numbers | — | in the disclosure beside the table |
+
+The TUI's reserved entry keeps the method's home in the palette, as it does for
+the rest of the accounting; this is **not** a §4 break for the same reason the
+activity is not.
+
 ### A lever's route, what governed, and a refusal at open
 
 A model or an effort reaches the agent as the launch flag its entry declares or
