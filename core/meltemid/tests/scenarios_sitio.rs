@@ -451,3 +451,30 @@ fn the_site_publishes_only_after_green_gates_and_never_before_the_artifacts() {
         );
     }
 }
+
+// Scenario: La página de agentes enlaza la guía de modelos propios
+#[test]
+fn the_agents_page_links_the_own_model_guide_honestly_in_both_languages() {
+    // How a model of one's own comes today, in words that name no third-party
+    // product and announce no engine that does not exist (guia-modelos-locales
+    // design D7). The third-party names are refused site-wide by the lint.
+    for (page, not_yet) in [
+        ("site/agents.html", "has no engine of its own yet"),
+        ("site/es/agents.html", "todavía no tiene motor propio"),
+    ] {
+        let html = read(page);
+        let flat = html.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            html.contains("blob/main/docs/local-models.md"),
+            "{page} links the local models guide"
+        );
+        assert!(
+            flat.contains(not_yet),
+            "{page} says the own engine is not there yet"
+        );
+        assert!(
+            html.contains("<section aria-labelledby=\"model\">"),
+            "{page} gives it a section of its own"
+        );
+    }
+}

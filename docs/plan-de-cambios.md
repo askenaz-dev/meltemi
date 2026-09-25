@@ -270,7 +270,7 @@ exportar sesión) → `escritorio-que-recuerda`; `paleta-que-encuentra` +
 | 3º | ✅ `aprobador-en-el-cli` | completa · **implementada** (7/7, verify 21/21) | AI-12 | el CLI denegaba todo permiso: con Claude Code solo servía para charlar. Cerrada: en un terminal pregunta con las opciones del agente y lo que envió (completado con la `tool_call` de la sesión, sin texto crudo del agente); recordar escribe la regla más específica o no se ofrece; sin terminal, el rechazo del agente y un aviso que nombra las reglas; Ctrl+C cancela primero (el log dice `interrupted`) y sale con `13`; el terminal siempre sale del modo crudo | — |
 | 4º | ✅ `modelo-por-opcion-anunciada` | completa · **implementada** (10/10, verify 27/27) | LM-3, LM-6 | `--model` rehusado a un agente que anuncia modelos; el `model` del perfil se pierde en propose/dispatch/implement. Cerrada: cada palanca va por la bandera que declara su entrada del registro (`levers`: Codex modelo y esfuerzo, Claude Code modelo) o por la opción que el agente anuncia, fijada y confirmada antes del primer prompt (la última respuesta decide, el modo no se mueve, espera acotada `[sessions] lever-wait` y cancelable); si no, se rehúsa sin prompt como `lever_refused` y el 2007 con sus datos, acotados y escapados en las tres superficies; el perfil rige en todo verbo antes de sus efectos (`propose` ya no deja andamio); el histórico dice lo que rigió y nunca lo rehusado | — |
 | 5º | ✅ `usage-desde-acp` | completa (la revisión adversarial mostró dos MODIFIED: la frontera entre medido y no reportado, y el evento de uso de `session-history`) · **implementada** (8/8, verify 16/16) | LM-7 | `usage_update` está en el log y `usage` dice «no reportado». Cerrada: la contabilidad lee el contexto y el costo que el agente reporta por ACP como cifras suyas, aparte de los tokens —por conversación del agente (`implement` abre una por tarea), una sola vez aunque la conversación se reanude, sumadas por moneda y nunca convertidas—; los tokens de esas sesiones quedan ausentes con el motivo «el protocolo transportó contexto y costo, no consumo»; la CLI y la vista Uso lo muestran rotulado como del agente. Hallazgos corregidos: el plegado perdía binario y nivel de las sesiones con modelo declarado, y una prueba de control remoto corría contra la cancelación previa al primer prompt de la 4º | — |
-| 6º | `guia-modelos-locales` | rápida | LM-1/2/5/8, P5 | la única vía funcional (OpenCode) sin escribir; corrige «Aider funciona hoy» | ollama en la máquina del mantenedor (pierna local) |
+| 6º | ✅ `guia-modelos-locales` | rápida · **implementada** (5/5, verify 7/7) | LM-1/2/5/8, P5 | la única vía funcional (OpenCode) sin escribir; corrige «Aider funciona hoy». Cerrada: `docs/local-models.md` con tres recetas (ollama, LiteLLM, OpenRouter) verificadas en forma con OpenCode 1.18.32 el 2026-09-25, cada una con su perfil, y un lint que rehúsa claves en claro; la receta 1 pasó por Meltemi: el perfil llega, `--model` anunciado se confirma antes del primer prompt y uno no anunciado se rehúsa sin prompt (confirma en vivo la vía anunciada de la 4º); la pierna local queda escrita y **pendiente** en `docs/conformidad-manual.md`; Aider deja de prometerse; el README, el LEEME y el sitio enlazan sin nombrar productos. Hallazgo anotado aparte: un `${VAR}` dentro de un texto más largo se resuelve en silencio a vacío | ollama en la máquina del mantenedor (pierna local) |
 | 7º | `verbos-del-agent-boss` | rápida | MOB-5, C-F | aprobar, seguir y cancelar por SSH sin TUI; la CLI como herramienta de agentes | — |
 | 8º | `acceso-remoto-afinado` | rápida | R3, R9, R4, MOB-6, R-V1 | un endpoint caído arranca un daemon equivocado; túnel sin latido; Windows servido sin guía | — |
 | 9º | `corrida-integrada` | rápida | AI-2, AI-V1, P9 | la matriz agente × verbo × superficie con informe fechado; el informe de aceptación v0.1 | 1º; ollama para la pierna local |
@@ -387,10 +387,12 @@ marketplace que su rumbo explícitamente no es. Si alguna vez se absorbe, entra
 Apache-2.0 bajo CLA, sin excepciones.
 
 Mientras la change no se implemente, correr un modelo local bajo Meltemi ya es
-posible **hoy y sin código nuevo**: OpenCode (nivel 1) y Aider (nivel 3) de la
-flota actual hablan con endpoints ollama/OpenAI-compatible por su propia
-configuración. La guía de docs que lo explique entra con la change, verificada
-contra las versiones vigentes y no citada de memoria.
+posible **hoy y sin código nuevo** por OpenCode (nivel 1), que habla con
+endpoints ollama/OpenAI-compatible y con OpenRouter por su propia
+configuración: las recetas, verificadas y fechadas, están en
+`docs/local-models.md` (`guia-modelos-locales`). Aider (nivel 3) **no** sirve
+hoy: el daemon no lanza el nivel 3 —todo verbo lo rehúsa con
+`level_not_pilotable`—, y lo hará solo si `runner-nivel-3` llega a existir.
 
 El design system del mantenedor vive en `design-system/` y es la fuente visual
 normativa (gui-clase-mundial D11).

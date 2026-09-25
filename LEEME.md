@@ -34,7 +34,7 @@ capacidad aterriza en un solo sitio.
 Habla estándares abiertos: el Agent Client Protocol para pilotar agentes, MCP
 para herramientas, LSP para inteligencia de código y JSON-RPC sobre un **socket
 local únicamente** (sin puerto de red, jamás). Trae tu agente, tu clave y tu
-modelo.
+modelo ([modelos locales y autohospedados](docs/local-models.md)).
 
 El flujo es spec-first: se propone un cambio, se revisan sus escenarios y solo
 entonces se implementa —tarea a tarea, en worktrees de git aislados, con

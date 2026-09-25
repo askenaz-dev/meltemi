@@ -31,7 +31,8 @@ only one place.
 
 It speaks open standards: the Agent Client Protocol to pilot agents, MCP for
 tools, LSP for code intelligence, JSON-RPC over a **local socket only** (no
-network port, ever). You bring your own agent, your own key, your own model.
+network port, ever). You bring your own agent, your own key, your own model
+([local and self-hosted models](docs/local-models.md)).
 
 The workflow is spec-first: a change is proposed, its scenarios reviewed, and
 only then implemented — task by task, in isolated git worktrees, with automatic
