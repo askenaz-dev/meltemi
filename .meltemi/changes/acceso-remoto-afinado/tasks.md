@@ -28,7 +28,7 @@ pruebas del arranque cargan el `meltemid` ya construido.
 
 ## 2. El túnel
 
-- [ ] 2.1 `tui/src/tunnel.rs`: el latido y `ExitOnForwardFailure` en el
+- [x] 2.1 `tui/src/tunnel.rs`: el latido y `ExitOnForwardFailure` en el
   comando y en el snippet con su nota, `ssh_args` como única fuente de lo
   impreso y lo ejecutado; `--exec` ejecuta esos argumentos y su final se decide
   en una función pura (estado `0` termina con `0`; otro estado o una señal, con

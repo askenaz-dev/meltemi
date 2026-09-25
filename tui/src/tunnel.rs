@@ -19,6 +19,9 @@
 /// through their own `ssh`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunnelPlan {
+    /// The arguments given to `ssh`: the one source of what is printed and of
+    /// what `--exec` runs, so the two cannot drift (acceso-remoto-afinado D5).
+    pub ssh_args: Vec<String>,
     /// The exact `ssh -R` command that reverse-forwards the local endpoint.
     pub ssh_command: String,
     /// The equivalent `~/.ssh/config` block, for a named `ssh meltemi-tunnel`.
@@ -42,6 +45,17 @@ pub struct TunnelRefusal {
 /// The conventional path the far end listens on and points `MELTEMI_ENDPOINT`
 /// at. One tunnel per host; the user can edit it freely.
 const REMOTE_SOCKET: &str = "~/.meltemi/meltemid.sock";
+
+/// The heartbeat and the forward check, as `ssh` options (acceso-remoto-afinado
+/// D5): with no answer from the other end for about 90 seconds `ssh` ends,
+/// instead of living on as a process and dead as a path; and a forward that
+/// cannot be set up ends it at once, instead of leaving it connected and
+/// forwarding nothing.
+const HEARTBEAT: [(&str, &str); 3] = [
+    ("ServerAliveInterval", "30"),
+    ("ServerAliveCountMax", "3"),
+    ("ExitOnForwardFailure", "yes"),
+];
 
 /// Composes the tunnel for a daemon on this platform. `daemon_is_windows` is the
 /// platform of the machine running the helper (where the daemon lives);
@@ -72,9 +86,18 @@ pub fn compose(
     let target = target.unwrap_or("user@host");
     let (user, host) = split_target(target);
 
-    // `ssh -N -R <remote_socket>:<local_endpoint> <target>`: listen on the
-    // remote socket and forward every connection back to the local daemon.
-    let ssh_command = format!("ssh -N -R {REMOTE_SOCKET}:{local_endpoint} {target}");
+    // `ssh -N <heartbeat> -R <remote_socket>:<local_endpoint> <target>`: listen
+    // on the remote socket and forward every connection back to the local
+    // daemon, and end — visibly — when the path is gone.
+    let mut ssh_args = vec!["-N".to_string()];
+    for (option, value) in HEARTBEAT {
+        ssh_args.push("-o".to_string());
+        ssh_args.push(format!("{option}={value}"));
+    }
+    ssh_args.push("-R".to_string());
+    ssh_args.push(format!("{REMOTE_SOCKET}:{local_endpoint}"));
+    ssh_args.push(target.to_string());
+    let ssh_command = format!("ssh {}", ssh_args.join(" "));
 
     let mut config_snippet = String::from("Host meltemi-tunnel\n");
     config_snippet.push_str(&format!("    HostName {host}\n"));
@@ -82,25 +105,60 @@ pub fn compose(
         config_snippet.push_str(&format!("    User {user}\n"));
     }
     config_snippet.push_str("    RequestTTY no\n");
+    for (option, value) in HEARTBEAT {
+        config_snippet.push_str(&format!("    {option} {value}\n"));
+    }
     config_snippet.push_str(&format!(
         "    RemoteForward {REMOTE_SOCKET} {local_endpoint}\n"
     ));
     // Then simply: `ssh -N meltemi-tunnel`.
 
     let note = format!(
-        "The remote sshd must allow Unix-socket forwarding and clean stale sockets \
+        "ServerAliveInterval and ServerAliveCountMax end the tunnel when the other end has \
+         not answered for about 90 seconds, so a dead path does not live on as a live process; \
+         ExitOnForwardFailure ends it at once when the forward cannot be set up. \
+         The remote sshd must allow Unix-socket forwarding and clean stale sockets \
          (`StreamLocalBindUnlink yes`). On the far end, reach the daemon with \
          `MELTEMI_ENDPOINT={REMOTE_SOCKET} meltemi <subcommand>` (from git-bash on Windows, \
          prefix `MSYS_NO_PATHCONV=1` so the socket path is not mangled — see docs/plataformas.md)."
     );
 
     Ok(TunnelPlan {
+        ssh_args,
         ssh_command,
         config_snippet,
         local_endpoint: local_endpoint.to_string(),
         remote_endpoint: REMOTE_SOCKET.to_string(),
         note,
     })
+}
+
+/// How the `ssh` that `--exec` ran came to an end (acceso-remoto-afinado D6):
+/// `Ok` with the words when it ended on its own with success, `Err` with them
+/// when it failed or was ended by a signal — a tunnel that died is never
+/// reported as a success, and the far end no longer reaches the daemon either
+/// way.
+///
+/// # Errors
+///
+/// Any status but a clean `0`.
+pub fn ending(status: Option<i32>) -> Result<String, String> {
+    const AFTER: &str = "the far end no longer reaches this daemon";
+    match status {
+        Some(0) => Ok(format!(
+            "the tunnel ended: ssh exited normally, and {AFTER}; run it again to reconnect"
+        )),
+        Some(code) => Err(format!(
+            "the tunnel is down: ssh exited with status {code}, and {AFTER}. The usual causes: \
+             the other end stopped answering (the heartbeat ends ssh within about 90 seconds), \
+             the forward could not be set up (ExitOnForwardFailure ends ssh at once: a stale \
+             socket on the far end, or an sshd that does not allow it), or the login failed; \
+             run it again once the cause is fixed"
+        )),
+        None => Err(format!(
+            "the tunnel is down: ssh was ended by a signal, and {AFTER}"
+        )),
+    }
 }
 
 /// Splits `user@host` into `(Some(user), host)`, or `(None, host)` when no user
@@ -128,7 +186,9 @@ mod tests {
         // The exact reverse-forward of THIS endpoint, using the user's own ssh.
         assert_eq!(
             plan.ssh_command,
-            "ssh -N -R ~/.meltemi/meltemid.sock:/run/user/1000/meltemi/meltemid.sock me@server"
+            "ssh -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+             -o ExitOnForwardFailure=yes \
+             -R ~/.meltemi/meltemid.sock:/run/user/1000/meltemi/meltemid.sock me@server"
         );
         // The config snippet and the endpoint the far end must use.
         assert!(plan.config_snippet.contains("Host meltemi-tunnel"));
@@ -177,5 +237,57 @@ mod tests {
         assert!(plan.ssh_command.ends_with("server.example"));
         assert!(plan.config_snippet.contains("HostName server.example"));
         assert!(!plan.config_snippet.contains("User "));
+    }
+
+    // Scenario: El túnel lleva latido y cae si no puede reenviar
+    #[test]
+    fn the_tunnel_carries_a_heartbeat_and_ends_when_it_cannot_forward() {
+        let plan = compose(false, "/tmp/meltemid.sock", Some("me@server")).expect("composes");
+        // In the command…
+        for option in [
+            "ServerAliveInterval=30",
+            "ServerAliveCountMax=3",
+            "ExitOnForwardFailure=yes",
+        ] {
+            assert!(
+                plan.ssh_command.contains(&format!("-o {option}")),
+                "{}",
+                plan.ssh_command
+            );
+        }
+        // …in the snippet, with what each does…
+        for line in [
+            "    ServerAliveInterval 30",
+            "    ServerAliveCountMax 3",
+            "    ExitOnForwardFailure yes",
+        ] {
+            assert!(
+                plan.config_snippet.contains(line),
+                "{}",
+                plan.config_snippet
+            );
+        }
+        assert!(plan.note.contains("about 90 seconds"), "{}", plan.note);
+        assert!(
+            plan.note.contains("forward cannot be set up"),
+            "{}",
+            plan.note
+        );
+        // …and what `--exec` runs is exactly what was printed.
+        assert_eq!(plan.ssh_command, format!("ssh {}", plan.ssh_args.join(" ")));
+        assert_eq!(plan.ssh_args.last().map(String::as_str), Some("me@server"));
+    }
+
+    // Scenario: Un túnel que muere se reporta
+    #[test]
+    fn a_tunnel_that_dies_is_reported_and_never_as_a_success() {
+        let ended = ending(Some(0)).expect("a clean exit is no failure");
+        assert!(ended.contains("no longer reaches this daemon"), "{ended}");
+        let failed = ending(Some(255)).expect_err("a failed ssh is not a success");
+        assert!(failed.contains("status 255"), "{failed}");
+        assert!(failed.contains("no longer reaches this daemon"), "{failed}");
+        assert!(failed.contains("ExitOnForwardFailure"), "{failed}");
+        let signalled = ending(None).expect_err("a signal is not a success");
+        assert!(signalled.contains("signal"), "{signalled}");
     }
 }
