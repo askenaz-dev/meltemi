@@ -304,6 +304,18 @@ fn pilot_is_bundled(layers: &[meltemi_proto::FleetLayer]) -> bool {
         .is_some_and(|layer| layer.source == Some(meltemi_proto::FleetLayerSource::Bundled))
 }
 
+/// The verified level in words (design D4): the version it was measured
+/// against when the run recorded one (codex-al-dia design D11), and "sin
+/// verificar" otherwise, so the distinction is visible, not hidden.
+fn verified_label(row: &crate::shell::live::FleetRow, lang: Lang) -> String {
+    match (row.verified_level, &row.verified_version) {
+        (Some(level), Some(version)) => format!("verif L{level} {version}"),
+        (Some(level), None) => format!("verif L{level}"),
+        (None, _) if lang == Lang::Es => "sin verificar".to_string(),
+        (None, _) => "unverified".to_string(),
+    }
+}
+
 /// The Fleet view: the catalog with detection (glyph + word), the declared
 /// level as a textual label, and the configured-agent marker. With zero
 /// detected agents the registry is shown anyway — what could be orchestrated
@@ -338,20 +350,24 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
     let mut lines = vec![Line::styled(header, ctx.emphasis()), Line::from("")];
 
     let id_width = fleet.rows.iter().map(|r| r.id.len()).max().unwrap_or(0);
+    // Wide enough for the longest verified label, so a version does not push
+    // the columns after it out of line.
+    let verified_width = fleet
+        .rows
+        .iter()
+        .map(|row| verified_label(row, ctx.lang).chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(13);
     for row in &fleet.rows {
         let (glyph, word) = detection_label(row.detected, ctx.lang);
         let level_word = level_label(row.level, ctx.lang);
         // Declared vs verified level (design D4): declared is always shown;
         // verified is shown when a conformance run recorded it, else "sin
         // verificar" so the distinction is visible, not hidden.
-        let verified = match row.verified_level {
-            Some(v) if ctx.lang == Lang::Es => format!("verif L{v}"),
-            Some(v) => format!("verif L{v}"),
-            None if ctx.lang == Lang::Es => "sin verificar".to_string(),
-            None => "unverified".to_string(),
-        };
+        let verified = verified_label(row, ctx.lang);
         let mut label = format!(
-            "{} {word:<13} L{} {level_word:<10} {verified:<13} {:<id_width$}  {}",
+            "{} {word:<13} L{} {level_word:<10} {verified:<verified_width$} {:<id_width$}  {}",
             glyph.text(&ctx.present),
             row.level,
             row.id,
@@ -2485,6 +2501,7 @@ mod tests {
             name: format!("Agent {id}"),
             level,
             verified_level: None,
+            verified_version: None,
             detected,
             binary_path: detected.then(|| format!("/bin/{id}")),
             configured,
@@ -2537,6 +2554,22 @@ mod tests {
         assert!(out.contains("L1") && out.contains("nativo"), "level label");
         assert!(out.contains("L4") && out.contains("artefactos"));
         assert!(out.contains("configurado"), "configured agent is marked");
+    }
+
+    #[test]
+    fn fleet_table_names_the_version_a_level_was_verified_against() {
+        // Scenario: El catálogo nombra la versión medida
+        let mut live = connected();
+        let mut measured = fleet_row("uno", 2, true, false);
+        measured.verified_level = Some(2);
+        measured.verified_version = Some("0.156.1".into());
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "2026-09-24".into(),
+            rows: vec![measured, fleet_row("dos", 1, false, false)],
+        }));
+        let out = draw(&fleet_view(), &live, &ctx(default_present()), 100, 24);
+        assert!(out.contains("verif L2 0.156.1"), "{out}");
+        assert!(out.contains("sin verificar"), "{out}");
     }
 
     #[test]

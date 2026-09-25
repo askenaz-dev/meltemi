@@ -276,7 +276,74 @@ Tres cosas que esta medición decide, y que no se podían decidir suponiendo:
    anuncia dos, una de ellas con 317 modelos. No es un error de aquella
    conclusión sino su fecha: lo que no anunciaba entonces, anuncia ahora.
 
-## Última corrida — 2026-07-31
+## Última corrida — 2026-09-25 (UTC)
+
+Windows 11 (26200), x86_64. Solo el dialecto de servidor
+(`MELTEMI_CONFORMANCE_AGENT=codex-cli`): es la corrida que exige el re-anclaje
+de `codex-al-dia` al volcado de 0.156.1 (escenario «El re-anclaje exige la
+corrida real»). CLI con sesión iniciada en una cuenta ChatGPT, y la
+configuración del mantenedor, que arranca tres servidores MCP propios.
+
+### Dialecto de servidor JSON-RPC — `codex-cli 0.156.1`: **nivel verificado 2**
+
+Las cuatro comprobaciones del nivel se ejercieron contra el binario real, y las
+cuatro aprobaron.
+
+| Comprobación | Resultado | Lo observado |
+| --- | --- | --- |
+| `session` | aprueba | El handshake leyó 0.156.1 del primer token del user agent, `meltemi-codex-acp/0.156.1 (Windows 10.0.26200; x86_64) xterm-256color (meltemi-codex-acp; 0.1.1)`. La procedencia registra `providerVersion` y `providerVerifiedVersion` iguales, así que no hubo fila de distancia. |
+| `streaming` | aprueba | El turno completo corrió hasta su fin y el mensaje del agente llegó en fragmentos. |
+| `permissions` | aprueba | Seis aprobaciones llegaron al proxy: cinco comandos y una escritura. El decisor de la corrida concedió cada una «una vez», como lo haría un humano en la bandeja. |
+| `cancellation` | aprueba | El paro se respondió en 56 ms como `cancelled`, y no quedó sesión activa. |
+
+- **Compuerta efectiva observada**, tal como la registró la procedencia de las
+  dos sesiones: `approvalPolicy` `untrusted`, `approvalsReviewer` `user` y
+  `sandbox` `{"type":"readOnly","networkAccess":false}`. Es exactamente la
+  compuerta pedida.
+- **La escritura aprobada.** La propuesta se escribió bajo el sandbox de solo
+  lectura, en `.meltemi/changes/<change>/proposal.md` del proyecto de prueba,
+  tras una aprobación de cambio de archivo que el proxy concedió. Confirma, en
+  una sesión pilotada por Meltemi, lo que el riesgo R5 midió el 2026-09-24 con
+  un cliente mínimo.
+- **Todos los comandos pidieron permiso, lecturas incluidas.** En Windows el CLI
+  envuelve cada comando en `pwsh.exe -Command …`, y ninguno cayó en la lista de
+  lecturas de confianza de la política `untrusted`. La fila «Codex runs some
+  things without asking the permission proxy» sigue siendo cierta como cota
+  superior; en esta plataforma y en esta corrida, ningún comando corrió sin
+  decisión del proxy.
+- Un comando leyó fuera del proyecto, en el directorio de skills del usuario
+  (`~/.agents/skills/`). Lo hizo con aprobación: el sandbox de solo lectura no
+  impide leer, y el proxy lo vio y decidió.
+- **Consecuencia de la configuración MCP.** Las dos sesiones declararon, antes
+  del prompt, la fila de lo que la compuerta no cubre y una fila por cada
+  servidor MCP que la configuración del mantenedor arranca: `codex_apps`,
+  `cua_repl` y `node_repl`. Ninguna llamada a esos servidores apareció en el
+  turno. De haber ocurrido sin aprobación, habría corrido fuera del proxy, que
+  es justo lo que esas filas declaran.
+- **Tiempos**, con el reloj del log de sesión (resolución de un segundo):
+
+  | Tramo | Duración |
+  | --- | ---: |
+  | Apertura: lanzamiento, handshake, hilo y compuerta | 3 s |
+  | Turno completo, del prompt al cierre | 54 s |
+  | Pierna del paro, del prompt a `cancelled` | 7 s |
+  | Del paro a su respuesta | 56 ms |
+
+- **El nivel se otorga con esta corrida.** `fleet/list` reporta `codex-cli`
+  con nivel verificado 2 y `verifiedVersion` `0.156.1`.
+
+### La corrida fallida de `codex-cli 0.77.0`, que esta reemplaza
+
+La corrida del 2026-07-31, abajo, queda como la evidencia de por qué se
+re-ancló. Con 0.77.0 el proveedor rechazaba cada turno con sus propias
+palabras: *«The 'gpt-5.6-sol' model requires a newer version of Codex. Please
+upgrade to the latest app or CLI and try again.»* `streaming` falló citando
+ese motivo, y el nivel quedó en 0 (escenario «Una comprobación fallida se
+registra con las palabras del proveedor»). Desde `codex-al-dia` el piso del
+adaptador es 0.156.1: un CLI 0.77.0 ya no llega al turno, porque el handshake
+lo rehúsa con el remedio de actualizarlo.
+
+## Corrida del 2026-07-31
 
 Windows 11 (26200), x86_64. Ambos CLIs presentes y con sesión iniciada. Primera
 corrida con las dos piernas.

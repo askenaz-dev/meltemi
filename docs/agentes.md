@@ -131,6 +131,28 @@ the surfaces show which of the two you are looking at.
 - Legal status: tolerated — the adapter drives the CLI's own documented
   app-server mode, published by the provider for third-party clients, and the
   CLI authenticates itself.
+- Minimum CLI version: **0.156.1**, the version the adapter was verified
+  against. An older CLI is refused with the remedy to update it to 0.156.1 or
+  newer (`npm i -g @openai/codex`). A newer one below 1.0.0 opens, and the
+  session says before its first turn that it runs on a version newer than the
+  verified one; the Fleet shows the version the verified level was measured
+  against. From 1.0.0 on, the session is refused until Meltemi is updated.
+- The gate Meltemi asks for: on every thread, approval policy `untrusted`, a
+  `read-only` sandbox without network, and every approval sent to Meltemi's
+  permission proxy. If Codex answers with anything else — because its own
+  `config.toml`, a profile or a managed requirements file overrides it — the
+  session is refused and the remedy names those settings. A Codex whose remote
+  control is on is refused too: another client could answer its approvals.
+- What that gate does not cover, and the session says so as it opens: commands
+  Codex trusts as read-only, which run inside its read-only sandbox; the
+  provider's own web search; and calls to MCP servers from Codex's own
+  configuration that Codex does not submit for approval. Each of those servers
+  is named in the session when Codex starts it.
+- The name Meltemi uses: the adapter introduces itself to the CLI as
+  `meltemi-codex-acp`, and the CLI reports that name to the provider's backend
+  as the `originator` of its requests. Meltemi never presents itself as one of
+  the provider's own clients. The CLI labels the threads it opens with a
+  `source` of its own choosing; Meltemi does not set it.
 
 ### aider — Aider
 

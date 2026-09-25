@@ -10,7 +10,7 @@
     refreshFleet,
     type FleetAgent,
   } from "../stores";
-  import { groupFleet } from "../fleet-groups";
+  import { groupFleet, levelState } from "../fleet-groups";
   import Avatar from "../components/Avatar.svelte";
   import Drawer from "../components/Drawer.svelte";
   import EmptyState from "../components/EmptyState.svelte";
@@ -169,17 +169,6 @@
     return `N${level}`;
   }
 
-  /**
-   * The word, not just the glyph: `integration-levels` requires the surface to
-   * show the declared/verified distinction "con etiqueta textual", and a bare
-   * check mark is exactly what that forbids. The glyph stays beside the word so
-   * whoever already read it keeps their shortcut.
-   */
-  function levelState(agent: FleetAgent): string {
-    return agent.verifiedLevel !== undefined
-      ? $t("fleet.level.verified")
-      : $t("fleet.level.declared");
-  }
 </script>
 
 <div class="wrap">
@@ -245,7 +234,7 @@
               </td>
               <td>
                 <span class="pill" class:ok={agent.verifiedLevel !== undefined}>
-                  {levelLabel(agent)} · {levelState(agent)}{agent.verifiedLevel !== undefined
+                  {levelLabel(agent)} · {levelState(agent, $t)}{agent.verifiedLevel !== undefined
                     ? " ✓"
                     : ""}
                 </span>
@@ -290,11 +279,7 @@
         <dt>{$t("fleet.col.level")}</dt>
         <dd>
           {selected.verifiedLevel ?? selected.integrationLevel}
-          <span class="faint">
-            ({selected.verifiedLevel !== undefined
-              ? $t("fleet.level.verified")
-              : $t("fleet.level.declared")})
-          </span>
+          <span class="faint">({levelState(selected, $t)})</span>
         </dd>
         <dt>{$t("fleet.mcp")}</dt>
         <dd>{selected.mcpSupport ? $t("common.yes") : $t("common.no")}</dd>

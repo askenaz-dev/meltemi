@@ -27,29 +27,44 @@
 use serde::{Deserialize, Serialize};
 
 /// The CLI version whose dumped schema is vendored, and against which every
-/// type in this module was verified.
-pub const VENDORED_SCHEMA_VERSION: &str = "0.77.0";
+/// type in this module was verified (re-anchored by codex-al-dia).
+pub const VENDORED_SCHEMA_VERSION: &str = "0.156.1";
 
 /// Lowest CLI version this adapter accepts, as `(major, minor, patch)`.
 ///
 /// It is the version the vendored dump came from: below it, nobody has checked
 /// that the thread/turn/item surface is the one described there, and the
-/// adapter refuses rather than assume (design D6).
-pub const SUPPORTED_FLOOR: (u64, u64, u64) = (0, 77, 0);
+/// adapter refuses rather than assume. Measured on 2026-09-24, it is also what
+/// the provider demands: 0.77.0 no longer serves an account's default model.
+pub const SUPPORTED_FLOOR: (u64, u64, u64) = (0, 156, 1);
 
 /// First CLI version this adapter refuses, as `(major, minor, patch)`.
 ///
-/// A major bump is where a wire is allowed to change out from under a client,
-/// so that is where the refusal sits. Within the current major the surface has
-/// grown additively, and the incoming types above are permissive on purpose so
-/// that growth costs nothing — but the claim is only ever as fresh as the last
-/// re-anchoring of the vendored dump, which is what task 5.2's manual run
-/// against a real CLI exists to check.
+/// It stays at the next major, and that is a choice with its cost written down
+/// (codex-al-dia design D2). In `0.x` a minor may break a client — the user
+/// agent changed shape in 0.81 — but the provider ships a minor about twice a
+/// week and stops serving its default models to old CLIs, so a ceiling at the
+/// next minor would leave every user who updates without an agent within days
+/// of each re-anchoring. What changes instead is honesty: a version above
+/// [`VENDORED_SCHEMA_VERSION`] and below this ceiling opens with the distance
+/// declared in the session and in the log, never as verified. Nothing that
+/// guards the permission path depends on this number: the reviewer and the
+/// approval policy are read from every thread and enforced, unknown requests
+/// are refused and unknown items are shown.
 pub const SUPPORTED_CEILING: (u64, u64, u64) = (1, 0, 0);
 
-/// The token that prefixes the CLI's own version inside the user agent string
-/// the handshake returns (`codex_cli_rs/0.77.0 (…)`).
+/// The CLI's own product name, which prefixed its version in the handshake's
+/// user agent up to 0.80 (`codex_cli_rs/0.77.0 (…)`). Since 0.81 the first
+/// token carries the name the client introduced itself with instead; both are
+/// read (`version::of`, codex-al-dia design D1).
 pub const USER_AGENT_PRODUCT: &str = "codex_cli_rs";
+
+/// The environment variable that makes the CLI announce a name of its own
+/// choosing as the first token of its user agent, whatever the client said.
+///
+/// The provider marks it internal; the adapter neither sets it nor reads it,
+/// and names it only so that the refusal it causes can say where it came from.
+pub const ORIGINATOR_OVERRIDE_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 
 /// The argument that puts the official CLI in its server mode.
 pub const SERVER_MODE_ARG: &str = "app-server";
@@ -60,6 +75,15 @@ pub const SERVER_MODE_ARG: &str = "app-server";
 pub const INITIALIZE: &str = "initialize";
 /// Sent once after the handshake, as the wire expects.
 pub const INITIALIZED: &str = "initialized";
+
+/// The `initialized` notification, without the JSON-RPC envelope member the
+/// transport adds. Built here so that what the conformance validates against
+/// the dumped `ClientNotification.json` is exactly what the adapter sends
+/// (codex-al-dia design D9).
+#[must_use]
+pub fn initialized() -> serde_json::Value {
+    serde_json::json!({ "method": INITIALIZED })
+}
 /// Opens the thread an ACP session maps onto.
 pub const THREAD_START: &str = "thread/start";
 /// Starts a turn on a thread.
@@ -71,6 +95,8 @@ pub const TURN_INTERRUPT: &str = "turn/interrupt";
 
 /// A turn began.
 pub const TURN_STARTED: &str = "turn/started";
+/// The server opened a thread: the session's own, or one under it.
+pub const THREAD_STARTED: &str = "thread/started";
 /// A turn ended; carries the status that becomes the ACP stop reason.
 pub const TURN_COMPLETED: &str = "turn/completed";
 /// An item of the turn appeared.
@@ -85,6 +111,25 @@ pub const REASONING_TEXT_DELTA: &str = "item/reasoning/textDelta";
 pub const REASONING_SUMMARY_TEXT_DELTA: &str = "item/reasoning/summaryTextDelta";
 /// The turn hit an error; `willRetry` says whether the server carries on.
 pub const ERROR: &str = "error";
+/// An MCP server from the CLI's own configuration changed its startup state.
+pub const MCP_SERVER_STARTUP_STATUS: &str = "mcpServer/startupStatus/updated";
+/// A warning the provider writes for the human.
+pub const WARNING: &str = "warning";
+/// A warning about the CLI's own configuration.
+pub const CONFIG_WARNING: &str = "configWarning";
+/// Something the provider deprecates.
+pub const DEPRECATION_NOTICE: &str = "deprecationNotice";
+/// A warning from the provider's guardian reviewer.
+pub const GUARDIAN_WARNING: &str = "guardianWarning";
+/// World-writable locations the CLI found on Windows.
+pub const WORLD_WRITABLE_WARNING: &str = "windows/worldWritableWarning";
+/// The provider moved the turn to another model.
+pub const MODEL_REROUTED: &str = "model/rerouted";
+/// The CLI's remote control changed state. Every connection reports it once,
+/// before the thread's answer, and again whenever it changes.
+pub const REMOTE_CONTROL_STATUS_CHANGED: &str = "remoteControl/status/changed";
+/// The one remote control state a session runs under.
+pub const REMOTE_CONTROL_DISABLED: &str = "disabled";
 
 // --- Requests the server makes of the adapter ---------------------------
 
@@ -92,6 +137,22 @@ pub const ERROR: &str = "error";
 pub const COMMAND_EXECUTION_APPROVAL: &str = "item/commandExecution/requestApproval";
 /// The server asks to change files.
 pub const FILE_CHANGE_APPROVAL: &str = "item/fileChange/requestApproval";
+/// A tool asks the user a question.
+pub const TOOL_REQUEST_USER_INPUT: &str = "item/tool/requestUserInput";
+/// An MCP server asks for input.
+pub const MCP_SERVER_ELICITATION: &str = "mcpServer/elicitation/request";
+/// The server asks for more permissions for the turn.
+pub const PERMISSIONS_APPROVAL: &str = "item/permissions/requestApproval";
+/// The server calls a dynamic tool the client declared.
+pub const DYNAMIC_TOOL_CALL: &str = "item/tool/call";
+/// The server asks the client for fresh account credentials.
+pub const AUTH_TOKENS_REFRESH: &str = "account/chatgptAuthTokens/refresh";
+/// The server asks the client to attest its identity.
+pub const ATTESTATION_GENERATE: &str = "attestation/generate";
+/// An approval of the retired v1 turns: a patch.
+pub const APPLY_PATCH_APPROVAL_V1: &str = "applyPatchApproval";
+/// An approval of the retired v1 turns: a command.
+pub const EXEC_COMMAND_APPROVAL_V1: &str = "execCommandApproval";
 
 // --- Handshake -----------------------------------------------------------
 
@@ -128,16 +189,19 @@ pub struct InitializeResult {
 
 /// `thread/start` parameters.
 ///
-/// The working directory, and the model when the SESSION named one. Sandbox and
-/// approval policy stay with the CLI's own configuration: choosing those here
-/// would make Meltemi assume a provider's semantics, which §5 forbids the core
-/// to do and which the adapter has no better information to do either.
+/// The working directory, the model when the SESSION named one, and the CLI's
+/// native hard gate at its strictest (codex-al-dia design D5). The gate used to
+/// be left to the user's own CLI configuration, on the argument that choosing
+/// it would make Meltemi assume a provider's semantics; but that argument
+/// governs the core, not an adapter that exists for one provider, and the
+/// living `own-adapters` requirement asks the adapter to configure the CLI's
+/// hard gate even in its permissive modes. The adapter asks for the strictest
+/// gate the CLI offers and verifies what the CLI made effective (`gate.rs`).
 ///
-/// The model is different in exactly one way, and it is why it belongs here:
-/// the user chose it. Carrying a choice is not assuming one
-/// (modelo-y-esfuerzo-por-sesion design D1). It rides on the THREAD because
-/// this provider's schema puts it there — `effort` is not accepted here at all,
-/// only per turn, and the adapter respects that split rather than flattening it.
+/// The model rides on the THREAD because this provider's schema puts it there
+/// — `effort` is not accepted here at all, only per turn, and the adapter
+/// respects that split rather than flattening it (modelo-y-esfuerzo-por-sesion
+/// design D1).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadStartParams {
@@ -147,22 +211,119 @@ pub struct ThreadStartParams {
     /// The provider's own model name, verbatim, when the session named one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Ask before every command the CLI does not consider a trusted read.
+    pub approval_policy: ApprovalPolicy,
+    /// Write nothing without asking.
+    pub sandbox: SandboxMode,
+    /// Send every question to the client — here, the permission proxy.
+    pub approvals_reviewer: ApprovalsReviewer,
 }
 
-/// A thread, of which the adapter reads only its identity.
+impl ThreadStartParams {
+    /// A thread under the strictest gate the CLI offers, the only way this
+    /// adapter opens one.
+    #[must_use]
+    pub fn gated(cwd: String, model: Option<String>) -> Self {
+        Self {
+            cwd,
+            model,
+            approval_policy: ApprovalPolicy::Untrusted,
+            sandbox: SandboxMode::ReadOnly,
+            approvals_reviewer: ApprovalsReviewer::User,
+        }
+    }
+}
+
+/// The approval policies this adapter asks for: one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ApprovalPolicy {
+    /// Ask for every command that is not one of the CLI's trusted reads.
+    #[serde(rename = "untrusted")]
+    Untrusted,
+}
+
+/// The sandboxes this adapter asks for: one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum SandboxMode {
+    /// Read anything, write nothing without an approved escalation.
+    #[serde(rename = "read-only")]
+    ReadOnly,
+}
+
+/// The reviewers this adapter asks for: one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ApprovalsReviewer {
+    /// The client that opened the thread.
+    #[serde(rename = "user")]
+    User,
+}
+
+/// A thread, of which the adapter reads its identity and the CLI that made it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Thread {
     /// The thread id every later call carries.
     pub id: String,
+    /// The version of the CLI that created the thread, when the answer says it.
+    /// Contrasted with the one the handshake read (codex-al-dia design D1).
+    #[serde(default)]
+    pub cli_version: Option<String>,
+    /// The thread this one was opened under, when the CLI opened it as a
+    /// sub-agent (codex-al-dia design D6).
+    #[serde(default)]
+    pub parent_thread_id: Option<String>,
+}
+
+/// `thread/started`: the thread the server opened.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ThreadNotification {
+    /// The thread, of which the adapter reads its identity and its parent.
+    pub thread: Thread,
+}
+
+/// `mcpServer/startupStatus/updated`, of which the adapter reads the server's
+/// name: it is enough to say, once, that the server exists.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerStartupStatus {
+    /// The server's name in the CLI's configuration.
+    pub name: String,
+    /// Its startup state, when the server says it.
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+/// `remoteControl/status/changed`, of which the adapter reads the state.
+///
+/// Read as text rather than as the dump's enum: whether it is
+/// [`REMOTE_CONTROL_DISABLED`] is the only question, and a state a later
+/// version adds has to reach that question as "not disabled" instead of
+/// failing to parse.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RemoteControlStatus {
+    /// `disabled`, `connecting`, `connected` or `errored` in the dump.
+    pub status: String,
 }
 
 /// `thread/start` result.
+///
+/// Besides the thread, the gate the CLI made effective, read as opaque values:
+/// whether they are the ones asked for is `gate.rs`'s question, and an unknown
+/// or missing value must reach it as such rather than fail parsing here.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadStartResult {
     /// The thread that was opened.
     pub thread: Thread,
+    /// The effective approval policy.
+    #[serde(default)]
+    pub approval_policy: Option<serde_json::Value>,
+    /// Who the effective approvals go to.
+    #[serde(default)]
+    pub approvals_reviewer: Option<serde_json::Value>,
+    /// The effective sandbox.
+    #[serde(default)]
+    pub sandbox: Option<serde_json::Value>,
 }
 
 /// One piece of the user's message.
@@ -215,6 +376,9 @@ pub struct Turn {
     pub id: String,
     /// How the turn ended.
     pub status: TurnStatus,
+    /// Why it failed, when it did (codex-al-dia design D8).
+    #[serde(default)]
+    pub error: Option<TurnError>,
 }
 
 /// `turn/start` result.
@@ -282,6 +446,35 @@ pub struct DeltaNotification {
 pub struct TurnError {
     /// The message, as the provider words it.
     pub message: String,
+    /// What the provider adds to it, when it does.
+    #[serde(default)]
+    pub additional_details: Option<String>,
+}
+
+impl TurnError {
+    /// The provider's own words for what went wrong: the message, and the
+    /// details beside it when there are any.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        match self
+            .additional_details
+            .as_deref()
+            .map(str::trim)
+            .filter(|details| !details.is_empty())
+        {
+            Some(details) => format!("{} ({details})", self.message),
+            None => self.message.clone(),
+        }
+    }
+}
+
+/// What a failed turn says when the provider did not say why.
+pub const TURN_FAILED_UNEXPLAINED: &str = "the server reported the turn failed without saying why";
+
+/// A failed turn, in the provider's words when it gave any.
+#[must_use]
+pub fn failure(error: Option<&TurnError>) -> String {
+    error.map_or_else(|| TURN_FAILED_UNEXPLAINED.to_string(), TurnError::describe)
 }
 
 /// The `error` notification.
@@ -335,6 +528,13 @@ pub struct FileUpdateChange {
     rename_all_fields = "camelCase"
 )]
 pub enum ThreadItem {
+    /// The user's own message, echoed back by the server at the start of every
+    /// turn (measured against 0.156.1). The prompt is already on the session's
+    /// record, so the mapping shows nothing for it (codex-al-dia design D8).
+    UserMessage {
+        /// The item id.
+        id: String,
+    },
     /// Something the agent said.
     AgentMessage {
         /// The item id, shared with its streamed chunks.
@@ -397,8 +597,9 @@ pub enum ThreadItem {
 // --- Approvals -----------------------------------------------------------
 
 /// What the server asks approval for, in the shape both approval requests
-/// share: the item it is about, and an optional reason.
-#[derive(Debug, Clone, Deserialize)]
+/// share — the item it is about, and an optional reason — plus what each of
+/// them may add about what the approval really grants (codex-al-dia design D7).
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalParams {
     /// The thread the item belongs to.
@@ -410,6 +611,30 @@ pub struct ApprovalParams {
     /// Why the server is asking, when it says.
     #[serde(default)]
     pub reason: Option<String>,
+    /// A command approval's kind: a new command (`command`, the default) or
+    /// input to a terminal already running ([`COMMAND_KIND_WRITE_STDIN`]).
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// A command approval that is really a network access: where to.
+    #[serde(default)]
+    pub network_approval_context: Option<NetworkApprovalContext>,
+    /// A file change approval that also asks to write under this root for the
+    /// rest of the session.
+    #[serde(default)]
+    pub grant_root: Option<String>,
+}
+
+/// The kind of a command approval that writes to a terminal already running.
+pub const COMMAND_KIND_WRITE_STDIN: &str = "writeStdin";
+
+/// Where a network access goes.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NetworkApprovalContext {
+    /// The host it connects to.
+    pub host: String,
+    /// `http`, `https`, `socks5Tcp` or `socks5Udp` in the dump; read as text so
+    /// a protocol a later version adds is still shown.
+    pub protocol: String,
 }
 
 /// The decision the adapter hands back — always the permission proxy's, never
@@ -453,7 +678,8 @@ impl ThreadItem {
     #[must_use]
     pub fn id(&self) -> Option<&str> {
         match self {
-            ThreadItem::AgentMessage { id, .. }
+            ThreadItem::UserMessage { id }
+            | ThreadItem::AgentMessage { id, .. }
             | ThreadItem::Reasoning { id }
             | ThreadItem::CommandExecution { id, .. }
             | ThreadItem::FileChange { id, .. }

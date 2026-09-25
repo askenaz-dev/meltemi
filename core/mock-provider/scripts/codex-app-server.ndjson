@@ -1,44 +1,88 @@
 # Scripted server wire: the provider CLI in its documented JSON-RPC 2.0 server
-# mode, newline-delimited over stdio (adaptadores-propios-acp design D6).
+# mode, newline-delimited over stdio (adaptadores-propios-acp design D6,
+# re-anchored to codex-cli 0.156.1 by codex-al-dia).
 #
 # Every method, notification and field below is taken from the schema the
 # official CLI dumps for itself, vendored verbatim in
-# `../schemas/codex-app-server/` (see its PROVENANCE.md). The conformance test
-# of the adapter validates each line of this script against that dump, so this
-# fixture cannot drift away from the contract in silence.
+# `../schemas/codex-app-server/` (see its PROVENANCE.md), and the ORDER of the
+# lines follows the transcript of the real 0.156.1 server recorded on
+# 2026-09-24 and vendored beside this file
+# (`codex-app-server-0.156.1.transcript.ndjson`). The conformance test of the
+# adapter validates each line against the dump and checks that the script's
+# sequence of methods is an ordered subsequence of the transcript's, so this
+# fixture cannot drift away from the contract, or from the real order, in
+# silence.
 #
-# Two things the dump does NOT settle, and that this script therefore states
-# rather than pretends:
+# Where this script differs from the recording, on purpose and only here:
 #
-#   * WHEN the `turn/start` response arrives relative to the streamed
-#     notifications. Observing it needs a real model call, which CI never makes.
-#     This script chooses the adverse ordering — the answer last — and the
-#     adapter is written to end its turn on whichever terminal signal arrives
-#     first, so it is correct under either ordering.
-#   * That responses carry `"jsonrpc": "2.0"`. The real CLI omits the member
-#     (verified against 0.77.0); this fixture sends it because JSON-RPC 2.0
-#     requires it, and the adapter tolerates its absence. Being stricter here
-#     than the provider is the safe direction.
+#   * The approval is granted and the file change completes; in the recording
+#     it was declined.
+#   * The thread comes back under the gate the adapter asks for (`untrusted`,
+#     `user`, a read-only sandbox without network), which is what the real
+#     server answered when asked (measured 2026-09-24); the vendored recording
+#     was taken without asking, and shows the maintainer's own `on-request`.
+#   * Ids, paths, texts and the model are the ones the end-to-end tests pin.
+#   * Fields the real server sends that the stable dump does not declare
+#     (`runtimeWorkspaceRoots`, `activePermissionProfile`, `multiAgentMode`,
+#     and in the thread `environments`, `extra`, `canAcceptDirectInput`,
+#     `daybreakEnabled`) are left out: the adapter relies on nothing the dump
+#     does not declare.
 #
-# 1. Handshake: the user agent is the only version the wire offers, and it is
-#    the one the skew check reads.
+# What the recording settled that the 0.77.0 fixture had to guess:
+#
+#   * The `turn/start` answer arrives FIRST, still `inProgress`, and the turn
+#     ends on `turn/completed`. The adapter ends its turn on whichever terminal
+#     signal arrives first; the adverse ordering (answer last) stays covered by
+#     its unit tests.
+#   * The server echoes the user's own message back as a `userMessage` item.
+#     The prompt is already on the record, so the adapter shows nothing for it.
+#   * Status, token usage and resolved-request notifications interleave with
+#     the turn. The adapter maps none of them; they are here to prove that
+#     ignoring them costs nothing.
+#   * MCP servers from the CLI's own configuration report their startup around
+#     the turn's answer. The adapter names each one in the session, once.
+#   * Every connection reports the CLI's remote control before the thread's
+#     answer. Off, as here, it costs nothing; anything else refuses the session.
+#   * The server announces the session's own thread once the first turn is
+#     asked for. It is the session's, so the adapter says nothing about it; a
+#     thread whose parent is the session's would get a row.
+#   * Responses carry no `"jsonrpc"` member and notifications carry an
+#     `emittedAtMs` member beside `params`. This fixture sends `"jsonrpc"`
+#     because JSON-RPC 2.0 requires it and omits `emittedAtMs`; the adapter
+#     tolerates both forms.
+#   * The scripted wire numbers its own requests from 1, so the resolved
+#     request is 1 where the recording said 0.
+#
+# 1. Handshake: the user agent is still the only version the wire offers. The
+#    CLI now puts the client's own name where `codex_cli_rs` used to be.
 {"mock":"await-request","method":"initialize"}
-{"mock":"respond","result":{"userAgent":"codex_cli_rs/0.77.0 (mock-codex-wire; scripted) (meltemi-codex-acp; 0.1.0)"}}
+{"mock":"respond","result":{"userAgent":"meltemi-codex-acp/0.156.1 (mock-codex-wire; scripted) unknown (meltemi-codex-acp; 0.1.1)","codexHome":"/mock/codex-home","platformFamily":"unix","platformOs":"linux"}}
 # 2. A thread is the conversation the ACP session maps onto.
 {"mock":"await-request","method":"thread/start"}
-{"mock":"respond","result":{"approvalPolicy":"on-request","cwd":"/mock/project","model":"mock-model","modelProvider":"mock","sandbox":{"type":"readOnly"},"thread":{"id":"mock-thread-1","cliVersion":"0.77.0","createdAt":1784000000,"cwd":"/mock/project","modelProvider":"mock","path":"/mock/threads/mock-thread-1.jsonl","preview":"scripted turn","source":"appServer","turns":[]}}}
-# 3. A turn, streamed as items: the message arrives as chunks, then whole.
+{"mock":"notify","method":"remoteControl/status/changed","params":{"status":"disabled","serverName":"mock-machine","installationId":"mock-installation","environmentId":null}}
+{"mock":"respond","result":{"thread":{"id":"mock-thread-1","sessionId":"mock-thread-1","forkedFromId":null,"parentThreadId":null,"preview":"","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"paginated","modelProvider":"mock","model":"mock-model","reasoningEffort":"xhigh","createdAt":1790000000,"updatedAt":1790000000,"recencyAt":1790000000,"status":{"type":"idle"},"path":"/mock/codex-home/sessions/mock-thread-1.jsonl","cwd":"/mock/project","cliVersion":"0.156.1","originator":"meltemi-codex-acp","source":"vscode","threadSource":null,"agentNickname":null,"agentRole":null,"gitInfo":null,"name":null,"turns":[]},"model":"mock-model","modelProvider":"mock","serviceTier":"default","disabledPluginIds":[],"cwd":"/mock/project","instructionSources":[],"approvalPolicy":"untrusted","approvalsReviewer":"user","sandbox":{"type":"readOnly","networkAccess":false},"reasoningEffort":"xhigh"}}
+# 3. A turn: answered at once, then streamed as items.
 {"mock":"await-request","method":"turn/start"}
-{"mock":"notify","method":"turn/started","params":{"threadId":"mock-thread-1","turn":{"id":"turn-1","status":"inProgress","items":[]}}}
-{"mock":"notify","method":"item/started","params":{"threadId":"mock-thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"item-1","text":""}}}
+{"mock":"notify","method":"thread/started","params":{"thread":{"id":"mock-thread-1","sessionId":"mock-thread-1","forkedFromId":null,"parentThreadId":null,"preview":"","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"paginated","modelProvider":"mock","model":"mock-model","reasoningEffort":"xhigh","createdAt":1790000000,"updatedAt":1790000000,"recencyAt":1790000000,"status":{"type":"idle"},"path":"/mock/codex-home/sessions/mock-thread-1.jsonl","cwd":"/mock/project","cliVersion":"0.156.1","originator":"meltemi-codex-acp","source":"vscode","threadSource":null,"agentNickname":null,"agentRole":null,"gitInfo":null,"name":null,"turns":[]}}}
+{"mock":"notify","method":"mcpServer/startupStatus/updated","params":{"threadId":"mock-thread-1","name":"mock-tools","status":"ready","error":null,"failureReason":null}}
+{"mock":"respond","result":{"turn":{"id":"turn-1","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}
+{"mock":"notify","method":"thread/status/changed","params":{"threadId":"mock-thread-1","status":{"type":"active","activeFlags":[]}}}
+{"mock":"notify","method":"turn/started","params":{"threadId":"mock-thread-1","turn":{"id":"turn-1","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":1790000001,"completedAt":null,"durationMs":null}}}
+{"mock":"notify","method":"item/started","params":{"item":{"type":"userMessage","id":"item-0","clientId":null,"content":[{"type":"text","text":"write the proposal","text_elements":[]}]},"threadId":"mock-thread-1","turnId":"turn-1","startedAtMs":1790000001100}}
+{"mock":"notify","method":"item/completed","params":{"item":{"type":"userMessage","id":"item-0","clientId":null,"content":[{"type":"text","text":"write the proposal","text_elements":[]}]},"threadId":"mock-thread-1","turnId":"turn-1","completedAtMs":1790000001101}}
+{"mock":"notify","method":"item/started","params":{"item":{"type":"agentMessage","id":"item-1","text":"","phase":"commentary","memoryCitation":null,"delivery":null,"questions":null},"threadId":"mock-thread-1","turnId":"turn-1","startedAtMs":1790000002000}}
 {"mock":"notify","method":"item/agentMessage/delta","params":{"threadId":"mock-thread-1","turnId":"turn-1","itemId":"item-1","delta":"Working "}}
 {"mock":"notify","method":"item/agentMessage/delta","params":{"threadId":"mock-thread-1","turnId":"turn-1","itemId":"item-1","delta":"on it."}}
-{"mock":"notify","method":"item/completed","params":{"threadId":"mock-thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"item-1","text":"Working on it."}}}
+{"mock":"notify","method":"item/completed","params":{"item":{"type":"agentMessage","id":"item-1","text":"Working on it.","phase":"commentary","memoryCitation":null,"delivery":null,"questions":null},"threadId":"mock-thread-1","turnId":"turn-1","completedAtMs":1790000002100}}
 # 4. A file change the server asks approval for: it must reach the permission
 #    proxy and come back decided before the item can complete.
-{"mock":"notify","method":"item/started","params":{"threadId":"mock-thread-1","turnId":"turn-1","item":{"type":"fileChange","id":"item-2","status":"inProgress","changes":[{"path":"NOTES.md","kind":{"type":"add"},"diff":"@@\n+scripted\n"}]}}}
-{"mock":"request","method":"item/fileChange/requestApproval","params":{"threadId":"mock-thread-1","turnId":"turn-1","itemId":"item-2","reason":"the scripted turn writes one file"}}
-{"mock":"notify","method":"item/completed","params":{"threadId":"mock-thread-1","turnId":"turn-1","item":{"type":"fileChange","id":"item-2","status":"completed","changes":[{"path":"NOTES.md","kind":{"type":"add"},"diff":"@@\n+scripted\n"}]}}}
-# 5. The turn closes, and only then does the turn request get its answer.
-{"mock":"notify","method":"turn/completed","params":{"threadId":"mock-thread-1","turn":{"id":"turn-1","status":"completed","items":[]}}}
-{"mock":"respond","result":{"turn":{"id":"turn-1","status":"completed","items":[]}}}
+{"mock":"notify","method":"item/started","params":{"item":{"type":"fileChange","id":"item-2","changes":[{"path":"/mock/project/NOTES.md","kind":{"type":"add"},"diff":"scripted\n"}],"status":"inProgress"},"threadId":"mock-thread-1","turnId":"turn-1","startedAtMs":1790000003000}}
+{"mock":"notify","method":"thread/status/changed","params":{"threadId":"mock-thread-1","status":{"type":"active","activeFlags":["waitingOnApproval"]}}}
+{"mock":"request","method":"item/fileChange/requestApproval","params":{"threadId":"mock-thread-1","turnId":"turn-1","itemId":"item-2","startedAtMs":1790000003001,"reason":"the scripted turn writes one file","grantRoot":null}}
+{"mock":"notify","method":"serverRequest/resolved","params":{"threadId":"mock-thread-1","requestId":1}}
+{"mock":"notify","method":"thread/status/changed","params":{"threadId":"mock-thread-1","status":{"type":"active","activeFlags":[]}}}
+{"mock":"notify","method":"item/completed","params":{"item":{"type":"fileChange","id":"item-2","changes":[{"path":"/mock/project/NOTES.md","kind":{"type":"add"},"diff":"scripted\n"}],"status":"completed"},"threadId":"mock-thread-1","turnId":"turn-1","completedAtMs":1790000003100}}
+{"mock":"notify","method":"thread/tokenUsage/updated","params":{"threadId":"mock-thread-1","turnId":"turn-1","tokenUsage":{"total":{"totalTokens":120,"inputTokens":100,"cachedInputTokens":0,"cacheWriteInputTokens":0,"outputTokens":20,"reasoningOutputTokens":0},"last":{"totalTokens":120,"inputTokens":100,"cachedInputTokens":0,"cacheWriteInputTokens":0,"outputTokens":20,"reasoningOutputTokens":0},"modelContextWindow":258400}}}
+# 5. The turn closes.
+{"mock":"notify","method":"thread/status/changed","params":{"threadId":"mock-thread-1","status":{"type":"idle"}}}
+{"mock":"notify","method":"turn/completed","params":{"threadId":"mock-thread-1","turn":{"id":"turn-1","items":[{"type":"agentMessage","id":"item-1","text":"Working on it.","phase":"commentary","memoryCitation":null,"delivery":null,"questions":null}],"itemsView":"summary","status":"completed","error":null,"startedAt":1790000001,"completedAt":1790000004,"durationMs":3000}}}

@@ -126,6 +126,8 @@ export interface FleetAgent {
   integrationLevel: number;
   verifiedLevel?: number;
   verifiedAt?: string;
+  /** The agent version that level was measured against (codex-al-dia D11). */
+  verifiedVersion?: string;
   mcpSupport: boolean;
   detected: boolean;
   binaryPath?: string;

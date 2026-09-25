@@ -142,6 +142,8 @@ pub struct FleetRow {
     pub level: u8,
     /// The level verified by conformance, when one is recorded.
     pub verified_level: Option<u8>,
+    /// The agent version that level was measured against (codex-al-dia D11).
+    pub verified_version: Option<String>,
     pub detected: bool,
     pub binary_path: Option<String>,
     pub configured: bool,
@@ -158,6 +160,7 @@ impl From<FleetAgent> for FleetRow {
             name: a.display_name,
             level: a.integration_level,
             verified_level: a.verified_level,
+            verified_version: a.verified_version,
             detected: a.detected,
             binary_path: a.binary_path,
             configured: a.configured,
@@ -655,6 +658,7 @@ mod tests {
                 name: "One".into(),
                 level: 1,
                 verified_level: None,
+                verified_version: None,
                 detected: true,
                 binary_path: Some("/bin/one".into()),
                 configured: false,

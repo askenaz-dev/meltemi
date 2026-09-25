@@ -23,6 +23,8 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
+use meltemi_adapters::codex::requests;
+
 use meltemi_adapters::codex::wire::{
     self, ApprovalDecision, ApprovalResponse, ClientInfo, ErrorNotification, InitializeParams,
     InitializeResult, ItemNotification, ItemStatus, ThreadItem, ThreadStartParams,
@@ -74,6 +76,104 @@ fn divergences(file: &str, instance: &Value) -> Vec<String> {
         .collect()
 }
 
+/// Every key of `instance` that the schema does not declare, by path.
+///
+/// None of the dumped schemas the adapter sends against sets
+/// `additionalProperties: false`, so plain validation catches a missing or
+/// mistyped field but not a misspelt or renamed one: the provider would ignore
+/// it in silence. This walks the instance against the schema — resolving local
+/// `$ref`s and choosing the branch of an `anyOf`/`oneOf` that validates — and
+/// names every key no branch declares (codex-al-dia design D9).
+fn undeclared_keys(root: &Value, schema: &Value, instance: &Value, at: &str) -> Vec<String> {
+    let schema = resolve(root, schema);
+    for combinator in ["anyOf", "oneOf", "allOf"] {
+        if let Some(branches) = schema.get(combinator).and_then(Value::as_array) {
+            let candidates: Vec<&Value> = branches
+                .iter()
+                .map(|branch| resolve(root, branch))
+                .filter(|branch| branch_accepts(root, branch, instance))
+                .collect();
+            if combinator == "allOf" {
+                return candidates
+                    .iter()
+                    .flat_map(|branch| undeclared_keys(root, branch, instance, at))
+                    .collect();
+            }
+            // The branch that declares the most of what was sent is the one
+            // being spoken to; what it does not declare is what is unknown.
+            return candidates
+                .iter()
+                .map(|branch| undeclared_keys(root, branch, instance, at))
+                .min_by_key(Vec::len)
+                .unwrap_or_default();
+        }
+    }
+    match instance {
+        Value::Object(fields) => {
+            let declared = schema.get("properties").and_then(Value::as_object);
+            let open = schema.get("additionalProperties") == Some(&Value::Bool(true));
+            let mut unknown = Vec::new();
+            for (key, value) in fields {
+                let path = format!("{at}/{key}");
+                match declared.and_then(|properties| properties.get(key)) {
+                    Some(property) => unknown.extend(undeclared_keys(root, property, value, &path)),
+                    None if open => {}
+                    None => unknown.push(path),
+                }
+            }
+            unknown
+        }
+        Value::Array(items) => match schema.get("items") {
+            Some(item_schema) => items
+                .iter()
+                .enumerate()
+                .flat_map(|(i, item)| {
+                    undeclared_keys(root, item_schema, item, &format!("{at}/{i}"))
+                })
+                .collect(),
+            None => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// A local `$ref` resolved against the document it lives in.
+fn resolve<'a>(root: &'a Value, schema: &'a Value) -> &'a Value {
+    match schema.get("$ref").and_then(Value::as_str) {
+        Some(reference) => {
+            let pointer = reference.trim_start_matches('#');
+            resolve(
+                root,
+                root.pointer(pointer)
+                    .unwrap_or_else(|| panic!("unresolved {reference}")),
+            )
+        }
+        None => schema,
+    }
+}
+
+/// Whether a branch of a combinator accepts the instance, judged by the
+/// branch's own validator against the whole document's definitions.
+fn branch_accepts(root: &Value, branch: &Value, instance: &Value) -> bool {
+    let mut document = branch.clone();
+    if let (Some(object), Some(definitions)) = (document.as_object_mut(), root.get("definitions")) {
+        object.insert("definitions".into(), definitions.clone());
+    }
+    jsonschema::options()
+        .build(&document)
+        .is_ok_and(|validator| validator.is_valid(instance))
+}
+
+#[track_caller]
+fn assert_declares_every_key(file: &str, what: &str, instance: &Value) {
+    let root = schema_doc(file);
+    let unknown = undeclared_keys(&root, &root, instance, "");
+    assert!(
+        unknown.is_empty(),
+        "{what} sends keys the provider's dumped {file} does not declare: {unknown:?}\n{instance:#}"
+    );
+}
+
 #[track_caller]
 fn assert_conforms(file: &str, what: &str, instance: &Value) {
     let errors = divergences(file, instance);
@@ -82,6 +182,37 @@ fn assert_conforms(file: &str, what: &str, instance: &Value) {
         "{what} does not conform to the provider's dumped {file}:\n{instance:#}\n{}",
         errors.join("\n")
     );
+}
+
+/// The transcript of the real server the scripted wire follows, one JSON
+/// object per line: `{"from": "client" | "server", "message": …}`.
+fn recording() -> Vec<Value> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("mock-provider")
+        .join("scripts")
+        .join("codex-app-server-0.156.1.transcript.ndjson");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| serde_json::from_str(line).expect("a transcript line is JSON"))
+        .collect()
+}
+
+/// What a server message is, for comparing orders: a notification or request
+/// by its method (an item one by its method and item type), an answer by the
+/// method it answers.
+fn step_name(method: Option<&str>, answered: Option<&str>, params: &Value) -> String {
+    match (method, answered) {
+        (Some(method), _) => match params["item"]["type"].as_str() {
+            Some(kind) => format!("{method}:{kind}"),
+            None => method.to_string(),
+        },
+        (None, Some(answered)) => format!("answer:{answered}"),
+        (None, None) => "answer:?".to_string(),
+    }
 }
 
 /// The dumped schema of a method's parameters, for every method this adapter
@@ -97,6 +228,7 @@ fn params_schema() -> BTreeMap<&'static str, &'static str> {
         (wire::TURN_START, "TurnStartParams.json"),
         (wire::TURN_INTERRUPT, "TurnInterruptParams.json"),
         (wire::TURN_STARTED, "TurnStartedNotification.json"),
+        (wire::THREAD_STARTED, "ThreadStartedNotification.json"),
         (wire::TURN_COMPLETED, "TurnCompletedNotification.json"),
         (wire::ITEM_STARTED, "ItemStartedNotification.json"),
         (wire::ITEM_COMPLETED, "ItemCompletedNotification.json"),
@@ -120,6 +252,29 @@ fn params_schema() -> BTreeMap<&'static str, &'static str> {
         (
             wire::FILE_CHANGE_APPROVAL,
             "FileChangeRequestApprovalParams.json",
+        ),
+        // Said by the server in the middle of every turn, and mapped by
+        // nothing: the scripted wire carries them to prove that ignoring them
+        // costs nothing (codex-al-dia design D4), so they are validated too.
+        (
+            "thread/status/changed",
+            "ThreadStatusChangedNotification.json",
+        ),
+        (
+            "thread/tokenUsage/updated",
+            "ThreadTokenUsageUpdatedNotification.json",
+        ),
+        (
+            "serverRequest/resolved",
+            "ServerRequestResolvedNotification.json",
+        ),
+        (
+            wire::MCP_SERVER_STARTUP_STATUS,
+            "McpServerStatusUpdatedNotification.json",
+        ),
+        (
+            wire::REMOTE_CONTROL_STATUS_CHANGED,
+            "RemoteControlStatusChangedNotification.json",
         ),
     ])
 }
@@ -174,6 +329,195 @@ fn every_method_the_adapter_speaks_exists_in_the_dumped_schema() {
 }
 
 #[test]
+fn every_key_the_adapter_sends_is_one_the_schema_declares() {
+    // Scenario: Un campo que el esquema no declara no viaja
+    //
+    // The same messages the conformance above validates, walked key by key.
+    let sent = [
+        (
+            "InitializeParams.json",
+            serde_json::to_value(InitializeParams {
+                client_info: ClientInfo {
+                    name: "meltemi-codex-acp".into(),
+                    version: "0.1.1".into(),
+                },
+            })
+            .unwrap(),
+        ),
+        (
+            "ThreadStartParams.json",
+            serde_json::to_value(ThreadStartParams::gated(
+                "/project/worktree".into(),
+                Some("a-model-name".into()),
+            ))
+            .unwrap(),
+        ),
+        (
+            "TurnStartParams.json",
+            serde_json::to_value(TurnStartParams {
+                effort: Some("high".into()),
+                thread_id: "thread-1".into(),
+                input: vec![UserInput::Text {
+                    text: "write the proposal".into(),
+                }],
+            })
+            .unwrap(),
+        ),
+        (
+            "TurnInterruptParams.json",
+            serde_json::to_value(TurnInterruptParams {
+                thread_id: "thread-1".into(),
+                turn_id: "turn-1".into(),
+            })
+            .unwrap(),
+        ),
+        (
+            "CommandExecutionRequestApprovalResponse.json",
+            serde_json::to_value(ApprovalResponse::new(ApprovalDecision::Accept)).unwrap(),
+        ),
+        (
+            "FileChangeRequestApprovalResponse.json",
+            serde_json::to_value(ApprovalResponse::new(ApprovalDecision::Decline)).unwrap(),
+        ),
+        // The notification the handshake ends with, without the JSON-RPC
+        // envelope member, which no schema of the dump declares.
+        ("ClientNotification.json", wire::initialized()),
+    ];
+    for (file, message) in &sent {
+        assert_conforms(file, "what the adapter sends", message);
+        assert_declares_every_key(file, "what the adapter sends", message);
+    }
+
+    // And the thread it opens carries nothing beyond what design D9 lists: no
+    // analytics classification, no service name, no session source.
+    let thread = serde_json::to_value(ThreadStartParams::gated(
+        "/project/worktree".into(),
+        Some("a-model-name".into()),
+    ))
+    .unwrap();
+    for key in thread.as_object().unwrap().keys() {
+        assert!(
+            [
+                "cwd",
+                "model",
+                "approvalPolicy",
+                "approvalsReviewer",
+                "sandbox"
+            ]
+            .contains(&key.as_str()),
+            "`thread/start` carries only what the adapter decided to send: {key}"
+        );
+    }
+}
+
+#[test]
+fn the_governance_values_the_dump_declares_are_the_ones_the_adapter_knows() {
+    // Scenario: Los valores de gobierno del esquema están pineados
+    //
+    // The gate fails closed on anything it does not know, which keeps a
+    // session safe; this keeps the list honest. A value the provider adds to
+    // any of the three fails the next re-anchoring, naming it, instead of
+    // arriving unannounced in a CLI nobody verified.
+    use meltemi_adapters::codex::gate;
+
+    let doc = schema_doc("ThreadStartResponse.json");
+    let definitions = &doc["definitions"];
+    let names = |values: Vec<String>| {
+        let mut values = values;
+        values.sort();
+        values
+    };
+
+    let policies = names(
+        definitions["AskForApproval"]["oneOf"]
+            .as_array()
+            .expect("the policy is a union")
+            .iter()
+            .flat_map(|branch| match branch["enum"].as_array() {
+                Some(values) => values
+                    .iter()
+                    .map(|v| v.as_str().unwrap().to_string())
+                    .collect::<Vec<_>>(),
+                None => branch["properties"]
+                    .as_object()
+                    .expect("the object form is named by its key")
+                    .keys()
+                    .cloned()
+                    .collect(),
+            })
+            .collect(),
+    );
+    assert_eq!(policies, gate::KNOWN_APPROVAL_POLICIES, "approval policies");
+
+    let reviewers = names(
+        definitions["ApprovalsReviewer"]["enum"]
+            .as_array()
+            .expect("the reviewer is an enum")
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect(),
+    );
+    assert_eq!(reviewers, gate::KNOWN_REVIEWERS, "reviewers");
+
+    let sandboxes = names(
+        definitions["SandboxPolicy"]["oneOf"]
+            .as_array()
+            .expect("the sandbox is a union")
+            .iter()
+            .map(|branch| {
+                branch["properties"]["type"]["enum"][0]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect(),
+    );
+    assert_eq!(sandboxes, gate::KNOWN_SANDBOXES, "sandboxes");
+
+    // And what the adapter asks for is one of them, in the thread's own terms.
+    assert!(gate::KNOWN_APPROVAL_POLICIES.contains(&gate::APPROVAL_POLICY));
+    assert!(gate::KNOWN_REVIEWERS.contains(&gate::APPROVALS_REVIEWER));
+    assert!(gate::KNOWN_SANDBOXES.contains(&gate::SANDBOX_TYPE));
+    let params = schema_doc("ThreadStartParams.json");
+    assert!(
+        params["definitions"]["SandboxMode"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(gate::SANDBOX_MODE)),
+        "the sandbox asked for is one `thread/start` takes"
+    );
+}
+
+#[test]
+fn a_misspelt_key_fails_naming_it() {
+    // Scenario: Un campo que el esquema no declara no viaja
+    //
+    // Plain validation lets this through: nothing in the dump forbids an
+    // unknown key. The walk does not.
+    let misspelt = json!({"cwd": "/project", "approvalsReviwer": "user"});
+    assert!(
+        divergences("ThreadStartParams.json", &misspelt).is_empty(),
+        "the schema alone would accept it, which is the whole point"
+    );
+    let root = schema_doc("ThreadStartParams.json");
+    assert_eq!(
+        undeclared_keys(&root, &root, &misspelt, ""),
+        vec!["/approvalsReviwer".to_string()]
+    );
+
+    // Nested too: a key inside the turn's input is checked against the branch
+    // of the union it is sent as.
+    let nested = json!({
+        "threadId": "t", "input": [{"type": "text", "text": "hi", "textElements": []}]
+    });
+    let root = schema_doc("TurnStartParams.json");
+    assert_eq!(
+        undeclared_keys(&root, &root, &nested, ""),
+        vec!["/input/0/textElements".to_string()]
+    );
+}
+
+#[test]
 fn what_the_adapter_sends_conforms_to_the_dumped_schema() {
     // Scenario: Tipos validados contra el esquema volcado
     let initialize = InitializeParams {
@@ -188,11 +532,10 @@ fn what_the_adapter_sends_conforms_to_the_dumped_schema() {
         &serde_json::to_value(&initialize).unwrap(),
     );
 
-    let thread_start = ThreadStartParams {
-        // The provider's schema accepts it here; the conformance proves the shape.
-        model: Some("a-model-name".into()),
-        cwd: "/project/worktree".into(),
-    };
+    // The model, which the provider's schema accepts here, and the gate the
+    // adapter always asks for: the conformance proves the shape of both.
+    let thread_start =
+        ThreadStartParams::gated("/project/worktree".into(), Some("a-model-name".into()));
     assert_conforms(
         "ThreadStartParams.json",
         "the thread the session maps onto",
@@ -287,6 +630,68 @@ fn the_scripted_wire_conforms_to_the_dumped_schema() {
 }
 
 #[test]
+fn the_scripted_wire_follows_the_order_the_real_server_answered_in() {
+    // Scenario: El guion simulado sigue al cable real
+    //
+    // The dump says what may be said; only a recording says in what order. The
+    // script is evidence while every step it plays is one the real server
+    // played, in the same order — skipping some is allowed, reordering is not.
+    let mut asked: BTreeMap<i64, String> = BTreeMap::new();
+    let mut recorded = Vec::new();
+    for line in recording() {
+        let message = &line["message"];
+        let method = message["method"].as_str();
+        match line["from"].as_str() {
+            Some("client") => {
+                if let (Some(id), Some(method)) = (message["id"].as_i64(), method) {
+                    asked.insert(id, method.to_string());
+                }
+            }
+            Some("server") => {
+                let answered = message["id"].as_i64().and_then(|id| asked.get(&id));
+                recorded.push(step_name(
+                    method,
+                    answered.map(String::as_str),
+                    &message["params"],
+                ));
+            }
+            other => panic!("a transcript line says who spoke: {other:?}"),
+        }
+    }
+
+    let mut awaited: Option<String> = None;
+    let mut scripted = Vec::new();
+    for step in transcript_steps() {
+        match step["mock"].as_str() {
+            Some("await-request") => awaited = step["method"].as_str().map(str::to_string),
+            Some("respond") => scripted.push(step_name(None, awaited.as_deref(), &Value::Null)),
+            Some("notify" | "request") => {
+                scripted.push(step_name(step["method"].as_str(), None, &step["params"]));
+            }
+            other => panic!("unknown directive {other:?}"),
+        }
+    }
+
+    let mut rest = recorded.iter();
+    for (at, step) in scripted.iter().enumerate() {
+        assert!(
+            rest.any(|played| played == step),
+            "step {at} of the script, `{step}`, is not where the real server played it.\n\
+             script: {scripted:#?}\nrecording: {recorded:#?}"
+        );
+    }
+
+    // The one ordering the old script had to guess, stated on its own: the
+    // real server answers `turn/start` before it says the turn started.
+    let answered = scripted.iter().position(|s| s == "answer:turn/start");
+    let started = scripted.iter().position(|s| s == "turn/started");
+    assert!(
+        matches!((answered, started), (Some(a), Some(s)) if a < s),
+        "the turn is answered, still in progress, before it is announced: {scripted:?}"
+    );
+}
+
+#[test]
 fn the_adapters_types_parse_what_that_wire_says() {
     // Scenario: Tipos validados contra el esquema volcado
     //
@@ -314,19 +719,22 @@ fn the_adapters_types_parse_what_that_wire_says() {
     };
 
     let handshake: InitializeResult = serde_json::from_value(result_of(wire::INITIALIZE)).unwrap();
-    assert!(
-        handshake
-            .user_agent
-            .starts_with(&format!("{}/", wire::USER_AGENT_PRODUCT)),
-        "the user agent carries the CLI's version, which the skew check reads: {}",
+    let read = meltemi_adapters::codex::version::of(&handshake.user_agent, "meltemi-codex-acp");
+    assert_eq!(
+        read.map(meltemi_adapters::codex::version::render)
+            .as_deref(),
+        Some(wire::VENDORED_SCHEMA_VERSION),
+        "the user agent carries the CLI's version where the skew check reads it: {}",
         handshake.user_agent
     );
 
     let thread: ThreadStartResult = serde_json::from_value(result_of(wire::THREAD_START)).unwrap();
     assert_eq!(thread.thread.id, "mock-thread-1");
 
+    // Answered at once and still running, which is how the real CLI answers
+    // (recorded against 0.156.1): the turn ends on `turn/completed`.
     let turn: TurnStartResult = serde_json::from_value(result_of(wire::TURN_START)).unwrap();
-    assert_eq!(turn.turn.status, TurnStatus::Completed);
+    assert_eq!(turn.turn.status, TurnStatus::InProgress);
 
     let started: TurnNotification =
         serde_json::from_value(params_of(wire::TURN_STARTED)[0].clone()).unwrap();
@@ -364,10 +772,139 @@ fn the_adapters_types_parse_what_that_wire_says() {
         items.iter().any(|item| matches!(
             item,
             ThreadItem::FileChange { status, changes, .. }
-                if *status == ItemStatus::Completed && changes[0].path == "NOTES.md"
+                if *status == ItemStatus::Completed && changes[0].path.ends_with("NOTES.md")
         )),
         "and so does the file change the approval was about: {items:?}"
     );
+}
+
+#[test]
+fn the_thread_the_real_server_announces_is_read_with_its_parent() {
+    // Scenario: Un hilo hijo se declara en la sesión
+    //
+    // The adapter reads the thread's id and its parent out of `thread/started`;
+    // the recording is what proves those are where the type looks.
+    let announced: Vec<Value> = recording()
+        .into_iter()
+        .map(|line| line["message"].clone())
+        .filter(|message| message["method"] == wire::THREAD_STARTED)
+        .collect();
+    assert!(!announced.is_empty(), "the recording announces its thread");
+    for message in announced {
+        assert_conforms(
+            "ThreadStartedNotification.json",
+            "what the real server announced",
+            &message["params"],
+        );
+        let read: wire::ThreadNotification =
+            serde_json::from_value(message["params"].clone()).expect("the type reads it");
+        assert_eq!(read.thread.id, "thread-1");
+        assert_eq!(
+            read.thread.parent_thread_id, None,
+            "the session's own thread has no parent"
+        );
+    }
+}
+
+/// Every request method a dump of `ServerRequest.json` declares.
+fn declared_requests(dump: &Value) -> Vec<String> {
+    dump["oneOf"]
+        .as_array()
+        .expect("the dump lists the requests as alternatives")
+        .iter()
+        .filter_map(|branch| branch.pointer("/properties/method/enum/0")?.as_str())
+        .map(str::to_string)
+        .collect()
+}
+
+/// The requests of a dump the adapter declares no answer for.
+fn requests_without_an_answer(dump: &Value) -> Vec<String> {
+    declared_requests(dump)
+        .into_iter()
+        .filter(|method| !requests::POLICY.iter().any(|(known, _)| known == method))
+        .collect()
+}
+
+#[test]
+fn every_request_the_server_may_make_has_a_declared_answer() {
+    // Scenario: Una petición nueva del proveedor falla la conformidad
+    let dump = schema_doc("ServerRequest.json");
+    let declared = declared_requests(&dump);
+    assert_eq!(
+        declared.len(),
+        10,
+        "the requests 0.156.1 declares: {declared:?}"
+    );
+    assert_eq!(
+        requests_without_an_answer(&dump),
+        Vec::<String>::new(),
+        "every request the server may make is relayed or refused on purpose"
+    );
+    for (method, _) in requests::POLICY {
+        assert!(
+            declared.iter().any(|declared| declared == method),
+            "`{method}` has an answer but the dump no longer declares it"
+        );
+    }
+}
+
+#[test]
+fn a_request_the_provider_adds_fails_naming_it() {
+    // Scenario: Una petición nueva del proveedor falla la conformidad
+    let mut dump = schema_doc("ServerRequest.json");
+    let mut added = dump["oneOf"][0].clone();
+    added["properties"]["method"]["enum"] = json!(["item/somethingNew/request"]);
+    dump["oneOf"].as_array_mut().unwrap().push(added);
+    assert_eq!(
+        requests_without_an_answer(&dump),
+        vec!["item/somethingNew/request".to_string()]
+    );
+}
+
+#[test]
+fn the_notices_the_adapter_notes_are_the_dumped_ones() {
+    // Scenario: Los avisos del proveedor se anotan y no se dicen como agente
+    for (method, file, params) in [
+        (
+            wire::WARNING,
+            "WarningNotification.json",
+            json!({"message": "careful", "threadId": null}),
+        ),
+        (
+            wire::CONFIG_WARNING,
+            "ConfigWarningNotification.json",
+            json!({"summary": "unknown key", "details": null, "path": "/home/dev/.codex/config.toml", "range": null}),
+        ),
+        (
+            wire::DEPRECATION_NOTICE,
+            "DeprecationNoticeNotification.json",
+            json!({"summary": "legacy", "details": "migrate"}),
+        ),
+        (
+            wire::GUARDIAN_WARNING,
+            "GuardianWarningNotification.json",
+            json!({"threadId": "thread-1", "message": "reviewed"}),
+        ),
+        (
+            wire::WORLD_WRITABLE_WARNING,
+            "WindowsWorldWritableWarningNotification.json",
+            json!({"samplePaths": ["/home/dev/.codex/open"], "extraCount": 0, "failedScan": false}),
+        ),
+        (
+            wire::MODEL_REROUTED,
+            "ModelReroutedNotification.json",
+            json!({"threadId": "thread-1", "turnId": "turn-1", "fromModel": "a", "toModel": "b",
+                   "reason": "highRiskCyberActivity"}),
+        ),
+    ] {
+        assert_conforms(file, "a notice the adapter notes", &params);
+        let noted = meltemi_adapters::codex::mapping::provider_notice(method, &params)
+            .unwrap_or_else(|| panic!("`{method}` is noted"));
+        assert!(
+            !noted.contains(".codex") && !noted.starts_with("unreadable"),
+            "`{method}` is read, and without paths: {noted}"
+        );
+    }
 }
 
 #[test]

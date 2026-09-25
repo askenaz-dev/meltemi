@@ -1,58 +1,47 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "FileChangeRequestApprovalResponse",
-  "type": "object",
-  "required": [
-    "decision"
-  ],
-  "properties": {
-    "decision": {
-      "$ref": "#/definitions/ApprovalDecision"
-    }
-  },
   "definitions": {
-    "ApprovalDecision": {
+    "FileChangeApprovalDecision": {
       "oneOf": [
         {
-          "type": "string",
+          "description": "User approved the file changes.",
           "enum": [
-            "accept",
-            "decline",
-            "cancel"
-          ]
+            "accept"
+          ],
+          "type": "string"
         },
         {
-          "description": "Approve and remember the approval for the session.",
-          "type": "string",
+          "description": "User approved the file changes and future changes to the same files should run without prompting.",
           "enum": [
             "acceptForSession"
-          ]
+          ],
+          "type": "string"
         },
         {
-          "type": "object",
-          "required": [
-            "acceptWithExecpolicyAmendment"
+          "description": "User denied the file changes. The agent will continue the turn.",
+          "enum": [
+            "decline"
           ],
-          "properties": {
-            "acceptWithExecpolicyAmendment": {
-              "type": "object",
-              "required": [
-                "execpolicy_amendment"
-              ],
-              "properties": {
-                "execpolicy_amendment": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          },
-          "additionalProperties": false,
-          "title": "AcceptWithExecpolicyAmendmentApprovalDecision"
+          "type": "string"
+        },
+        {
+          "description": "User denied the file changes. The turn will also be immediately interrupted.",
+          "enum": [
+            "cancel"
+          ],
+          "type": "string"
         }
       ]
     }
-  }
+  },
+  "properties": {
+    "decision": {
+      "$ref": "#/definitions/FileChangeApprovalDecision"
+    }
+  },
+  "required": [
+    "decision"
+  ],
+  "title": "FileChangeRequestApprovalResponse",
+  "type": "object"
 }

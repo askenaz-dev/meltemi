@@ -265,7 +265,7 @@ exportar sesión) → `escritorio-que-recuerda`; `paleta-que-encuentra` +
 
 | Orden | Change | Vía | Brechas | Por qué aquí | Depende de |
 |---|---|---|---|---|---|
-| 1º | `codex-al-dia` | completa | AI-1 | Codex no arranca con ninguna versión (0.77: modelo de cuenta; 0.156: user agent que el adaptador no lee) | — |
+| 1º | ✅ `codex-al-dia` | completa · **implementada** (17/17, verify 40/40) | AI-1 | Codex no arranca con ninguna versión (0.77: modelo de cuenta; 0.156: user agent que el adaptador no lee). Cerrada: re-anclada a 0.156.1 con compuerta estricta verificada, y la corrida real del 2026-09-25 le re-otorgó el nivel 2 | — |
 | 2º | `turno-vacio-es-error` | rápida | AI-11 | un turno sin mensajes ni herramientas se reportó como éxito | — |
 | 3º | `aprobador-en-el-cli` | completa | AI-12 | el CLI deniega todo permiso: con Claude Code solo sirve para charlar | — |
 | 4º | `modelo-por-opcion-anunciada` | completa | LM-3, LM-6 | `--model` rehusado a un agente que anuncia modelos; el `model` del perfil se pierde en propose/dispatch/implement | — |
@@ -1620,6 +1620,6 @@ del daemon en macOS/Linux, que son otra clase y otro remedio.
 2. **Registrar**: ✅ org GitHub `askenaz-dev` · ✅ org npm `askenaz-dev` · 🟡 dominio `meltemi.dev` (comprado el 2026-07-25; falta apuntar el DNS a Pages) · ⬜ crates `meltemi`, `meltemid`, `meltemi-proto` en crates.io (verificados LIBRES el 2026-07-11 — reservar con un `cargo publish` placeholder o en el primer release para evitar squatting).
 3. **Decidir** el mecanismo de firma del CLA cuando llegue #21.
 4. ⬜ **Instalar ollama** en la máquina de desarrollo (`winget install Ollama.Ollama` + `ollama pull qwen2.5-coder:7b`) para la pierna local de `guia-modelos-locales` y `corrida-integrada`; sin eso la receta se publica como «verificada en forma».
-5. ⬜ **Decidir las versiones pineadas de Codex y OpenCode**: la prueba del 2026-09-24 las dejó en 0.156.1 y 1.18.32 (`npm i -g @openai/codex@0.77.0` / `opencode-ai@1.14.33` para volver). `codex-al-dia` re-ancla el esquema a la que se elija.
+5. ⬜ **Decidir las versiones pineadas de Codex y OpenCode**: la prueba del 2026-09-24 las dejó en 0.156.1 y 1.18.32. Para Codex la decisión ya tiene consecuencia en código: `codex-al-dia` re-ancló el esquema a 0.156.1, que es el piso del adaptador, y la corrida real del 2026-09-25 le dio nivel 2 con esa versión; volver a 0.77.0 ya no abre sesión. Para OpenCode sigue abierta (`npm i -g opencode-ai@1.14.33` para volver).
 6. ⬜ **Ratificar las dos enmiendas** que traen `abrir-con-lo-tuyo` (rumbo: la terminal integrada como no-objetivo) y `docs-en-el-sitio` (§11: inglés como lengua fuente de la documentación de producto, método en español); ambas quedan aplicadas y marcadas pendientes hasta la firma.
 7. ⬜ **Designar el segundo custodio de claves** (`sucesion-y-custodia`) y publicar la clave minisign en el árbol (`procedencia-de-release`); gate de `antes-de-anunciar`.

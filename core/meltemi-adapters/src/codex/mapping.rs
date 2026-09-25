@@ -43,6 +43,23 @@ pub enum Signal {
     TurnEnded(wire::TurnStatus),
     /// The turn failed and the server is not going to retry.
     TurnFailed(String),
+    /// The CLI reports a remote control that is not off, in this state: another
+    /// client could answer this thread's approvals outside the permission proxy
+    /// (codex-al-dia design D5).
+    RemoteControl(String),
+}
+
+/// Whose a message is, as far as the session's turn is concerned
+/// (codex-al-dia design D6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Belongs {
+    /// The session's thread and, as far as can be told, its turn.
+    Ours,
+    /// Another thread, by its id.
+    OtherThread(String),
+    /// Another turn of the session's thread — a finished one, or not the one in
+    /// progress — by its id.
+    OtherTurn(String),
 }
 
 /// One notification, translated.
@@ -85,13 +102,92 @@ impl Mapped {
 pub struct Mapper {
     /// Items whose text already reached the session as chunks.
     streamed: HashSet<String>,
+    /// MCP servers of the CLI's own configuration already named in the
+    /// session. The mapper lives as long as the session, so each is named once.
+    announced_servers: HashSet<String>,
+    /// The CLI's remote control, when the last report said it is not off.
+    remote_control: Option<String>,
+    /// The session's thread, once it is open. Without one nothing is set aside
+    /// by thread.
+    thread: Option<String>,
+    /// Turns that are over. Whatever they still say moves no later turn, even
+    /// one that has no id yet.
+    finished: HashSet<String>,
+    /// Threads and turns already noted as set aside, so each is noted once.
+    set_aside: HashSet<String>,
+    /// Threads opened under the session's, already declared.
+    children: HashSet<String>,
+    /// Tool calls the session has already been shown, by id.
+    announced: HashSet<String>,
 }
 
 impl Mapper {
-    /// A mapper for a fresh turn.
+    /// A mapper that knows no thread: nothing is set aside by thread.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A mapper for the session over `thread`.
+    #[must_use]
+    pub fn for_thread(thread: impl Into<String>) -> Self {
+        Self {
+            thread: Some(thread.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Records that the session has been shown a tool call; `true` the first
+    /// time, so an approval about something never shown can show it first.
+    pub fn announce(&mut self, tool_call: &str) -> bool {
+        self.announced.insert(tool_call.to_string())
+    }
+
+    /// Records that a turn is over.
+    pub fn finish(&mut self, turn: &str) {
+        self.finished.insert(turn.to_string());
+    }
+
+    /// Whose a message is (codex-al-dia design D6).
+    ///
+    /// Another thread's is not the session's. Once the turn in progress is
+    /// known, another turn's is not either; a finished turn's never is, even
+    /// before the next turn has an id. A message that does not say its thread
+    /// or its turn is not set aside on that account: the provider's warnings
+    /// and the remote control's reports carry neither.
+    #[must_use]
+    pub fn belongs(&self, current_turn: Option<&str>, params: &Value) -> Belongs {
+        if let (Some(ours), Some(theirs)) = (
+            self.thread.as_deref(),
+            params.get("threadId").and_then(Value::as_str),
+        ) && ours != theirs
+        {
+            return Belongs::OtherThread(theirs.to_string());
+        }
+        let turn = params
+            .get("turnId")
+            .and_then(Value::as_str)
+            .or_else(|| params.pointer("/turn/id").and_then(Value::as_str));
+        match turn {
+            Some(turn) if self.finished.contains(turn) => Belongs::OtherTurn(turn.to_string()),
+            Some(turn) if current_turn.is_some_and(|current| current != turn) => {
+                Belongs::OtherTurn(turn.to_string())
+            }
+            _ => Belongs::Ours,
+        }
+    }
+
+    /// The line to keep for a notification set aside, the first time its
+    /// thread or turn is set aside; nothing after that.
+    pub fn set_aside(&mut self, method: &str, belongs: &Belongs) -> Option<String> {
+        let (what, id) = match belongs {
+            Belongs::Ours => return None,
+            Belongs::OtherThread(id) => ("thread", id),
+            Belongs::OtherTurn(id) => ("turn", id),
+        };
+        self.set_aside
+            .insert(format!("{what}:{id}"))
+            .then(|| format!("set aside `{method}` and the rest of {what} `{id}`: not this turn's"))
     }
 
     /// What one server notification becomes.
@@ -106,9 +202,22 @@ impl Mapper {
                 None => Mapped::noted(format!("unreadable `{method}`: {params}")),
             },
             wire::TURN_COMPLETED => match parse::<wire::TurnNotification>(params) {
-                Some(turn) => Mapped::signal(Signal::TurnEnded(turn.turn.status)),
+                Some(turn) => {
+                    // Over, and remembered as over: a late copy of this must
+                    // not close the next turn.
+                    self.finished.insert(turn.turn.id);
+                    if turn.turn.status == wire::TurnStatus::Failed {
+                        // In the provider's words: why the turn failed is
+                        // what the human needs, and a bare "failed" is not it.
+                        return Mapped::signal(Signal::TurnFailed(wire::failure(
+                            turn.turn.error.as_ref(),
+                        )));
+                    }
+                    Mapped::signal(Signal::TurnEnded(turn.turn.status))
+                }
                 None => Mapped::noted(format!("unreadable `{method}`: {params}")),
             },
+            wire::THREAD_STARTED => self.thread_started(params),
             wire::ERROR => self.error(params),
             wire::AGENT_MESSAGE_DELTA => self.chunk(params, false),
             wire::REASONING_TEXT_DELTA | wire::REASONING_SUMMARY_TEXT_DELTA => {
@@ -116,8 +225,107 @@ impl Mapper {
             }
             wire::ITEM_STARTED => self.item(params, false),
             wire::ITEM_COMPLETED => self.item(params, true),
+            wire::WARNING
+            | wire::CONFIG_WARNING
+            | wire::DEPRECATION_NOTICE
+            | wire::GUARDIAN_WARNING
+            | wire::WORLD_WRITABLE_WARNING
+            | wire::MODEL_REROUTED => {
+                provider_notice(method, params).map_or_else(Mapped::default, Mapped::noted)
+            }
+            wire::MCP_SERVER_STARTUP_STATUS => self.mcp_server(params),
+            wire::REMOTE_CONTROL_STATUS_CHANGED => self.remote_control_changed(params),
             _ => Mapped::default(),
         }
+    }
+
+    /// An MCP server the CLI starts from its own configuration: named in the
+    /// session the first time it is reported, and never again (codex-al-dia
+    /// design D5). It runs outside the CLI's sandbox, and the calls the CLI
+    /// does not submit for approval never reach the proxy; saying so is what
+    /// keeps that loss visible.
+    fn mcp_server(&mut self, params: &Value) -> Mapped {
+        let Some(server) = parse::<wire::McpServerStartupStatus>(params) else {
+            return Mapped::noted(format!("unreadable MCP server status: {params}"));
+        };
+        if !self.announced_servers.insert(server.name.clone()) {
+            return Mapped::default();
+        }
+        Mapped::updates(vec![SessionUpdate::ToolCall(
+            ToolCall::new(
+                format!("meltemi:mcp-server:{}", server.name),
+                format!(
+                    "MCP server `{}` from the Codex configuration: outside the permission proxy",
+                    server.name
+                ),
+            )
+            .kind(ToolKind::Other)
+            .status(ToolCallStatus::Completed)
+            .content(vec![text_content(
+                "Codex starts this server from its own configuration. It runs outside Codex's \
+                 sandbox, and the calls Codex does not submit for approval run without Meltemi's \
+                 permission proxy deciding.",
+            )]),
+        )])
+    }
+
+    /// A thread the server opened. The session's own says nothing; one opened
+    /// under it is declared, once (codex-al-dia design D6): what it does is not
+    /// shown in this session yet, and its approvals are declined.
+    fn thread_started(&mut self, params: &Value) -> Mapped {
+        let Some(started) = parse::<wire::ThreadNotification>(params) else {
+            return Mapped::noted(format!("unreadable thread: {params}"));
+        };
+        let child = started.thread;
+        if self.thread.is_none() || child.parent_thread_id != self.thread {
+            return Mapped::default();
+        }
+        if !self.children.insert(child.id.clone()) {
+            return Mapped::default();
+        }
+        Mapped::updates(vec![SessionUpdate::ToolCall(
+            ToolCall::new(
+                format!("meltemi:child-thread:{}", child.id),
+                format!(
+                    "Codex opened a sub-thread `{}` under this session",
+                    child.id
+                ),
+            )
+            .kind(ToolKind::Other)
+            .status(ToolCallStatus::Completed)
+            .content(vec![text_content(
+                "What it does is not shown in this session yet, and any approval it asks for is \
+                 declined without asking you.",
+            )]),
+        )])
+    }
+
+    /// The CLI's remote control changing state (codex-al-dia design D5).
+    ///
+    /// Off is the only state a session runs under. Anything else — including
+    /// a report this adapter cannot read — is remembered and signalled, so the
+    /// check fails closed; a later report that it is off clears it.
+    fn remote_control_changed(&mut self, params: &Value) -> Mapped {
+        let Some(report) = parse::<wire::RemoteControlStatus>(params) else {
+            self.remote_control = Some("unreadable".to_string());
+            return Mapped {
+                signal: Some(Signal::RemoteControl("unreadable".to_string())),
+                noted: Some(format!("unreadable remote control status: {params}")),
+                ..Mapped::default()
+            };
+        };
+        if report.status == wire::REMOTE_CONTROL_DISABLED {
+            self.remote_control = None;
+            return Mapped::default();
+        }
+        self.remote_control = Some(report.status.clone());
+        Mapped::signal(Signal::RemoteControl(report.status))
+    }
+
+    /// The CLI's remote control, if the last report said it is not off.
+    #[must_use]
+    pub fn remote_control(&self) -> Option<&str> {
+        self.remote_control.as_deref()
     }
 
     /// A streamed chunk of an item's text.
@@ -160,13 +368,22 @@ impl Mapper {
         }
         // Reasoning arrives as chunks too, and its completed form carries a
         // structure this adapter does not map. Repeating it would be noise.
-        if matches!(item, ThreadItem::Reasoning { .. }) {
+        //
+        // The user's message comes back from the server as an item of the turn.
+        // What the user said is already on the record — the daemon wrote the
+        // prompt before the turn began — and shown here it would be a tool call
+        // that is really the prompt, once per turn.
+        if matches!(
+            item,
+            ThreadItem::Reasoning { .. } | ThreadItem::UserMessage { .. }
+        ) {
             return Mapped::default();
         }
 
         let Some(rendered) = render(&item, &raw, completed) else {
             return Mapped::default();
         };
+        self.announced.insert(rendered.id.clone());
         Mapped::updates(vec![if completed {
             SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                 rendered.id,
@@ -205,8 +422,168 @@ impl Mapper {
                 error.error.message
             ));
         }
-        Mapped::signal(Signal::TurnFailed(error.error.message))
+        Mapped::signal(Signal::TurnFailed(error.error.describe()))
     }
+}
+
+/// The row that opens every session: what Codex still runs without asking the
+/// permission proxy under the strictest gate it offers (codex-al-dia design
+/// D5). The hard-gate requirement promises visible losses; this is the one this
+/// provider cannot close from the adapter.
+#[must_use]
+pub fn uncovered_by_gate() -> SessionUpdate {
+    SessionUpdate::ToolCall(
+        ToolCall::new(
+            "meltemi:gate",
+            "Codex runs some things without asking the permission proxy",
+        )
+        .kind(ToolKind::Other)
+        .status(ToolCallStatus::Completed)
+        .content(vec![text_content(
+            "Under the strictest gate Codex offers (approval policy `untrusted`, a read-only \
+             sandbox, approvals sent to Meltemi), these still run without a decision from the \
+             permission proxy: commands Codex trusts as read-only, inside its read-only sandbox; \
+             the provider's own web search; and calls to MCP servers from Codex's configuration \
+             that Codex does not submit for approval, which run outside its sandbox.",
+        )]),
+    )
+}
+
+/// The line to keep for a notice the provider writes for the human
+/// (codex-al-dia design D8), or `None` for any other method.
+///
+/// Noted on the adapter's record, which the daemon collects, and never shown as
+/// the agent's words. Never with a path of the CLI's own state either: a
+/// configuration warning's file and a world-writable scan's sample paths stay
+/// out, and a notice this adapter cannot read is named without its contents
+/// (constitution §2).
+#[must_use]
+pub fn provider_notice(method: &str, params: &Value) -> Option<String> {
+    let text = |key: &str| {
+        params
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+    };
+    let line = match method {
+        wire::WARNING => text("message").map(|message| format!("Codex warns: {message}")),
+        wire::GUARDIAN_WARNING => {
+            text("message").map(|message| format!("Codex's guardian warns: {message}"))
+        }
+        wire::CONFIG_WARNING => text("summary").map(|summary| {
+            format!("Codex's configuration: {summary} (the file is not recorded here)")
+        }),
+        wire::DEPRECATION_NOTICE => text("summary").map(|summary| match text("details") {
+            Some(details) => format!("Codex deprecates: {summary} ({details})"),
+            None => format!("Codex deprecates: {summary}"),
+        }),
+        wire::WORLD_WRITABLE_WARNING => {
+            if params.get("failedScan").and_then(Value::as_bool) == Some(true) {
+                Some("Codex could not finish scanning for world-writable locations".to_string())
+            } else {
+                let sampled = params
+                    .get("samplePaths")
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len);
+                let extra = params
+                    .get("extraCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                let found = u64::try_from(sampled)
+                    .unwrap_or(u64::MAX)
+                    .saturating_add(extra);
+                Some(format!(
+                    "Codex found {found} world-writable locations (their paths are not recorded here)"
+                ))
+            }
+        }
+        wire::MODEL_REROUTED => match (text("fromModel"), text("toModel")) {
+            (Some(from), Some(to)) => {
+                let why = params
+                    .get("reason")
+                    .map(|reason| {
+                        reason
+                            .as_str()
+                            .map_or_else(|| reason.to_string(), str::to_string)
+                    })
+                    .unwrap_or_default();
+                Some(format!(
+                    "Codex moved the turn from model `{from}` to `{to}` (reason: {why})"
+                ))
+            }
+            _ => None,
+        },
+        _ => return None,
+    };
+    Some(line.unwrap_or_else(|| format!("unreadable `{method}` from Codex")))
+}
+
+/// The row for an approval declined because it was not this turn's
+/// (codex-al-dia design D6): a failed tool that says why, without the
+/// request's parameters.
+#[must_use]
+pub fn declined_elsewhere(request_id: &Value, method: &str, belongs: &Belongs) -> SessionUpdate {
+    let id = request_row_id(request_id);
+    let whose = match belongs {
+        Belongs::OtherThread(thread) => format!("thread `{thread}`, not this session's"),
+        Belongs::OtherTurn(turn) => format!("turn `{turn}`, not the one in progress"),
+        Belongs::Ours => "this turn".to_string(),
+    };
+    SessionUpdate::ToolCall(
+        ToolCall::new(
+            format!("server-request:{id}"),
+            format!("Declined `{method}`: it came from {whose}"),
+        )
+        .kind(ToolKind::Other)
+        .status(ToolCallStatus::Failed),
+    )
+}
+
+/// The row for a request the adapter refuses (codex-al-dia design D7): a
+/// failed tool named after the request and why it is refused, and nothing of
+/// its parameters.
+#[must_use]
+pub fn refused_request(request_id: &Value, method: &str, reason: &str) -> SessionUpdate {
+    SessionUpdate::ToolCall(
+        ToolCall::new(
+            format!("server-request:{}", request_row_id(request_id)),
+            format!("Refused `{method}`: {reason}"),
+        )
+        .kind(ToolKind::Other)
+        .status(ToolCallStatus::Failed),
+    )
+}
+
+/// A JSON-RPC request id as the row's id carries it.
+fn request_row_id(id: &Value) -> String {
+    match id {
+        Value::String(id) => id.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// The row that declares a CLI newer than the version this adapter was
+/// verified against (codex-al-dia design D2): the session opens, and says so
+/// before the first turn instead of presenting itself as verified.
+#[must_use]
+pub fn beyond_verified(effective: &str, verified: &str) -> SessionUpdate {
+    SessionUpdate::ToolCall(
+        ToolCall::new(
+            "meltemi:provider-version",
+            format!(
+                "Codex {effective} is newer than {verified}, the version this adapter was verified \
+                 against"
+            ),
+        )
+        .kind(ToolKind::Other)
+        .status(ToolCallStatus::Completed)
+        .content(vec![text_content(&format!(
+            "The session opens under the same gate, which is still checked on every thread and \
+             refuses any value it does not know. What changed in the wire after {verified} has not \
+             been verified; if something here looks wrong, say that Codex {effective} answered."
+        ))]),
+    )
 }
 
 /// The text of a prompt, as the wire takes it.
@@ -318,7 +695,9 @@ fn render(item: &ThreadItem, raw: &Value, completed: bool) -> Option<Rendered> {
             locations: Vec::new(),
         },
         // Handled before this point: they are text, not tool calls.
-        ThreadItem::AgentMessage { .. } | ThreadItem::Reasoning { .. } => return None,
+        ThreadItem::AgentMessage { .. }
+        | ThreadItem::Reasoning { .. }
+        | ThreadItem::UserMessage { .. } => return None,
     })
 }
 
@@ -498,6 +877,264 @@ mod tests {
     }
 
     #[test]
+    fn what_the_gate_does_not_cover_is_said_before_anything_else() {
+        // Scenario: Lo que la compuerta del CLI no cubre se declara al abrir
+        //
+        // The row the session opens with (the adapter sends it before the
+        // first turn; the daemon's end-to-end test checks the order).
+        let SessionUpdate::ToolCall(row) = uncovered_by_gate() else {
+            panic!("the losses are a row the surfaces already draw");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "meltemi:gate");
+        assert_eq!(row.kind, ToolKind::Other);
+        assert_eq!(row.status, ToolCallStatus::Completed);
+        let said = format!("{:?}", row.content);
+        for loss in ["read-only", "web search", "MCP servers"] {
+            assert!(said.contains(loss), "the row names `{loss}`: {said}");
+        }
+    }
+
+    #[test]
+    fn an_mcp_server_the_cli_starts_is_named_once_per_session() {
+        // Scenario: Un servidor de herramientas que el CLI arranca se nombra
+        //
+        // As 0.156.1 reports it (recorded 2026-09-24): starting, then ready, and
+        // again in a later turn. One row, the first time.
+        let mut mapper = Mapper::new();
+        let report = |status: &str| json!({"threadId": "t", "name": "node_repl", "status": status, "error": null, "failureReason": null});
+        let first = mapper.map(wire::MCP_SERVER_STARTUP_STATUS, &report("starting"));
+        let [SessionUpdate::ToolCall(row)] = first.updates.as_slice() else {
+            panic!("the server is named: {first:?}");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "meltemi:mcp-server:node_repl");
+        assert!(row.title.contains("node_repl") && row.title.contains("permission proxy"));
+        for status in ["ready", "ready"] {
+            let again = mapper.map(wire::MCP_SERVER_STARTUP_STATUS, &report(status));
+            assert!(again.updates.is_empty(), "never twice: {again:?}");
+        }
+        let other = mapper.map(
+            wire::MCP_SERVER_STARTUP_STATUS,
+            &json!({"threadId": "t", "name": "codex_apps", "status": "starting"}),
+        );
+        assert_eq!(other.updates.len(), 1, "another server is another row");
+    }
+
+    #[test]
+    fn what_another_thread_or_turn_says_is_set_aside() {
+        // Scenarios: Lo que dice otro hilo no cierra el turno en curso; El
+        // cierre rezagado de un turno anterior no cierra el siguiente
+        let mut mapper = Mapper::for_thread("thread-1");
+        let item =
+            |thread: &str, turn: &str| json!({"threadId": thread, "turnId": turn, "itemId": "i"});
+        let closing = |thread: &str, turn: &str| json!({"threadId": thread, "turn": {"id": turn, "status": "completed", "items": []}});
+
+        assert_eq!(
+            mapper.belongs(Some("turn-2"), &closing("thread-2", "turn-2")),
+            Belongs::OtherThread("thread-2".into())
+        );
+        assert_eq!(
+            mapper.belongs(Some("turn-2"), &item("thread-1", "turn-1")),
+            Belongs::OtherTurn("turn-1".into()),
+            "once the turn in progress is known, another turn is not it"
+        );
+        assert_eq!(
+            mapper.belongs(None, &item("thread-1", "turn-1")),
+            Belongs::Ours
+        );
+
+        // A turn that is over is remembered as over, even before the next one
+        // has an id.
+        let over = mapper.map(wire::TURN_COMPLETED, &closing("thread-1", "turn-1"));
+        assert!(matches!(over.signal, Some(Signal::TurnEnded(_))));
+        assert_eq!(
+            mapper.belongs(None, &closing("thread-1", "turn-1")),
+            Belongs::OtherTurn("turn-1".into())
+        );
+
+        // What does not say its thread or its turn is not set aside for it.
+        assert_eq!(
+            mapper.belongs(Some("turn-2"), &json!({"message": "careful"})),
+            Belongs::Ours
+        );
+        assert_eq!(
+            mapper.belongs(
+                Some("turn-2"),
+                &json!({"threadId": "thread-1", "status": {"type": "idle"}})
+            ),
+            Belongs::Ours
+        );
+        // And a mapper that knows no thread sets nothing aside by thread.
+        assert_eq!(
+            Mapper::new().belongs(None, &item("thread-9", "turn-9")),
+            Belongs::Ours
+        );
+
+        // Noted once per thread or turn, not once per chunk.
+        let other = Belongs::OtherThread("thread-2".into());
+        assert!(
+            mapper
+                .set_aside(wire::AGENT_MESSAGE_DELTA, &other)
+                .is_some()
+        );
+        assert!(
+            mapper
+                .set_aside(wire::AGENT_MESSAGE_DELTA, &other)
+                .is_none()
+        );
+        assert!(
+            mapper
+                .set_aside(wire::TURN_COMPLETED, &Belongs::Ours)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_thread_opened_under_the_sessions_is_declared_once() {
+        // Scenario: Un hilo hijo se declara en la sesión
+        let mut mapper = Mapper::for_thread("thread-1");
+        let started =
+            |id: &str, parent: Value| json!({"thread": {"id": id, "parentThreadId": parent}});
+
+        let own = mapper.map(wire::THREAD_STARTED, &started("thread-1", Value::Null));
+        assert_eq!(
+            own,
+            Mapped::default(),
+            "the session's own thread says nothing"
+        );
+        let unrelated = mapper.map(
+            wire::THREAD_STARTED,
+            &started("thread-7", json!("thread-6")),
+        );
+        assert_eq!(unrelated, Mapped::default());
+
+        let child = mapper.map(
+            wire::THREAD_STARTED,
+            &started("thread-2", json!("thread-1")),
+        );
+        let [SessionUpdate::ToolCall(row)] = child.updates.as_slice() else {
+            panic!("a child is declared: {child:?}");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "meltemi:child-thread:thread-2");
+        assert!(row.title.contains("thread-2"));
+        let again = mapper.map(
+            wire::THREAD_STARTED,
+            &started("thread-2", json!("thread-1")),
+        );
+        assert!(again.updates.is_empty(), "once");
+    }
+
+    #[test]
+    fn an_approval_declined_elsewhere_says_why_without_its_parameters() {
+        // Scenario: Una aprobación de otro hilo o turno se declina a la vista
+        let SessionUpdate::ToolCall(row) = declined_elsewhere(
+            &json!(7),
+            wire::COMMAND_EXECUTION_APPROVAL,
+            &Belongs::OtherThread("thread-2".into()),
+        ) else {
+            panic!("a visible row");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "server-request:7");
+        assert_eq!(row.status, ToolCallStatus::Failed);
+        assert!(
+            row.title.contains("thread-2") && row.title.contains(wire::COMMAND_EXECUTION_APPROVAL)
+        );
+        assert!(
+            row.content.is_empty() && row.raw_input.is_none(),
+            "no parameters: {row:?}"
+        );
+    }
+
+    #[test]
+    fn a_refused_request_is_named_without_its_parameters() {
+        // Scenario: Una petición no relevada se rehúsa a la vista
+        let SessionUpdate::ToolCall(row) = refused_request(
+            &json!("req-3"),
+            wire::TOOL_REQUEST_USER_INPUT,
+            "a question from a tool",
+        ) else {
+            panic!("a visible row");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "server-request:req-3");
+        assert_eq!(row.status, ToolCallStatus::Failed);
+        assert!(
+            row.title.contains(wire::TOOL_REQUEST_USER_INPUT) && row.title.contains("question")
+        );
+        assert!(row.content.is_empty() && row.raw_input.is_none());
+    }
+
+    #[test]
+    fn a_newer_cli_is_declared_with_both_versions() {
+        // Scenario: Versión posterior a la verificada declarada, no rehusada
+        let SessionUpdate::ToolCall(row) = beyond_verified("0.157.0", "0.156.1") else {
+            panic!("a visible row");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "meltemi:provider-version");
+        assert!(row.title.contains("0.157.0") && row.title.contains("0.156.1"));
+        assert!(!row.title.contains("  "), "{}", row.title);
+    }
+
+    #[test]
+    fn a_remote_control_that_is_not_off_is_signalled_and_remembered() {
+        // Scenario: Un control remoto activo rehúsa la sesión
+        //
+        // As every 0.156.1 connection reports it (recorded 2026-09-24): off,
+        // and then nothing to say.
+        let mut mapper = Mapper::new();
+        let report = |status: &str| json!({"status": status, "serverName": "m", "installationId": "i", "environmentId": null});
+        let off = mapper.map(wire::REMOTE_CONTROL_STATUS_CHANGED, &report("disabled"));
+        assert_eq!(off, Mapped::default());
+        assert_eq!(mapper.remote_control(), None);
+
+        // Every other state the dump declares, and one it does not yet.
+        for status in ["connecting", "connected", "errored", "a-state-added-later"] {
+            let on = mapper.map(wire::REMOTE_CONTROL_STATUS_CHANGED, &report(status));
+            assert_eq!(on.signal, Some(Signal::RemoteControl(status.to_string())));
+            assert!(on.updates.is_empty(), "the refusal says it, not a row");
+            assert_eq!(mapper.remote_control(), Some(status));
+        }
+
+        // Off again, and the session may carry on.
+        mapper.map(wire::REMOTE_CONTROL_STATUS_CHANGED, &report("disabled"));
+        assert_eq!(mapper.remote_control(), None);
+
+        // A report that cannot be read fails closed.
+        let unreadable = mapper.map(
+            wire::REMOTE_CONTROL_STATUS_CHANGED,
+            &json!({"serverName": "m"}),
+        );
+        assert!(matches!(unreadable.signal, Some(Signal::RemoteControl(_))));
+        assert!(unreadable.noted.is_some());
+        assert!(mapper.remote_control().is_some());
+    }
+
+    #[test]
+    fn the_echo_of_the_users_own_message_is_not_shown() {
+        // Scenario: El eco del mensaje del usuario no se muestra
+        //
+        // Exactly as 0.156.1 emits it, measured on 2026-09-24: at the start of
+        // every turn, started and completed, with the prompt as content.
+        let mut mapper = Mapper::new();
+        let item = json!({
+            "type": "userMessage", "id": "item-0", "clientId": null,
+            "content": [{"type": "text", "text": "write the proposal", "text_elements": []}]
+        });
+        for (method, stamp) in [
+            (wire::ITEM_STARTED, "startedAtMs"),
+            (wire::ITEM_COMPLETED, "completedAtMs"),
+        ] {
+            let mapped = mapper.map(
+                method,
+                &json!({"threadId": "t", "turnId": "turn-1", "item": item, stamp: 1_790_000_001_100_u64}),
+            );
+            assert!(
+                mapped.updates.is_empty(),
+                "the prompt is already on the record, not a tool call: {mapped:?}"
+            );
+            assert!(mapped.noted.is_none() && mapped.signal.is_none());
+        }
+    }
+
+    #[test]
     fn an_item_of_an_unknown_kind_still_appears_by_the_name_the_provider_gave_it() {
         // The provider grows item kinds. One that vanished would erase evidence
         // exactly when a session is going wrong.
@@ -540,6 +1177,108 @@ mod tests {
             fatal.signal,
             Some(Signal::TurnFailed("context window exceeded".into()))
         );
+    }
+
+    #[test]
+    fn a_failed_turn_is_explained_in_the_providers_words() {
+        // Scenario: Un turno fallido se explica con las palabras del proveedor
+        let mut mapper = Mapper::new();
+        let failed = mapper.map(
+            wire::TURN_COMPLETED,
+            &json!({"threadId": "t", "turn": {"id": "turn-1", "status": "failed", "items": [],
+                    "error": {"message": "You've hit your usage limit.",
+                              "additionalDetails": "Try again at 3:05 PM.",
+                              "codexErrorInfo": "usageLimitExceeded"}}}),
+        );
+        assert_eq!(
+            failed.signal,
+            Some(Signal::TurnFailed(
+                "You've hit your usage limit. (Try again at 3:05 PM.)".into()
+            ))
+        );
+
+        // Failed without a word: still a failure, and said to be unexplained.
+        let bare = mapper.map(
+            wire::TURN_COMPLETED,
+            &json!({"threadId": "t", "turn": {"id": "turn-2", "status": "failed", "items": []}}),
+        );
+        assert_eq!(
+            bare.signal,
+            Some(Signal::TurnFailed(wire::TURN_FAILED_UNEXPLAINED.into()))
+        );
+
+        // And the `error` notification carries the details too.
+        let fatal = mapper.map(
+            wire::ERROR,
+            &json!({"threadId": "t", "turnId": "turn-3", "willRetry": false,
+                    "error": {"message": "stream disconnected", "additionalDetails": "idle timeout"}}),
+        );
+        assert_eq!(
+            fatal.signal,
+            Some(Signal::TurnFailed(
+                "stream disconnected (idle timeout)".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn the_providers_notices_are_noted_and_never_said_as_the_agent() {
+        // Scenario: Los avisos del proveedor se anotan y no se dicen como agente
+        let mut mapper = Mapper::new();
+        for (method, params, expected) in [
+            (
+                wire::WARNING,
+                json!({"message": "Heads up: slow network"}),
+                "slow network",
+            ),
+            (
+                wire::GUARDIAN_WARNING,
+                json!({"threadId": "t", "message": "risky command reviewed"}),
+                "risky command reviewed",
+            ),
+            (
+                wire::CONFIG_WARNING,
+                json!({"summary": "unknown key `foo`", "path": "/home/dev/.codex/config.toml",
+                       "details": "see /home/dev/.codex/config.toml line 3"}),
+                "unknown key `foo`",
+            ),
+            (
+                wire::DEPRECATION_NOTICE,
+                json!({"summary": "`sandbox` is legacy", "details": "use permission profiles"}),
+                "use permission profiles",
+            ),
+            (
+                wire::WORLD_WRITABLE_WARNING,
+                json!({"samplePaths": ["C:\\Users\\dev\\open"], "extraCount": 2, "failedScan": false}),
+                "3 world-writable locations",
+            ),
+            (
+                wire::MODEL_REROUTED,
+                json!({"threadId": "t", "turnId": "u", "fromModel": "gpt-a", "toModel": "gpt-b",
+                       "reason": "highRiskCyberActivity"}),
+                "`gpt-a` to `gpt-b`",
+            ),
+        ] {
+            let mapped = mapper.map(method, &params);
+            assert!(
+                mapped.updates.is_empty() && mapped.signal.is_none(),
+                "`{method}` is not the agent's words: {mapped:?}"
+            );
+            let noted = mapped
+                .noted
+                .unwrap_or_else(|| panic!("`{method}` is noted"));
+            assert!(noted.contains(expected), "`{method}`: {noted}");
+            assert!(
+                !noted.contains(".codex") && !noted.contains("Users"),
+                "no path of the CLI's state: {noted}"
+            );
+        }
+        // A notice that cannot be read is named, never dumped.
+        let unreadable =
+            provider_notice(wire::CONFIG_WARNING, &json!({"path": "/home/dev/.codex/x"}))
+                .expect("a notice");
+        assert!(unreadable.contains(wire::CONFIG_WARNING) && !unreadable.contains(".codex"));
+        assert_eq!(provider_notice(wire::TURN_STARTED, &json!({})), None);
     }
 
     #[test]

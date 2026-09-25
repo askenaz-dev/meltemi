@@ -78,7 +78,11 @@ find, the composed state and the remedy) is rendered by the scriptable
 subcommand in human mode, by the Fleet view and by the desktop detail, and
 travels verbatim under `--json` because it is part of the contract. A field
 visible in one surface only is a §4 break even when the method itself is
-registered everywhere.
+registered everywhere. The verified level follows the same rule, and with it
+the agent version it was measured against (`verifiedVersion`, codex-al-dia
+D11): «verified L2 with 0.156.1» in the scriptable subcommand, «verif L2
+0.156.1» in the Fleet view, «verificado con 0.156.1» in the desktop pill and
+detail.
 
 ### `detach`, and why one surface declines it
 
