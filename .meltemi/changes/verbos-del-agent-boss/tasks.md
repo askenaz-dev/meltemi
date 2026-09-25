@@ -55,7 +55,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   agente como escape JSON», «Un flujo en YAML es un documento por registro» —
   gates: suite de `meltemi`
 
-- [ ] 3.2 E2e `tui/tests/session_verbs.rs`: una sesión `detach` abierta por un
+- [x] 3.2 E2e `tui/tests/session_verbs.rs`: una sesión `detach` abierta por un
   cliente crudo, seguida por el binario real sin TTY mientras la CLI aprueba su
   petición y la cancela; `watch` termina con el cierre y `log` guarda lo mismo;
   `watch` y `cancel` de la sesión terminada; ids desconocidos; matar un `watch`
