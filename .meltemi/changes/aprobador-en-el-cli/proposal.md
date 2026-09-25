@@ -36,25 +36,32 @@ humano que lo lanzó.
 ## What Changes
 
 - **Aprobador interactivo cuando hay terminal**: si `stdin` y `stderr` son un
-  TTY, cada `permission/request` se presenta en `stderr` con lo que la bandeja
-  muestra —clase de herramienta, título, rutas, resumen del diff si lo hay— y
-  se lee una tecla: permitir una vez, permitir en esta sesión (misma clase y
-  misma raíz), denegar, o escribir una regla persistente. Las opciones
-  ofrecidas son **las del agente**, nunca inventadas; la decisión vuelve por
-  el mismo RPC que usan GUI y TUI y queda en el log con `decidedBy`.
-- **Sin terminal, la postura de hoy**: `stdin` que no es TTY → denegación por
-  defecto con la advertencia actual. Los scripts que necesiten conceder algo
-  lo dicen donde corresponde: en el archivo de reglas (`permission-rules`) o,
-  cuando `modos-de-autonomia` aterrice, con `--mode`. **Esta change no añade
-  ninguna bandera de política**: un `--yes` sería el bypass que §3 no admite.
+  TTY, cada `permission/request` se presenta en `stderr` con su herramienta, su
+  título, y el comando y la ruta que el agente envió —la bandeja no tiene rutas
+  ni diff, y no se inventan (design D2)— y se lee una tecla: una de las opciones
+  **del agente**, denegar, o aprobar y recordar como regla. «Permitir en esta
+  sesión» aparece exactamente cuando el agente la ofrece: el daemon no tiene
+  concesión de sesión propia y crearla sería cambiar la política (design D3).
+  La decisión queda en el log con `decidedBy: client`, como la de la bandeja.
+- **Sin terminal, la postura de hoy**: `stdin` o `stderr` que no son TTY →
+  denegación por defecto, con un aviso que deja de prometer una release futura
+  y nombra cómo conceder sin humano: el archivo de reglas (`permission-rules`)
+  o `--mode`, que ya existe. **Esta change no añade ninguna bandera de
+  política**: un `--yes` sería el bypass que §3 no admite, y una prueba lo fija.
 - **La espera respeta la política del daemon**: `[permissions] wait` decide
   cuánto se aguarda al humano; el CLI no la reimplementa, solo responde.
+- **El push lleva su id en la cola** (`requestId`, aditivo): sin él, quien
+  responde el push no puede recordar la regla por `permission/decide` ni
+  reconocer que su petición se decidió en otra superficie (design D4).
 - **Interrupción honesta**: `Ctrl+C` durante una petición deniega esa
-  petición y cancela el turno (`session/cancel`), sin dejar la sesión
-  colgada ni procesos huérfanos.
-- **Documentación**: `docs/referencia-cli.md` y `docs/sesion-libre.md` dejan
-  de prometer «una release posterior» y describen las teclas; la matriz de
-  paridad anota que `permission/decide` es consumido también por el CLI.
+  petición, cancela la sesión (`session/cancel`) y el comando termina con
+  `13`, sin dejar la sesión colgada ni procesos huérfanos.
+- **Documentación**: la ayuda de `session` (y con ella
+  `docs/referencia-cli.md`), `docs/sesion-libre.md`, `docs/quickstart.md` y
+  `docs/accesibilidad.md` describen las teclas; la promesa de «una release
+  posterior» vivía solo en el código (`run.rs`), que la retira; la matriz de
+  paridad anota que el CLI responde `permission/request` y usa
+  `permission/decide`.
 
 ## Capabilities
 
@@ -67,16 +74,19 @@ humano que lo lanzó.
 - `cli-contract`: + requisito «Aprobador interactivo en terminal» (TTY →
   pregunta con las opciones del agente; no TTY → denegación por defecto; sin
   bandera de política).
-- `permission-rules`: + escenario de regla creada desde el CLI con el mismo
-  formato y ámbito que desde la bandeja.
+- `permission-rules`: + «La petición en vivo lleva su id en la cola» y «La
+  regla creada desde el terminal es la de la bandeja» (misma propuesta, misma
+  vía, rige desde la siguiente sesión).
 
 ## Impact
 
-- Archivos: `tui/src/run.rs` (el manejador de `Incoming::Request`), un módulo
-  de lectura de teclas sin pantalla completa (el crate de terminal ya
-  presente en `tui/`), `docs/referencia-cli.md`, `docs/sesion-libre.md`,
-  `docs/paridad-nucleo.md`.
-- Cero dependencias nuevas. Ningún RPC nuevo.
+- Archivos: `tui/src/{run.rs, lib.rs, main.rs, approver.rs}` (el manejador de
+  `Incoming::Request` y un módulo de lectura de teclas sin pantalla completa,
+  con el crossterm que `ratatui` ya reexporta), `tui/src/shell/live.rs` (la
+  regla propuesta pasa a una función compartida), `core/meltemid/src/acp.rs`
+  y `proto/` (el `requestId` del push), `core/mock-agent/src/main.rs`
+  (`--titled-permission`), y la documentación nombrada arriba.
+- Cero dependencias nuevas. Ningún RPC nuevo: un campo aditivo en el push.
 - Riesgo real: el aprobador lee teclas mientras `stdout` sigue siendo el
   canal de `--json`. El design separa los canales (preguntas y respuestas por
   `stderr`/TTY; `stdout` intacto) y lo pinea con un test que consume la salida
