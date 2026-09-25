@@ -129,6 +129,21 @@ SUBCOMMANDS:
     version             print the client version
     help                print this help
 
+PERMISSIONS:
+    When stdin and stderr are a terminal, each permission an agent asks for
+    is asked on stderr — never on stdout — with what the agent sent (tool,
+    title, command, path, content) and the agent's own options by number.
+    `d` or Esc denies with the agent's rejection; `r` allows once and
+    remembers the most specific rule (offered only when one can be written,
+    confirmed with `y`, in force from the next session opened without
+    `--mode`); Ctrl+C cancels the session and the command exits 13. A key
+    counts only once the question could be read: keys typed before it, and
+    keys arriving together, answer nothing. A question that expires or is
+    decided elsewhere is withdrawn with its reason.
+    Without a terminal every request is denied with the agent's rejection;
+    to grant without a human, write a rule in .meltemi/permissions.toml or in
+    your global permissions.toml. No flag grants permissions.
+
 GLOBAL FLAGS:
     --json              emit machine-readable JSON on stdout
     --yaml              emit machine-readable YAML on stdout (one of --json/--yaml)

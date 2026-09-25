@@ -67,7 +67,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 3. Gramática y documentación
 
-- [ ] 3.1 La prueba de la gramática fija el conjunto exacto de banderas
+- [x] 3.1 La prueba de la gramática fija el conjunto exacto de banderas
   globales y rechaza las que pretendan conceder permisos (D8); la ayuda de
   `session` describe el aprobador y `docs/referencia-cli.md` se regenera;
   `docs/sesion-libre.md` (sección Terminal), `docs/quickstart.md` y

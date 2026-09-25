@@ -15,6 +15,34 @@ use crate::format::Format;
 
 pub const RESERVED: &[&str] = &[];
 
+/// Every flag the grammar accepts, and no other: anything else that looks like
+/// a flag is refused before it can mean anything. A test pins the exact list,
+/// so adding a flag is a change someone reviews — and none of these grants a
+/// permission. `--mode` is a posture, not a grant: under it a user's deny
+/// prevails and whatever is irreversible still escalates (aprobador-en-el-cli
+/// design D8).
+pub const FLAGS: &[&str] = &[
+    "--",
+    "--json",
+    "--yaml",
+    "--no-color",
+    "--help",
+    "-h",
+    "--version",
+    "-V",
+    "--exec",
+    "--all",
+    "--project",
+    "--since",
+    "--until",
+    "--agent",
+    "--mode",
+    "--model",
+    "--effort",
+    "--branch",
+    "--unique",
+];
+
 /// Help text for the scriptable surface.
 pub const USAGE: &str = "\
 meltemi — spec-driven control plane for coding agents
@@ -136,6 +164,21 @@ SUBCOMMANDS:
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
+
+PERMISSIONS:
+    When stdin and stderr are a terminal, each permission an agent asks for
+    is asked on stderr — never on stdout — with what the agent sent (tool,
+    title, command, path, content) and the agent's own options by number.
+    `d` or Esc denies with the agent's rejection; `r` allows once and
+    remembers the most specific rule (offered only when one can be written,
+    confirmed with `y`, in force from the next session opened without
+    `--mode`); Ctrl+C cancels the session and the command exits 13. A key
+    counts only once the question could be read: keys typed before it, and
+    keys arriving together, answer nothing. A question that expires or is
+    decided elsewhere is withdrawn with its reason.
+    Without a terminal every request is denied with the agent's rejection;
+    to grant without a human, write a rule in .meltemi/permissions.toml or in
+    your global permissions.toml. No flag grants permissions.
 
 GLOBAL FLAGS:
     --json              emit machine-readable JSON on stdout
@@ -401,6 +444,15 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
         if end_of_flags {
             positionals.push(arg.as_str());
             continue;
+        }
+        // A flag the grammar does not list is refused here, whatever a match
+        // arm below might have made of it.
+        if arg.starts_with('-') && arg != "-" && !FLAGS.contains(&arg.as_str()) {
+            return Plan {
+                action: Action::Usage(format!("unknown flag `{arg}`; run `meltemi help`")),
+                format: resolve_format(json, yaml).unwrap_or(Format::Human),
+                no_color,
+            };
         }
         match arg.as_str() {
             "--" => end_of_flags = true,
@@ -2080,6 +2132,74 @@ mod tests {
             plan_of(&["--nope"], false).action,
             Action::Usage(_)
         ));
+    }
+
+    #[test]
+    fn no_flag_grants_permissions() {
+        // Scenario: Ninguna bandera nueva concede permisos
+        //
+        // The shortcuts other tools offer are usage errors here, wherever
+        // they are written…
+        for flag in [
+            "--yes",
+            "-y",
+            "--allow",
+            "--allow-all",
+            "--approve",
+            "--auto-approve",
+            "--trust",
+            "--no-confirm",
+            "--unattended",
+            "--skip-permissions",
+            "--dangerously-skip-permissions",
+        ] {
+            for line in [
+                vec!["session", "do it", flag],
+                vec![flag, "session", "do it"],
+                vec!["propose", "an idea", flag],
+                vec!["implement", "a-change", "an-agent", flag],
+            ] {
+                match plan_of(&line, false).action {
+                    Action::Usage(message) => assert!(message.contains(flag), "{message}"),
+                    other => panic!("`{line:?}` must be a usage error, got {other:?}"),
+                }
+            }
+        }
+        // …and the grammar's flags are exactly these: adding one changes this
+        // test, in front of whoever reviews it.
+        assert_eq!(
+            FLAGS,
+            &[
+                "--",
+                "--json",
+                "--yaml",
+                "--no-color",
+                "--help",
+                "-h",
+                "--version",
+                "-V",
+                "--exec",
+                "--all",
+                "--project",
+                "--since",
+                "--until",
+                "--agent",
+                "--mode",
+                "--model",
+                "--effort",
+                "--branch",
+                "--unique",
+            ]
+        );
+        // Every listed flag is one the grammar knows: none is refused.
+        for flag in FLAGS {
+            if let Action::Usage(message) = plan_of(&["status", flag], false).action {
+                assert!(
+                    !message.starts_with("unknown flag"),
+                    "`{flag}` is listed yet refused: {message}"
+                );
+            }
+        }
     }
 
     #[test]
