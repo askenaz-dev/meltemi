@@ -135,6 +135,11 @@ pub struct SessionOutcome {
     /// `Some` carries a stable English identifier the surfaces translate, never
     /// a sentence (sesion-que-espera design D5).
     pub ended_reason: Option<String>,
+    /// Whether the turn whose status this reports was declared empty
+    /// (turno-vacio-es-error design D2, D3).
+    pub last_turn_empty: bool,
+    /// How many turns of the session were declared empty.
+    pub empty_turns: u32,
 }
 
 /// Runs one ACP turn end to end and returns the mapped stop reason and the
@@ -235,6 +240,9 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
     });
 
     let denials = Arc::new(AtomicU32::new(0));
+    // What the turn in flight carried: reset at every prompt, read when the
+    // answer arrives (turno-vacio-es-error design D1).
+    let carried = Arc::new(AtomicU32::new(0));
 
     // Handler state (the connect_with closure keeps the originals).
     let notif = HandlerState {
@@ -245,6 +253,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         pending: pending.clone(),
         project_root: project_root.clone(),
         denials: denials.clone(),
+        carried: carried.clone(),
         wait,
         no_client_grace,
         clients: clients.clone(),
@@ -261,6 +270,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         pending: pending.clone(),
         project_root: project_root.clone(),
         denials: denials.clone(),
+        carried: carried.clone(),
         wait,
         no_client_grace,
         clients: clients.clone(),
@@ -386,6 +396,8 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                 // identical to the prior single-turn behavior.
                 let mut current_prompt = prompt;
                 let mut idle_reason: Option<&'static str> = None;
+                let mut empty_turns: u32 = 0;
+                let mut last_turn_empty: bool;
                 let final_status = loop {
                     // Human edits since the agent's last turn ride in the prompt
                     // itself (never a push outside ACP — design D4); the drain is
@@ -401,6 +413,13 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                             text: current_prompt.clone(),
                         });
                     }
+                    // A new turn has carried nothing yet. Reset after the prompt
+                    // is on the record and before it is sent, so nothing the
+                    // agent says in answer can land before the reset.
+                    carried.store(0, Ordering::SeqCst);
+                    // Whether anyone asked this turn to stop: a turn a human
+                    // stopped is never the provider's failure (design D2).
+                    let mut stop_requested = false;
 
                     // Send the prompt, racing the client's cancellation. On cancel we
                     // forward an ACP session/cancel and let the agent drain the turn
@@ -418,6 +437,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                     let response = tokio::select! {
                         r = &mut prompt_future => r,
                         _ = cancel.notified() => {
+                            stop_requested = true;
                             let _ = connection
                                 .send_notification(CancelNotification::new(acp_session_id.clone()));
                             (&mut prompt_future).await
@@ -449,6 +469,22 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                         Some(queue) => queue.take_interrupted().await,
                         None => false,
                     };
+                    // The verdict of this turn, written before anything decides
+                    // what comes next, so every turn gets one: the last, the
+                    // intermediate ones, a dispatch, an implement task
+                    // (turno-vacio-es-error design D2). The dispatch loop of the
+                    // connection ran every update handler before this answer
+                    // resolved, so the count is complete.
+                    let stopped = stop_requested || relayed || cancelled.load(Ordering::SeqCst);
+                    last_turn_empty =
+                        turn_was_empty(status, carried.load(Ordering::SeqCst), stopped);
+                    if last_turn_empty {
+                        empty_turns += 1;
+                        let mut log = log.lock().await;
+                        let _ = log.append(SessionEventKind::TurnEmpty {
+                            stop_reason: status,
+                        });
+                    }
                     if cancelled.load(Ordering::SeqCst) || matches!(status, TurnStatus::Cancelled) {
                         if !relayed {
                             if let Some(queue) = &instruction_queue {
@@ -528,7 +564,14 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
                     }
                 };
 
-                Ok((final_status, supports_load, agent_session_id, idle_reason))
+                Ok((
+                    final_status,
+                    supports_load,
+                    agent_session_id,
+                    idle_reason,
+                    last_turn_empty,
+                    empty_turns,
+                ))
             },
         );
 
@@ -563,7 +606,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
     let _ = child.try_status();
     stderr_drain.abort();
 
-    let (status, supports_load, agent_session_id, idle_reason) =
+    let (status, supports_load, agent_session_id, idle_reason, last_turn_empty, empty_turns) =
         result.map_err(|e| anyhow::anyhow!("acp session failed: {e:?}"))?;
     Ok(SessionOutcome {
         status,
@@ -576,7 +619,41 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         ended_reason: idle_reason
             .filter(|reason| *reason != "cancelled")
             .map(str::to_string),
+        last_turn_empty,
+        empty_turns,
     })
+}
+
+/// Whether an update is the agent's work, as opposed to a description of the
+/// session (turno-vacio-es-error design D1).
+///
+/// A message or a thought counts when it has content: text that is not only
+/// whitespace, or anything that is not text at all. A tool call, its update
+/// and a plan always count. The echo of the prompt, the announcements and the
+/// usage report do not. Anything a later protocol adds counts as work, because
+/// the verdict must never blame the provider for a shape Meltemi cannot read.
+pub(crate) fn carries_work(update: &SessionUpdate) -> bool {
+    match update {
+        SessionUpdate::AgentMessageChunk(chunk) | SessionUpdate::AgentThoughtChunk(chunk) => {
+            match &chunk.content {
+                ContentBlock::Text(text) => !text.text.trim().is_empty(),
+                _ => true,
+            }
+        }
+        SessionUpdate::UserMessageChunk(_)
+        | SessionUpdate::AvailableCommandsUpdate(_)
+        | SessionUpdate::CurrentModeUpdate(_)
+        | SessionUpdate::ConfigOptionUpdate(_)
+        | SessionUpdate::SessionInfoUpdate(_)
+        | SessionUpdate::UsageUpdate(_) => false,
+        _ => true,
+    }
+}
+
+/// Whether a turn is declared empty (turno-vacio-es-error design D2): it ended
+/// `completed`, carried nothing, and nobody asked it to stop.
+pub(crate) fn turn_was_empty(status: TurnStatus, carried: u32, stopped: bool) -> bool {
+    status == TurnStatus::Completed && carried == 0 && !stopped
 }
 
 /// Renders an ACP session id as a plain string (it serializes as a string).
@@ -599,6 +676,9 @@ struct HandlerState {
     project_root: PathBuf,
     /// Count of denied permissions this turn.
     denials: Arc<AtomicU32>,
+    /// What the turn in flight carried: every update that is the agent's work,
+    /// and every permission request (turno-vacio-es-error design D1).
+    carried: Arc<AtomicU32>,
     /// The wait policy of this flow (espera-humana D2).
     wait: WaitPolicy,
     /// Reconnect grace before the constitutional no-client deny (D3).
@@ -702,6 +782,9 @@ fn cancelled_resolution() -> Resolution {
 /// belongs to the log itself (lanzador-conversacional D3), so this appends and
 /// nothing more — publishing here as well would deliver every update twice.
 async fn forward_update(state: &HandlerState, notification: SessionNotification) {
+    if carries_work(&notification.update) {
+        state.carried.fetch_add(1, Ordering::SeqCst);
+    }
     // Three of these updates are not only history. They say the session's
     // announcement has changed, and a surface reading the old one offers a
     // lever the agent no longer has — or hides one it just gained. So the
@@ -753,6 +836,8 @@ async fn passthrough_permission(
     state: &HandlerState,
     request: &RequestPermissionRequest,
 ) -> RequestPermissionOutcome {
+    // A question is the agent at work, whatever the answer turns out to be.
+    state.carried.fetch_add(1, Ordering::SeqCst);
     {
         let mut log = state.log.lock().await;
         let _ = log.append(SessionEventKind::PermissionRequested {
@@ -1130,6 +1215,97 @@ fn map_stop_reason(reason: StopReason) -> TurnStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod empty_turn {
+        use super::*;
+        use agent_client_protocol::schema::v1::{
+            AvailableCommandsUpdate, ConfigOptionUpdate, ContentChunk, CurrentModeUpdate,
+            ImageContent, Plan, SessionInfoUpdate, ToolCall, ToolCallUpdate, ToolCallUpdateFields,
+            UsageUpdate,
+        };
+
+        fn said(text: &str) -> SessionUpdate {
+            SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
+                TextContent::new(text),
+            )))
+        }
+
+        #[test]
+        fn any_word_or_action_is_work() {
+            // Scenario: Un turno con cualquier palabra o acción no es vacío
+            assert!(carries_work(&said("done")));
+            assert!(carries_work(&SessionUpdate::ToolCall(ToolCall::new(
+                "t-1",
+                "Read file"
+            ))));
+        }
+
+        #[test]
+        fn thinking_a_tool_update_a_plan_or_an_image_is_work() {
+            // Scenario: Un turno que solo piensa, actualiza una herramienta o su plan no es vacío
+            assert!(carries_work(&SessionUpdate::AgentThoughtChunk(
+                ContentChunk::new(ContentBlock::Text(TextContent::new("considering")))
+            )));
+            assert!(carries_work(&SessionUpdate::ToolCallUpdate(
+                ToolCallUpdate::new("t-1", ToolCallUpdateFields::new())
+            )));
+            assert!(carries_work(&SessionUpdate::Plan(Plan::new(Vec::new()))));
+            assert!(carries_work(&SessionUpdate::AgentMessageChunk(
+                ContentChunk::new(ContentBlock::Image(ImageContent::new("AAAA", "image/png")))
+            )));
+        }
+
+        #[test]
+        fn a_chunk_of_only_whitespace_is_not_work() {
+            // Scenario: Un fragmento de solo espacios no cuenta como trabajo
+            assert!(!carries_work(&said("")));
+            assert!(!carries_work(&said("  \n\t ")));
+            assert!(!carries_work(&SessionUpdate::AgentThoughtChunk(
+                ContentChunk::new(ContentBlock::Text(TextContent::new(" ")))
+            )));
+        }
+
+        #[test]
+        fn what_describes_the_session_is_not_work() {
+            // Scenario: Lo que describe la sesión no cuenta como trabajo
+            for update in [
+                SessionUpdate::UserMessageChunk(ContentChunk::new(ContentBlock::Text(
+                    TextContent::new("the prompt, echoed"),
+                ))),
+                SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(Vec::new())),
+                SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new("default")),
+                SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(Vec::new())),
+                SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()),
+                SessionUpdate::UsageUpdate(UsageUpdate::new(0, 200_000)),
+            ] {
+                assert!(!carries_work(&update), "{update:?}");
+            }
+        }
+
+        #[test]
+        fn only_a_completed_turn_that_carried_nothing_and_was_not_stopped_is_empty() {
+            assert!(turn_was_empty(TurnStatus::Completed, 0, false));
+            assert!(
+                !turn_was_empty(TurnStatus::Completed, 1, false),
+                "it carried something"
+            );
+            assert!(
+                !turn_was_empty(TurnStatus::Completed, 0, true),
+                "a human stopped it, whatever the agent answered"
+            );
+            for status in [
+                TurnStatus::Cancelled,
+                TurnStatus::Refused,
+                TurnStatus::MaxTokens,
+                TurnStatus::MaxTurnRequests,
+            ] {
+                assert!(
+                    !turn_was_empty(status, 0, false),
+                    "{status:?} did not finish"
+                );
+            }
+        }
+    }
 
     /// A queue with a log, for the waiting tests.
     async fn wait_fixture(tag: &str) -> (crate::session::InstructionQueue, std::path::PathBuf) {

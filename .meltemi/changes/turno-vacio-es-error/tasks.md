@@ -25,7 +25,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 2. El daemon mide y declara
 
-- [ ] 2.1 Medición por turno en `acp.rs`: `carries_work` puro con unit tests
+- [x] 2.1 Medición por turno en `acp.rs`: `carries_work` puro con unit tests
   de lo que suma y de lo que no; contador en `HandlerState` sumado en
   `forward_update` y `passthrough_permission`, a cero en cada `PromptSent`;
   veredicto después de tomar el relevo y antes de la rama de cancelación, solo
