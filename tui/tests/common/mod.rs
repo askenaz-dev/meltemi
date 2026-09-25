@@ -5,10 +5,13 @@
 #![allow(dead_code)]
 
 use std::path::PathBuf;
+use std::time::Duration;
 
+use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-use meltemi_client::transport::Listener;
+use meltemi_client::transport::{Listener, Stream};
 use meltemid::server::{DaemonState, serve_until_shutdown};
 
 /// A fresh, process-unique endpoint for an ephemeral test daemon.
@@ -51,4 +54,60 @@ pub async fn spawn_daemon(tag: &str) -> (String, tokio::task::JoinHandle<()>) {
     let state = DaemonState::for_test(tag, shutdown_tx);
     let handle = tokio::spawn(serve_until_shutdown(listener, state, shutdown_rx));
     (endpoint, handle)
+}
+
+/// The test as the daemon (the bridge's pattern): the same listener the daemon
+/// binds, answering from a script what a command asks — for the moments no
+/// real daemon can be made to stage on cue.
+pub struct FakeDaemon {
+    lines: tokio::io::Lines<BufReader<tokio::io::ReadHalf<Stream>>>,
+    write: tokio::io::WriteHalf<Stream>,
+}
+
+impl FakeDaemon {
+    /// Accepts the command's connection.
+    pub async fn accept(listener: &mut Listener) -> Self {
+        let stream = tokio::time::timeout(Duration::from_secs(10), listener.accept())
+            .await
+            .expect("the command dials the endpoint")
+            .expect("accept");
+        let (read, write) = tokio::io::split(stream);
+        Self {
+            lines: BufReader::new(read).lines(),
+            write,
+        }
+    }
+
+    /// Answers the next request, which must be `method`, with `result`.
+    pub async fn answer(&mut self, method: &str, result: Value) {
+        let line = tokio::time::timeout(Duration::from_secs(10), self.lines.next_line())
+            .await
+            .unwrap_or_else(|_| panic!("the command asked for `{method}`"))
+            .expect("read")
+            .expect("a line");
+        let request: Value = serde_json::from_str(&line).expect("a JSON-RPC line");
+        assert_eq!(request["method"], method, "{request}");
+        self.send(json!({ "jsonrpc": "2.0", "id": request["id"], "result": result }))
+            .await;
+    }
+
+    /// Answers `initialize` as a daemon of this protocol version.
+    pub async fn initialize(&mut self) {
+        self.answer(
+            meltemi_proto::methods::INITIALIZE,
+            json!({
+                "protocolVersion": meltemi_proto::PROTOCOL_VERSION,
+                "daemon": { "name": "fake", "version": "0" },
+            }),
+        )
+        .await;
+    }
+
+    /// Sends one message the daemon starts.
+    pub async fn send(&mut self, message: Value) {
+        let mut line = message.to_string();
+        line.push('\n');
+        self.write.write_all(line.as_bytes()).await.expect("write");
+        self.write.flush().await.expect("flush");
+    }
 }

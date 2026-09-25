@@ -657,7 +657,7 @@ pub fn clean(text: &str) -> String {
 }
 
 /// The characters that reorder a line or hide inside it without showing.
-fn is_invisible_format(c: char) -> bool {
+pub(crate) fn is_invisible_format(c: char) -> bool {
     matches!(
         c,
         '\u{061c}'

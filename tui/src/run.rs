@@ -40,6 +40,7 @@ use meltemi_proto::{
 
 use crate::approver::Approver;
 use crate::cli::Command;
+use crate::decide::{NotWaiting, Verdict};
 use crate::format::{Paint, paint};
 use crate::output::{CliError, Outcome};
 
@@ -187,6 +188,17 @@ pub async fn execute(
             "`bridge` is dispatched with the process writer, not through `execute`",
         )),
         Command::Stop => stop(endpoint).await,
+        // The streams write each record to the process's own stdout as it
+        // arrives, so the dispatcher runs them where that writer lives.
+        Command::Watch { .. } | Command::Log { .. } => Err(CliError::internal(
+            "`watch` and `log` are dispatched with the process writer, not through `execute`",
+        )),
+        Command::Permissions => permissions(endpoint).await,
+        Command::Approve { request, option } => {
+            decide(Verdict::Approve, request, option, endpoint).await
+        }
+        Command::Deny { request, option } => decide(Verdict::Deny, request, option, endpoint).await,
+        Command::Cancel { session } => cancel(session, endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
         Command::Reserved(name) => Err(CliError::internal(format!(
@@ -274,7 +286,33 @@ async fn connect_and_init(endpoint: &str) -> Result<(Peer, Background), CliError
         async move { approver.serve(peer, incoming, closing, root).await }
     });
     let background = Background { task, closing };
+    initialize(&peer).await?;
+    Ok((peer, background))
+}
 
+/// Connects (starting the daemon on demand) and performs `initialize`, leaving
+/// everything the daemon sends unasked to the caller: a stream reads it itself
+/// (verbos-del-agent-boss). The receiver must be held while the connection is
+/// used — dropping it stops the connection's reader.
+pub(crate) async fn connect_reading(
+    endpoint: &str,
+) -> Result<
+    (
+        Peer,
+        tokio::sync::mpsc::UnboundedReceiver<meltemi_client::rpc::Incoming>,
+    ),
+    CliError,
+> {
+    let stream = bootstrap::connect_or_start(endpoint)
+        .await
+        .map_err(CliError::unreachable)?;
+    let (peer, incoming) = Peer::start(stream);
+    initialize(&peer).await?;
+    Ok((peer, incoming))
+}
+
+/// The mandatory first request of every connection.
+async fn initialize(peer: &Peer) -> Result<(), CliError> {
     peer.request(
         methods::INITIALIZE,
         &InitializeParams {
@@ -287,8 +325,7 @@ async fn connect_and_init(endpoint: &str) -> Result<(Peer, Background), CliError
     )
     .await
     .map_err(CliError::contract)?;
-
-    Ok((peer, background))
+    Ok(())
 }
 
 async fn status(endpoint: &str) -> Result<Outcome, CliError> {
@@ -1552,6 +1589,159 @@ async fn direct(
         human: render_direct(&value),
         json: value,
     })
+}
+
+/// `cancel`: the interactive `x`, from any shell (verbos-del-agent-boss D9).
+async fn cancel(session: String, endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let outcome = cancel_on(&peer, &session).await;
+    background.finish(&peer).await;
+    outcome
+}
+
+/// A session that is not running is not cancelled — and that is no error: what
+/// was wanted, that it not go on, already holds. A running one gets the
+/// notification, and then `status` on the same connection: the daemon's
+/// connection loop dispatches a notification before it reads the next request,
+/// so the answer sees the cancellation applied and says whether the session
+/// was still closing its turn.
+async fn cancel_on(peer: &Peer, session: &str) -> Result<Outcome, CliError> {
+    use crate::approver::clean;
+    use crate::follow::{find, running, state_word, unknown_session};
+
+    let shown = clean(session);
+    if !running(peer, session).await? {
+        let Some(info) = find(peer, session).await? else {
+            return Err(unknown_session(session));
+        };
+        let state = state_word(&info);
+        return Ok(Outcome {
+            human: format!("session {shown} is not running ({state}) — nothing to cancel"),
+            json: json!({ "sessionId": session, "cancel": "not_running", "state": state }),
+        });
+    }
+    peer.notify(
+        methods::SESSION_CANCEL,
+        &meltemi_proto::SessionCancelParams {
+            session_id: session.to_string(),
+        },
+    );
+    let still = running(peer, session).await?;
+    Ok(Outcome {
+        human: if still {
+            format!(
+                "cancel requested for session {shown} — the agent closes its turn and the \
+                 session ends; follow it with `meltemi watch {shown}`"
+            )
+        } else {
+            format!("cancelled: session {shown} has ended")
+        },
+        json: json!({ "sessionId": session, "cancel": "requested", "running": still }),
+    })
+}
+
+/// `permissions`: what waits for a decision (`permission/pending`), listed with
+/// the options each agent offered — what `approve` and `deny` choose from.
+async fn permissions(endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer.request(methods::PERMISSION_PENDING, &json!({})).await;
+    background.finish(&peer).await;
+
+    let value = response.map_err(CliError::contract)?;
+    let result: meltemi_proto::PermissionPendingResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: crate::decide::render_pending(&result.pending),
+        json: value,
+    })
+}
+
+/// `approve` and `deny`: ONE waiting request, decided with one of the options
+/// its agent offered for it (verbos-del-agent-boss design D2).
+async fn decide(
+    verdict: Verdict,
+    request: String,
+    option: Option<String>,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let outcome = decide_on(&peer, verdict, &request, option.as_deref()).await;
+    background.finish(&peer).await;
+    outcome
+}
+
+/// Reads the request in the queue, chooses among its agent's options, and
+/// decides. The queue is read first because the options are the request's, and
+/// because the daemon takes any id it is sent: holding a typed id to the
+/// agent's list is this verb's job, never the daemon's (design D2).
+async fn decide_on(
+    peer: &Peer,
+    verdict: Verdict,
+    request: &str,
+    option: Option<&str>,
+) -> Result<Outcome, CliError> {
+    use crate::decide::{choose, decided_line, decided_value, not_waiting_message};
+    use meltemi_proto::{
+        PermissionDecideParams, PermissionDecideResult, PermissionDecideStatus,
+        PermissionPendingResult,
+    };
+
+    let queue = peer
+        .request(methods::PERMISSION_PENDING, &json!({}))
+        .await
+        .map_err(CliError::contract)?;
+    let queue: PermissionPendingResult =
+        serde_json::from_value(queue).map_err(CliError::internal)?;
+    let Some(entry) = queue
+        .pending
+        .into_iter()
+        .find(|entry| entry.request_id == request)
+    else {
+        return Err(CliError::denied(
+            "not_waiting",
+            not_waiting_message(request, NotWaiting::Absent),
+        ));
+    };
+    if entry.expired {
+        return Err(CliError::denied(
+            "not_waiting",
+            not_waiting_message(request, NotWaiting::Expired),
+        ));
+    }
+    let choice = choose(verdict, &entry.options, option).map_err(|refusal| {
+        CliError::usage(crate::decide::refusal_message(
+            verdict,
+            request,
+            &entry.options,
+            &refusal,
+        ))
+    })?;
+
+    let answer = peer
+        .request(
+            methods::PERMISSION_DECIDE,
+            &PermissionDecideParams {
+                request_id: entry.request_id.clone(),
+                option_id: choice.option_id().map(str::to_string),
+                persist_rule: None,
+            },
+        )
+        .await
+        .map_err(CliError::contract)?;
+    let answer: PermissionDecideResult =
+        serde_json::from_value(answer).map_err(CliError::internal)?;
+    match answer.status {
+        PermissionDecideStatus::Applied => Ok(Outcome {
+            human: decided_line(verdict, &entry, &choice),
+            json: decided_value(verdict, &entry, &choice),
+        }),
+        // Waiting when read, resolved by another decision before this one
+        // arrived: the first decision wins, and this one says it lost.
+        PermissionDecideStatus::AlreadyResolved => Err(CliError::denied(
+            "not_waiting",
+            not_waiting_message(request, NotWaiting::LostRace),
+        )),
+    }
 }
 
 /// `harness`: what applies, and where each piece comes from.

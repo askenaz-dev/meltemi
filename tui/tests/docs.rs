@@ -166,6 +166,36 @@ fn the_remote_access_frontier_is_documented() {
     );
 }
 
+// Scenario: La receta de aprobar desde el teléfono está documentada
+#[test]
+fn the_phone_approval_recipe_is_documented() {
+    let doc = read(&repo_root(), "docs/acceso-remoto.md");
+    // The recipe itself, as the commands a phone's terminal app runs.
+    for line in [
+        "ssh <tu-pc> meltemi permissions",
+        "ssh <tu-pc> meltemi approve perm-3",
+        "ssh <tu-pc> meltemi watch <sesión>",
+    ] {
+        assert!(doc.contains(line), "the recipe runs `{line}`");
+    }
+    let flat = doc
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    // No tunnel is needed for it, and nothing decides in bulk.
+    assert!(
+        flat.contains("no hace falta túnel"),
+        "the route needs no tunnel"
+    );
+    assert!(flat.contains("nunca en bloque"), "one request at a time");
+    // Where the rest of a request is, since the queue carries tool and title.
+    assert!(
+        flat.contains("meltemi log <sesión>"),
+        "the record has the full call"
+    );
+}
+
 #[test]
 fn the_git_bash_gotcha_is_documented() {
     // Scenario: La trampa de git-bash documentada

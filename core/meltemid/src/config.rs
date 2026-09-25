@@ -1016,11 +1016,16 @@ env = { PROVIDER_CONTEXT_DIR = 'C:/ctx/manual' }
 mod espera_humana_tests {
     use super::*;
 
+    /// Each call gets a directory of its own. Named by the content's length,
+    /// two tests running in parallel that parsed strings of equal length —
+    /// `""` twice — shared one directory, and one deleted it while the other
+    /// was writing (verbos-del-agent-boss 4.2).
     fn parse(toml: &str) -> Config {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!(
             "meltemi-cfg-wait-{}-{}",
             std::process::id(),
-            toml.len()
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         ));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("config.toml"), toml).unwrap();

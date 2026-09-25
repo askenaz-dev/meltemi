@@ -11,7 +11,9 @@
 
 pub mod approver;
 pub mod cli;
+pub mod decide;
 pub mod exit;
+pub mod follow;
 pub mod format;
 pub mod lever;
 pub mod output;
@@ -152,6 +154,18 @@ pub async fn dispatch_with(
                 }
             }
         }
+        // The streams write each record to stdout as it arrives, through the
+        // very guard this process locked (see `run::bridge`), and an error
+        // halfway closes the stream with its error object (verbos-del-agent-boss
+        // design D5).
+        Action::Run(Command::Watch { session }) => {
+            let result = follow::watch(&session, endpoint, format, out, err).await;
+            close_stream(result, format, out, err)
+        }
+        Action::Run(Command::Log { session }) => {
+            let result = follow::log(&session, endpoint, format, out).await;
+            close_stream(result, format, out, err)
+        }
         Action::Run(command) => {
             // A result is not always a success: `validate` findings exit `14`
             // (its `clean` field is the stable signal), and any answer that
@@ -177,6 +191,28 @@ pub async fn dispatch_with(
             } else {
                 code
             }
+        }
+    }
+}
+
+/// Ends a stream: its exit code, and on failure its error — an object on
+/// stdout under a machine format, which closes the records already written
+/// (a YAML stream opens it as a document of its own), or a line on stderr.
+fn close_stream(
+    result: Result<(), CliError>,
+    format: format::Format,
+    out: &mut impl Write,
+    err: &mut impl Write,
+) -> i32 {
+    match result {
+        Ok(()) => ExitCode::Success.code(),
+        Err(error) => {
+            if format == format::Format::Yaml {
+                let _ = writeln!(out, "---");
+            }
+            let _ = render_error(&error, format, out, err);
+            let _ = out.flush();
+            error.exit.code()
         }
     }
 }
