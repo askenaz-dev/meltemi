@@ -93,7 +93,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 4. Cierre
 
-- [ ] 4.1 `meltemi validate turno-vacio-es-error` limpio, `meltemi verify
+- [x] 4.1 `meltemi validate turno-vacio-es-error` limpio, `meltemi verify
   turno-vacio-es-error` completo, gate del workspace (`cargo test --workspace
   --no-fail-fast`, clippy, fmt), estado de la change en
   `docs/plan-de-cambios.md`, y `meltemi land turno-vacio-es-error`
