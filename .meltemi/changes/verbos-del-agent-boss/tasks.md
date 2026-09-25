@@ -16,7 +16,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 2. Decidir
 
-- [ ] 2.1 El núcleo puro de decidir (`tui/src/decide.rs`): la opción de cada
+- [x] 2.1 El núcleo puro de decidir (`tui/src/decide.rs`): la opción de cada
   verbo —la aprobación de una vez cuando es una sola, el rechazo del agente o
   cancelar, `--option` restringido a la clase del verbo y a lo que el agente
   ofreció, con sus rehúsos listando las opciones—, el listado con su resumen,

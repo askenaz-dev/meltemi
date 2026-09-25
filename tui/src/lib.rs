@@ -11,6 +11,7 @@
 
 pub mod approver;
 pub mod cli;
+pub mod decide;
 pub mod exit;
 pub mod format;
 pub mod lever;
