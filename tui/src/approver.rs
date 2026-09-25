@@ -9,13 +9,18 @@
 //! the choices it shares with the shell's tray — so every rule of it is
 //! testable without a terminal or a daemon.
 
+pub mod ask;
 pub mod keys;
+
+use std::collections::{HashMap, VecDeque};
 
 use meltemi_proto::{
     PendingPermission, PermissionOption, PermissionOptionKind, PermissionRequestParams,
     PermissionRule, PermissionRuleEffect, PermissionRuleScope,
 };
 use serde_json::{Map, Value};
+
+pub use ask::Approver;
 
 /// A key as the approver reads it, already translated from whatever the
 /// terminal sent.
@@ -226,6 +231,59 @@ impl Question {
             Some(option) => format!("{} ({})", clean(&option.name), kind_words(option.kind)),
             None => clean(option_id),
         }
+    }
+}
+
+/// The tool calls the sessions streamed to this connection, kept to complete a
+/// question with what the agent already said about the same call (design
+/// D2). Bounded: only the latest calls can be asked about.
+#[derive(Debug, Default)]
+pub struct StreamedCalls {
+    known: HashMap<(String, String), Value>,
+    order: VecDeque<(String, String)>,
+}
+
+impl StreamedCalls {
+    /// How many calls are kept.
+    const KEPT: usize = 256;
+
+    /// Keeps the tool call a `session/event` carries, merged over what was
+    /// known of it, and returns its session and id; `None` for every other
+    /// event.
+    pub fn observe(&mut self, params: &Value) -> Option<(String, String)> {
+        let session = params.get("sessionId")?.as_str()?;
+        let event = params.get("event")?;
+        if event.get("type")?.as_str()? != "agent_update" {
+            return None;
+        }
+        let update = event.get("payload")?.get("update")?;
+        if !matches!(
+            update.get("sessionUpdate")?.as_str()?,
+            "tool_call" | "tool_call_update"
+        ) {
+            return None;
+        }
+        let key = (
+            session.to_string(),
+            update.get("toolCallId")?.as_str()?.to_string(),
+        );
+        let merged = merge_call(self.known.get(&key), update);
+        if self.known.insert(key.clone(), merged).is_none() {
+            self.order.push_back(key.clone());
+            if self.order.len() > Self::KEPT
+                && let Some(oldest) = self.order.pop_front()
+            {
+                self.known.remove(&oldest);
+            }
+        }
+        Some(key)
+    }
+
+    /// What the session streamed for this call, if anything.
+    #[must_use]
+    pub fn get(&self, session_id: &str, tool_call_id: Option<&str>) -> Option<&Value> {
+        self.known
+            .get(&(session_id.to_string(), tool_call_id?.to_string()))
     }
 }
 
@@ -1113,6 +1171,49 @@ mod tests {
         assert!(calls_for_check(&[expired], "perm-1"));
         assert!(calls_for_check(&[], "perm-1"));
         assert!(calls_for_check(&[pending], "perm-2"));
+    }
+
+    #[test]
+    fn streamed_tool_calls_are_kept_by_session_and_id_and_merged() {
+        let mut calls = StreamedCalls::default();
+        let event = |session: &str, update: Value| {
+            json!({ "sessionId": session, "event": {
+                "v": 1, "ts": "t", "type": "agent_update", "payload": { "update": update }
+            } })
+        };
+        let first = json!({
+            "sessionUpdate": "tool_call", "toolCallId": "c1", "title": "ls", "kind": "execute"
+        });
+        assert_eq!(
+            calls.observe(&event("s1", first)),
+            Some(("s1".to_string(), "c1".to_string()))
+        );
+        let update = json!({
+            "sessionUpdate": "tool_call_update", "toolCallId": "c1",
+            "rawInput": { "command": "ls -la" }
+        });
+        calls.observe(&event("s1", update));
+        let known = calls.get("s1", Some("c1")).expect("kept");
+        assert_eq!(known["title"], "ls");
+        assert_eq!(known["rawInput"]["command"], "ls -la");
+
+        // Another session's call, a call without an id, other updates and
+        // other events are not this call.
+        assert_eq!(calls.get("s2", Some("c1")), None);
+        assert_eq!(calls.get("s1", None), None);
+        let chunk = json!({ "sessionUpdate": "agent_message_chunk" });
+        assert_eq!(calls.observe(&event("s1", chunk)), None);
+        let prompt =
+            json!({ "sessionId": "s1", "event": { "type": "prompt_sent", "payload": {} } });
+        assert_eq!(calls.observe(&prompt), None);
+
+        // Bounded: the oldest calls are let go.
+        for n in 0..300 {
+            let call = json!({ "sessionUpdate": "tool_call", "toolCallId": format!("n{n}") });
+            calls.observe(&event("s1", call));
+        }
+        assert_eq!(calls.get("s1", Some("c1")), None);
+        assert!(calls.get("s1", Some("n299")).is_some());
     }
 
     #[test]

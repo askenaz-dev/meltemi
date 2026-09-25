@@ -40,7 +40,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   de crossterm probada por unit test (design D7) — gates: suite de `meltemi`
   (tui), clippy
 
-- [ ] 2.3 El aprobador en el CLI: el bucle que pregunta de a una, confirma con
+- [x] 2.3 El aprobador en el CLI: el bucle que pregunta de a una, confirma con
   `permission/pending`, retira por instantáneas o por `permission/timeout`,
   espera y descarta (tres esperas con teclas → desatendida), persiste por
   `permission/decide`, y ante Ctrl+C cancela primero y responde después (D6,

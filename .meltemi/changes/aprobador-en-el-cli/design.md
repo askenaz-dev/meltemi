@@ -90,11 +90,13 @@ la regla que propone la bandeja (propuesta aparte, D5).
 
 ### D1 — Se pregunta solo donde un terminal puede contestar
 
-El aprobador está activo cuando **stdin y stderr son terminales y el terminal
-admite el modo crudo**, y eso se decide una sola vez, en `main.rs`: la prueba
-entra y sale del modo crudo. En Windows las teclas se leen de la consola y no
-de stdin, así que lo que prueba que la pregunta podrá contestarse es esa
-entrada, no `is_terminal`. La biblioteca (`execute`, `dispatch`) deniega por
+El aprobador está activo cuando **stdin y stderr son terminales**, y eso se
+decide una sola vez, en `main.rs`. En Windows las teclas se leen de la consola
+y no de stdin, así que stdin debe ser una consola de verdad (la comprobación de
+crossterm, que una tubería de un emulador no pasa, a diferencia de
+`is_terminal`). El modo crudo se prueba al abrir la primera pregunta: si el
+terminal lo rechaza, esa petición y las siguientes se deniegan como sin
+terminal, con el mismo aviso. La biblioteca (`execute`, `dispatch`) deniega por
 omisión, como hoy: ninguna prueba en proceso puede quedarse esperando una tecla.
 
 **Un terminal no prueba que haya una persona.** Un script que asigna un

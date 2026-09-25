@@ -204,21 +204,17 @@ impl TerminalKeys {
         Self::default()
     }
 
-    /// Whether this process can read keys from a terminal: stdin and stderr
-    /// are terminals and raw mode can be entered. On Windows the keys come
-    /// from the console, so stdin must be a real console (crossterm's check,
-    /// which a pipe from a terminal emulator does not pass).
+    /// Whether this process has a terminal to ask in: stdin and stderr are
+    /// terminals. On Windows the keys come from the console, so stdin must be
+    /// a real console (crossterm's check, which a pipe from a terminal
+    /// emulator does not pass). Raw mode itself is tried at the first
+    /// question: a terminal that refuses it gets the denial without a
+    /// terminal, then and after.
     #[must_use]
     pub fn available() -> bool {
         use ratatui::crossterm::tty::IsTty;
         use std::io::IsTerminal;
-        if !std::io::stdin().is_tty() || !std::io::stderr().is_terminal() {
-            return false;
-        }
-        if terminal::enable_raw_mode().is_err() {
-            return false;
-        }
-        terminal::disable_raw_mode().is_ok()
+        std::io::stdin().is_tty() && std::io::stderr().is_terminal()
     }
 
     /// Asks the terminal to mark pasted text (Unix): a pasted "1" then reads
@@ -301,6 +297,9 @@ pub enum Scripted {
     Then(Key),
     /// No key until the read is stopped from outside.
     Hold,
+    /// This key, arriving without end and faster than anyone reads — what a
+    /// script feeding a pseudoterminal looks like. Never used up.
+    Stream(Key),
 }
 
 /// How often a source entered and left raw mode.
@@ -329,7 +328,13 @@ impl RawCounts {
 pub struct ScriptedKeys {
     script: VecDeque<Scripted>,
     counts: RawCounts,
+    /// When the hold in progress began: a hold nobody stops ends the source,
+    /// so a test that fails fails instead of hanging.
+    held_since: Option<Instant>,
 }
+
+/// The longest a scripted hold waits to be stopped.
+const HOLD_LIMIT: Duration = Duration::from_secs(20);
 
 impl ScriptedKeys {
     #[must_use]
@@ -337,6 +342,7 @@ impl ScriptedKeys {
         Self {
             script: script.into_iter().collect(),
             counts: RawCounts::default(),
+            held_since: None,
         }
     }
 
@@ -357,11 +363,15 @@ impl KeySource for ScriptedKeys {
         // A hold lasts one read: the one it was stopped from.
         if self.script.front() == Some(&Scripted::Hold) {
             self.script.pop_front();
+            self.held_since = None;
         }
         self.counts.left.fetch_add(1, Ordering::SeqCst);
     }
 
     fn drain(&mut self) -> Vec<Key> {
+        if let Some(Scripted::Stream(key)) = self.script.front().copied() {
+            return vec![key];
+        }
         let mut keys = Vec::new();
         while let Some(Scripted::Early(key) | Scripted::Then(key)) = self.script.front().copied() {
             keys.push(key);
@@ -372,13 +382,23 @@ impl KeySource for ScriptedKeys {
 
     fn poll(&mut self, wait: Duration) -> Result<Option<Key>, SourceGone> {
         match self.script.front().copied() {
+            Some(Scripted::Stream(key)) => Ok(Some(key)),
             Some(Scripted::Key(key) | Scripted::Then(key)) => {
                 self.script.pop_front();
                 Ok(Some(key))
             }
-            // An early key belongs to a question not yet shown, and a hold
-            // waits to be stopped: nothing arrives now.
-            Some(Scripted::Early(_) | Scripted::Hold) => {
+            // A hold waits to be stopped — within reason.
+            Some(Scripted::Hold) => {
+                let since = *self.held_since.get_or_insert_with(Instant::now);
+                if since.elapsed() > HOLD_LIMIT {
+                    return Err(SourceGone);
+                }
+                std::thread::sleep(wait);
+                Ok(None)
+            }
+            // An early key belongs to a question not yet shown: nothing
+            // arrives now.
+            Some(Scripted::Early(_)) => {
                 std::thread::sleep(wait);
                 Ok(None)
             }
@@ -388,6 +408,7 @@ impl KeySource for ScriptedKeys {
 
     fn follows(&mut self, _within: Duration) -> Result<Option<Key>, SourceGone> {
         match self.script.front().copied() {
+            Some(Scripted::Stream(key)) => Ok(Some(key)),
             Some(Scripted::Then(key)) => {
                 self.script.pop_front();
                 Ok(Some(key))

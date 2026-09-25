@@ -8,12 +8,15 @@
 //! [`ExitCode::Contract`]. The endpoint is injected so the mapping is testable
 //! against an ephemeral in-process daemon.
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use serde_json::json;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use meltemi_client::bootstrap;
-use meltemi_client::rpc::{Incoming, Peer, RpcError};
+use meltemi_client::rpc::Peer;
 use meltemi_proto::{
     ChangeLandParams, ChangeLandResult, ChangeListParams, ChangeListResult, ChangeShowParams,
     ChangeShowResult, ChangeWorkspaceParams, ChangeWorkspaceResult, SddValidateParams,
@@ -26,16 +29,16 @@ use meltemi_proto::{
 };
 use meltemi_proto::{
     ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
-    PROTOCOL_VERSION, PeerInfo, PermissionOutcome, PermissionRequestResult, ProposeParams,
-    ProposeResult, SessionListParams, SessionListResult, StatusResult, WorktreeAssignParams,
-    WorktreeAssignResult, WorktreeDiffParams, WorktreeDiffResult, WorktreeListParams,
-    WorktreeListResult, WorktreeTask, methods,
+    PROTOCOL_VERSION, PeerInfo, ProposeParams, ProposeResult, SessionListParams, SessionListResult,
+    StatusResult, WorktreeAssignParams, WorktreeAssignResult, WorktreeDiffParams,
+    WorktreeDiffResult, WorktreeListParams, WorktreeListResult, WorktreeTask, methods,
 };
 use meltemi_proto::{
     EditLogDestination, TreeEditState, WorktreeApplyEditParams, WorktreeApplyEditResult,
     WorktreeDispatchParams, WorktreeDispatchResult,
 };
 
+use crate::approver::Approver;
 use crate::cli::Command;
 use crate::format::{Paint, paint};
 use crate::output::{CliError, Outcome};
@@ -192,14 +195,85 @@ pub async fn execute(
     }
 }
 
-/// Connects (starting the daemon on demand), spawns the background handler for
-/// daemon-initiated traffic, and performs the mandatory `initialize`.
-async fn connect_and_init(endpoint: &str) -> Result<(Peer, JoinHandle<()>), CliError> {
+tokio::task_local! {
+    /// The approver of the command running, and the project its sessions work
+    /// in when a remembered rule may be written for it (aprobador-en-el-cli
+    /// design D5). Set by [`execute_with`]; absent, requests are refused.
+    static APPROVAL: (Approver, Option<String>);
+}
+
+/// Runs one command, answering the permission requests its sessions raise
+/// with `approver`. [`execute`] is this with the approver that refuses
+/// everything: nothing in the library waits for a key on its own.
+pub async fn execute_with(
+    command: Command,
+    endpoint: &str,
+    painting: bool,
+    approver: Approver,
+) -> Result<Outcome, CliError> {
+    let root = remembering_root(&command);
+    APPROVAL
+        .scope((approver, root), execute(command, endpoint, painting))
+        .await
+}
+
+/// The project a remembered rule is written for: only the verbs whose sessions
+/// work at the project root offer to remember, because in a task worktree the
+/// rule would land in the worktree, govern no next session and ride along in
+/// the task's commit (aprobador-en-el-cli design D5).
+fn remembering_root(command: &Command) -> Option<String> {
+    match command {
+        Command::Session { project_root, .. } | Command::Propose { project_root, .. } => {
+            cwd_or(project_root.clone()).ok()
+        }
+        _ => None,
+    }
+}
+
+/// The handler of what the daemon sends a command unasked — its permission
+/// requests above all — and the signal that tells it the command is ending.
+struct Background {
+    task: JoinHandle<()>,
+    closing: Arc<Notify>,
+}
+
+/// How long a command waits for its handler to finish what already arrived.
+const FINISH_GRACE: Duration = Duration::from_secs(3);
+
+impl Background {
+    /// Ends a command's connection without abandoning its approver: the
+    /// handler finishes what already arrived — retiring an open question with
+    /// its reason, leaving raw mode — and only then does the connection close
+    /// (aprobador-en-el-cli design D12). The wait is bounded; past it the
+    /// handler is aborted, and the dispatcher's settling restores the terminal.
+    async fn finish(self, peer: &Peer) {
+        self.closing.notify_one();
+        let abort = self.task.abort_handle();
+        if tokio::time::timeout(FINISH_GRACE, self.task).await.is_err() {
+            abort.abort();
+        }
+        peer.close();
+    }
+}
+
+/// Connects (starting the daemon on demand), spawns the handler for
+/// daemon-initiated traffic — the command's approver — and performs the
+/// mandatory `initialize`.
+async fn connect_and_init(endpoint: &str) -> Result<(Peer, Background), CliError> {
     let stream = bootstrap::connect_or_start(endpoint)
         .await
         .map_err(CliError::unreachable)?;
     let (peer, incoming) = Peer::start(stream);
-    let background = tokio::spawn(handle_incoming(peer.clone(), incoming));
+    let (approver, root) = APPROVAL
+        .try_with(|(approver, root)| (approver.clone(), root.clone()))
+        .unwrap_or_else(|_| (Approver::deny(), None));
+    let closing = Arc::new(Notify::new());
+    let task = tokio::spawn({
+        let peer = peer.clone();
+        let closing = Arc::clone(&closing);
+        async move { approver.serve(peer, incoming, closing, root).await }
+    });
+    let background = Background { task, closing };
 
     peer.request(
         methods::INITIALIZE,
@@ -217,38 +291,10 @@ async fn connect_and_init(endpoint: &str) -> Result<(Peer, JoinHandle<()>), CliE
     Ok((peer, background))
 }
 
-/// Answers daemon-initiated requests. In scriptable mode there is no
-/// interactive approver yet (#6/#9), so permission requests are denied by
-/// default — the safe posture. Rich permission UX arrives in a later change.
-async fn handle_incoming(peer: Peer, mut incoming: UnboundedReceiver<Incoming>) {
-    while let Some(message) = incoming.recv().await {
-        match message {
-            Incoming::Request { id, method, .. } if method == methods::PERMISSION_REQUEST => {
-                eprintln!(
-                    "meltemi: agent requested a permission; denied by default \
-                     (interactive approval arrives in a later release)"
-                );
-                let result = PermissionRequestResult {
-                    outcome: PermissionOutcome::Cancelled,
-                };
-                peer.respond(
-                    id,
-                    Ok(serde_json::to_value(result).expect("decision serializes")),
-                );
-            }
-            Incoming::Request { id, method, .. } => {
-                peer.respond(id, Err(RpcError::method_not_found(&method)));
-            }
-            Incoming::Notification { .. } => {}
-        }
-    }
-}
-
 async fn status(endpoint: &str) -> Result<Outcome, CliError> {
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(methods::STATUS, &json!({})).await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let status: StatusResult = serde_json::from_value(value.clone()).map_err(CliError::internal)?;
@@ -283,8 +329,7 @@ async fn propose(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ProposeResult =
@@ -329,8 +374,7 @@ async fn session(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: meltemi_proto::SessionStartResult =
@@ -391,8 +435,7 @@ async fn link(agent: String, name: String, endpoint: &str) -> Result<Outcome, Cl
             &json!({ "agent": agent, "name": name }),
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let gesture = &value["gesture"];
@@ -416,8 +459,7 @@ async fn unlink(name: String, endpoint: &str) -> Result<Outcome, CliError> {
     let response = peer
         .request(methods::SUBSCRIPTION_UNLINK, &json!({ "name": name }))
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let human = format!(
@@ -439,8 +481,7 @@ async fn fleet(endpoint: &str) -> Result<Outcome, CliError> {
     let response = peer
         .request(methods::FLEET_LIST, &FleetListParams { project_root })
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: FleetListResult =
@@ -473,8 +514,7 @@ async fn project(project_root: Option<String>, endpoint: &str) -> Result<Outcome
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ContextProjectResult =
@@ -503,8 +543,7 @@ async fn sessions(project_root: Option<String>, endpoint: &str) -> Result<Outcom
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: SessionListResult =
@@ -540,8 +579,7 @@ async fn sdd_verb(
 
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(method, &params).await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let phase = value["phase"].as_str().unwrap_or("done");
@@ -576,8 +614,7 @@ async fn review(change: String, endpoint: &str) -> Result<Outcome, CliError> {
             &json!({ "projectRoot": project_root, "changeName": change }),
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     use std::fmt::Write;
@@ -621,8 +658,7 @@ async fn worktrees(project_root: Option<String>, endpoint: &str) -> Result<Outco
     let response = peer
         .request(methods::WORKTREE_LIST, &WorktreeListParams { project_root })
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: WorktreeListResult =
@@ -656,8 +692,7 @@ async fn assign(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: WorktreeAssignResult =
@@ -686,8 +721,7 @@ async fn race(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: WorktreeDiffResult =
@@ -710,8 +744,7 @@ async fn checkpoints(change: Option<String>, endpoint: &str) -> Result<Outcome, 
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: CheckpointListResult =
@@ -743,8 +776,7 @@ async fn revert(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     match response {
         Ok(value) => {
@@ -801,8 +833,7 @@ async fn commit(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: CommitTaskResult =
@@ -825,8 +856,7 @@ async fn verify(change: String, endpoint: &str) -> Result<Outcome, CliError> {
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: SddVerifyResult =
@@ -851,8 +881,7 @@ async fn archive(change: String, confirm: bool, endpoint: &str) -> Result<Outcom
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: SddArchiveResult =
@@ -883,8 +912,7 @@ async fn implement(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: SddImplementResult =
@@ -921,8 +949,7 @@ async fn dispatch(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: WorktreeDispatchResult =
@@ -962,8 +989,7 @@ async fn apply_edit(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: WorktreeApplyEditResult =
@@ -1000,8 +1026,7 @@ async fn projects(endpoint: &str) -> Result<Outcome, CliError> {
             &meltemi_proto::ProjectListParams::default(),
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: meltemi_proto::ProjectListResult =
@@ -1024,8 +1049,7 @@ async fn project_register(path: String, endpoint: &str) -> Result<Outcome, CliEr
             &meltemi_proto::ProjectRegisterParams { root: path },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: meltemi_proto::ProjectRegisterResult =
@@ -1053,8 +1077,7 @@ async fn project_forget(path: String, endpoint: &str) -> Result<Outcome, CliErro
             &meltemi_proto::ProjectForgetParams { root: path.clone() },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: meltemi_proto::ProjectForgetResult =
@@ -1134,8 +1157,7 @@ async fn usage(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: meltemi_proto::AnalyticsUsageResult =
@@ -1261,8 +1283,7 @@ async fn changes(endpoint: &str, painting: bool) -> Result<Outcome, CliError> {
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ChangeListResult =
@@ -1285,8 +1306,7 @@ async fn show(change: String, endpoint: &str) -> Result<Outcome, CliError> {
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ChangeShowResult =
@@ -1318,8 +1338,7 @@ async fn workspace(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ChangeWorkspaceResult =
@@ -1350,8 +1369,7 @@ async fn land(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ChangeLandResult =
@@ -1375,8 +1393,7 @@ async fn specs(
             let response = peer
                 .request(methods::SPEC_LIST, &SpecListParams { project_root })
                 .await;
-            peer.close();
-            background.abort();
+            background.finish(&peer).await;
             let value = response.map_err(CliError::contract)?;
             let result: SpecListResult =
                 serde_json::from_value(value.clone()).map_err(CliError::internal)?;
@@ -1392,8 +1409,7 @@ async fn specs(
                     },
                 )
                 .await;
-            peer.close();
-            background.abort();
+            background.finish(&peer).await;
             let value = response.map_err(CliError::contract)?;
             let result: SpecShowResult =
                 serde_json::from_value(value.clone()).map_err(CliError::internal)?;
@@ -1415,8 +1431,7 @@ async fn validate(change: Option<String>, endpoint: &str) -> Result<Outcome, Cli
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: SddValidateResult =
@@ -1430,8 +1445,7 @@ async fn validate(change: Option<String>, endpoint: &str) -> Result<Outcome, Cli
 async fn stop(endpoint: &str) -> Result<Outcome, CliError> {
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(methods::SHUTDOWN, &json!({})).await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     response.map_err(CliError::contract)?;
     Ok(Outcome {
@@ -1460,8 +1474,7 @@ async fn direct(
             }),
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     Ok(Outcome {
@@ -1483,8 +1496,7 @@ async fn harness(agent: Option<String>, endpoint: &str) -> Result<Outcome, CliEr
         params["agent"] = json!(agent);
     }
     let response = peer.request(methods::HARNESS_EFFECTIVE, &params).await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     Ok(Outcome {
@@ -1572,8 +1584,7 @@ async fn set_option(
             }),
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     Ok(Outcome {
