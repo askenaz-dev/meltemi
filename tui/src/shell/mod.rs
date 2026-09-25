@@ -589,6 +589,7 @@ mod tests {
                     queue_position: Some(2),
                     status: None,
                     denied_permissions: 0,
+                    empty_turn: false,
                 })
                 .expect("result serializes"),
                 Lang::Es,

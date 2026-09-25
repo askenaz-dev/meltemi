@@ -72,7 +72,12 @@
         "humanEdits": { "type": "integer", "minimum": 0 },
         "commits": { "type": "integer", "minimum": 0 },
         "checkpoints": { "type": "integer", "minimum": 0 },
-        "errors": { "type": "integer", "minimum": 0 }
+        "errors": { "type": "integer", "minimum": 0 },
+        "emptyTurns": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Turns declared empty in the folded records: closed as finished having said and done nothing."
+        }
       }
     },
     "tokens": {

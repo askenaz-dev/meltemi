@@ -212,7 +212,12 @@
         "changedFiles": { "type": "array", "items": { "type": "string" } },
         "status": { "type": "string", "enum": ["completed", "cancelled", "refused", "max_tokens", "max_turn_requests"] },
         "taskTicked": { "type": "boolean", "const": false },
-        "sessionId": { "type": "string", "minLength": 1 }
+        "sessionId": { "type": "string", "minLength": 1 },
+        "emptyTurn": {
+          "type": "boolean",
+          "const": true,
+          "description": "Present, and true, only when the turn whose status this reports ended having said and done nothing. The status stays what the agent reported."
+        }
       }
     }
   }

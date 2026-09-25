@@ -288,7 +288,7 @@ async fn serve_connection(
                     project_context(&peer, updates, scope.as_deref()).await
                 }
                 Some(Command::FetchSessionLog { session_id, project_root }) => {
-                    fetch_session_log(&peer, updates, &session_id, &project_root).await;
+                    fetch_session_log(&peer, updates, &session_id, &project_root, lang).await;
                 }
                 Some(Command::Direct { session_id, project_root, instruction, interrupt }) => {
                     // Not awaited here, and the reason is the resume branch:
@@ -508,6 +508,7 @@ async fn fetch_session_log(
     updates: &UnboundedSender<Update>,
     session_id: &str,
     project_root: &str,
+    lang: Lang,
 ) {
     let params = SessionLogParams {
         project_root: project_root.to_string(),
@@ -518,7 +519,11 @@ async fn fetch_session_log(
     if let Ok(value) = peer.request(methods::SESSION_LOG, &params).await
         && let Ok(result) = serde_json::from_value::<SessionLogResult>(value)
     {
-        let lines = result.lines.iter().map(|l| summarize_log_line(l)).collect();
+        let lines = result
+            .lines
+            .iter()
+            .map(|l| summarize_log_line(l, lang))
+            .collect();
         let _ = updates.send(Update::SessionLog {
             session_id: result.session_id,
             lines,
@@ -526,12 +531,17 @@ async fn fetch_session_log(
     }
 }
 
-/// Summarizes one raw JSONL session-event line into a transcript row.
-fn summarize_log_line(line: &str) -> String {
+/// Summarizes one raw JSONL session-event line into a transcript row. An
+/// empty turn is said in words, as in the live transcript, and never left as
+/// the raw event name (turno-vacio-es-error design D6).
+fn summarize_log_line(line: &str, lang: Lang) -> String {
     match serde_json::from_str::<Value>(line) {
         Ok(event) => {
             let kind = event.get("type").and_then(Value::as_str).unwrap_or("event");
             let ts = event.get("ts").and_then(Value::as_str).unwrap_or("");
+            if kind == "turn_empty" {
+                return format!("{ts}  {}", text(Msg::EmptyTurn, lang));
+            }
             format!("{ts}  {kind}")
         }
         Err(_) => line.to_string(),
@@ -796,6 +806,11 @@ fn summarize_event(params: &Value, lang: Lang) -> Option<String> {
         .and_then(|e| e.get("type"))
         .and_then(Value::as_str)
         .unwrap_or("event");
+    // A turn that carried nothing is a state of the turn, said in words with
+    // its remedy (turno-vacio-es-error design D6).
+    if kind == "turn_empty" {
+        return Some(format!("[{session}] {}", text(Msg::EmptyTurn, lang)));
+    }
     let said = event
         .and_then(|e| e.get("payload"))
         .and_then(|p| said_by_agent(p, lang));
@@ -871,6 +886,7 @@ mod tests {
             queue_position: Some(2),
             status: None,
             denied_permissions: 0,
+            empty_turn: false,
         })
         .expect("serializes");
         let notice = direct_notice(&queued, Lang::Es);
@@ -892,6 +908,7 @@ mod tests {
             queue_position: None,
             status: Some(TurnStatus::Completed),
             denied_permissions: 0,
+            empty_turn: false,
         })
         .expect("serializes");
         let notice = direct_notice(&resumed, Lang::En);
@@ -915,6 +932,47 @@ mod tests {
         assert!(
             notice.contains("s-9") && notice.contains("meltemi sessions"),
             "the diagnosis and the remedy are the daemon's, and both survive: {notice}"
+        );
+    }
+
+    // Scenario: El transcript nombra el turno vacío
+    #[test]
+    fn the_live_transcript_names_an_empty_turn_with_its_remedy() {
+        let event = serde_json::json!({
+            "sessionId": "s-1",
+            "event": { "type": "turn_empty", "payload": { "stopReason": "completed" } }
+        });
+        let es = summarize_event(&event, Lang::Es).expect("a line");
+        assert!(es.starts_with("[s-1] turno vacío"), "{es}");
+        assert!(
+            es.contains("proveedor") && es.contains("credenciales"),
+            "{es}"
+        );
+        let en = summarize_event(&event, Lang::En).expect("a line");
+        assert!(en.starts_with("[s-1] empty turn"), "{en}");
+        assert!(!en.contains("turn_empty"), "never the raw event name: {en}");
+    }
+
+    // Scenario: El detalle histórico nombra el turno vacío
+    #[test]
+    fn the_historical_detail_names_an_empty_turn_with_its_remedy() {
+        let line = r#"{"v":1,"ts":"2026-09-24T10:00:00Z","type":"turn_empty","payload":{"stopReason":"completed"}}"#;
+        let es = summarize_log_line(line, Lang::Es);
+        assert!(es.contains("2026-09-24T10:00:00Z  turno vacío"), "{es}");
+        assert!(
+            es.contains("credenciales") && !es.contains("turn_empty"),
+            "{es}"
+        );
+        let en = summarize_log_line(line, Lang::En);
+        assert!(
+            en.contains("empty turn") && en.contains("credentials"),
+            "{en}"
+        );
+        // Any other event keeps its type line, as before.
+        let other = r#"{"v":1,"ts":"2026-09-24T10:00:01Z","type":"turn_completed","payload":{}}"#;
+        assert_eq!(
+            summarize_log_line(other, Lang::Es),
+            "2026-09-24T10:00:01Z  turn_completed"
         );
     }
 

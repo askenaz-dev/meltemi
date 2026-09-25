@@ -194,3 +194,40 @@ test("Conmutar entre conversación y log de operador", () => {
   const ids = fold(feed).flatMap((item) => item.eventIds);
   assert.deepEqual(ids, feed.map((one) => one.id));
 });
+
+test("El turno vacío se lee en la conversación", () => {
+  // As the daemon logs it (turno-vacio-es-error): the prompt, what describes
+  // the session, the verdict, and the close that keeps the agent's reason.
+  const items = fold([
+    event("prompt_sent", { text: "arregla el build" }),
+    event("agent_update", {
+      update: { sessionUpdate: "available_commands_update", availableCommands: [] },
+    }),
+    event("turn_empty", { stopReason: "completed" }),
+    event("turn_completed", { stopReason: "completed" }),
+  ]);
+  const empty = items.filter((item) => item.kind === "empty");
+  assert.equal(empty.length, 1, "the verdict is its own item");
+  if (empty[0].kind !== "empty") return;
+  assert.equal(empty[0].stopReason, "completed");
+  assert.equal(
+    items.some((item) => item.kind === "system" && item.type === "turn_empty"),
+    false,
+    "and not a neutral system line",
+  );
+  // Nothing is dropped: every event is accounted for exactly once.
+  const accounted = items.flatMap((item) => item.eventIds).sort((a, b) => a - b);
+  assert.equal(new Set(accounted).size, 4);
+});
+
+test("Un turno con salida no muestra el aviso", () => {
+  const items = fold([
+    event("prompt_sent", { text: "arregla el build" }),
+    chunk("listo"),
+    event("turn_completed", { stopReason: "completed" }),
+  ]);
+  assert.equal(
+    items.some((item) => item.kind === "empty"),
+    false,
+  );
+});

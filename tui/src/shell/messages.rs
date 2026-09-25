@@ -94,6 +94,9 @@ pub enum Msg {
     ProjectRegistryHint,
     ProjectPresent,
     ProjectAbsent,
+    /// A turn the agent closed having said and done nothing, with the remedy
+    /// (turno-vacio-es-error design D6).
+    EmptyTurn,
 }
 
 /// The text of a message in a language. Never empty.
@@ -310,6 +313,14 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         (Msg::ProjectPresent, Lang::En) => "present",
         (Msg::ProjectAbsent, Lang::Es) => "ausente",
         (Msg::ProjectAbsent, Lang::En) => "missing",
+        (Msg::EmptyTurn, Lang::Es) => {
+            "turno vacío — el agente terminó sin decir ni hacer nada; si no lo esperabas, \
+             pruébalo por su cuenta y revisa su proveedor y sus credenciales"
+        }
+        (Msg::EmptyTurn, Lang::En) => {
+            "empty turn — the agent ended without saying or doing anything; if you did not \
+             expect that, try it on its own and check its provider and credentials"
+        }
     }
 }
 
@@ -379,6 +390,7 @@ pub const ALL: &[Msg] = &[
     Msg::ProjectRegistryHint,
     Msg::ProjectPresent,
     Msg::ProjectAbsent,
+    Msg::EmptyTurn,
 ];
 
 #[cfg(test)]

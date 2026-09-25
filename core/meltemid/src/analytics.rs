@@ -75,6 +75,8 @@ struct SessionFacts {
     commits: u32,
     checkpoints: u32,
     errors: u32,
+    /// Turns declared empty (turno-vacio-es-error design D7).
+    empty_turns: u32,
     /// The effective binary, when the log recorded a resolution.
     binary: Option<String>,
     level: Option<u8>,
@@ -116,6 +118,7 @@ fn merge_activity(into: &mut UsageActivity, from: &UsageActivity) {
     into.commits += from.commits;
     into.checkpoints += from.checkpoints;
     into.errors += from.errors;
+    into.empty_turns += from.empty_turns;
 }
 
 /// The period label of a timestamp at the requested grain. RFC 3339 timestamps
@@ -235,6 +238,7 @@ fn facts_of_log(path: &Path) -> SessionFacts {
                     .unwrap_or_else(|| "unknown".into());
                 *facts.turns.entry(key).or_default() += 1;
             }
+            SessionEventKind::TurnEmpty { .. } => facts.empty_turns += 1,
             SessionEventKind::PermissionRequested { .. } => facts.permissions_requested += 1,
             SessionEventKind::PermissionDecided {
                 mode: None,
@@ -580,6 +584,7 @@ fn accumulate(bucket: &mut Bucket, record: &SessionRecord, facts: &SessionFacts)
     activity.commits += facts.commits;
     activity.checkpoints += facts.checkpoints;
     activity.errors += facts.errors;
+    activity.empty_turns += facts.empty_turns;
 
     if bucket.agent_id.is_none() {
         bucket.agent_id = record.agent_id.clone();
@@ -861,6 +866,90 @@ mod tests {
                 sessions: 1
             }]
         );
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[test]
+    fn empty_turns_are_counted_per_cell_and_in_the_totals() {
+        // Scenario: La actividad cuenta los turnos vacíos
+        let data = temp("empty-turns");
+        write(
+            &data,
+            "k",
+            &[
+                record(
+                    "silent",
+                    "2026-09-24T10:00:00Z",
+                    Some("2026-09-24T10:01:00Z"),
+                    Some("work"),
+                ),
+                record(
+                    "worked",
+                    "2026-09-24T11:00:00Z",
+                    Some("2026-09-24T11:01:00Z"),
+                    Some("personal"),
+                ),
+            ],
+        );
+        let dir = session_index::sessions_dir(&data, "k");
+        log(
+            &dir,
+            "silent",
+            &[
+                (
+                    "prompt_sent",
+                    "2026-09-24T10:00:01Z",
+                    r#"{"text":"fix it"}"#,
+                ),
+                (
+                    "turn_empty",
+                    "2026-09-24T10:00:02Z",
+                    r#"{"stopReason":"completed"}"#,
+                ),
+                ("prompt_sent", "2026-09-24T10:00:03Z", r#"{"text":"again"}"#),
+                (
+                    "turn_empty",
+                    "2026-09-24T10:00:04Z",
+                    r#"{"stopReason":"completed"}"#,
+                ),
+                (
+                    "turn_completed",
+                    "2026-09-24T10:00:05Z",
+                    r#"{"stopReason":"completed"}"#,
+                ),
+            ],
+        );
+        log(
+            &dir,
+            "worked",
+            &[
+                (
+                    "prompt_sent",
+                    "2026-09-24T11:00:01Z",
+                    r#"{"text":"fix it"}"#,
+                ),
+                (
+                    "turn_completed",
+                    "2026-09-24T11:00:05Z",
+                    r#"{"stopReason":"completed"}"#,
+                ),
+            ],
+        );
+        let result = aggregate(&data, &AnalyticsUsageParams::default()).expect("aggregate");
+        let cell = |profile: &str| {
+            result
+                .cells
+                .iter()
+                .find(|cell| cell.profile.as_deref() == Some(profile))
+                .unwrap_or_else(|| panic!("a cell for {profile}: {result:#?}"))
+        };
+        assert_eq!(cell("work").activity.empty_turns, 2);
+        assert_eq!(
+            cell("personal").activity.empty_turns,
+            0,
+            "a cell without empty turns reports zero"
+        );
+        assert_eq!(result.totals.activity.empty_turns, 2);
         let _ = std::fs::remove_dir_all(&data);
     }
 

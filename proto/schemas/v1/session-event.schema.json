@@ -329,6 +329,18 @@
         },
         {
           "properties": {
+            "type": { "const": "turn_empty" },
+            "payload": {
+              "type": "object",
+              "required": ["stopReason"],
+              "properties": {
+                "stopReason": { "$ref": "#/$defs/turnStatus" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "type": { "const": "turn_interrupted" },
             "payload": {
               "type": "object",

@@ -266,7 +266,7 @@ exportar sesión) → `escritorio-que-recuerda`; `paleta-que-encuentra` +
 | Orden | Change | Vía | Brechas | Por qué aquí | Depende de |
 |---|---|---|---|---|---|
 | 1º | ✅ `codex-al-dia` | completa · **implementada** (17/17, verify 40/40) | AI-1 | Codex no arranca con ninguna versión (0.77: modelo de cuenta; 0.156: user agent que el adaptador no lee). Cerrada: re-anclada a 0.156.1 con compuerta estricta verificada, y la corrida real del 2026-09-25 le re-otorgó el nivel 2 | — |
-| 2º | `turno-vacio-es-error` | rápida | AI-11 | un turno sin mensajes ni herramientas se reportó como éxito | — |
+| 2º | ✅ `turno-vacio-es-error` | completa (el código de salida `15` modifica la taxonomía viva) · **implementada** (10/10, verify 29/29) | AI-11 | un turno sin mensajes ni herramientas se reportó como éxito. Cerrada: el daemon mide cada turno y escribe `turn_empty` salvo que un humano lo detuviera; cinco respuestas llevan `emptyTurn`; el CLI sale con `15`; GUI, TUI y la analítica lo muestran | — |
 | 3º | `aprobador-en-el-cli` | completa | AI-12 | el CLI deniega todo permiso: con Claude Code solo sirve para charlar | — |
 | 4º | `modelo-por-opcion-anunciada` | completa | LM-3, LM-6 | `--model` rehusado a un agente que anuncia modelos; el `model` del perfil se pierde en propose/dispatch/implement | — |
 | 5º | `usage-desde-acp` | rápida | LM-7 | `usage_update` está en el log y `usage` dice «no reportado» | — |

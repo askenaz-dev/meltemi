@@ -4475,6 +4475,56 @@ fn the_conversation_is_a_fold_over_the_log_that_drops_nothing() {
     );
 }
 
+// Scenario: El turno vacío se lee en la conversación
+// Scenario: Un turno con salida no muestra el aviso
+#[test]
+fn an_empty_turn_is_told_as_a_state_with_a_glyph_a_word_and_a_remedy() {
+    // The fold's grammar is executed by `conversation.test.ts`; this pins the
+    // cases and that the view renders the item it produces (turno-vacio-es-error
+    // design D5).
+    let tests = read("desktop/ui/tests/conversation.test.ts");
+    for case in [
+        "El turno vacío se lee en la conversación",
+        "Un turno con salida no muestra el aviso",
+    ] {
+        assert!(
+            tests.contains(case),
+            "the fold has an executed case for: {case}"
+        );
+    }
+    let fold = read("desktop/ui/src/lib/conversation.ts");
+    assert!(
+        fold.contains("event.type === \"turn_empty\"") && fold.contains("kind: \"empty\""),
+        "the fold reads the verdict as its own item"
+    );
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    let block = detail
+        .split("{:else if item.kind === \"empty\"}")
+        .nth(1)
+        .expect("the conversation renders the empty-turn item")
+        .split("{:else if")
+        .next()
+        .expect("its block");
+    for piece in [
+        "∅",
+        "$t(\"conv.emptyTurn\")",
+        "$t(\"conv.emptyTurn.remedy\")",
+    ] {
+        assert!(
+            block.contains(piece),
+            "a glyph, a word and the remedy, never colour alone: {piece}"
+        );
+    }
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    for key in ["\"conv.emptyTurn\":", "\"conv.emptyTurn.remedy\":"] {
+        assert_eq!(
+            messages.matches(key).count(),
+            2,
+            "both languages carry {key}"
+        );
+    }
+}
+
 // Scenario: El conmutador no pierde nada
 // Scenario: Conmutar entre conversación y log de operador
 #[test]

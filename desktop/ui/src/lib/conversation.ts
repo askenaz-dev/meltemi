@@ -81,7 +81,20 @@ export interface SystemLine extends Accounted {
   text: string;
 }
 
-export type ConversationItem = HumanTurn | AgentTurn | PermissionCard | SystemLine;
+/**
+ * A turn the agent closed as finished having said and done nothing
+ * (turno-vacio-es-error design D5). Its own item, not a neutral system line:
+ * the conversation says it as a state of the turn, with a word and a remedy.
+ */
+export interface EmptyTurn extends Accounted {
+  kind: "empty";
+  id: number;
+  ts: string;
+  /** The stop reason the agent reported, which the verdict never changes. */
+  stopReason: string | null;
+}
+
+export type ConversationItem = HumanTurn | AgentTurn | PermissionCard | EmptyTurn | SystemLine;
 
 /** The events that close an agent turn. `turn_completed` carries its reason. */
 const CLOSERS = new Set(["turn_completed", "session_cancelled", "session_ended", "error"]);
@@ -295,6 +308,18 @@ export function fold(events: FoldEvent[]): ConversationItem[] {
       }
       // A decision with no request in view still has to be seen.
       system(event);
+      continue;
+    }
+
+    if (event.type === "turn_empty") {
+      open = null;
+      items.push({
+        kind: "empty",
+        id: event.id,
+        ts: event.ts,
+        stopReason: str(payload.stopReason),
+        eventIds: [event.id],
+      });
       continue;
     }
 

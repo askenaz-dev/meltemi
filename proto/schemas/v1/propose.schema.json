@@ -49,6 +49,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "How many of the agent's permission requests were denied during the turn (rule, human, or timeout/default). Greater than zero means the artifact may be incomplete. Absent is equivalent to 0."
+        },
+        "emptyTurn": {
+          "type": "boolean",
+          "const": true,
+          "description": "Present, and true, only when the turn whose status this reports ended having said and done nothing. The status stays what the agent reported."
         }
       }
     }

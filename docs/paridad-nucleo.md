@@ -103,6 +103,29 @@ and the one that declines it declines it for a stated reason, in its own help.
 It becomes a break the day the CLI gains a way to read the stream and still does
 not offer this (sesion-que-espera design D3).
 
+### The empty-turn verdict, and where each surface reads it
+
+A turn the agent closes as finished having said and done nothing, and that
+nobody stopped, is declared empty (turno-vacio-es-error). The verdict has two
+carriers, and every surface reads the one it already lives off:
+
+| Carrier | CLI | TUI | GUI |
+|---|---|---|---|
+| `turn_empty` in the session log (every turn, every runner) | — (the CLI does not read the stream; see `detach` above) | a line in words, live and in the historical detail | a state of the turn in the conversation (`∅`, a word, the remedy) and a glyph in the operator log |
+| `emptyTurn` in an answer that reports a turn's status | any answer carrying it exits `15` and warns on stderr, whichever verb got it | — (the shell starts no sessions of its own yet) | — (the desktop starts sessions detached, so its answers carry no status) |
+
+Some answers carry no verdict by declaration, and the log is the source there:
+a detached `session/start`, a queued or relayed `session/direct`,
+`sdd/review-decide` (it discards the answer of the gate it triggers) and
+`sdd/implement` (a task whose turn was empty is already reported `pending`).
+
+The activity counts the verdicts too: `emptyTurns` in `analytics/usage` is shown
+by `meltemi usage` when it is not zero and by the Usage view as one more column.
+The TUI's `usage` home stays reserved, as it is for the rest of the activity.
+
+This is **not** a §4 break: the capability is the verdict, and it reaches all
+three surfaces; each reads it from the carrier it already consumes.
+
 ## Infrastructure
 
 | Method | Role |

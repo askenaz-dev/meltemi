@@ -1196,6 +1196,15 @@ fn render_usage(result: &meltemi_proto::AnalyticsUsageResult) -> String {
                 measured(cell.tokens.as_ref().and_then(|t| t.input)),
                 measured(cell.tokens.as_ref().and_then(|t| t.output)),
             );
+            // Only when there are any: a zero on every line would be noise
+            // (turno-vacio-es-error design D7).
+            if cell.activity.empty_turns > 0 {
+                let _ = write!(
+                    out,
+                    "\n             {} empty turn(s): the agent ended without saying or doing anything",
+                    cell.activity.empty_turns
+                );
+            }
             if cell.coverage.unreported_sessions > 0 {
                 let reasons: Vec<String> = cell
                     .coverage
@@ -2509,6 +2518,47 @@ fn render_race(result: &WorktreeDiffResult) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn usage_names_the_empty_turns_only_where_there_are_some() {
+        // Scenario: Las superficies muestran los turnos vacíos
+        let activity = |empty: u32| {
+            serde_json::json!({
+                "sessions": 1, "sessionsClosed": 1, "sessionsOpen": 0,
+                "activeSeconds": 10, "prompts": 1, "permissionsRequested": 0,
+                "permissionsApproved": 0, "permissionsDenied": 0,
+                "permissionsExpired": 0, "humanEdits": 0, "commits": 0,
+                "checkpoints": 0, "errors": 0, "emptyTurns": empty
+            })
+        };
+        let cell = |profile: &str, empty: u32| {
+            serde_json::json!({
+                "projectKey": "k", "projectRoot": "/repo", "agent": "opencode",
+                "profile": profile, "period": "2026-09", "activity": activity(empty),
+                "coverage": { "measuredSessions": 0, "unreportedSessions": 0, "reasons": [] }
+            })
+        };
+        let result: meltemi_proto::AnalyticsUsageResult =
+            serde_json::from_value(serde_json::json!({
+                "cells": [cell("free", 2), cell("paid", 0)],
+                "unattributed": [],
+                "totals": {
+                    "cells": 2,
+                    "activity": activity(2),
+                    "coverage": { "measuredSessions": 0, "unreportedSessions": 0 }
+                },
+                "truncated": false,
+                "disclosure": []
+            }))
+            .expect("a usage answer");
+        let out = super::render_usage(&result);
+        assert_eq!(
+            out.matches("empty turn(s)").count(),
+            1,
+            "named once, for the cell that has them: {out}"
+        );
+        assert!(out.contains("2 empty turn(s)"), "{out}");
+    }
+
     #[test]
     fn the_fleet_says_which_version_a_level_was_verified_against() {
         // Scenario: El catálogo nombra la versión medida

@@ -65,6 +65,11 @@
           "minimum": 0,
           "description": "How many of the agent's permission requests were denied during the turn (by rule, by the human, or by timeout/default). Greater than zero means the work may be incomplete."
         },
+        "emptyTurn": {
+          "type": "boolean",
+          "const": true,
+          "description": "Present, and true, only when the turn whose status this reports ended having said and done nothing. The status stays what the agent reported."
+        },
         "checkpointRef": {
           "type": "string",
           "minLength": 1,

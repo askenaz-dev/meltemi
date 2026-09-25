@@ -89,6 +89,7 @@
     config_options_announced: { glyph: "◎", tone: "faint" },
     turn_completed: { glyph: "■", tone: "ok" },
     turn_interrupted: { glyph: "⤳", tone: "accent" },
+    turn_empty: { glyph: "∅", tone: "warn" },
     checkpoint_created: { glyph: "·", tone: "info" },
     checkpoint_restored: { glyph: "·", tone: "info" },
     agent_resolved: { glyph: "·", tone: "faint" },
@@ -908,6 +909,18 @@
               </span>
             {/if}
           </div>
+        {:else if item.kind === "empty"}
+          <!-- The agent closed its turn having said and done nothing: a state
+               of the turn, told with a glyph and a word, never colour alone,
+               and with a remedy that stays conditional (turno-vacio-es-error
+               design D5). -->
+          <div class="emptyTurn" role="note">
+            <span class="glyph" aria-hidden="true">∅</span>
+            <div>
+              <p class="emptyHead">{$t("conv.emptyTurn")}</p>
+              <p class="cardMeta">{$t("conv.emptyTurn.remedy")}</p>
+            </div>
+          </div>
         {:else if item.kind === "permission"}
           {@const live = item.id === liveCard}
           <div class="card" class:resolved={item.decided !== null || !live}>
@@ -1370,6 +1383,24 @@
   }
   .card.resolved {
     border-color: var(--hair);
+  }
+  .emptyTurn {
+    margin: var(--sp-1) var(--sp-3);
+    display: flex;
+    gap: var(--sp-2);
+    align-items: baseline;
+    border: 1px dashed var(--warn);
+    border-radius: var(--radius-panel);
+    padding: var(--sp-2) var(--sp-3);
+  }
+  .emptyTurn .glyph {
+    color: var(--warn);
+  }
+  .emptyHead {
+    margin: 0;
+    font-size: var(--fs-caption);
+    font-weight: 600;
+    color: var(--warn);
   }
   .cardHead {
     display: flex;

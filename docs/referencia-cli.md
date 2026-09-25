@@ -148,3 +148,4 @@ GLOBAL FLAGS:
 - `12` — denied — the operation was refused by policy (permission proxy)
 - `13` — cancelled — the operation was cancelled
 - `14` — validation — a validation completed with findings (not an error)
+- `15` — empty turn — the agent's turn ended without saying or doing anything
