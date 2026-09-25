@@ -18,7 +18,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 2. El aprobador
 
-- [ ] 2.1 Núcleo puro en `tui/src/approver.rs`: la pregunta desde el push,
+- [x] 2.1 Núcleo puro en `tui/src/approver.rs`: la pregunta desde el push,
   completada con la `tool_call` que la sesión transmitió y con su contenido
   (D2); el saneado de todo texto del agente; la traducción tecla → respuesta,
   con la confirmación de «permitir siempre» (D3); la regla más específica y los
@@ -27,11 +27,10 @@ los e2e cargan el binario `mock-agent` ya construido.
   compartidas con el shell (`live.rs` las usa); unit tests — escenarios «Enter
   y las teclas sin asignar no deciden», «El texto del agente no controla el
   terminal», «La pregunta muestra el comando que la sesión transmitió», «Una
-  opción con la que el agente deja de preguntar pide confirmación», «Una
-  instantánea anterior a la petición no la retira», «Sin herramienta no se
-  ofrece regla», «Sin comando ni ruta no se ofrece regla», «Ninguna regla del
-  terminal alcanza la configuración de Meltemi», «En un worktree de tarea no se
-  ofrece regla» — gates: suite de `meltemi` (tui)
+  opción con la que el agente deja de preguntar pide confirmación», «Sin
+  herramienta no se ofrece regla», «Sin comando ni ruta no se ofrece regla»,
+  «Ninguna regla del terminal alcanza la configuración de Meltemi», «En un
+  worktree de tarea no se ofrece regla» — gates: suite de `meltemi` (tui)
 
 - [ ] 2.2 Fuentes de teclas: la de terminal (modo crudo sin pantalla
   alternativa, sondeo en tramos, descarte de lo pendiente, solo pulsaciones,
@@ -57,7 +56,8 @@ los e2e cargan el binario `mock-agent` ya construido.
   `[permissions] wait = 1` para el vencimiento, un segundo cliente que decide
   cuando la pregunta ya está abierta) — escenarios «Una tecla elige una opción
   del agente», «Denegar elige el rechazo del agente», «Lo tecleado antes de
-  poder leer la pregunta no la contesta», «Sin terminal se deniega con el
+  poder leer la pregunta no la contesta», «Una instantánea anterior a la
+  petición no la retira», «Sin terminal se deniega con el
   rechazo del agente», «La salida de máquina queda intacta con el aprobador
   activo», «Ctrl+C deniega y cancela el turno», «Una pregunta que vence se
   retira del terminal», «Una pregunta resuelta por otra vía se retira del

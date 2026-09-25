@@ -9,6 +9,7 @@
 //! discipline and the command↔RPC mapping so all of it is testable off the
 //! process boundary.
 
+pub mod approver;
 pub mod cli;
 pub mod exit;
 pub mod format;
