@@ -14,7 +14,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use meltemi_proto::{SessionEventKind, error_codes};
+use meltemi_proto::{SessionEventKind, SessionLever, error_codes};
 
 use crate::config::Config;
 use crate::fleet::{build_catalog, resolve_binary};
@@ -112,6 +112,11 @@ pub struct ResolvedAgent {
     pub model: Option<String>,
     /// The effort this resolution runs by default, on the same terms.
     pub effort: Option<String>,
+    /// The levers the resolved catalog entry takes as launch flags, when it
+    /// declares them (modelo-por-opcion-anunciada D2). `None` for an entry
+    /// that declares nothing and for a literal `agent.command`: what those
+    /// take is whatever the agent announces, never what a name suggests.
+    pub levers: Option<Vec<SessionLever>>,
 }
 
 impl ResolvedAgent {
@@ -193,6 +198,7 @@ pub fn resolve_fleet_agent(
             agent_id: Some(profile.agent.clone()),
             model: profile.model.clone(),
             effort: profile.effort.clone(),
+            levers: declared_levers(&catalog, &profile.agent),
         });
     }
 
@@ -207,6 +213,7 @@ pub fn resolve_fleet_agent(
             agent_id: Some(name.to_string()),
             model: None,
             effort: None,
+            levers: declared_levers(&catalog, name),
         });
     }
 
@@ -221,6 +228,7 @@ pub fn resolve_fleet_agent(
         agent_id: config.agent_id.clone(),
         model: None,
         effort: None,
+        levers: configured_levers(config, &catalog),
     })
 }
 
@@ -252,7 +260,57 @@ pub fn resolve_session_agent(
             agent_id: config.agent_id.clone(),
             model: None,
             effort: None,
+            levers: configured_levers(config, &build_catalog(config)),
         }),
+    }
+}
+
+/// The levers a catalog entry declares as launch flags, when it declares them.
+fn declared_levers(catalog: &crate::fleet::Catalog, id: &str) -> Option<Vec<SessionLever>> {
+    catalog
+        .entries
+        .iter()
+        .find(|entry| entry.id == id)
+        .and_then(|entry| entry.levers.clone())
+}
+
+/// The levers of the project-configured agent: its entry's declaration, unless
+/// the project pins a literal `agent.command` — that command wins the launch,
+/// and a declaration made for an entry's adapter says nothing about it.
+fn configured_levers(
+    config: &Config,
+    catalog: &crate::fleet::Catalog,
+) -> Option<Vec<SessionLever>> {
+    if config.agent_command.is_some() {
+        return None;
+    }
+    declared_levers(catalog, config.agent_id.as_deref()?)
+}
+
+/// How a lever a session asked for reaches its agent
+/// (modelo-por-opcion-anunciada D1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeverRoute {
+    /// A launch flag the entry declares: the value travels opaque through the
+    /// environment its adapter reads.
+    Flag,
+    /// The option the agent announces in the lever's category, set before the
+    /// first prompt and validated against what it announced.
+    Announced,
+    /// The entry declares its levers and this is not one of them: declared is
+    /// the complete set, so it is refused before anything is created.
+    NotTaken,
+}
+
+/// Routes one lever by what the agent's entry declares. The ACP levels are the
+/// only ones a lever can be asked of: every verb refuses a level 3 or 4 agent
+/// before its levers are looked at.
+#[must_use]
+pub fn route_lever(lever: SessionLever, declared: Option<&[SessionLever]>) -> LeverRoute {
+    match declared {
+        Some(set) if set.contains(&lever) => LeverRoute::Flag,
+        Some(_) => LeverRoute::NotTaken,
+        None => LeverRoute::Announced,
     }
 }
 
@@ -570,6 +628,51 @@ pub fn l4_target_for(config: &Config) -> Option<String> {
     }
 }
 
+/// Refuses, before anything is created, a lever the agent is already known
+/// not to take (modelo-por-opcion-anunciada D4): its fleet entry declares its
+/// levers and not this one. Nothing is decided by the binary's name.
+///
+/// A lever that would go by the agent's announcement is refused here too, with
+/// the words it always had, until the announced route exists: nothing is ever
+/// dropped in silence in between.
+pub fn refuse_levers_before_launch(
+    resolved: &ResolvedAgent,
+    agent_command: &[String],
+) -> Result<(), RpcError> {
+    let agent = agent_command
+        .first()
+        .map(String::as_str)
+        .unwrap_or("the agent");
+    for (lever, asked, name, remedy) in [
+        (
+            SessionLever::Model,
+            resolved.model.is_some(),
+            "model",
+            "Start the session without `model`, or choose an agent whose provider takes one.",
+        ),
+        (
+            SessionLever::Effort,
+            resolved.effort.is_some(),
+            "effort",
+            "Start the session without `effort`; the agent decides how much it reasons.",
+        ),
+    ] {
+        if asked && route_lever(lever, resolved.levers.as_deref()) != LeverRoute::Flag {
+            return Err(RpcError::application(
+                error_codes::LEVER_NOT_SUPPORTED,
+                "the agent does not take this lever",
+                "lever_not_supported",
+                format!(
+                    "`{agent}` has no documented place for a per-session {name}, so it was \
+                     refused rather than dropped in silence"
+                ),
+                Some(remedy.into()),
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -614,6 +717,7 @@ mod tests {
             agent_id: Some("codex".into()),
             model: Some("profile-model".into()),
             effort: Some("low".into()),
+            levers: None,
         };
 
         // Declared explicitly: the session wins, in one direction only.
@@ -654,30 +758,127 @@ mod tests {
     // Scenario: Lo no verificado se rehúsa en vez de inventarse
     #[test]
     fn a_lever_the_agent_has_no_place_for_is_refused_by_name() {
-        // Codex documents both, in two different places, and takes both.
-        let codex = vec!["codex".to_string()];
-        assert!(refuse_unsupported_levers(&codex, Some("gpt-x"), Some("high")).is_ok());
+        // What each entry declares is data now: a Codex-like adapter takes
+        // both levers, a Claude-like one takes the model only — its effort is
+        // not verified against the pinned CLI — and a third-party agent
+        // declares nothing.
+        let dir = temp("refused");
+        fake_binary(&dir, "both-bin");
+        fake_binary(&dir, "model-bin");
+        fake_binary(&dir, "silent-bin");
+        let path_var = std::env::join_paths([&dir]).unwrap();
+        let registry = dir.join("registry.toml");
+        std::fs::write(
+            &registry,
+            "version=\"v\"\n\
+             [[agents]]\nid=\"both\"\nname=\"Both\"\nlevel=1\nbin=\"both-bin\"\nlevers=[\"model\",\"effort\"]\n\n\
+             [[agents]]\nid=\"model-only\"\nname=\"Model only\"\nlevel=1\nbin=\"model-bin\"\nlevers=[\"model\"]\n\n\
+             [[agents]]\nid=\"silent\"\nname=\"Silent\"\nlevel=1\nbin=\"silent-bin\"\n",
+        )
+        .unwrap();
+        let resolve = |id: &str, model: Option<&str>, effort: Option<&str>| {
+            let config = Config {
+                agent_id: Some(id.into()),
+                fleet_registry: Some(registry.clone()),
+                ..Config::default()
+            };
+            let resolved = resolve_session_agent(&config, None, &path_var, None)
+                .expect("the entry resolves")
+                .with_session_levers(model, effort);
+            let argv = match &resolved.launch {
+                Launch::Acp { argv, .. } => argv.clone(),
+                other => panic!("an ACP launch, got {other:?}"),
+            };
+            refuse_levers_before_launch(&resolved, &argv)
+        };
 
-        // Claude documents `--model`. Effort is NOT verified against the pinned
-        // CLI, so it is refused with that as the reason rather than guessed at —
-        // and the refusal names both the agent and the lever.
-        let claude = vec!["/usr/local/bin/claude".to_string()];
-        assert!(refuse_unsupported_levers(&claude, Some("sonnet"), None).is_ok());
-        let refused = refuse_unsupported_levers(&claude, None, Some("high"))
-            .expect_err("an unverified lever is refused, not sent");
+        assert!(resolve("both", Some("gpt-x"), Some("high")).is_ok());
+        assert!(resolve("model-only", Some("sonnet"), None).is_ok());
+        // Not verified is refused with that as the reason rather than guessed
+        // at — and the refusal names both the agent and the lever.
+        let refused = resolve("model-only", None, Some("high"))
+            .expect_err("an undeclared lever is refused, not sent");
         assert_eq!(refused.code, error_codes::LEVER_NOT_SUPPORTED);
         let said = format!("{refused:?}");
-        assert!(said.contains("claude"), "it names the agent: {said}");
+        assert!(said.contains("model-bin"), "it names the agent: {said}");
         assert!(said.contains("effort"), "and the lever: {said}");
 
-        // A third-party ACP agent claims nothing at launch, because nothing is
-        // known about it before it speaks.
-        let other = vec!["some-acp-agent".to_string()];
-        assert!(refuse_unsupported_levers(&other, Some("x"), None).is_err());
-        assert!(
-            refuse_unsupported_levers(&other, None, None).is_ok(),
-            "and asking for nothing is never refused"
+        // Asking for nothing is never refused, whatever the entry declares.
+        assert!(resolve("silent", None, None).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Scenario: Sin declaración la palanca es lo que el agente anuncia
+    // Scenario: El nombre del binario no decide
+    #[test]
+    fn a_lever_goes_by_the_entrys_declaration_never_by_the_binary_name() {
+        use meltemi_proto::SessionLever::{Effort, Model};
+        // Declared: the flag, for exactly the declared set.
+        assert_eq!(route_lever(Model, Some(&[Model])), LeverRoute::Flag);
+        assert_eq!(
+            route_lever(Effort, Some(&[Model])),
+            LeverRoute::NotTaken,
+            "what is declared is the complete set"
         );
+        assert_eq!(route_lever(Effort, Some(&[])), LeverRoute::NotTaken);
+        // Undeclared: whatever the agent announces.
+        assert_eq!(route_lever(Model, None), LeverRoute::Announced);
+        assert_eq!(route_lever(Effort, None), LeverRoute::Announced);
+
+        // The resolution carries the entry's declaration, and nothing else.
+        // Both entries run a binary NAMED like an agent with declared levers.
+        let dir = temp("levers");
+        let bin = fake_binary(&dir, "codex");
+        let path_var = std::env::join_paths([&dir]).unwrap();
+        let registry = dir.join("registry.toml");
+        std::fs::write(
+            &registry,
+            "version=\"v\"\n\
+             [[agents]]\nid=\"declared\"\nname=\"Declared\"\nlevel=1\nbin=\"codex\"\nlevers=[\"model\"]\n\n\
+             [[agents]]\nid=\"silent\"\nname=\"Silent\"\nlevel=1\nbin=\"codex\"\n",
+        )
+        .unwrap();
+        let configured = |agent_id: &str| Config {
+            agent_id: Some(agent_id.into()),
+            fleet_registry: Some(registry.clone()),
+            ..Config::default()
+        };
+        let declared = resolve_session_agent(&configured("declared"), None, &path_var, None)
+            .expect("the configured entry resolves");
+        assert_eq!(declared.levers, Some(vec![Model]));
+        let silent = resolve_session_agent(&configured("silent"), None, &path_var, None)
+            .expect("the configured entry resolves");
+        assert_eq!(
+            silent.levers, None,
+            "an entry that declares nothing claims nothing"
+        );
+        assert_eq!(
+            route_lever(Model, silent.levers.as_deref()),
+            LeverRoute::Announced
+        );
+
+        // Named per session, a catalog id carries its own entry's declaration.
+        let by_id = resolve_session_agent(&configured("silent"), Some("declared"), &path_var, None)
+            .expect("the named entry resolves");
+        assert_eq!(by_id.levers, Some(vec![Model]));
+
+        // A literal command inherits nothing, even named like a declared agent
+        // and even beside a configured id: the command wins the launch, and a
+        // name is not a declaration.
+        let literal = Config {
+            agent_command: Some(vec![bin.display().to_string()]),
+            agent_id: Some("declared".into()),
+            fleet_registry: Some(registry.clone()),
+            ..Config::default()
+        };
+        let resolved = resolve_session_agent(&literal, None, &path_var, None)
+            .expect("a literal command resolves");
+        assert_eq!(resolved.levers, None);
+        assert_eq!(
+            route_lever(Model, resolved.levers.as_deref()),
+            LeverRoute::Announced
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
     use crate::config::CustomAgent;
 
@@ -1020,111 +1221,4 @@ mod tests {
         assert!(guard.bounded_dir.starts_with(&dir));
         std::fs::remove_dir_all(&dir).ok();
     }
-}
-
-/// Which per-session levers an agent's own adapter can actually deliver.
-///
-/// The core does not know what a model name means (§5), but it does know
-/// **whether the binary it is about to launch has a documented place to put
-/// one** — and refusing there is the difference between a quota lever and a
-/// switch that does nothing. A lever silently dropped is worse than no lever:
-/// the user believes they lowered their spend
-/// (modelo-y-esfuerzo-por-sesion design D3).
-///
-/// Keyed on the binary's own file name rather than on a catalog id, because
-/// what accepts the lever is the process that runs.
-#[must_use]
-pub fn levers_of(agent_command: &[String]) -> Levers {
-    let binary = agent_command
-        .first()
-        .map(|program| {
-            std::path::Path::new(program)
-                .file_stem()
-                .map(|stem| stem.to_string_lossy().to_ascii_lowercase())
-                .unwrap_or_default()
-        })
-        .unwrap_or_default();
-    match binary.as_str() {
-        // Its schema puts `model` on the thread and `effort` on the turn: two
-        // places, both documented, both wired by the adapter.
-        name if name.contains("codex") => Levers {
-            model: true,
-            effort: true,
-        },
-        // `--model` is a documented launch flag. Effort is NOT verified against
-        // the pinned CLI, and this change refuses rather than guesses: the day
-        // it is verified is the day this becomes `true` (design D7).
-        name if name.contains("claude") => Levers {
-            model: true,
-            effort: false,
-        },
-        // Meltemi's own scripted agent. It is first-party, so what it accepts
-        // is not a guess — and it deliberately takes a model and NOT an effort,
-        // which is the shape of a real provider that documents one lever and
-        // not the other. That lets the end-to-end exercise both branches
-        // without any provider at all (§5).
-        name if name.contains("mock-agent") => Levers {
-            model: true,
-            effort: false,
-        },
-        // Anything else is a third-party ACP agent, whose levers are whatever
-        // it announces as session config options. Nothing is claimed for it at
-        // launch, because nothing is known before it speaks.
-        _ => Levers {
-            model: false,
-            effort: false,
-        },
-    }
-}
-
-/// What an agent accepts, per lever.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Levers {
-    /// Whether a model can be named at launch.
-    pub model: bool,
-    /// Whether an effort level can be named at all.
-    pub effort: bool,
-}
-
-/// Refuses a lever the resolved agent has no place for, naming both.
-///
-/// Returns `Ok(())` when nothing was asked for that cannot be delivered.
-pub fn refuse_unsupported_levers(
-    agent_command: &[String],
-    model: Option<&str>,
-    effort: Option<&str>,
-) -> Result<(), RpcError> {
-    let levers = levers_of(agent_command);
-    let agent = agent_command
-        .first()
-        .map(String::as_str)
-        .unwrap_or("the agent");
-    for (asked, supported, lever, remedy) in [
-        (
-            model.is_some(),
-            levers.model,
-            "model",
-            "Start the session without `model`, or choose an agent whose provider takes one.",
-        ),
-        (
-            effort.is_some(),
-            levers.effort,
-            "effort",
-            "Start the session without `effort`; the agent decides how much it reasons.",
-        ),
-    ] {
-        if asked && !supported {
-            return Err(RpcError::application(
-                error_codes::LEVER_NOT_SUPPORTED,
-                "the agent does not take this lever",
-                "lever_not_supported",
-                format!(
-                    "`{agent}` has no documented place for a per-session {lever}, so it was \
-                     refused rather than dropped in silence"
-                ),
-                Some(remedy.into()),
-            ));
-        }
-    }
-    Ok(())
 }

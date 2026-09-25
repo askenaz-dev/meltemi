@@ -117,11 +117,7 @@ pub async fn handle_session_start(
     // session exists would leave a session nobody asked for, and the refusal is
     // the whole point — a lever silently dropped is worse than no lever.
     let resolved = resolved.with_session_levers(params.model.as_deref(), params.effort.as_deref());
-    crate::levels::refuse_unsupported_levers(
-        &agent_command,
-        resolved.model.as_deref(),
-        resolved.effort.as_deref(),
-    )?;
+    crate::levels::refuse_levers_before_launch(&resolved, &agent_command)?;
 
     // Open the session and its log.
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -543,6 +539,7 @@ mod tests {
             source: meltemi_proto::FleetResolutionSource::Configured,
             profile: None,
             agent_id: None,
+            levers: None,
         };
         let argv = vec!["/opt/bin/mock-agent".to_string(), "--acp".to_string()];
         assert_eq!(agent_label(&resolved, &argv), "mock-agent");

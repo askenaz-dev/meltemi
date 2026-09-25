@@ -12,7 +12,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   2007; schemas y casos de conformidad (design D3, D4, D6) — gates: `cargo build
   --workspace`, suite de `meltemi-proto`
 
-- [ ] 1.2 El registro declara las palancas y la regla por nombre se va: campo
+- [x] 1.2 El registro declara las palancas y la regla por nombre se va: campo
   `levers` (conjunto completo; un nombre desconocido o repetido invalida el
   documento), `CatalogEntry`, `ResolvedAgent.levers`, `route_lever`; el reparto
   reemplaza a `levers_of` donde hoy se usa, con la vía anunciada rehusada antes
