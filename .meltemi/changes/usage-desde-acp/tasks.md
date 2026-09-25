@@ -15,7 +15,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   (design D1, D4, D5, D6) — gates: `cargo build --workspace`, suite de
   `meltemi-proto`
 
-- [ ] 1.2 El simulado reporta uso: `--usage` (contexto creciente y costo
+- [x] 1.2 El simulado reporta uso: `--usage` (contexto creciente y costo
   acumulado del proceso en fracciones binarias exactas al cerrar cada turno),
   `--usage-no-cost` y `--usage-currency <código>`, apagados por omisión y con
   sus unit tests (design D9) — gates: `cargo build -p mock-agent`, suite de
