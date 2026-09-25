@@ -292,6 +292,7 @@ fn the_disclosure_is_rendered_beside_the_numbers_without_an_interaction() {
         "no-quota-balance-or-billing",
         "nothing-is-estimated",
         "nothing-leaves-this-machine",
+        "agent-reported-context-and-cost",
     ] {
         assert_eq!(
             catalog
@@ -306,6 +307,52 @@ fn the_disclosure_is_rendered_beside_the_numbers_without_an_interaction() {
     assert!(
         cli.contains("for key in &result.disclosure"),
         "the CLI renders the disclosure with the numbers"
+    );
+}
+
+// Scenario: Las superficies muestran lo reportado como cifra del agente
+#[test]
+fn the_panel_shows_what_the_agent_reported_as_its_own_figures() {
+    // The CLI half is executed by `render_usage`'s unit test in the tui crate;
+    // this pins the GUI half (usage-desde-acp design D7): the context and the
+    // cost in columns of their own, labelled as the agent's, per currency and
+    // never summed across currencies, with the absence said in words.
+    let panel = read("desktop/ui/src/lib/views/Usage.svelte");
+    for piece in [
+        "$t(\"usage.col.context\")",
+        "$t(\"usage.col.cost\")",
+        "$t(\"usage.agentReport.hint\")",
+        "cell.agentReport?.contextUsed",
+        "costs(cell.agentReport?.cost)",
+        "costs(result.totals.agentReport?.cost)",
+        "style: \"currency\"",
+    ] {
+        assert!(panel.contains(piece), "the panel shows it: {piece}");
+    }
+    // The totals carry no context: a maximum is not a sum.
+    assert!(
+        !panel.contains("result.totals.agentReport?.contextUsed"),
+        "the totals do not sum a maximum"
+    );
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    for key in [
+        "usage.col.context",
+        "usage.col.cost",
+        "usage.agentReport.hint",
+        "usage.agentReport.noCost",
+        "usage.agentReport.sessions",
+        "usage.notReported.protocol_carries_context_not_consumption",
+    ] {
+        assert_eq!(
+            catalog.matches(&format!("\"{key}\":")).count(),
+            2,
+            "`{key}` is written in both languages"
+        );
+    }
+    // The reason that said ACP carries no usage no longer says it.
+    assert!(
+        !catalog.contains("no transporta uso") && !catalog.contains("does not carry usage"),
+        "the old reason text is gone"
     );
 }
 

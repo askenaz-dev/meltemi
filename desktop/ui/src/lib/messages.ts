@@ -639,7 +639,8 @@ const es = {
     "desvincular una suscripción; el contexto de autenticación queda intacto",
   "palette.m.project.register": "dar de alta un directorio como proyecto (valida la ruta)",
   "palette.m.project.forget": "quitar un proyecto del listado; no borra nada del disco",
-  "palette.m.analytics.usage": "contabilidad local de consumo (solo lo medido)",
+  "palette.m.analytics.usage":
+    "contabilidad local de consumo (lo medido y lo que el agente reporta)",
 
   "nav.analytics": "Consumo",
   "usage.title": "Consumo",
@@ -666,11 +667,19 @@ const es = {
   "usage.col.emptyTurns": "Turnos vacíos",
   "usage.col.tokensIn": "Tokens entrada",
   "usage.col.tokensOut": "Tokens salida",
+  "usage.col.context": "Contexto máx.",
+  "usage.col.cost": "Costo (del agente)",
   "usage.col.coverage": "Cobertura",
+  "usage.agentReport.hint":
+    "cifras que el agente reportó por el protocolo: el contexto más lleno y su costo acumulado; Meltemi solo suma el costo por moneda",
+  "usage.agentReport.noCost": "el agente no reportó costo",
+  "usage.agentReport.sessions": "{n} sesión(es)",
   "usage.totals": "Totales",
   "usage.notReported": "no reportado",
   "usage.notReported.protocol_carries_no_usage":
-    "el protocolo ACP no transporta uso",
+    "el agente no reportó uso por el protocolo",
+  "usage.notReported.protocol_carries_context_not_consumption":
+    "el agente reportó contexto y costo por el protocolo, no consumo",
   "usage.notReported.level_runs_no_process":
     "el nivel no ejecuta un proceso que pueda reportar",
   "usage.notReported.stream_declared_no_counters":
@@ -695,6 +704,8 @@ const es = {
     "nada se estima: un contador que nadie reportó queda ausente",
   "usage.disclosure.nothing-leaves-this-machine":
     "ningún dato sale de esta máquina",
+  "usage.disclosure.agent-reported-context-and-cost":
+    "el contexto y el costo son los que cada agente reportó por el protocolo: Meltemi solo suma el costo por moneda —no estima, no convierte, no pone precio— y un costo acumulado puede incluir gasto anterior al rango",
   "palette.m.change.list": "listar changes (activas y archivadas) con su estado",
   "palette.m.change.workspace": "el taller de una change: su rama y su worktree",
   "palette.m.change.land": "aterrizar el taller en la rama por defecto",
@@ -1213,7 +1224,7 @@ const en: Record<MessageKey, string> = {
   "status.gate": "gate: {artifact}",
   "status.changes": "{n} change(s)",
   "status.usage": "{tokens} tokens today",
-  "status.usage.unreported": "usage not reported",
+  "status.usage.unreported": "consumption not reported",
   "status.permissions": "{n} permission(s)",
 
   "permissions.waitingWord": "waiting",
@@ -1337,7 +1348,8 @@ const en: Record<MessageKey, string> = {
     "unlink a subscription; the auth context is left intact",
   "palette.m.project.register": "register a directory as a project (the path is validated)",
   "palette.m.project.forget": "drop a project from the listing; nothing on disk is deleted",
-  "palette.m.analytics.usage": "local usage accounting (measured only)",
+  "palette.m.analytics.usage":
+    "local usage accounting (what is measured, and what the agent reports)",
 
   "nav.analytics": "Usage",
   "usage.title": "Usage",
@@ -1364,11 +1376,19 @@ const en: Record<MessageKey, string> = {
   "usage.col.emptyTurns": "Empty turns",
   "usage.col.tokensIn": "Input tokens",
   "usage.col.tokensOut": "Output tokens",
+  "usage.col.context": "Context (max)",
+  "usage.col.cost": "Cost (agent-reported)",
   "usage.col.coverage": "Coverage",
+  "usage.agentReport.hint":
+    "figures the agent reported over the protocol: its fullest context and its cumulative cost; Meltemi only sums the cost per currency",
+  "usage.agentReport.noCost": "the agent reported no cost",
+  "usage.agentReport.sessions": "{n} session(s)",
   "usage.totals": "Totals",
   "usage.notReported": "not reported",
   "usage.notReported.protocol_carries_no_usage":
-    "the ACP protocol does not carry usage",
+    "the agent reported no usage over the protocol",
+  "usage.notReported.protocol_carries_context_not_consumption":
+    "the agent reported context and cost over the protocol, not consumption",
   "usage.notReported.level_runs_no_process":
     "the level runs no process that could report",
   "usage.notReported.stream_declared_no_counters":
@@ -1393,6 +1413,8 @@ const en: Record<MessageKey, string> = {
     "nothing is estimated: a counter nobody reported stays absent",
   "usage.disclosure.nothing-leaves-this-machine":
     "no data leaves this machine",
+  "usage.disclosure.agent-reported-context-and-cost":
+    "context and cost are what each agent reported over the protocol: Meltemi only sums the cost per currency — it estimates, converts and prices nothing — and a cumulative cost may include spending from before the range",
   "palette.m.change.list": "list changes (active and archived) with state",
   "palette.m.change.workspace": "a change's workshop: its branch and its worktree",
   "palette.m.change.land": "land the workshop on the default branch",

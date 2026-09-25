@@ -102,6 +102,7 @@
           "type": "string",
           "enum": [
             "protocol_carries_no_usage",
+            "protocol_carries_context_not_consumption",
             "level_runs_no_process",
             "stream_declared_no_counters"
           ]
@@ -147,7 +148,61 @@
         "period": { "type": "string", "minLength": 1 },
         "activity": { "$ref": "#/$defs/activity" },
         "tokens": { "$ref": "#/$defs/tokens" },
-        "coverage": { "$ref": "#/$defs/coverage" }
+        "coverage": { "$ref": "#/$defs/coverage" },
+        "agentReport": { "$ref": "#/$defs/agentReport" }
+      }
+    },
+    "agentReportCost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currency", "amount", "sessions"],
+      "description": "One currency of the cost the agents declared over ACP: each contributing conversation's last cumulative figure, summed. Never converted, never a price of Meltemi's.",
+      "properties": {
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "description": "As the agent sent it: ISO 4217 by the protocol, not validated here."
+        },
+        "amount": { "type": "number" },
+        "sessions": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "agentReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessions"],
+      "description": "What the agents reported over ACP (usage_update) for the cell's sessions: the fullest context and the cost per currency. The agents' own figures, relayed: not consumption, never converted, never priced by Meltemi. Absent when no session of the cell reported.",
+      "properties": {
+        "sessions": { "type": "integer", "minimum": 1 },
+        "contextUsed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Tokens in context in the fullest report: the largest share of its window. A maximum, not a sum."
+        },
+        "contextSize": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The window of that same report."
+        },
+        "cost": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/agentReportCost" }
+        }
+      }
+    },
+    "agentReportTotals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessions"],
+      "description": "The agents' report summed over the returned cells: sessions and cost per currency. The context is a maximum, so it is not summed here.",
+      "properties": {
+        "sessions": { "type": "integer", "minimum": 1 },
+        "cost": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/agentReportCost" }
+        }
       }
     },
     "unattributed": {
@@ -170,7 +225,8 @@
         "cells": { "type": "integer", "minimum": 0 },
         "activity": { "$ref": "#/$defs/activity" },
         "tokens": { "$ref": "#/$defs/tokens" },
-        "coverage": { "$ref": "#/$defs/coverage" }
+        "coverage": { "$ref": "#/$defs/coverage" },
+        "agentReport": { "$ref": "#/$defs/agentReportTotals" }
       }
     },
     "disclosureKey": {
@@ -181,7 +237,8 @@
         "tokens-only-when-official-output-reports",
         "no-quota-balance-or-billing",
         "nothing-is-estimated",
-        "nothing-leaves-this-machine"
+        "nothing-leaves-this-machine",
+        "agent-reported-context-and-cost"
       ]
     },
     "result": {

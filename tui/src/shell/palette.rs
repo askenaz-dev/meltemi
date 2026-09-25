@@ -202,8 +202,8 @@ pub const ENTRIES: &[Entry] = &[
         name: "usage",
         reserved: true,
         methods: &[m::ANALYTICS_USAGE],
-        desc_es: "contabilidad local de consumo (solo lo medido)",
-        desc_en: "local usage accounting (measured only)",
+        desc_es: "contabilidad local de consumo (lo medido y lo que el agente reporta)",
+        desc_en: "local usage accounting (what is measured, and what the agent reports)",
     },
     Entry {
         name: "changes",

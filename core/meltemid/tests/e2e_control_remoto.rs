@@ -446,7 +446,12 @@ async fn cancelling_with_a_queued_instruction_leaves_it_undispatched() {
     };
 
     // Queue an instruction during the active turn, then cancel the session.
+    // DURING the turn: a session that exists has not necessarily prompted yet,
+    // and a cancellation that lands before the first prompt ends the session
+    // without one (modelo-por-opcion-anunciada design D3) — which is not what
+    // this test is about.
     let session_id = wait_for_live_session(&peer, &root_str).await;
+    wait_for_turn_in_flight(&peer, &root_str, &session_id).await;
     let directed = peer
         .request(
             methods::SESSION_DIRECT,

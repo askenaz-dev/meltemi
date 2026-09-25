@@ -46,8 +46,24 @@
 
   type UnreportedKind =
     | "protocol_carries_no_usage"
+    | "protocol_carries_context_not_consumption"
     | "level_runs_no_process"
     | "stream_declared_no_counters";
+
+  /** One currency of the cost the agents declared (usage-desde-acp D4). */
+  interface AgentReportCost {
+    currency: string;
+    amount: number;
+    sessions: number;
+  }
+
+  /** What the agents reported over the protocol: their figures, relayed. */
+  interface AgentReport {
+    sessions: number;
+    contextUsed?: number;
+    contextSize?: number;
+    cost?: AgentReportCost[];
+  }
 
   interface Coverage {
     measuredSessions: number;
@@ -66,6 +82,7 @@
     activity: Activity;
     tokens?: Tokens;
     coverage: Coverage;
+    agentReport?: AgentReport;
   }
 
   interface Unattributed {
@@ -78,7 +95,13 @@
   interface UsageResult {
     cells: Cell[];
     unattributed?: Unattributed[];
-    totals: { cells: number; activity: Activity; tokens?: Tokens; coverage: Coverage };
+    totals: {
+      cells: number;
+      activity: Activity;
+      tokens?: Tokens;
+      coverage: Coverage;
+      agentReport?: { sessions: number; cost?: AgentReportCost[] };
+    };
     truncated: boolean;
     disclosure: string[];
   }
@@ -137,6 +160,28 @@
 
   function reasonText(kind: UnreportedKind): string {
     return $t(("usage.notReported." + kind) as MessageKey);
+  }
+
+  /**
+   * A cost as the agent declared it, in its currency, by the reader's locale —
+   * or as figure and code when the browser does not know that currency. Never
+   * converted.
+   */
+  function money(cost: AgentReportCost): string {
+    try {
+      return new Intl.NumberFormat($locale, {
+        style: "currency",
+        currency: cost.currency,
+        maximumFractionDigits: 4,
+      }).format(cost.amount);
+    } catch {
+      return `${numbers.format(cost.amount)} ${cost.currency}`;
+    }
+  }
+
+  /** The costs of a report, one per currency, never summed across them. */
+  function costs(list: AgentReportCost[] | undefined): string {
+    return (list ?? []).map(money).join(" · ");
   }
 
   /** The one-line reason a cell has no measured tokens. */
@@ -238,6 +283,12 @@
             <th scope="col" class="num">{$t("usage.col.emptyTurns")}</th>
             <th scope="col" class="num">{$t("usage.col.tokensIn")}</th>
             <th scope="col" class="num">{$t("usage.col.tokensOut")}</th>
+            <th scope="col" class="num" title={$t("usage.agentReport.hint")}>
+              {$t("usage.col.context")}
+            </th>
+            <th scope="col" class="num" title={$t("usage.agentReport.hint")}>
+              {$t("usage.col.cost")}
+            </th>
             <th scope="col">{$t("usage.col.coverage")}</th>
           </tr>
         </thead>
@@ -282,6 +333,38 @@
                   </span>
                 {/if}
               </td>
+              <!-- What the agent reported: its figures, apart from the tokens
+                   and labelled as its own; an absence is symbol + word, never a
+                   0 (usage-desde-acp design D7). -->
+              <td class="num">
+                {#if cell.agentReport?.contextUsed !== undefined && cell.agentReport?.contextSize !== undefined}
+                  <span
+                    title={$t("usage.agentReport.sessions", {
+                      n: String(cell.agentReport.sessions),
+                    })}
+                  >
+                    {count(cell.agentReport.contextUsed)} / {count(cell.agentReport.contextSize)}
+                  </span>
+                {:else}
+                  <span class="absent" title={absenceReason(cell)}>
+                    <span aria-hidden="true">○</span> {$t("usage.notReported")}
+                  </span>
+                {/if}
+              </td>
+              <td class="num">
+                {#if (cell.agentReport?.cost ?? []).length > 0}
+                  <span title={$t("usage.agentReport.hint")}>{costs(cell.agentReport?.cost)}</span>
+                {:else}
+                  <span
+                    class="absent"
+                    title={cell.agentReport
+                      ? $t("usage.agentReport.noCost")
+                      : absenceReason(cell)}
+                  >
+                    <span aria-hidden="true">○</span> {$t("usage.notReported")}
+                  </span>
+                {/if}
+              </td>
               <td class="faint">
                 {$t("usage.coverage.measured", { n: String(cell.coverage.measuredSessions) })}
                 {#if cell.coverage.unreportedSessions > 0}
@@ -315,6 +398,15 @@
             <td class="num">
               {#if result.totals.tokens?.output !== undefined}
                 {count(result.totals.tokens.output)}
+              {:else}
+                <span class="absent"><span aria-hidden="true">○</span> {$t("usage.notReported")}</span>
+              {/if}
+            </td>
+            <!-- A maximum is not a sum: the totals carry no context. -->
+            <td class="num faint">—</td>
+            <td class="num">
+              {#if (result.totals.agentReport?.cost ?? []).length > 0}
+                {costs(result.totals.agentReport?.cost)}
               {:else}
                 <span class="absent"><span aria-hidden="true">○</span> {$t("usage.notReported")}</span>
               {/if}

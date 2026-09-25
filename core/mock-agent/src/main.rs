@@ -14,7 +14,7 @@
 //! filling in the proposal. Real agents ignore the marker line.
 
 use agent_client_protocol::schema::v1::{
-    AgentCapabilities, CancelNotification, ConfigOptionUpdate, ContentBlock, ContentChunk,
+    AgentCapabilities, CancelNotification, ConfigOptionUpdate, ContentBlock, ContentChunk, Cost,
     CurrentModeUpdate, InitializeRequest, InitializeResponse, LoadSessionRequest,
     LoadSessionResponse, NewSessionRequest, NewSessionResponse, PermissionOption,
     PermissionOptionKind, PromptRequest, PromptResponse, RequestPermissionOutcome,
@@ -23,7 +23,7 @@ use agent_client_protocol::schema::v1::{
     SessionConfigSelectOption, SessionId, SessionMode, SessionModeId, SessionModeState,
     SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
-    TextContent, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    TextContent, ToolCallUpdate, ToolCallUpdateFields, ToolKind, UsageUpdate,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Result, Stdio};
 use std::sync::Mutex;
@@ -463,6 +463,15 @@ async fn main() -> Result<()> {
                             ));
                         }
                         run_scripted_turn(&prompt, &cx).await;
+                        // `--usage` reports what the protocol carries as the
+                        // turn closes — before its answer, so the daemon logs it
+                        // inside the turn (usage-desde-acp design D9).
+                        if let Some(usage) = Usage::from_args(std::env::args()) {
+                            let _ = cx.send_notification(SessionNotification::new(
+                                prompt.session_id.clone(),
+                                SessionUpdate::UsageUpdate(usage.report(turn + 1)),
+                            ));
+                        }
                         // The stop reason is read AFTER the turn, and reset, so a
                         // session that keeps going reports the next turn on its
                         // own merits rather than inheriting this one's ending.
@@ -690,6 +699,56 @@ fn silent_in(args: impl IntoIterator<Item = String>, turn: u32) -> bool {
     false
 }
 
+/// What `--usage` reports over the protocol (usage-desde-acp design D9). Off by
+/// default: a mock that reported usage by default would change what every
+/// existing accounting test reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Usage {
+    /// `--usage-no-cost` reports context and no cost.
+    cost: bool,
+    /// `--usage-currency <code>`; `USD` by default.
+    currency: String,
+}
+
+impl Usage {
+    /// The shape the switches ask for, or none when no usage switch is on.
+    fn from_args(args: impl IntoIterator<Item = String>) -> Option<Self> {
+        let mut on = false;
+        let mut cost = true;
+        let mut currency = "USD".to_string();
+        let mut args = args.into_iter();
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--usage" => on = true,
+                "--usage-no-cost" => {
+                    on = true;
+                    cost = false;
+                }
+                "--usage-currency" => {
+                    if let Some(code) = args.next() {
+                        currency = code;
+                    }
+                }
+                _ => {}
+            }
+        }
+        on.then_some(Self { cost, currency })
+    }
+
+    /// The report after `turns` turns of this process: the context grows by a
+    /// thousand tokens a turn in a window of 200 000, and the cost is the
+    /// process's cumulative figure, an eighth per turn — a binary fraction, so
+    /// sums of it compare exactly.
+    fn report(&self, turns: u32) -> UsageUpdate {
+        let report = UsageUpdate::new(1_000 * u64::from(turns), 200_000);
+        if self.cost {
+            report.cost(Cost::new(0.125 * f64::from(turns), self.currency.clone()))
+        } else {
+            report
+        }
+    }
+}
+
 fn turn_delay_ms() -> Option<u64> {
     let mut args = std::env::args();
     while let Some(arg) = args.next() {
@@ -841,8 +900,36 @@ fn proposal_path(prompt: &PromptRequest) -> Option<std::path::PathBuf> {
 mod tests {
     use super::{
         CONFIG_MODE_OPTION, MODEL_OPTION, REASONING_OPTION, Shape, THINKING_OPTION, TWIN_OPTION,
-        ToolKind, clamped, levers_line, options_for, permission_fields, silent_in, titled_in,
+        ToolKind, Usage, clamped, levers_line, options_for, permission_fields, silent_in,
+        titled_in,
     };
+
+    #[test]
+    fn usage_is_off_by_default_and_reports_what_the_switches_ask() {
+        let args = |list: &[&str]| -> Vec<String> {
+            std::iter::once("mock-agent")
+                .chain(list.iter().copied())
+                .map(str::to_string)
+                .collect()
+        };
+        assert_eq!(Usage::from_args(args(&["--config-options"])), None);
+
+        // The context grows and the cost is the process's cumulative figure.
+        let usd = Usage::from_args(args(&["--usage"])).expect("on");
+        let second = usd.report(2);
+        assert_eq!((second.used, second.size), (2_000, 200_000));
+        let cost = second.cost.expect("a cost");
+        assert_eq!((cost.amount, cost.currency.as_str()), (0.25, "USD"));
+
+        let eur = Usage::from_args(args(&["--usage", "--usage-currency", "EUR"])).expect("on");
+        assert_eq!(eur.report(1).cost.expect("a cost").currency, "EUR");
+
+        // Context without cost: the cost is absent, not zero.
+        let bare = Usage::from_args(args(&["--usage-no-cost"])).expect("on");
+        let first = bare.report(1);
+        assert_eq!(first.used, 1_000);
+        assert!(first.cost.is_none());
+    }
 
     #[test]
     fn the_switches_shape_what_is_announced() {
