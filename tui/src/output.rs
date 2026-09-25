@@ -106,6 +106,12 @@ impl CliError {
         Self::new(ExitCode::Contract, kind, message)
     }
 
+    /// The tunnel `--exec` ran is down (exit 10): the daemon is fine here, and
+    /// no longer reachable from the far end (acceso-remoto-afinado D6).
+    pub fn tunnel_down(message: impl Into<String>) -> Self {
+        Self::new(ExitCode::Unreachable, "tunnel_down", message)
+    }
+
     /// An unexpected internal error (exit 1).
     pub fn internal(detail: impl std::fmt::Display) -> Self {
         Self::new(

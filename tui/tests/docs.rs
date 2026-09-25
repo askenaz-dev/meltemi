@@ -166,6 +166,147 @@ fn the_remote_access_frontier_is_documented() {
     );
 }
 
+/// A document with its line breaks and runs of spaces folded, lowercased: a
+/// sentence wrapped across lines is still the same sentence.
+fn flat(rel: &str) -> String {
+    read(&repo_root(), rel)
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+// Scenario: El PC Windows servido está documentado con lo no medido
+#[test]
+fn the_served_windows_pc_is_documented_with_what_is_not_measured() {
+    let doc = read(&repo_root(), "docs/acceso-remoto.md");
+    for step in [
+        "Add-WindowsCapability -Online -Name OpenSSH.Server",
+        "Start-Service sshd",
+        "ssh <tu-pc> meltemi bridge",
+        "ssh -t <tu-pc> meltemi",
+    ] {
+        assert!(doc.contains(step), "the served PC documents `{step}`");
+    }
+    let flat = flat("docs/acceso-remoto.md");
+    assert!(flat.contains("**medido**"), "what is measured is said");
+    assert!(
+        flat.contains("**no medido**: el tramo a través de un `sshd` real de windows"),
+        "and what is not"
+    );
+}
+
+// Scenario: El teléfono de hoy está documentado con sus límites
+#[test]
+fn todays_phone_is_documented_with_its_limits() {
+    let flat = flat("docs/acceso-remoto.md");
+    assert!(
+        flat.contains("## desde el teléfono, hoy"),
+        "its own section"
+    );
+    // The verbs without the TUI (verbos-del-agent-boss), the TUI over `ssh -t`
+    // with its floor, and the bell.
+    assert!(flat.contains("ssh <tu-pc> meltemi approve perm-3"));
+    assert!(flat.contains("ssh -t <tu-pc> meltemi"));
+    assert!(flat.contains("80×24"), "the minimum size is stated");
+    assert!(flat.contains("meltemi_bell=1"), "the bell is named");
+    // And what there is not.
+    assert!(
+        flat.contains("no hay push sin conexión"),
+        "no push without a connection"
+    );
+}
+
+// Scenario: Cada espera tiene su ajuste y su valor
+#[test]
+fn every_wait_has_its_setting_and_its_default() {
+    let doc = read(&repo_root(), "docs/acceso-remoto.md");
+    for row in [
+        "| `[permissions] wait` | `\"while-connected\"` |",
+        "| `[permissions] implement-wait` | `30` |",
+        "| `[permissions] no-client-grace` | `30` |",
+        "| `[sessions] idle-timeout` | `900` |",
+        "| `[sessions] max-idle` | `3` |",
+        "| `[sessions] lever-wait` | `30` |",
+    ] {
+        assert!(doc.contains(row), "the waits table has `{row}`");
+    }
+}
+
+// Scenario: Plataformas y el helper dicen lo mismo
+#[test]
+fn the_platforms_page_and_the_tunnel_helper_agree() {
+    let doc = read(&repo_root(), "docs/plataformas.md");
+    // The advice that contradicted the helper is gone…
+    assert!(
+        !doc.contains(
+            "Forward the Unix socket
+(`ssh -L`), then point the client"
+        ),
+        "the old -L-only advice"
+    );
+    // …and each end says what it runs.
+    let flat = flat("docs/plataformas.md");
+    assert!(flat.contains("`meltemi tunnel <user@host>` prints the `ssh -r` command"));
+    assert!(flat.contains("`ssh -l <local.sock>:<daemon.sock> <host>`"));
+    assert!(flat.contains("`ssh <pc> meltemi bridge`"));
+    assert!(
+        flat.contains("`meltemi_start_here=1`"),
+        "the start flag is documented"
+    );
+}
+
+// Scenario: El smoke dice qué se midió y qué no
+#[test]
+fn the_tunnel_smoke_says_what_was_measured_and_what_was_not() {
+    let smoke = read(&repo_root(), "docs/qa/2026-09-25-acceso-por-tunel-smoke.md");
+    // Dated, with the platform and the binaries it measured.
+    assert!(smoke.contains("**Fecha**: 2026-09-25"), "dated");
+    assert!(smoke.contains("Windows 11"), "the platform");
+    assert!(smoke.contains("`meltemi` 0.1.1"), "the version");
+    // What was measured…
+    assert!(smoke.contains("## Qué se midió"), "a measured part");
+    assert!(
+        smoke.contains("`exit 10` en 34 ms"),
+        "the refusal, measured"
+    );
+    // …and every leg not measured, pending with what it needs.
+    assert!(
+        smoke.contains("| Tramo | Estado | Qué falta |"),
+        "the pending legs"
+    );
+    for leg in [
+        "GUI y TUI contra un daemon macOS/Linux reenviado",
+        "`ssh <pc> meltemi bridge` a través de un `sshd` real de Windows",
+    ] {
+        let row = smoke
+            .lines()
+            .find(|line| line.contains(leg))
+            .unwrap_or_else(|| panic!("the smoke lists `{leg}`"));
+        assert!(row.contains("**pendiente**"), "{row}");
+    }
+}
+
+// Scenario: La documentación no promete lo no medido
+#[test]
+fn the_remote_access_page_does_not_promise_what_is_not_measured() {
+    let doc = read(&repo_root(), "docs/acceso-remoto.md");
+    let flat = flat("docs/acceso-remoto.md");
+    // The frontier's claim is what is expected, pointing at what is measured.
+    assert!(
+        !flat.contains("con el túnel establecido, funciona todo"),
+        "the unconditional claim is gone"
+    );
+    assert!(
+        flat.contains("lo esperado es que funcione todo"),
+        "what is expected"
+    );
+    assert!(
+        doc.contains("(qa/2026-09-25-acceso-por-tunel-smoke.md)"),
+        "and where it is measured"
+    );
+}
+
 // Scenario: La receta de aprobar desde el teléfono está documentada
 #[test]
 fn the_phone_approval_recipe_is_documented() {

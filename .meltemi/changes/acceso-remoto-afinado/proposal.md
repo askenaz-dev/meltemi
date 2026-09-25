@@ -1,8 +1,10 @@
 # acceso-remoto-afinado
 
-> Vía rápida (fast-forward): dos correcciones de una línea cada una, una
-> sección de documentación que faltaba y un smoke que nunca se corrió. Deltas
-> solo ADDED sobre `remote-access` y `daemon-lifecycle`. Nace del comparativo
+> Dos correcciones pequeñas, la documentación que faltaba y un smoke que nunca
+> se corrió. Salió de la vía rápida al diseñarse: que un endpoint explícito no
+> arranque un daemon estrecha dos requisitos vigentes —`daemon-lifecycle` y
+> `cli-contract` dicen que un cliente arranca el daemon cuando no hay ninguno—,
+> y se escriben como MODIFIED (design D4). Nace del comparativo
 > con Orca y de la prueba integrada del 2026-09-24
 > (`docs/research/comparativo-orca-2026-09-24.md`, brechas R3, R9, R4, MOB-6
 > y R-V1). Absorbe las propuestas nombradas allí como
@@ -45,23 +47,26 @@ y una que nunca se midió:
   esta máquina; con un `MELTEMI_ENDPOINT` explícito que no responde, rehúsa
   de inmediato con diagnóstico y remedio («`<endpoint>` no acepta conexiones;
   si es un túnel, revísalo; si es local, arráncalo con `meltemi status` sin
-  la variable»). El e2e que hoy fija `MELTEMI_ENDPOINT` para aislarse gana una
-  bandera explícita de «arranca aquí» en vez de depender del accidente.
+  la variable, o fija `MELTEMI_START_HERE=1`»). Quien hoy fija
+  `MELTEMI_ENDPOINT` para aislarse y cuenta con el arranque —el script de
+  captura, la prueba del fallo de arranque— gana esa bandera explícita de
+  «arranca aquí» en vez de depender del accidente.
 - **Túnel con latido**: el comando y el snippet de configuración del helper
   ganan `-o ServerAliveInterval=30 -o ServerAliveCountMax=3
   -o ExitOnForwardFailure=yes`, con la nota de qué hace cada uno; `--exec`
   reporta la salida del `ssh` cuando muere en vez de callar.
 - **`docs/acceso-remoto.md`** gana tres secciones: «Windows como PC servido»
   (instalar `OpenSSH.Server`, shell por defecto, `ssh pc meltemi bridge`, lo
-  medido y lo no medido), «Desde el teléfono, hoy» (TUI por SSH, tamaño
-  mínimo, campana como aviso local, lo que **no** hay: push sin túnel) y
-  «Cuánto se espera al humano» (los ajustes de `[permissions]` con sus
+  medido y lo no medido), «Desde el teléfono, hoy» (absorbe la receta de los
+  verbos de `verbos-del-agent-boss`, más la TUI por SSH, el tamaño mínimo, la
+  campana como aviso local y lo que **no** hay: push sin conexión) y «Cuánto se
+  espera al humano» (los ajustes de `[permissions]` y `[sessions]` con sus
   valores). `docs/plataformas.md` deja de contradecir al helper.
-- **Smoke con túnel**: `docs/qa/<fecha>-gui-tui-sobre-tunel-smoke.md`, GUI y
-  TUI contra un daemon macOS/Linux reenviado con `-R`, y el tramo
-  `sshd → meltemi bridge` en Windows cuando el mantenedor habilite el
-  servidor; lo que no se pueda medir queda declarado, como en el smoke
-  anterior.
+- **Smoke con túnel**: `docs/qa/2026-09-25-acceso-por-tunel-smoke.md`, con lo
+  que esta máquina —Windows, sola— puede medir, y declarado pendiente lo que
+  necesita otra cosa: GUI y TUI contra un daemon macOS/Linux reenviado con
+  `-R` (un host macOS/Linux) y el tramo `sshd → meltemi bridge` en Windows
+  (instalar el servidor, decisión del mantenedor).
 
 ## Capabilities
 
@@ -71,17 +76,21 @@ y una que nunca se midió:
 
 ### Modified Capabilities
 
-- `daemon-lifecycle`: + requisito «Un endpoint explícito jamás arranca un
-  daemon» (rehúso con remedio).
-- `remote-access`: + requisitos «Túnel con latido y fallo visible» y
-  «Documentación del PC Windows servido, del teléfono de hoy y de la espera
-  al humano»; + escenario de smoke sobre túnel.
+- `daemon-lifecycle`: MODIFIED «Arranque bajo demanda e instancia única»: el
+  arranque es en el endpoint propio o donde se pide; un endpoint ajeno que no
+  responde se rehúsa con remedio.
+- `cli-contract`: MODIFIED «Arranque del daemon bajo demanda», en los mismos
+  términos, con el código de inalcanzable y su remedio.
+- `remote-access`: + requisitos «Túnel con latido y fallo visible», «El acceso
+  de hoy está documentado con sus límites» y «El acceso por túnel está medido o
+  declarado».
 
 ## Impact
 
-- Archivos: `core/meltemi-client/src/bootstrap.rs` (+ tests),
-  `tui/src/tunnel.rs` (+ tests), `docs/acceso-remoto.md`,
-  `docs/plataformas.md`, `docs/qa/`.
+- Archivos: `core/meltemi-client/src/bootstrap.rs` y `paths.rs` (+ tests),
+  `tui/src/tunnel.rs` y `run.rs` (+ tests), pruebas del arranque con el
+  binario real, `tui/tests/unreachable.rs`, `scripts/capture-desktop.ps1`,
+  `docs/acceso-remoto.md`, `docs/plataformas.md`, `docs/qa/`.
 - Cero dependencias nuevas; cero RPC.
 - Riesgo: algún flujo interno cuente con que un endpoint explícito arranque
   el daemon (el e2e, `capture-desktop.ps1`). Se enumeran y se les da la

@@ -1977,25 +1977,32 @@ fn tunnel(target: Option<String>, exec: bool) -> Result<Outcome, CliError> {
     if exec {
         // `--exec` runs the user's OWN ssh, visible (inherited stdio), never a
         // silent background tunnel. A placeholder target cannot be dialed.
-        let Some(host) = target.as_deref() else {
+        if target.is_none() {
             return Err(CliError::usage(
                 "`tunnel --exec` needs a target: meltemi tunnel <user@host> --exec",
             ));
-        };
-        let forward = format!("{}:{}", plan.remote_endpoint, plan.local_endpoint);
+        }
+        // Exactly the arguments that were printed: one source for both.
         let status = std::process::Command::new("ssh")
-            .args(["-N", "-R", &forward, host])
+            .args(&plan.ssh_args)
             .status()
             .map_err(|e| CliError::internal(format!("could not launch ssh: {e}")))?;
-        let code = status.code().unwrap_or(-1);
-        return Ok(Outcome {
-            human: format!("ran `{}`; ssh exited with status {code}", plan.ssh_command),
-            json: json!({
-                "sshCommand": plan.ssh_command,
-                "executed": true,
-                "exitCode": code,
+        // How it ended is said either way, and a tunnel that died is never
+        // reported as a success (acceso-remoto-afinado D6).
+        return match crate::tunnel::ending(status.code()) {
+            Ok(ended) => Ok(Outcome {
+                human: format!("ran `{}`\n{ended}", plan.ssh_command),
+                json: json!({
+                    "sshCommand": plan.ssh_command,
+                    "executed": true,
+                    "exitCode": status.code(),
+                }),
             }),
-        });
+            Err(down) => Err(CliError::tunnel_down(format!(
+                "ran `{}`\n{down}",
+                plan.ssh_command
+            ))),
+        };
     }
 
     let human = format!(

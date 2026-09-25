@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Client-side daemon bootstrap (task 3.3): connect to the daemon, starting
-//! it on demand if nothing is listening.
+//! it on demand if nothing is listening — at this user's own endpoint, or where
+//! a start was asked for, and nowhere else (acceso-remoto-afinado D1).
 //!
 //! Single-instance ownership lives on the daemon side
 //! ([`crate::transport::Listener::bind`] fails with `AddrInUse` when the
@@ -20,6 +21,11 @@ use crate::transport::{self, Stream};
 /// Environment override for the daemon binary the client launches.
 pub const ENV_DAEMON_BIN: &str = "MELTEMI_DAEMON_BIN";
 
+/// Environment consent to start a daemon at an endpoint that is not this
+/// user's own. Absent, empty or `0` is no; anything else is yes — the shape
+/// `MELTEMI_BELL` and `MELTEMI_ASCII` already have (acceso-remoto-afinado D2).
+pub const ENV_START_HERE: &str = "MELTEMI_START_HERE";
+
 /// How long to wait for a freshly spawned daemon to start accepting.
 const STARTUP_BUDGET: Duration = Duration::from_secs(5);
 /// Delay between connection attempts while waiting for startup.
@@ -28,11 +34,27 @@ const RETRY_DELAY: Duration = Duration::from_millis(50);
 /// Connects to the daemon at `endpoint`, launching it on demand if needed.
 ///
 /// Fast path: if a daemon is already accepting, connects immediately.
-/// Otherwise spawns the daemon detached and retries the connection until it
-/// succeeds or [`STARTUP_BUDGET`] elapses.
+/// Otherwise, at this user's own endpoint — or wherever [`ENV_START_HERE`]
+/// asks — spawns the daemon detached and retries the connection until it
+/// succeeds or [`STARTUP_BUDGET`] elapses. Anywhere else nothing is started:
+/// an endpoint that does not answer may be a tunnel that dropped, another
+/// tool's daemon or a typo, and a fresh local daemon under that name would
+/// answer in the place of the one the user meant. The refusal is immediate and
+/// says the ways on (acceso-remoto-afinado D1, D3).
 pub async fn connect_or_start(endpoint: &str) -> std::io::Result<Stream> {
     if let Ok(stream) = transport::connect(endpoint).await {
         return Ok(stream);
+    }
+    let asked = std::env::var(ENV_START_HERE).ok();
+    if !may_start(
+        endpoint,
+        &crate::paths::default_endpoint(),
+        asked.as_deref(),
+    ) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotConnected,
+            refusal(endpoint),
+        ));
     }
     spawn_daemon()?;
     let deadline = Instant::now() + STARTUP_BUDGET;
@@ -50,6 +72,28 @@ pub async fn connect_or_start(endpoint: &str) -> std::io::Result<Stream> {
             }
         }
     }
+}
+
+/// Whether a client may start a daemon at `endpoint`: at this user's own
+/// endpoint, always; anywhere else, only when [`ENV_START_HERE`] asks. The
+/// comparison is by text on purpose: an endpoint written another way is not
+/// recognized as the own one, and the error it gets names the remedy — the
+/// safe side of being wrong.
+#[must_use]
+pub fn may_start(endpoint: &str, own: &str, start_here: Option<&str>) -> bool {
+    endpoint == own || !matches!(start_here, None | Some("") | Some("0"))
+}
+
+/// Why nothing was started at `endpoint`, and the two ways on.
+#[must_use]
+pub fn refusal(endpoint: &str) -> String {
+    format!(
+        "`{endpoint}` is not accepting connections, and a daemon is started only at this \
+         user's own endpoint: if it is a tunnel, check the tunnel; if the daemon should run \
+         here, start it without {} (for example `meltemi status`), or set {ENV_START_HERE}=1 \
+         to start one at this endpoint",
+        crate::paths::ENV_ENDPOINT
+    )
 }
 
 /// Resolves the daemon binary: `MELTEMI_DAEMON_BIN` if set, otherwise a
@@ -149,6 +193,55 @@ mod tests {
         let stream = connect_or_start(&endpoint).await;
         assert!(stream.is_ok(), "fast path must connect: {:?}", stream.err());
         accept.abort();
+    }
+
+    #[test]
+    fn a_daemon_starts_at_the_own_endpoint_or_where_asked() {
+        let own = r"\\.\pipe\meltemid-S-1-5-21-own";
+        assert!(may_start(own, own, None), "the own endpoint, unasked");
+        for unasked in [None, Some(""), Some("0")] {
+            assert!(
+                !may_start("/home/me/.meltemi/meltemid.sock", own, unasked),
+                "an explicit endpoint, {unasked:?}: nothing is started there"
+            );
+        }
+        for asked in [Some("1"), Some("yes")] {
+            assert!(
+                may_start("/home/me/.meltemi/meltemid.sock", own, asked),
+                "asked with {asked:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_refusal_names_the_tunnel_and_how_to_ask() {
+        let said = refusal("/home/me/.meltemi/meltemid.sock");
+        assert!(said.contains("/home/me/.meltemi/meltemid.sock"), "{said}");
+        assert!(said.contains("check the tunnel"), "{said}");
+        assert!(said.contains("MELTEMI_ENDPOINT"), "{said}");
+        assert!(said.contains("MELTEMI_START_HERE=1"), "{said}");
+    }
+
+    #[tokio::test]
+    async fn an_explicit_endpoint_that_does_not_answer_is_refused_at_once() {
+        // Nothing listens here, and it is not this user's own endpoint: the
+        // client says so at once instead of starting a daemon under its name
+        // and waiting out the startup budget.
+        let endpoint = test_endpoint("explicit-refused");
+        let started = Instant::now();
+        let Err(refused) = connect_or_start(&endpoint).await else {
+            panic!("nothing answers here, and nothing may be started");
+        };
+        assert!(started.elapsed() < STARTUP_BUDGET, "at once");
+        assert_eq!(refused.kind(), std::io::ErrorKind::NotConnected);
+        assert!(
+            refused.to_string().contains("check the tunnel"),
+            "{refused}"
+        );
+        assert!(
+            transport::connect(&endpoint).await.is_err(),
+            "no daemon appeared"
+        );
     }
 
     #[test]

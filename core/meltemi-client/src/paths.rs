@@ -54,8 +54,11 @@ pub fn endpoint() -> String {
     default_endpoint()
 }
 
+/// This user's own endpoint on this machine, whatever `MELTEMI_ENDPOINT` says:
+/// the one place a client may start a daemon without being asked to
+/// (acceso-remoto-afinado D1).
 #[cfg(unix)]
-fn default_endpoint() -> String {
+pub fn default_endpoint() -> String {
     let base = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(data_dir);
@@ -65,8 +68,11 @@ fn default_endpoint() -> String {
         .into_owned()
 }
 
+/// This user's own endpoint on this machine, whatever `MELTEMI_ENDPOINT` says:
+/// the one place a client may start a daemon without being asked to
+/// (acceso-remoto-afinado D1).
 #[cfg(windows)]
-fn default_endpoint() -> String {
+pub fn default_endpoint() -> String {
     format!(
         r"\\.\pipe\meltemid-{}",
         crate::transport::current_user_sid()
