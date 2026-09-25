@@ -862,6 +862,52 @@ fn a_request_the_provider_adds_fails_naming_it() {
 }
 
 #[test]
+fn the_notices_the_adapter_notes_are_the_dumped_ones() {
+    // Scenario: Los avisos del proveedor se anotan y no se dicen como agente
+    for (method, file, params) in [
+        (
+            wire::WARNING,
+            "WarningNotification.json",
+            json!({"message": "careful", "threadId": null}),
+        ),
+        (
+            wire::CONFIG_WARNING,
+            "ConfigWarningNotification.json",
+            json!({"summary": "unknown key", "details": null, "path": "/home/dev/.codex/config.toml", "range": null}),
+        ),
+        (
+            wire::DEPRECATION_NOTICE,
+            "DeprecationNoticeNotification.json",
+            json!({"summary": "legacy", "details": "migrate"}),
+        ),
+        (
+            wire::GUARDIAN_WARNING,
+            "GuardianWarningNotification.json",
+            json!({"threadId": "thread-1", "message": "reviewed"}),
+        ),
+        (
+            wire::WORLD_WRITABLE_WARNING,
+            "WindowsWorldWritableWarningNotification.json",
+            json!({"samplePaths": ["/home/dev/.codex/open"], "extraCount": 0, "failedScan": false}),
+        ),
+        (
+            wire::MODEL_REROUTED,
+            "ModelReroutedNotification.json",
+            json!({"threadId": "thread-1", "turnId": "turn-1", "fromModel": "a", "toModel": "b",
+                   "reason": "highRiskCyberActivity"}),
+        ),
+    ] {
+        assert_conforms(file, "a notice the adapter notes", &params);
+        let noted = meltemi_adapters::codex::mapping::provider_notice(method, &params)
+            .unwrap_or_else(|| panic!("`{method}` is noted"));
+        assert!(
+            !noted.contains(".codex") && !noted.starts_with("unreadable"),
+            "`{method}` is read, and without paths: {noted}"
+        );
+    }
+}
+
+#[test]
 fn a_divergence_fails_naming_the_field() {
     // Scenario: Tipos validados contra el esquema volcado
     //

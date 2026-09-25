@@ -113,6 +113,18 @@ pub const REASONING_SUMMARY_TEXT_DELTA: &str = "item/reasoning/summaryTextDelta"
 pub const ERROR: &str = "error";
 /// An MCP server from the CLI's own configuration changed its startup state.
 pub const MCP_SERVER_STARTUP_STATUS: &str = "mcpServer/startupStatus/updated";
+/// A warning the provider writes for the human.
+pub const WARNING: &str = "warning";
+/// A warning about the CLI's own configuration.
+pub const CONFIG_WARNING: &str = "configWarning";
+/// Something the provider deprecates.
+pub const DEPRECATION_NOTICE: &str = "deprecationNotice";
+/// A warning from the provider's guardian reviewer.
+pub const GUARDIAN_WARNING: &str = "guardianWarning";
+/// World-writable locations the CLI found on Windows.
+pub const WORLD_WRITABLE_WARNING: &str = "windows/worldWritableWarning";
+/// The provider moved the turn to another model.
+pub const MODEL_REROUTED: &str = "model/rerouted";
 /// The CLI's remote control changed state. Every connection reports it once,
 /// before the thread's answer, and again whenever it changes.
 pub const REMOTE_CONTROL_STATUS_CHANGED: &str = "remoteControl/status/changed";

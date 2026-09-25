@@ -1062,6 +1062,11 @@ where
             }
         };
         if message.get("id").and_then(Value::as_i64) != Some(id) {
+            // A notice for the human is kept even this early, on the adapter's
+            // own stderr, where the daemon collects it (codex-al-dia design D8).
+            if let Some(line) = noted_in_handshake(&message) {
+                eprintln!("{}: {line}", SPEC.name);
+            }
             continue;
         }
         if let Some(error) = message.get("error") {
@@ -1073,6 +1078,18 @@ where
             handshake_failed("the server answered the handshake with neither a result nor an error")
         });
     }
+}
+
+/// What the handshake keeps of something the server said before answering: a
+/// notice for the human, in the words [`mapping::provider_notice`] gives it,
+/// and nothing else.
+fn noted_in_handshake(message: &Value) -> Option<String> {
+    if message.get("id").is_some() {
+        return None;
+    }
+    let method = message.get("method").and_then(Value::as_str)?;
+    let params = message.get("params").cloned().unwrap_or(Value::Null);
+    mapping::provider_notice(method, &params)
 }
 
 /// The refusal for a thread the server would not open.
@@ -2459,6 +2476,25 @@ mod tests {
             "and nothing that opts into the experimental surface: {}",
             sent[0]
         );
+    }
+
+    #[test]
+    fn a_notice_during_the_handshake_is_noted_without_its_path() {
+        // Scenario: Los avisos del proveedor se anotan y no se dicen como agente
+        let noted = noted_in_handshake(&json!({
+            "method": wire::CONFIG_WARNING,
+            "params": {"summary": "unknown key `foo`", "path": "/home/dev/.codex/config.toml"}
+        }))
+        .expect("a configuration warning is kept");
+        assert!(noted.contains("unknown key `foo`") && !noted.contains(".codex"));
+        assert_eq!(
+            noted_in_handshake(
+                &json!({"method": "account/updated", "params": {"authMode": "chatgpt"}})
+            ),
+            None,
+            "only notices for the human, nothing about the account"
+        );
+        assert_eq!(noted_in_handshake(&json!({"id": 9, "result": {}})), None);
     }
 
     #[tokio::test]

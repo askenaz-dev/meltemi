@@ -128,7 +128,7 @@ archivo del volcado llega con la tarea que lo usa.
 - [x] 2.8 Turno fallido con `turn.error.message` y `additionalDetails` en el
   rehúso (design D8) — escenario «Un turno fallido se explica con las palabras
   del proveedor» — gates: suite de `meltemi-adapters`, e2e del adaptador
-- [ ] 2.9 Avisos del proveedor (`warning`, `configWarning`,
+- [x] 2.9 Avisos del proveedor (`warning`, `configWarning`,
   `deprecationNotice`, `guardianWarning`, `windows/worldWritableWarning`,
   `model/rerouted`) anotados sin rutas, en el turno y en `await_answer` durante
   el handshake (design D8) — escenario «Los avisos del proveedor se anotan y no

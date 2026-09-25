@@ -225,6 +225,14 @@ impl Mapper {
             }
             wire::ITEM_STARTED => self.item(params, false),
             wire::ITEM_COMPLETED => self.item(params, true),
+            wire::WARNING
+            | wire::CONFIG_WARNING
+            | wire::DEPRECATION_NOTICE
+            | wire::GUARDIAN_WARNING
+            | wire::WORLD_WRITABLE_WARNING
+            | wire::MODEL_REROUTED => {
+                provider_notice(method, params).map_or_else(Mapped::default, Mapped::noted)
+            }
             wire::MCP_SERVER_STARTUP_STATUS => self.mcp_server(params),
             wire::REMOTE_CONTROL_STATUS_CHANGED => self.remote_control_changed(params),
             _ => Mapped::default(),
@@ -439,6 +447,76 @@ pub fn uncovered_by_gate() -> SessionUpdate {
              that Codex does not submit for approval, which run outside its sandbox.",
         )]),
     )
+}
+
+/// The line to keep for a notice the provider writes for the human
+/// (codex-al-dia design D8), or `None` for any other method.
+///
+/// Noted on the adapter's record, which the daemon collects, and never shown as
+/// the agent's words. Never with a path of the CLI's own state either: a
+/// configuration warning's file and a world-writable scan's sample paths stay
+/// out, and a notice this adapter cannot read is named without its contents
+/// (constitution §2).
+#[must_use]
+pub fn provider_notice(method: &str, params: &Value) -> Option<String> {
+    let text = |key: &str| {
+        params
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+    };
+    let line = match method {
+        wire::WARNING => text("message").map(|message| format!("Codex warns: {message}")),
+        wire::GUARDIAN_WARNING => {
+            text("message").map(|message| format!("Codex's guardian warns: {message}"))
+        }
+        wire::CONFIG_WARNING => text("summary").map(|summary| {
+            format!("Codex's configuration: {summary} (the file is not recorded here)")
+        }),
+        wire::DEPRECATION_NOTICE => text("summary").map(|summary| match text("details") {
+            Some(details) => format!("Codex deprecates: {summary} ({details})"),
+            None => format!("Codex deprecates: {summary}"),
+        }),
+        wire::WORLD_WRITABLE_WARNING => {
+            if params.get("failedScan").and_then(Value::as_bool) == Some(true) {
+                Some("Codex could not finish scanning for world-writable locations".to_string())
+            } else {
+                let sampled = params
+                    .get("samplePaths")
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len);
+                let extra = params
+                    .get("extraCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                let found = u64::try_from(sampled)
+                    .unwrap_or(u64::MAX)
+                    .saturating_add(extra);
+                Some(format!(
+                    "Codex found {found} world-writable locations (their paths are not recorded here)"
+                ))
+            }
+        }
+        wire::MODEL_REROUTED => match (text("fromModel"), text("toModel")) {
+            (Some(from), Some(to)) => {
+                let why = params
+                    .get("reason")
+                    .map(|reason| {
+                        reason
+                            .as_str()
+                            .map_or_else(|| reason.to_string(), str::to_string)
+                    })
+                    .unwrap_or_default();
+                Some(format!(
+                    "Codex moved the turn from model `{from}` to `{to}` (reason: {why})"
+                ))
+            }
+            _ => None,
+        },
+        _ => return None,
+    };
+    Some(line.unwrap_or_else(|| format!("unreadable `{method}` from Codex")))
 }
 
 /// The row for an approval declined because it was not this turn's
@@ -1141,6 +1219,66 @@ mod tests {
                 "stream disconnected (idle timeout)".into()
             ))
         );
+    }
+
+    #[test]
+    fn the_providers_notices_are_noted_and_never_said_as_the_agent() {
+        // Scenario: Los avisos del proveedor se anotan y no se dicen como agente
+        let mut mapper = Mapper::new();
+        for (method, params, expected) in [
+            (
+                wire::WARNING,
+                json!({"message": "Heads up: slow network"}),
+                "slow network",
+            ),
+            (
+                wire::GUARDIAN_WARNING,
+                json!({"threadId": "t", "message": "risky command reviewed"}),
+                "risky command reviewed",
+            ),
+            (
+                wire::CONFIG_WARNING,
+                json!({"summary": "unknown key `foo`", "path": "/home/dev/.codex/config.toml",
+                       "details": "see /home/dev/.codex/config.toml line 3"}),
+                "unknown key `foo`",
+            ),
+            (
+                wire::DEPRECATION_NOTICE,
+                json!({"summary": "`sandbox` is legacy", "details": "use permission profiles"}),
+                "use permission profiles",
+            ),
+            (
+                wire::WORLD_WRITABLE_WARNING,
+                json!({"samplePaths": ["C:\\Users\\dev\\open"], "extraCount": 2, "failedScan": false}),
+                "3 world-writable locations",
+            ),
+            (
+                wire::MODEL_REROUTED,
+                json!({"threadId": "t", "turnId": "u", "fromModel": "gpt-a", "toModel": "gpt-b",
+                       "reason": "highRiskCyberActivity"}),
+                "`gpt-a` to `gpt-b`",
+            ),
+        ] {
+            let mapped = mapper.map(method, &params);
+            assert!(
+                mapped.updates.is_empty() && mapped.signal.is_none(),
+                "`{method}` is not the agent's words: {mapped:?}"
+            );
+            let noted = mapped
+                .noted
+                .unwrap_or_else(|| panic!("`{method}` is noted"));
+            assert!(noted.contains(expected), "`{method}`: {noted}");
+            assert!(
+                !noted.contains(".codex") && !noted.contains("Users"),
+                "no path of the CLI's state: {noted}"
+            );
+        }
+        // A notice that cannot be read is named, never dumped.
+        let unreadable =
+            provider_notice(wire::CONFIG_WARNING, &json!({"path": "/home/dev/.codex/x"}))
+                .expect("a notice");
+        assert!(unreadable.contains(wire::CONFIG_WARNING) && !unreadable.contains(".codex"));
+        assert_eq!(provider_notice(wire::TURN_STARTED, &json!({})), None);
     }
 
     #[test]

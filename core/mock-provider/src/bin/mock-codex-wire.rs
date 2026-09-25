@@ -41,15 +41,19 @@ const SCHEMAS: &[(&str, &str)] = vendored_schemas![
     "ClientNotification.json",
     "CommandExecutionRequestApprovalParams.json",
     "CommandExecutionRequestApprovalResponse.json",
+    "ConfigWarningNotification.json",
+    "DeprecationNoticeNotification.json",
     "ErrorNotification.json",
     "FileChangeRequestApprovalParams.json",
     "FileChangeRequestApprovalResponse.json",
+    "GuardianWarningNotification.json",
     "InitializeParams.json",
     "InitializeResponse.json",
     "ItemCompletedNotification.json",
     "ItemStartedNotification.json",
     "JSONRPCMessage.json",
     "McpServerStatusUpdatedNotification.json",
+    "ModelReroutedNotification.json",
     "ReasoningSummaryTextDeltaNotification.json",
     "ReasoningTextDeltaNotification.json",
     "RemoteControlStatusChangedNotification.json",
@@ -66,6 +70,8 @@ const SCHEMAS: &[(&str, &str)] = vendored_schemas![
     "TurnStartParams.json",
     "TurnStartResponse.json",
     "TurnStartedNotification.json",
+    "WarningNotification.json",
+    "WindowsWorldWritableWarningNotification.json",
 ];
 
 fn main() {

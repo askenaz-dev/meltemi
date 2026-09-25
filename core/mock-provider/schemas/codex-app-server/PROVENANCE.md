@@ -58,6 +58,14 @@ al cliente. La conformidad lo recorre y exige que el adaptador declare para
 cada una si la releva al proxy o la rehúsa (`codex/requests.rs`, design D7):
 una petición que el proveedor añada falla el próximo re-anclaje nombrándola.
 
+Los seis avisos que el servidor escribe para el humano —
+`WarningNotification.json`, `ConfigWarningNotification.json`,
+`DeprecationNoticeNotification.json`, `GuardianWarningNotification.json`,
+`WindowsWorldWritableWarningNotification.json` y
+`ModelReroutedNotification.json`— se vendorizan porque el adaptador los anota
+en su registro (design D8): la conformidad valida contra ellos las formas que
+lee, y comprueba que ninguna ruta del estado del CLI llega a la nota.
+
 La transcripción del servidor real vive junto al guion, saneada:
 `../../scripts/codex-app-server-0.156.1.transcript.ndjson`. Es evidencia, no un
 guion: la conformidad comprueba que el guion sigue su orden. El servidor envía
