@@ -11,7 +11,7 @@ pruebas del arranque cargan el `meltemid` ya construido.
   diagnóstico y los dos remedios; unit tests de la regla y del texto (design
   D1, D2, D3) — gates: suite de `meltemi-client`
 
-- [ ] 1.2 Pruebas con el binario real: el bootstrap arranca `meltemid` en un
+- [x] 1.2 Pruebas con el binario real: el bootstrap arranca `meltemid` en un
   endpoint aislado con la bandera, una segunda conexión lo reutiliza con el
   binario apuntado a uno inexistente, y sin la bandera el endpoint explícito se
   rehúsa aunque el binario esté a mano; la CLI arranca bajo demanda con la
