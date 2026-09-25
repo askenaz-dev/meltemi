@@ -11,9 +11,11 @@ puede hacer, cómo, y qué deliberadamente no existe.
 ## La frontera: túnel vivo
 
 Todas las capacidades del daemon operan en remoto **únicamente a través de un
-túnel vivo** del usuario hacia el socket local. Con el túnel establecido,
-funciona todo; sin túnel, no funciona nada — no hay ni notificación ni control
-alguno sin una conexión establecida.
+túnel vivo** del usuario hacia el socket local. Con el túnel establecido, lo
+esperado es que funcione todo —qué está medido y qué falta medir está en el
+[smoke del acceso por túnel](qa/2026-09-25-acceso-por-tunel-smoke.md)—; sin
+túnel, no funciona nada — no hay ni notificación ni control alguno sin una
+conexión establecida.
 
 Esto es una **postura de privacidad, no una carencia**. Habilitar control o
 notificaciones sin túnel exigiría un relé en la nube o un puerto de red en el
@@ -212,7 +214,8 @@ aplicación, o `meltemi status` en una terminal local— antes de irse.
 un named pipe con su entrada y salida en tuberías, y los verbos sin terminal
 contra el daemon. **No medido**: el tramo a través de un `sshd` real de
 Windows, y qué pasa si lo primero que arranca el daemon es una sesión SSH en vez
-de la de escritorio.
+de la de escritorio. El estado de cada tramo está en el [smoke del acceso por
+túnel](qa/2026-09-25-acceso-por-tunel-smoke.md).
 
 ## El punto de encuentro: acceso en dos vías
 

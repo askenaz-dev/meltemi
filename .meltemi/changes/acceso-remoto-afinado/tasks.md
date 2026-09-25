@@ -47,7 +47,7 @@ pruebas del arranque cargan el `meltemid` ya construido.
   está documentado con sus límites», «Cada espera tiene su ajuste y su valor»,
   «Plataformas y el helper dicen lo mismo» — gates: tests de docs
 
-- [ ] 3.2 El smoke `docs/qa/2026-09-25-acceso-por-tunel-smoke.md`: el rehúso
+- [x] 3.2 El smoke `docs/qa/2026-09-25-acceso-por-tunel-smoke.md`: el rehúso
   y el arranque con la bandera medidos con el binario del taller, lo heredado de
   los e2e, y lo pendiente con lo que falta; la frase «funciona todo» pasa a ser
   lo esperado con enlace al smoke; test de docs (design D8) — escenarios «El
