@@ -2,7 +2,7 @@
 
 ## 1. La guía y lo que la rodea
 
-- [ ] 1.1 `docs/local-models.md`: las tres recetas verificadas en forma con
+- [x] 1.1 `docs/local-models.md`: las tres recetas verificadas en forma con
   OpenCode 1.18.32 el 2026-09-25 —el archivo de OpenCode y el perfil de Meltemi
   de cada una, la alternativa del `opencode.json` del proyecto, el modelo por el
   archivo o por la palanca, qué se mide, la advertencia sobre referencias dentro
