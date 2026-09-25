@@ -35,28 +35,29 @@ modelo local: elegir `ollama/…` en OpenCode es exactamente esto.
 
 ## What Changes
 
-- **La opción anunciada manda**: al abrir sesión, si el agente anuncia una
-  opción de categoría `model` (o `effort`), el valor pedido —por bandera, por
-  perfil o por chip— se envía con `session/set_config_option` **verbatim**
-  antes del primer prompt. Un valor que no está en la lista anunciada se
-  rehúsa **listando lo anunciado**, nunca se adivina ni se aproxima
-  (constitución §5: Meltemi no interpreta modelos). El log registra solo el
-  valor confirmado por el agente.
+- **La opción anunciada manda, y se confirma**: al abrir sesión, si la entrada
+  del agente no declara la palanca por bandera, el valor pedido —por bandera de
+  la CLI, por el compositor o por el perfil— se fija con
+  `session/set_config_option` **verbatim** sobre la opción que el agente anunció
+  en la categoría de la palanca (`model`, `thought_level`), antes del primer
+  prompt. Un valor que el agente no anunció se rehúsa **listando lo
+  anunciado**, nunca se adivina (§5); y si el agente responde dejando otro valor,
+  cambia el modo o no contesta, **no sale ningún prompt**: el contenido del
+  repositorio va solo al modelo que se eligió (design D3).
 - **`levers_of` deja de leer nombres de binario**: el registro de flota gana
-  un campo aditivo `levers` por entrada (qué admite por bandera de
-  lanzamiento, verificado contra el CLI pineado) y la regla pasa a ser
-  «bandera declarada, o anuncio en vivo, o rehúso». Un agente `custom` sin
-  dato: anuncio o rehúso. La entrada de Codex y la de Claude conservan lo que
-  hoy tienen, ahora como dato y no como `match` sobre un string.
-- **`with_session_levers` en todos los verbos** que arrancan un agente
-  (`sdd/propose`, `sdd/explore`, `worktree/dispatch`, `sdd/implement`), con
-  la precedencia ya decidida: lo explícito de la sesión pisa el perfil; el
-  perfil que no declara no impone.
-- **El chip de la GUI y la paleta de la TUI saben qué ofrecer**: con el
-  agente elegido, el chip «Model» muestra la lista anunciada la última vez
-  por ese agente (guardada por el daemon en `fleet/list`, aditiva) o un campo
-  libre con la advertencia «se confirmará al arrancar». Sin lista y sin
-  bandera declarada, el chip dice que ese agente no toma modelo.
+  un campo `levers` por entrada (qué toma por bandera de lanzamiento, que solo
+  los adaptadores propios pueden declarar) y la regla pasa a ser «bandera
+  declarada, o anuncio confirmado, o rehúso». Codex y Claude Code conservan lo
+  que hoy tienen, ahora como dato (design D1, D2).
+- **El rehúso llega a quien lo pidió, como dato**: un evento `lever_refused` y
+  el error 2007 con la palanca, lo pedido, la razón y lo anunciado, en todo verbo
+  —hoy `dispatch` lo dice «el agente se negó» e `implement` lo pierde—, y las
+  superficies lo dicen en español e inglés (design D4).
+- **Las palancas del perfil en todos los verbos** que arrancan un agente
+  (`propose`, los de autoría, `dispatch`, `implement`), resueltas antes de crear
+  nada (design D5).
+- **El histórico dice lo que rigió**: nunca un modelo rehusado como el que
+  corrió (design D6).
 
 ## Capabilities
 
@@ -67,30 +68,28 @@ modelo local: elegir `ollama/…` en OpenCode es exactamente esto.
 ### Modified Capabilities
 
 - `acp-session`: MODIFIED «Modelo y esfuerzo como transporte opaco por
-  sesión» (tres vías por palanca —bandera declarada, opción anunciada,
-  rehúso—; validación solo contra lo anunciado; lo confirmado queda en el
-  registro; rehúso antes de crear cuando ya se sabe y al abrir, sin prompt,
-  cuando solo el anuncio lo dice).
-- `fleet-catalog`: + «El registro declara las palancas de lanzamiento», «La
-  flota recuerda lo último que cada agente anunció» y «Las palancas de cada
-  agente se ven en toda superficie» (CLI y TUI); MODIFIED «El perfil declara su
-  modelo y su esfuerzo» (rige en todo verbo que arranca un agente: sesión
-  libre, `propose`, autoría, `dispatch`, `implement`).
-- `gui-shell`: MODIFIED «El modelo y el esfuerzo se eligen y se ven» (el
-  selector sabe qué ofrece el agente elegido).
+  sesión» (dos vías y rehúso antes de crear nada; lo rehusado no figura como lo
+  que rigió) y + «La palanca anunciada se confirma antes del primer prompt».
+- `fleet-catalog`: + «El registro declara las palancas de lanzamiento»;
+  MODIFIED «El perfil declara su modelo y su esfuerzo» (rige en todo verbo que
+  arranca un agente).
+- `gui-shell`: MODIFIED «El modelo y el esfuerzo se eligen y se ven» (la
+  conversación dice la palanca rehusada).
+- `tui-shell`: MODIFIED «El terminal declara el modelo efectivo» (la
+  transcripción dice la palanca rehusada).
+- `cli-contract`: + «El CLI dice la palanca que rigió o por qué se rehusó».
 
 ## Impact
 
-- Archivos: `core/meltemid/src/{levels.rs, session_config.rs, free_session.rs,
-  propose.rs, sdd_flow.rs, implement.rs, worktrees.rs, fleet.rs}`,
-  `core/meltemid/data/fleet-registry.toml`, `proto/schemas/v1/{fleet,
-  session-config}.schema.json` (aditivos), `desktop/ui/src/lib/views/Home.svelte`
-  y `SessionDetail.svelte`, `tui/src/shell/palette.rs`, `docs/agentes.md`,
-  `docs/paridad-nucleo.md`.
+- Archivos: `core/meltemid/src/{levels.rs, acp.rs, session_config.rs,
+  free_session.rs, propose.rs, sdd_flow.rs, server.rs, session_finalize.rs,
+  session_index.rs, fleet.rs}`, `core/meltemid/data/fleet-registry.toml`,
+  `core/mock-agent/src/main.rs`, `proto/` (eventos y campos aditivos),
+  `tui/src/{run.rs, shell/conn.rs}`, `desktop/ui/src/lib/` (conversación y
+  textos), `docs/agentes.md`, `docs/sesion-libre.md`, `docs/paridad-nucleo.md`.
 - Cero dependencias nuevas.
-- Riesgo real: el orden `session/new` → anuncio → `set_config_option` → prompt
-  añade un viaje de ida y vuelta antes del primer turno; el design mide el
-  costo con el agente simulado y fija el tiempo máximo de espera del anuncio.
+- Riesgo real: un viaje de ida y vuelta más antes del primer turno cuando se
+  pide una palanca por anuncio; acotado y cancelable.
 - Lo que solo la medición confirma: que OpenCode 1.18 honra un
   `set_config_option` a un modelo `ollama/…` y arranca con él.
 
@@ -98,5 +97,9 @@ modelo local: elegir `ollama/…` en OpenCode es exactamente esto.
 
 - Traducir nombres de modelo entre proveedores, o un catálogo de modelos
   propio: el valor es del agente, opaco para Meltemi.
+- **Recordar lo que cada agente anunció y un selector que lo ofrezca** (el chip
+  de la GUI, la flota en las tres superficies): su clave, sus cotas y su
+  contenido publicado son un diseño propio → `selector-de-modelo-que-sabe`.
 - Cambiar de modelo a mitad de turno: `set-option` ya lo hace entre turnos.
+- Palancas al reanudar con `session/direct`.
 - Tokens y costo: `usage-desde-acp`.
