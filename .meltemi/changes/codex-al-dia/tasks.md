@@ -88,7 +88,7 @@ archivo del volcado llega con la tarea que lo usa.
   el guion y en `SCHEMAS`) (design D5) — escenarios «Lo que la compuerta del CLI
   no cubre se declara al abrir», «Un servidor de herramientas que el CLI arranca
   se nombra» — gates: suite de `meltemi-adapters`, e2e del adaptador
-- [ ] 2.3 Control remoto: `remoteControl/status/changed` distinto de
+- [x] 2.3 Control remoto: `remoteControl/status/changed` distinto de
   `disabled` rehúsa la sesión si llega antes del primer turno e interrumpe y
   rehúsa el turno si llega durante uno
   (`RemoteControlStatusChangedNotification.json` vendorizado, en el guion con

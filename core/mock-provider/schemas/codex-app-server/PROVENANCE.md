@@ -45,7 +45,11 @@ para probar que ignorarlas no cuesta nada, y por eso se validan. Y
 `McpServerStatusUpdatedNotification.json`: el servidor informa así cada
 servidor MCP que arranca desde la configuración del propio CLI, y el adaptador
 lo nombra en la sesión, porque corre fuera del sandbox del CLI y fuera del
-proxy (codex-al-dia design D5).
+proxy (codex-al-dia design D5). Y `RemoteControlStatusChangedNotification.json`:
+en cada conexión, antes de responder `thread/start`, el servidor informa el
+estado de su control remoto; el adaptador solo abre sesión si dice `disabled`,
+porque con el control remoto activo otro cliente podría contestar aprobaciones
+fuera del proxy (design D5, constitución §3).
 
 La transcripción del servidor real vive junto al guion, saneada:
 `../../scripts/codex-app-server-0.156.1.transcript.ndjson`. Es evidencia, no un

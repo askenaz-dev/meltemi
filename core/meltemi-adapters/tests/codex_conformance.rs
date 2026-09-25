@@ -269,6 +269,10 @@ fn params_schema() -> BTreeMap<&'static str, &'static str> {
             wire::MCP_SERVER_STARTUP_STATUS,
             "McpServerStatusUpdatedNotification.json",
         ),
+        (
+            wire::REMOTE_CONTROL_STATUS_CHANGED,
+            "RemoteControlStatusChangedNotification.json",
+        ),
     ])
 }
 

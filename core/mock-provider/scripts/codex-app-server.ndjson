@@ -41,6 +41,8 @@
 #     ignoring them costs nothing.
 #   * MCP servers from the CLI's own configuration report their startup around
 #     the turn's answer. The adapter names each one in the session, once.
+#   * Every connection reports the CLI's remote control before the thread's
+#     answer. Off, as here, it costs nothing; anything else refuses the session.
 #   * Responses carry no `"jsonrpc"` member and notifications carry an
 #     `emittedAtMs` member beside `params`. This fixture sends `"jsonrpc"`
 #     because JSON-RPC 2.0 requires it and omits `emittedAtMs`; the adapter
@@ -54,6 +56,7 @@
 {"mock":"respond","result":{"userAgent":"meltemi-codex-acp/0.156.1 (mock-codex-wire; scripted) unknown (meltemi-codex-acp; 0.1.1)","codexHome":"/mock/codex-home","platformFamily":"unix","platformOs":"linux"}}
 # 2. A thread is the conversation the ACP session maps onto.
 {"mock":"await-request","method":"thread/start"}
+{"mock":"notify","method":"remoteControl/status/changed","params":{"status":"disabled","serverName":"mock-machine","installationId":"mock-installation","environmentId":null}}
 {"mock":"respond","result":{"thread":{"id":"mock-thread-1","sessionId":"mock-thread-1","forkedFromId":null,"parentThreadId":null,"preview":"","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"paginated","modelProvider":"mock","model":"mock-model","reasoningEffort":"xhigh","createdAt":1790000000,"updatedAt":1790000000,"recencyAt":1790000000,"status":{"type":"idle"},"path":"/mock/codex-home/sessions/mock-thread-1.jsonl","cwd":"/mock/project","cliVersion":"0.156.1","originator":"meltemi-codex-acp","source":"vscode","threadSource":null,"agentNickname":null,"agentRole":null,"gitInfo":null,"name":null,"turns":[]},"model":"mock-model","modelProvider":"mock","serviceTier":"default","disabledPluginIds":[],"cwd":"/mock/project","instructionSources":[],"approvalPolicy":"untrusted","approvalsReviewer":"user","sandbox":{"type":"readOnly","networkAccess":false},"reasoningEffort":"xhigh"}}
 # 3. A turn: answered at once, then streamed as items.
 {"mock":"await-request","method":"turn/start"}

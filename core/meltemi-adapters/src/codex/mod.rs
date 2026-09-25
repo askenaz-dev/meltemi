@@ -174,6 +174,19 @@ impl ProviderSession for CodexSession {
         let mut incoming = self.incoming.lock().await;
         let mut mapper = self.mapper.lock().await;
 
+        // What the server said since the last turn is read before this one
+        // starts: a remote control that came on meanwhile refuses the turn
+        // before anything is sent.
+        settle(
+            &self.peer,
+            &mut incoming,
+            &self.turn,
+            &self.stream,
+            &self.stream.session_id,
+            &mut mapper,
+        )
+        .await?;
+
         let params = wire::TurnStartParams {
             thread_id: self.turn.thread_id.clone(),
             input: vec![wire::UserInput::Text {
@@ -204,7 +217,12 @@ impl ProviderSession for CodexSession {
                     self.turn.grace
                 ));
                 self.shutdown(self.shutdown).await;
-                Ok(StopReason::Cancelled)
+                // Stopped because its remote control came on: that is what the
+                // turn answers, not a cancellation nobody asked for.
+                match mapper.remote_control() {
+                    Some(status) => Err(remote_control_refused(status)),
+                    None => Ok(StopReason::Cancelled),
+                }
             }
         }
     }
@@ -380,6 +398,9 @@ where
     let interrupted = turn.wait_interrupted();
     let mut interrupted = std::pin::pin!(interrupted);
     let mut armed = false;
+    // Set when the CLI's remote control comes on mid-turn: the turn is
+    // interrupted and, however it then ends, it ends refused.
+    let mut refusing: Option<Refusal> = None;
 
     loop {
         tokio::select! {
@@ -396,7 +417,7 @@ where
                     // showing what is still queued would silently swallow the
                     // whole turn whenever the answer happened to win the race.
                     drain(peer, incoming, turn, stream, session_id, mapper).await?;
-                    return Ok(outcome);
+                    return refusing.map_or(Ok(outcome), Err);
                 }
             }
             () = &mut interrupted, if !armed => {
@@ -406,12 +427,21 @@ where
             () = &mut grace, if armed => return Ok(TurnOutcome::Abandoned),
             message = incoming.recv() => {
                 let Some(message) = message else {
-                    return Err(provider_gone());
+                    return Err(refusing.unwrap_or_else(provider_gone));
                 };
-                if let Some(outcome) =
-                    handle(peer, turn, stream, session_id, mapper, message).await?
-                {
-                    return Ok(outcome);
+                match handle(peer, turn, stream, session_id, mapper, message).await {
+                    Ok(Some(outcome)) => return refusing.map_or(Ok(outcome), Err),
+                    Ok(None) => {}
+                    // The remote control came on while the turn ran. The turn
+                    // is stopped and seen to its end before the refusal, so no
+                    // approval of it is left for another client to answer.
+                    Err(refusal) if refusal.kind == REMOTE_CONTROL_REFUSED => {
+                        if refusing.is_none() {
+                            interrupt(peer, turn).await;
+                            refusing = Some(refusal);
+                        }
+                    }
+                    Err(refusal) => return Err(refusal),
                 }
             }
         }
@@ -451,6 +481,9 @@ where
                 }
                 Some(mapping::Signal::TurnEnded(status)) => ended(status),
                 Some(mapping::Signal::TurnFailed(message)) => Err(turn_failed(&message)),
+                Some(mapping::Signal::RemoteControl(status)) => {
+                    Err(remote_control_refused(&status))
+                }
                 None => Ok(None),
             }
         }
@@ -487,6 +520,37 @@ where
         handle(peer, turn, stream, session_id, mapper, message).await?;
     }
     Ok(())
+}
+
+/// Reads what the server has already said, outside any turn, and refuses if
+/// the CLI's remote control is on (codex-al-dia design D5).
+///
+/// Run when the session opens — every connection reports the remote control
+/// before the thread's answer, so the report is already queued by then — and
+/// before each turn, for a report that arrived between turns or a remote
+/// control that came on during an earlier one and was never turned off.
+///
+/// # Errors
+///
+/// Refuses while the remote control is on, and propagates a failed turn found
+/// among what was queued.
+async fn settle<W, S>(
+    peer: &Peer<W>,
+    incoming: &mut mpsc::UnboundedReceiver<Incoming>,
+    turn: &TurnControl,
+    stream: &S,
+    session_id: &SessionId,
+    mapper: &mut mapping::Mapper,
+) -> Result<(), Refusal>
+where
+    W: AsyncWrite + Unpin + Send,
+    S: TurnStream,
+{
+    drain(peer, incoming, turn, stream, session_id, mapper).await?;
+    match mapper.remote_control() {
+        Some(status) => Err(remote_control_refused(status)),
+        None => Ok(()),
+    }
 }
 
 /// Puts one of the server's questions to the permission proxy, and answers the
@@ -709,19 +773,44 @@ impl ProviderDialect for CodexDialect {
             mapping::uncovered_by_gate(),
         ));
 
+        let session = CodexSession {
+            peer,
+            incoming: Mutex::new(incoming),
+            control: Mutex::new(Some(control)),
+            turn: TurnControl::new(thread_id, INTERRUPT_GRACE),
+            mapper: Mutex::new(mapping::Mapper::new()),
+            stream: AcpStream {
+                session_id: session_id.clone(),
+                cx,
+            },
+            shutdown: self.shutdown,
+        };
+
+        // What the server said while the thread opened is read now, not at the
+        // first turn: a session is not opened under a remote control that is on.
+        let settled = {
+            let mut incoming = session.incoming.lock().await;
+            let mut mapper = session.mapper.lock().await;
+            settle(
+                &session.peer,
+                &mut incoming,
+                &session.turn,
+                &session.stream,
+                &session.stream.session_id,
+                &mut mapper,
+            )
+            .await
+        };
+        if let Err(refusal) = settled {
+            session.shutdown(self.shutdown).await;
+            return Err(refusal);
+        }
+
         // The id it was handed: this dialect keeps no sessions of its own to
         // resume, so it has no better name to answer to.
         Ok(Opened {
-            id: session_id.clone(),
-            session: CodexSession {
-                peer,
-                incoming: Mutex::new(incoming),
-                control: Mutex::new(Some(control)),
-                turn: TurnControl::new(thread_id, INTERRUPT_GRACE),
-                mapper: Mutex::new(mapping::Mapper::new()),
-                stream: AcpStream { session_id, cx },
-                shutdown: self.shutdown,
-            },
+            id: session_id,
+            session,
         })
     }
 }
@@ -887,6 +976,28 @@ fn thread_refused(detail: &str) -> Refusal {
         SPEC.provider_layer,
         detail.to_string(),
         "Check that the session's directory exists and that the CLI can work in it.".to_string(),
+    )
+}
+
+/// The kind of the refusal for a remote control that is not off.
+const REMOTE_CONTROL_REFUSED: &str = "provider_remote_control";
+
+/// The refusal for a CLI whose remote control is not off: another client could
+/// attach to the thread and answer its approvals outside the permission proxy,
+/// a remote channel constitution §3 does not admit (codex-al-dia design D5).
+fn remote_control_refused(status: &str) -> Refusal {
+    Refusal::new(
+        REMOTE_CONTROL_REFUSED,
+        SPEC.provider_layer,
+        format!(
+            "the CLI reports its remote control as `{status}`; while it is on, another client \
+             could attach to this thread and answer its approvals outside the permission proxy"
+        ),
+        "Turn off Codex's remote control on this machine to work under Meltemi, or have an \
+         administrator forbid it in Codex's managed requirements (the requirement Codex reports \
+         as `allowRemoteControl`). Meltemi's only remote access is an SSH tunnel to its own \
+         daemon."
+            .to_string(),
     )
 }
 
@@ -1477,6 +1588,159 @@ mod tests {
             "i2",
             "against the very item the server asked about"
         );
+    }
+
+    /// A remote control report as 0.156.1 sends it.
+    fn remote_control(status: &str) -> Value {
+        json!({"status": status, "serverName": "m", "installationId": "i", "environmentId": null})
+    }
+
+    #[tokio::test]
+    async fn a_remote_control_reported_on_while_the_thread_opens_refuses_the_session() {
+        // Scenario: Un control remoto activo rehúsa la sesión
+        //
+        // In the order the real server uses (recorded 2026-09-24): the report
+        // arrives before the thread's answer, so it is already queued when the
+        // thread opens, and the session is refused before any turn.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let mut mapper = mapping::Mapper::new();
+        let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
+        let opening = open_thread(&peer, &request);
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .notify(
+                    wire::REMOTE_CONTROL_STATUS_CHANGED,
+                    remote_control("connected"),
+                )
+                .await;
+            server
+                .say(&json!({"id": start["id"], "result": {
+                    "thread": {"id": "thread-1"},
+                    "approvalPolicy": "untrusted", "approvalsReviewer": "user",
+                    "sandbox": {"type": "readOnly", "networkAccess": false}
+                }}))
+                .await;
+        };
+        let (opened, ()) = tokio::join!(opening, serving);
+        opened.expect("the thread itself opens under the gate");
+
+        let refusal = settle(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &SessionId::new("s-1"),
+            &mut mapper,
+        )
+        .await
+        .expect_err("and the session does not");
+        assert_eq!(refusal.kind, REMOTE_CONTROL_REFUSED);
+        assert!(refusal.detail.contains("`connected`"), "{}", refusal.detail);
+        assert!(
+            refusal.remedy.contains("SSH tunnel"),
+            "the remedy names the remote access Meltemi does admit: {}",
+            refusal.remedy
+        );
+    }
+
+    #[tokio::test]
+    async fn a_remote_control_left_on_refuses_the_next_turn_until_it_is_turned_off() {
+        // Scenario: Un control remoto activo rehúsa la sesión
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::new();
+
+        // Off, as every connection reports it: nothing to refuse.
+        server
+            .notify(
+                wire::REMOTE_CONTROL_STATUS_CHANGED,
+                remote_control("disabled"),
+            )
+            .await;
+        tokio::task::yield_now().await;
+        settle(&peer, &mut incoming, &turn, &stream, &session, &mut mapper)
+            .await
+            .expect("off is the state a session runs under");
+
+        // Turned on between turns: the next turn is refused before anything
+        // is sent, and stays refused while nothing says otherwise.
+        server
+            .notify(
+                wire::REMOTE_CONTROL_STATUS_CHANGED,
+                remote_control("connecting"),
+            )
+            .await;
+        for _ in 0..2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            let refusal = settle(&peer, &mut incoming, &turn, &stream, &session, &mut mapper)
+                .await
+                .expect_err("refused while it is on");
+            assert_eq!(refusal.kind, REMOTE_CONTROL_REFUSED);
+        }
+
+        // Turned off again, and the session carries on.
+        server
+            .notify(
+                wire::REMOTE_CONTROL_STATUS_CHANGED,
+                remote_control("disabled"),
+            )
+            .await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        settle(&peer, &mut incoming, &turn, &stream, &session, &mut mapper)
+            .await
+            .expect("off again");
+    }
+
+    #[tokio::test]
+    async fn a_remote_control_that_comes_on_mid_turn_interrupts_and_refuses_the_turn() {
+        // Scenario: Un control remoto activo rehúsa la sesión
+        //
+        // The turn is not simply abandoned: it is interrupted and seen to its
+        // end, so none of its approvals is left for another client to answer.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_secs(30));
+        let stream = Collected::default();
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                .await;
+            server
+                .notify(
+                    wire::REMOTE_CONTROL_STATUS_CHANGED,
+                    remote_control("connected"),
+                )
+                .await;
+
+            let stop = server.next_call().await;
+            assert_eq!(stop["method"], wire::TURN_INTERRUPT);
+            assert_eq!(stop["params"]["turnId"], "turn-1");
+            server.say(&json!({"id": stop["id"], "result": {}})).await;
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "interrupted", "items": []}}),
+                )
+                .await;
+        };
+
+        let (outcome, ()) = tokio::join!(driving, serving);
+        let refusal = outcome.expect_err("the turn ends refused, not cancelled");
+        assert_eq!(refusal.kind, REMOTE_CONTROL_REFUSED);
     }
 
     #[tokio::test]

@@ -43,6 +43,10 @@ pub enum Signal {
     TurnEnded(wire::TurnStatus),
     /// The turn failed and the server is not going to retry.
     TurnFailed(String),
+    /// The CLI reports a remote control that is not off, in this state: another
+    /// client could answer this thread's approvals outside the permission proxy
+    /// (codex-al-dia design D5).
+    RemoteControl(String),
 }
 
 /// One notification, translated.
@@ -88,6 +92,8 @@ pub struct Mapper {
     /// MCP servers of the CLI's own configuration already named in the
     /// session. The mapper lives as long as the session, so each is named once.
     announced_servers: HashSet<String>,
+    /// The CLI's remote control, when the last report said it is not off.
+    remote_control: Option<String>,
 }
 
 impl Mapper {
@@ -120,6 +126,7 @@ impl Mapper {
             wire::ITEM_STARTED => self.item(params, false),
             wire::ITEM_COMPLETED => self.item(params, true),
             wire::MCP_SERVER_STARTUP_STATUS => self.mcp_server(params),
+            wire::REMOTE_CONTROL_STATUS_CHANGED => self.remote_control_changed(params),
             _ => Mapped::default(),
         }
     }
@@ -152,6 +159,34 @@ impl Mapper {
                  permission proxy deciding.",
             )]),
         )])
+    }
+
+    /// The CLI's remote control changing state (codex-al-dia design D5).
+    ///
+    /// Off is the only state a session runs under. Anything else — including
+    /// a report this adapter cannot read — is remembered and signalled, so the
+    /// check fails closed; a later report that it is off clears it.
+    fn remote_control_changed(&mut self, params: &Value) -> Mapped {
+        let Some(report) = parse::<wire::RemoteControlStatus>(params) else {
+            self.remote_control = Some("unreadable".to_string());
+            return Mapped {
+                signal: Some(Signal::RemoteControl("unreadable".to_string())),
+                noted: Some(format!("unreadable remote control status: {params}")),
+                ..Mapped::default()
+            };
+        };
+        if report.status == wire::REMOTE_CONTROL_DISABLED {
+            self.remote_control = None;
+            return Mapped::default();
+        }
+        self.remote_control = Some(report.status.clone());
+        Mapped::signal(Signal::RemoteControl(report.status))
+    }
+
+    /// The CLI's remote control, if the last report said it is not off.
+    #[must_use]
+    pub fn remote_control(&self) -> Option<&str> {
+        self.remote_control.as_deref()
     }
 
     /// A streamed chunk of an item's text.
@@ -605,6 +640,40 @@ mod tests {
             &json!({"threadId": "t", "name": "codex_apps", "status": "starting"}),
         );
         assert_eq!(other.updates.len(), 1, "another server is another row");
+    }
+
+    #[test]
+    fn a_remote_control_that_is_not_off_is_signalled_and_remembered() {
+        // Scenario: Un control remoto activo rehúsa la sesión
+        //
+        // As every 0.156.1 connection reports it (recorded 2026-09-24): off,
+        // and then nothing to say.
+        let mut mapper = Mapper::new();
+        let report = |status: &str| json!({"status": status, "serverName": "m", "installationId": "i", "environmentId": null});
+        let off = mapper.map(wire::REMOTE_CONTROL_STATUS_CHANGED, &report("disabled"));
+        assert_eq!(off, Mapped::default());
+        assert_eq!(mapper.remote_control(), None);
+
+        // Every other state the dump declares, and one it does not yet.
+        for status in ["connecting", "connected", "errored", "a-state-added-later"] {
+            let on = mapper.map(wire::REMOTE_CONTROL_STATUS_CHANGED, &report(status));
+            assert_eq!(on.signal, Some(Signal::RemoteControl(status.to_string())));
+            assert!(on.updates.is_empty(), "the refusal says it, not a row");
+            assert_eq!(mapper.remote_control(), Some(status));
+        }
+
+        // Off again, and the session may carry on.
+        mapper.map(wire::REMOTE_CONTROL_STATUS_CHANGED, &report("disabled"));
+        assert_eq!(mapper.remote_control(), None);
+
+        // A report that cannot be read fails closed.
+        let unreadable = mapper.map(
+            wire::REMOTE_CONTROL_STATUS_CHANGED,
+            &json!({"serverName": "m"}),
+        );
+        assert!(matches!(unreadable.signal, Some(Signal::RemoteControl(_))));
+        assert!(unreadable.noted.is_some());
+        assert!(mapper.remote_control().is_some());
     }
 
     #[test]

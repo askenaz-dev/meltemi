@@ -111,6 +111,11 @@ pub const REASONING_SUMMARY_TEXT_DELTA: &str = "item/reasoning/summaryTextDelta"
 pub const ERROR: &str = "error";
 /// An MCP server from the CLI's own configuration changed its startup state.
 pub const MCP_SERVER_STARTUP_STATUS: &str = "mcpServer/startupStatus/updated";
+/// The CLI's remote control changed state. Every connection reports it once,
+/// before the thread's answer, and again whenever it changes.
+pub const REMOTE_CONTROL_STATUS_CHANGED: &str = "remoteControl/status/changed";
+/// The one remote control state a session runs under.
+pub const REMOTE_CONTROL_DISABLED: &str = "disabled";
 
 // --- Requests the server makes of the adapter ---------------------------
 
@@ -241,6 +246,18 @@ pub struct McpServerStartupStatus {
     /// Its startup state, when the server says it.
     #[serde(default)]
     pub status: Option<String>,
+}
+
+/// `remoteControl/status/changed`, of which the adapter reads the state.
+///
+/// Read as text rather than as the dump's enum: whether it is
+/// [`REMOTE_CONTROL_DISABLED`] is the only question, and a state a later
+/// version adds has to reach that question as "not disabled" instead of
+/// failing to parse.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RemoteControlStatus {
+    /// `disabled`, `connecting`, `connected` or `errored` in the dump.
+    pub status: String,
 }
 
 /// `thread/start` result.
