@@ -187,6 +187,18 @@ pub async fn execute(
             "`bridge` is dispatched with the process writer, not through `execute`",
         )),
         Command::Stop => stop(endpoint).await,
+        // The streams write each record to the process's own stdout as it
+        // arrives, so the dispatcher runs them where that writer lives.
+        Command::Watch { .. } | Command::Log { .. } => Err(CliError::internal(
+            "`watch` and `log` are dispatched with the process writer, not through `execute`",
+        )),
+        Command::Permissions
+        | Command::Approve { .. }
+        | Command::Deny { .. }
+        | Command::Cancel { .. } => Err(CliError::internal(
+            "this verb is recognized by the grammar and wired by a later task of \
+             verbos-del-agent-boss",
+        )),
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
         Command::Reserved(name) => Err(CliError::internal(format!(

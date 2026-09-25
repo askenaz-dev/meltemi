@@ -122,6 +122,28 @@ SUBCOMMANDS:
                         set one of the options the AGENT announced for a live
                         session, without relaunching it; the option ids and
                         their values are the agent's, never a list of ours
+    watch <session>     follow a live session: each record of it as it happens,
+                        one JSON object per line, until the session ends —
+                        records only `log` has if this reader falls behind.
+                        Ctrl+C stops following; the session keeps running
+    log <session>       the session's append-only record as it is: one JSON
+                        object per line, from its first record to now
+    cancel <session>    cancel a live session, as the interactive `x` does: the
+                        agent closes its turn and the session ends; says
+                        whether it was still running when answered
+    permissions         the permission requests waiting for a decision: id,
+                        session, tool, title, how long each has waited, when it
+                        expires, and the options its agent offered
+    approve <request> [--option <option-id>]
+                        decide ONE waiting request with an option its agent
+                        offered: its one-time approval when it offered exactly
+                        one; `--option` names another of its approvals, and
+                        naming it is consent. A request no longer waiting is
+                        not decided (exit 12): the first decision wins
+    deny <request> [--option <option-id>]
+                        decide ONE waiting request with the agent's rejection,
+                        or cancel it when the agent offered none; `--option`
+                        names one of its rejections. Nothing decides in bulk
     harness [--agent <id>]
                         the harness that applies: every piece with the layer it
                         comes from, plus what is covered or unreadable and why
@@ -149,6 +171,10 @@ PERMISSIONS:
     Without a terminal every request is denied with the agent's rejection;
     to grant without a human, write a rule in .meltemi/permissions.toml or in
     your global permissions.toml. No flag grants permissions.
+    A request that waits in the daemon's queue — one opened by the desktop
+    surface or the interactive shell — can be decided from any other shell,
+    a script or `ssh <pc>` with no terminal: `meltemi permissions` lists
+    them and `meltemi approve|deny <request>` decides one of them.
 
 GLOBAL FLAGS:
     --json              emit machine-readable JSON on stdout
@@ -166,7 +192,7 @@ GLOBAL FLAGS:
 - `2` — usage — unknown subcommand, invalid flags, or a missing argument
 - `10` — unreachable — the daemon could not be reached or started
 - `11` — contract — the daemon answered with a contract/protocol error
-- `12` — denied — the operation was refused by policy (permission proxy)
+- `12` — denied — refused by the permission proxy's policy: a decision reached a request no longer waiting (the first decision wins)
 - `13` — cancelled — the operation was cancelled
 - `14` — validation — a validation completed with findings (not an error)
 - `15` — empty turn — the agent's turn ended without saying or doing anything

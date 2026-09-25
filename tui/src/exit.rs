@@ -22,8 +22,9 @@ pub enum ExitCode {
     /// The daemon answered with a contract error, or refused the protocol
     /// version.
     Contract = 11,
-    /// The operation was refused by policy (denied). Reserved for the
-    /// permission proxy (#9); defined here as part of the stable taxonomy.
+    /// The operation was refused by policy: the permission proxy's own rule
+    /// refused it — a decision that reached a request no longer waiting, where
+    /// the first decision wins (verbos-del-agent-boss design D4).
     Denied = 12,
     /// The operation was cancelled. Reserved for richer flows; defined here as
     /// part of the stable taxonomy.
@@ -65,7 +66,8 @@ pub const EXIT_CODES: &[(i32, &str)] = &[
     ),
     (
         12,
-        "denied — the operation was refused by policy (permission proxy)",
+        "denied — refused by the permission proxy's policy: a decision reached a request \
+         no longer waiting (the first decision wins)",
     ),
     (13, "cancelled — the operation was cancelled"),
     (

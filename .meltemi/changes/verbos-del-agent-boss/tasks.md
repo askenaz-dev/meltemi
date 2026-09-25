@@ -5,7 +5,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 1. La gramática
 
-- [ ] 1.1 `tui/src/cli.rs`: los seis verbos (`permissions`, `approve`, `deny`,
+- [x] 1.1 `tui/src/cli.rs`: los seis verbos (`permissions`, `approve`, `deny`,
   `watch`, `log`, `cancel`), `--option` como flag del verbo —solo en `approve`
   y `deny`, rehusado en los demás—, exactamente un id por decisión con el
   remedio de las reglas en el rehúso, el pin de `FLAGS`, la ayuda (y el párrafo
