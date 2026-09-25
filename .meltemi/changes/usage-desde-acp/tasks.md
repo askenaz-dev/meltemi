@@ -30,7 +30,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 2. El plegado
 
-- [ ] 2.1 `facts_of_log` parte el log en conversaciones en cada `agent_process`
+- [x] 2.1 `facts_of_log` parte el log en conversaciones en cada `agent_process`
   y de cada una toma el último costo reportado —sin que un reporte sin costo lo
   borre— y el reporte de contexto más lleno; una sesión que otra de la consulta
   reanudó no aporta costo; la celda y los totales agregan por moneda; el motivo
