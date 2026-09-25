@@ -872,7 +872,7 @@ mod tests {
     #[test]
     fn empty_turns_are_counted_per_cell_and_in_the_totals() {
         // Scenario: La actividad cuenta los turnos vacíos
-        let data = temp("empty");
+        let data = temp("empty-turns");
         write(
             &data,
             "k",
