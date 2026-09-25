@@ -241,3 +241,38 @@ fn the_local_provider_leg_is_written_with_its_criteria_and_stays_pending() {
         "and says it is not passed"
     );
 }
+
+// Scenario: Lo que no se lanza no se promete
+#[test]
+fn nothing_the_daemon_refuses_is_promised_as_working_today() {
+    // Level 3 is refused by every verb (`level_not_pilotable`): the backlog
+    // and the own-engine proposal used to promise it as a way to run a local
+    // model today (guia-modelos-locales design D6).
+    let flat = |path: &str| {
+        std::fs::read_to_string(repo_root().join(path))
+            .unwrap_or_else(|e| panic!("read {path}: {e}"))
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    for path in [
+        "docs/plan-de-cambios.md",
+        ".meltemi/changes/motor-propio-byok/proposal.md",
+    ] {
+        let text = flat(path);
+        for promise in [
+            "OpenCode (nivel 1) y Aider (nivel 3) de la flota actual hablan",
+            "OpenCode y Aider de la flota actual soportan",
+        ] {
+            assert!(
+                !text.contains(promise),
+                "{path} still promises a level the daemon refuses: {promise}"
+            );
+        }
+    }
+    let guide = guide();
+    assert!(
+        guide.contains("Level-3 agents are not launched") && guide.contains("level_not_pilotable"),
+        "the guide says what does not work today"
+    );
+}

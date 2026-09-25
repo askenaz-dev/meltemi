@@ -387,10 +387,12 @@ marketplace que su rumbo explícitamente no es. Si alguna vez se absorbe, entra
 Apache-2.0 bajo CLA, sin excepciones.
 
 Mientras la change no se implemente, correr un modelo local bajo Meltemi ya es
-posible **hoy y sin código nuevo**: OpenCode (nivel 1) y Aider (nivel 3) de la
-flota actual hablan con endpoints ollama/OpenAI-compatible por su propia
-configuración. La guía de docs que lo explique entra con la change, verificada
-contra las versiones vigentes y no citada de memoria.
+posible **hoy y sin código nuevo** por OpenCode (nivel 1), que habla con
+endpoints ollama/OpenAI-compatible y con OpenRouter por su propia
+configuración: las recetas, verificadas y fechadas, están en
+`docs/local-models.md` (`guia-modelos-locales`). Aider (nivel 3) **no** sirve
+hoy: el daemon no lanza el nivel 3 —todo verbo lo rehúsa con
+`level_not_pilotable`—, y lo hará solo si `runner-nivel-3` llega a existir.
 
 El design system del mantenedor vive en `design-system/` y es la fuente visual
 normativa (gui-clase-mundial D11).

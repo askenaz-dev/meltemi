@@ -16,7 +16,7 @@
   criterios y lo que registra», «Sin corrida en vivo la pierna queda pendiente»
   — gates: tests de docs
 
-- [ ] 1.3 La afirmación sobre Aider corregida en `docs/plan-de-cambios.md` y en
+- [x] 1.3 La afirmación sobre Aider corregida en `docs/plan-de-cambios.md` y en
   la propuesta de `motor-propio-byok` (design D6) — escenario «Lo que no se
   lanza no se promete» — gates: tests de docs
 
