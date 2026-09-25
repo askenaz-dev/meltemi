@@ -59,8 +59,8 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 3. Las superficies
 
-- [ ] 3.1 CLI: `ExitCode::EmptyTurn = 15` y su fila en la tabla de códigos;
-  `exit_for(&Command, &Value)` puro en `tui/src/lib.rs`, que da `15` a toda
+- [x] 3.1 CLI: `ExitCode::EmptyTurn = 15` y su fila en la tabla de códigos;
+  `exit_for(validates, &Value)` puro en `tui/src/lib.rs`, que da `15` a toda
   respuesta con `emptyTurn` en `true` y escribe la advertencia con remedio en
   stderr en modo humano; `meltemi usage` imprime los turnos vacíos cuando no
   son cero; `docs/referencia-cli.md` regenerado; unit tests de `exit_for` (con

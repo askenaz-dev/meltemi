@@ -23,6 +23,45 @@ use cli::{Action, Command, Plan};
 use exit::ExitCode;
 use output::{CliError, render_error, render_outcome, render_value};
 
+/// What the CLI writes to stderr when a response declares an empty turn
+/// (turno-vacio-es-error design D4): what happened, and a remedy that stays
+/// conditional, because an agent may have had nothing to do.
+pub const EMPTY_TURN_WARNING: &str = "warning: the agent ended its turn without saying or doing \
+     anything — if that was not expected, try the agent on its own and check its provider and \
+     credentials";
+
+/// The exit code of a command that completed, from what it answered.
+///
+/// The rule follows the response's fields and never a list of verbs: any
+/// answer that declares an empty turn exits `15`, whichever verb got it, and a
+/// validation with findings exits `14`.
+#[must_use]
+pub fn exit_for(validates: bool, answer: &serde_json::Value) -> ExitCode {
+    if answer.get("emptyTurn") == Some(&serde_json::Value::Bool(true)) {
+        return ExitCode::EmptyTurn;
+    }
+    if validates && answer.get("clean") == Some(&serde_json::Value::Bool(false)) {
+        return ExitCode::Validation;
+    }
+    ExitCode::Success
+}
+
+/// Concludes a command that completed: picks its exit code and, in human mode,
+/// says on stderr what an empty turn means. Machine output carries the verdict
+/// in the answer itself, so it gets no prose.
+pub fn conclude(
+    validates: bool,
+    answer: &serde_json::Value,
+    machine: bool,
+    err: &mut impl Write,
+) -> ExitCode {
+    let exit = exit_for(validates, answer);
+    if exit == ExitCode::EmptyTurn && !machine {
+        let _ = writeln!(err, "{EMPTY_TURN_WARNING}");
+    }
+    exit
+}
+
 /// Runs a resolved [`Plan`] against the daemon at `endpoint`, writing to the
 /// given stdout/stderr sinks, and returns the process exit code.
 pub async fn dispatch(
@@ -89,20 +128,14 @@ pub async fn dispatch(
             }
         }
         Action::Run(command) => {
-            // `validate` findings are a result, not an error: render to stdout,
-            // but exit `14` so CI distinguishes clean from findings (its `clean`
-            // field is the stable signal). Every other command exits `0` on Ok.
+            // A result is not always a success: `validate` findings exit `14`
+            // (its `clean` field is the stable signal), and any answer that
+            // declares an empty turn exits `15` (see [`conclude`]).
             let is_validate = matches!(command, Command::Validate { .. });
             match run::execute(command, endpoint, painting).await {
                 Ok(outcome) => {
                     let _ = render_outcome(&outcome, format, out);
-                    if is_validate
-                        && outcome.json.get("clean") == Some(&serde_json::Value::Bool(false))
-                    {
-                        ExitCode::Validation.code()
-                    } else {
-                        ExitCode::Success.code()
-                    }
+                    conclude(is_validate, &outcome.json, format.is_machine(), err).code()
                 }
                 Err(error) => {
                     let _ = render_error(&error, format, out, err);
@@ -110,5 +143,59 @@ pub async fn dispatch(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_turn_exits_fifteen_and_a_worked_one_zero() {
+        // Scenario: Turno vacío distinguible
+        let empty = serde_json::json!({ "status": "completed", "emptyTurn": true });
+        let worked = serde_json::json!({ "status": "completed" });
+        assert_eq!(exit_for(false, &empty), ExitCode::EmptyTurn);
+        assert_eq!(exit_for(false, &empty).code(), 15);
+        assert_eq!(exit_for(false, &worked), ExitCode::Success);
+        // Validation keeps its own code.
+        assert_eq!(
+            exit_for(true, &serde_json::json!({ "clean": false })),
+            ExitCode::Validation
+        );
+    }
+
+    #[test]
+    fn an_authoring_verb_follows_the_same_rule() {
+        // Scenario: Un verbo de autoría sigue la misma regla
+        //
+        // What `meltemi plan` gets back from `sdd/plan` when its turn was
+        // empty: the rule reads the field, whichever verb carried it.
+        let planned = serde_json::json!({
+            "changeName": "add-thing",
+            "phase": "invalid",
+            "artifact": "design",
+            "diagnostics": ["design.md is missing or empty"],
+            "emptyTurn": true,
+        });
+        let mut err = Vec::new();
+        assert_eq!(
+            conclude(false, &planned, false, &mut err),
+            ExitCode::EmptyTurn
+        );
+        let said = String::from_utf8(err).unwrap();
+        assert!(said.contains("without saying or doing anything"), "{said}");
+        assert!(
+            said.contains("provider") && said.contains("credentials"),
+            "the remedy: {said}"
+        );
+
+        // In machine mode the verdict is the answer's own field: no prose.
+        let mut err = Vec::new();
+        assert_eq!(
+            conclude(false, &planned, true, &mut err),
+            ExitCode::EmptyTurn
+        );
+        assert!(err.is_empty());
     }
 }

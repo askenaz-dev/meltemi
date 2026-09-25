@@ -155,8 +155,8 @@ was not expected, try the agent on its own and check its provider and credential
 Así la cumplen `session`, `propose`, `direct`, `dispatch`, `explore`, `plan`,
 `constitution` y cualquier verbo futuro cuya respuesta lleve el campo. En
 `--json` la respuesta viaja íntegra por stdout y el código es el mismo. La
-decisión es una función pura (`exit_for(&Command, &Value)`) para que un unit
-test la fije sin daemon.
+decisión es una función pura (`exit_for(validates, &Value)`, con `conclude`
+escribiendo la advertencia) para que un unit test la fije sin daemon.
 
 - **Por qué un código propio y no `0` con aviso.** Un script lee el código, no
   stderr; un `0` es exactamente el éxito que esta change deja de afirmar.

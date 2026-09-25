@@ -31,6 +31,10 @@ pub enum ExitCode {
     /// A validation completed with findings (not an error of the channel, a
     /// result — `sdd/validate`). Lets CI distinguish clean from findings.
     Validation = 14,
+    /// The agent's turn ended having said and done nothing: a result, not an
+    /// error of the channel, that a script must be able to tell from success
+    /// (turno-vacio-es-error design D4).
+    EmptyTurn = 15,
 }
 
 impl ExitCode {
@@ -67,5 +71,9 @@ pub const EXIT_CODES: &[(i32, &str)] = &[
     (
         14,
         "validation — a validation completed with findings (not an error)",
+    ),
+    (
+        15,
+        "empty turn — the agent's turn ended without saying or doing anything",
     ),
 ];
