@@ -173,12 +173,21 @@ async fn pending_survives_reconnection_and_decide_reconciles() {
     let (endpoint, daemon) = spawn_daemon("perm-queue").await;
 
     // Connection A drives the propose and HOLDS the live push (never answers),
-    // so resolution must come from the tray on another connection.
+    // so resolution must come from the tray on another connection. It keeps
+    // what the push said, to compare its id with the queue's.
     let (peer_a, incoming_a) = init_client(&endpoint).await;
+    let (pushed_tx, pushed_rx) = tokio::sync::oneshot::channel::<serde_json::Value>();
     let hold = tokio::spawn(async move {
         let mut incoming_a = incoming_a;
-        while incoming_a.recv().await.is_some() {
+        let mut pushed_tx = Some(pushed_tx);
+        while let Some(message) = incoming_a.recv().await {
             // Ignore everything, including permission/request: hold it.
+            if let Incoming::Request { method, params, .. } = message
+                && method == methods::PERMISSION_REQUEST
+                && let Some(tx) = pushed_tx.take()
+            {
+                let _ = tx.send(params);
+            }
         }
     });
     let propose = tokio::spawn({
@@ -223,6 +232,19 @@ async fn pending_survives_reconnection_and_decide_reconciles() {
         }
         found.expect("the escalated request appears in the queue")
     };
+
+    // Scenario: La petición en vivo nombra su id
+    //
+    // The push carries the very id the queue shows, so the client that answers
+    // it can also decide or remember it by id (aprobador-en-el-cli design D4).
+    let pushed = tokio::time::timeout(Duration::from_secs(10), pushed_rx)
+        .await
+        .expect("the push reached connection A")
+        .expect("the push was kept");
+    assert_eq!(
+        pushed["requestId"], request_id,
+        "the push names its queue id: {pushed:#}"
+    );
 
     // A fresh (reconnected) client resolves it by id.
     let (peer_c, _incoming_c) = init_client(&endpoint).await;

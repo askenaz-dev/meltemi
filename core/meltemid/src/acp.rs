@@ -1092,6 +1092,8 @@ fn spawn_live_push(
         session_id: state.session_id.clone(),
         tool_call: tool_call.clone(),
         options: options.to_vec(),
+        // The queue's own id travels with the push (aprobador-en-el-cli D4).
+        request_id: Some(request_id.clone()),
     };
     tokio::spawn(async move {
         let push = peer.request(methods::PERMISSION_REQUEST, &params);

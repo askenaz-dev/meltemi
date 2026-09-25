@@ -5,7 +5,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 1. El contrato y el simulado
 
-- [ ] 1.1 El push lleva su id: `requestId` en `PermissionRequestParams` y en
+- [x] 1.1 El push lleva su id: `requestId` en `PermissionRequestParams` y en
   `permission.schema.json` (aditivo), `spawn_live_push` lo llena con el id de la
   cola, caso de conformidad y e2e de `e2e_permisos` que compara el id del push
   con el de la entrada (design D4) — escenario «La petición en vivo nombra su
