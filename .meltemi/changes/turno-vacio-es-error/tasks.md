@@ -79,7 +79,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   no muestra el aviso», «Las superficies muestran los turnos vacíos» — gates:
   `node --test`, `svelte-check`, suite de `meltemi-desktop`
 
-- [ ] 3.3 TUI: `summarize_event` y `summarize_log_line` dicen «turno vacío»
+- [x] 3.3 TUI: `summarize_event` y `summarize_log_line` dicen «turno vacío»
   con el remedio desde el catálogo `Msg`, en ES y EN (design D6) — escenarios
   «El transcript nombra el turno vacío», «El detalle histórico nombra el turno
   vacío» — gates: suite de `meltemi` (tui)
