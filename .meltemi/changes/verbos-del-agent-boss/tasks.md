@@ -85,6 +85,13 @@ los e2e cargan el binario `mock-agent` ya construido.
   «Éxito en JSON emite un objeto» (design D10, D11) — escenario «La receta de
   aprobar desde el teléfono está documentada» — gates: tests de docs, paridad
 
+- [x] 4.2 (Hallazgo al correr el gate de la 5.1) El helper `parse` de los tests
+  de espera de `core/meltemid/src/config.rs` nombraba su directorio temporal por
+  la longitud del TOML: dos tests en paralelo con `parse("")` compartían el
+  directorio y uno lo borraba mientras el otro escribía (la carrera la trajo la
+  prueba de `lever-wait` de `modelo-por-opcion-anunciada`). Un contador atómico
+  da a cada llamada su directorio — gates: suite de `meltemid`, repetida
+
 ## 5. Cierre
 
 - [ ] 5.1 `meltemi validate verbos-del-agent-boss` limpio, `meltemi verify

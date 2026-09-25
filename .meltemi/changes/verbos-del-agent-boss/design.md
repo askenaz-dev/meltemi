@@ -248,3 +248,23 @@ cinco métodos), en `deny --option` y en las rutas del listado (D10).
 Aditivo: seis verbos y el flag `--option` entran a la gramática y a su pin; el
 código `12` tiene su primer uso, con la descripción de la taxonomía al día. El
 contrato no cambia; un daemon de la misma versión sirve todo.
+
+## Revisión propia (2026-09-25)
+
+Contra el código, antes del cierre:
+
+- **La carrera perdida no tenía prueba**: el camino en que la petición esperaba
+  al leerla y el daemon responde `already_resolved` —otra superficie decidió un
+  instante antes— salía con `12`, pero nada lo ejercía. La tarea 2.4 lo pinea
+  con la prueba como daemon, que es la única forma de escenificarlo a voluntad.
+- **Lo que el daemon registra al cancelar una sesión aparcada**: la e2e de
+  `cancel` mostró que una sesión `detach` que se cancela entre turnos cierra con
+  `session_ended { reason: "completed" }` y ningún registro dice que alguien la
+  canceló (`acp.rs` filtra el motivo `cancelled` porque supone que la
+  cancelación ya tiene su propio cierre, y entre turnos no lo tiene). Es del
+  daemon y de `session-history`, no de esta change: anotado aparte. La prueba de
+  esta change afirma lo que sí es suyo —la cancelación llega y la sesión cierra—.
+- **`harness --agent` no se puede invocar**: la lectura global de `--agent`
+  lo rehúsa para todo verbo que no arranca sesión, y el brazo de `harness` que
+  lo esperaba es inalcanzable. Preexistente y ajeno a esta change: anotado
+  aparte.
