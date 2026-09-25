@@ -38,11 +38,12 @@ los e2e cargan el binario `mock-agent` ya construido.
   de opción, de la validación y de la comparación (design D1, D3, D4) — gates:
   `cargo build --workspace`, suite de `meltemid`
 
-- [ ] 2.3 La sesión libre reparte las palancas por vía, cierra `lever_refused`
+- [x] 2.3 La sesión libre reparte las palancas por vía, cierra `lever_refused`
   sin `turn_completed`, responde el 2007 con sus datos y lo deja en el log si
   está desacoplada; el evento de resolución y el registro de inicio llevan solo
   lo que viajó por bandera, el de cierre lo que rigió, y la fusión del índice lo
-  toma; e2e con el simulado (design D3, D4, D6) — escenarios «Sin declaración la
+  toma; la espera por palanca se acorta con `[sessions] lever-wait`; e2e con el
+  simulado (design D3, D4, D6) — escenarios «Sin declaración la
   palanca es lo que el agente anuncia», «La opción anunciada fija el modelo antes
   del primer prompt», «La opción anunciada fija el esfuerzo antes del primer
   prompt», «Un valor no anunciado se rehúsa listando lo anunciado», «Sin una

@@ -113,11 +113,14 @@ pub async fn handle_session_start(
         }
     };
 
-    // The levers are resolved BEFORE anything is created: refusing after a
+    // The levers are routed BEFORE anything is created: refusing after a
     // session exists would leave a session nobody asked for, and the refusal is
-    // the whole point — a lever silently dropped is worse than no lever.
-    let resolved = resolved.with_session_levers(params.model.as_deref(), params.effort.as_deref());
-    crate::levels::refuse_levers_before_launch(&resolved, &agent_command)?;
+    // the whole point — a lever silently dropped is worse than no lever. What
+    // goes by the agent's announcement leaves the resolution here, and is set
+    // and confirmed before the first prompt (modelo-por-opcion-anunciada D1).
+    let mut resolved =
+        resolved.with_session_levers(params.model.as_deref(), params.effort.as_deref());
+    let announced_levers = crate::levels::route_levers(&mut resolved, &agent_command)?;
 
     // Open the session and its log.
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -332,10 +335,8 @@ pub async fn handle_session_start(
                 // The caller's declared posture, or none at all.
                 mode: params.mode,
                 edit_scope: Some(edit_scope.handle()),
-                // Nothing is asked of the agent's announcement here: a lever goes
-                // by its declared flag or is refused before launch.
-                announced_levers: crate::lever_options::AnnouncedLevers::default(),
-                lever_wait: crate::lever_options::LEVER_WAIT,
+                announced_levers,
+                lever_wait: config.lever_wait(),
             })
             .await;
 
@@ -359,6 +360,10 @@ pub async fn handle_session_start(
                 agent_id: resolved.agent_id.clone(),
                 profile: resolved.profile.clone(),
                 source: Some(resolved.source),
+                // What went by flag governed from the start; what went by the
+                // announcement arrives with the outcome.
+                model: resolved.model.clone(),
+                effort: resolved.effort.clone(),
             };
             match outcome {
                 Ok(SessionRun::Ran(session_outcome)) => {
@@ -372,10 +377,9 @@ pub async fn handle_session_start(
                         checkpoint_unavailable,
                         checkpoint_remedy,
                         empty_turn: fin.empty_turn,
-                        // Filled with what governed by the lever routing
-                        // (modelo-por-opcion-anunciada 2.3).
-                        model: None,
-                        effort: None,
+                        // What governed, whichever way it reached the agent.
+                        model: fin.model,
+                        effort: fin.effort,
                     };
                     Ok(serde_json::to_value(result).expect("SessionStartResult serializes"))
                 }
@@ -416,8 +420,15 @@ pub async fn handle_session_start(
     // `status` because the turn has not happened — the one thing a result must
     // never invent (design D2).
     tokio::spawn(async move {
-        if let Err(error) = run.await {
-            tracing::warn!(?error, "a detached session ended with an error");
+        match run.await {
+            Ok(_) => {}
+            // Not a failure: a lever refused when the session opened. Its log
+            // already says so, which is how a detached session answers
+            // (modelo-por-opcion-anunciada D4).
+            Err(error) if error.code == error_codes::CONFIG_OPTION_NOT_ANNOUNCED => {
+                tracing::info!(%error, "a detached session refused a lever when it opened");
+            }
+            Err(error) => tracing::warn!(?error, "a detached session ended with an error"),
         }
     });
     let result = SessionStartResult {

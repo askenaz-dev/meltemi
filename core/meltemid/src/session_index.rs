@@ -184,6 +184,16 @@ fn merge_into(folded: &mut BTreeMap<String, SessionRecord>, record: SessionRecor
             if record.title.is_some() {
                 existing.title = record.title;
             }
+            // What governed can be known only later: a lever set on the agent's
+            // announcement is confirmed after the start record was written, and
+            // the closing record is what carries it (modelo-por-opcion-anunciada
+            // design D6).
+            if record.model.is_some() {
+                existing.model = record.model;
+            }
+            if record.effort.is_some() {
+                existing.effort = record.effort;
+            }
         }
     }
 }
@@ -269,6 +279,20 @@ fn record_from_log(path: &Path) -> Option<SessionRecord> {
                 // rebuilt record can still say with which model a session ran.
                 model = ran_model;
                 effort = ran_effort;
+            }
+            // The levers set on the agent's announcement, once it confirmed
+            // them: the resolution event carries only what travelled by flag
+            // (modelo-por-opcion-anunciada design D6).
+            SessionEventKind::LeversApplied {
+                model: set_model,
+                effort: set_effort,
+            } => {
+                if set_model.is_some() {
+                    model = set_model;
+                }
+                if set_effort.is_some() {
+                    effort = set_effort;
+                }
             }
             SessionEventKind::TurnCompleted { stop_reason } => final_status = Some(stop_reason),
             SessionEventKind::SessionEnded { .. } => ended_at = Some(event.ts.clone()),
@@ -408,6 +432,101 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].ended_at.as_deref(), Some("2026-07-11T10:05:00Z"));
         assert!(records[0].resumable(), "load-capable ended session resumes");
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    // Scenario: Lo que rigió queda en el registro
+    #[test]
+    fn what_governed_is_taken_from_the_record_that_knew_it() {
+        // A lever set on the agent's announcement is confirmed after the start
+        // record was written: the closing record carries it, and the fold must
+        // take it rather than keep the start's silence.
+        let data = temp("governed-fold");
+        append(&data, "k", &started("s-lever", "2026-09-25T10:00:00Z")).unwrap();
+        let mut closing = started("s-lever", "2026-09-25T10:00:00Z");
+        closing.ended_at = Some("2026-09-25T10:05:00Z".into());
+        closing.final_status = Some(TurnStatus::Completed);
+        closing.model = Some("slow".into());
+        closing.effort = Some("high".into());
+        append(&data, "k", &closing).unwrap();
+
+        let records = records_for_project(&data, "k");
+        assert_eq!(records[0].model.as_deref(), Some("slow"));
+        assert_eq!(records[0].effort.as_deref(), Some("high"));
+
+        // And a later record that knows nothing never erases it.
+        let mut silent = started("s-flag", "2026-09-25T11:00:00Z");
+        silent.model = Some("gpt-x".into());
+        append(&data, "k", &silent).unwrap();
+        let mut closing = started("s-flag", "2026-09-25T11:00:00Z");
+        closing.ended_at = Some("2026-09-25T11:05:00Z".into());
+        append(&data, "k", &closing).unwrap();
+        let records = records_for_project(&data, "k");
+        let flag = records.iter().find(|r| r.session_id == "s-flag").unwrap();
+        assert_eq!(flag.model.as_deref(), Some("gpt-x"));
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    #[test]
+    fn a_rebuilt_record_reads_what_the_announcement_confirmed() {
+        // The resolution event carries only what travelled by flag; the model
+        // set on the agent's announcement is recovered from `levers_applied`.
+        // A refused lever is recovered from nowhere: it never governed.
+        let data = temp("governed-rebuild");
+        let dir = sessions_dir(&data, "k");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("applied.jsonl"),
+            format!(
+                "{}\n{}\n{}\n",
+                event_line(
+                    "session_started",
+                    "2026-09-25T10:00:00Z",
+                    r#""sessionId":"applied","agentCommand":["mock-agent"],"projectRoot":"/repo""#
+                ),
+                event_line(
+                    "agent_resolved",
+                    "2026-09-25T10:00:01Z",
+                    r#""binary":"mock-agent","source":"configured","level":1"#
+                ),
+                event_line(
+                    "levers_applied",
+                    "2026-09-25T10:00:02Z",
+                    r#""model":"slow""#
+                ),
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("refused.jsonl"),
+            format!(
+                "{}\n{}\n{}\n",
+                event_line(
+                    "session_started",
+                    "2026-09-25T09:00:00Z",
+                    r#""sessionId":"refused","agentCommand":["mock-agent"],"projectRoot":"/repo""#
+                ),
+                event_line(
+                    "lever_refused",
+                    "2026-09-25T09:00:02Z",
+                    r#""lever":"model","requested":"gpt-x","reason":"not_a_value","values":["fast","slow"]"#
+                ),
+                event_line(
+                    "session_ended",
+                    "2026-09-25T09:00:03Z",
+                    r#""reason":"lever_refused""#
+                ),
+            ),
+        )
+        .unwrap();
+
+        let records = records_for_project(&data, "k");
+        let applied = records.iter().find(|r| r.session_id == "applied").unwrap();
+        assert_eq!(applied.model.as_deref(), Some("slow"));
+        let refused = records.iter().find(|r| r.session_id == "refused").unwrap();
+        assert_eq!(refused.model, None, "what was refused never governed");
+        assert!(refused.ended_at.is_some());
+        assert_eq!(refused.final_status, None, "no turn ran");
         std::fs::remove_dir_all(&data).ok();
     }
 

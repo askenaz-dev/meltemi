@@ -85,7 +85,8 @@ fn fixture(tag: &str, permissions: Option<&str>) -> PathBuf {
 
 /// A fixture whose agent is the mock as a FLEET ENTRY declaring `levers` —
 /// the way its own adapters are declared (modelo-por-opcion-anunciada D2) —
-/// with every permission allowed.
+/// with every permission allowed. The mock says what its launch environment
+/// carried (`--echo-levers`), which is how a test sees a flag arrive.
 fn levers_fixture(tag: &str, levers: &str) -> PathBuf {
     let root = fixture(tag, Some("[[rule]]\neffect = \"allow\"\n"));
     let mock = mock_agent_bin().display().to_string().replace('\\', "/");
@@ -95,7 +96,7 @@ fn levers_fixture(tag: &str, levers: &str) -> PathBuf {
         format!(
             "version = \"levers-e2e\"\n\
              [[agents]]\nid = \"mock\"\nname = \"Mock\"\nlevel = 1\nbin = \"mock-agent\"\n\
-             candidate-paths = ['{mock}']\nlevers = {levers}\n"
+             candidate-paths = ['{mock}']\nacp-args = [\"--echo-levers\"]\nlevers = {levers}\n"
         ),
     )
     .unwrap();
@@ -1310,6 +1311,28 @@ async fn a_declared_model_travels_untouched_and_is_recorded_as_what_ran() {
     assert_eq!(
         resolved["payload"]["model"], "some-provider-model-9000",
         "what governed is written where it is consulted: {resolved:#}"
+    );
+    // The agent received it exactly as sent: the mock repeats what its launch
+    // environment carried.
+    assert!(
+        log["lines"]
+            .as_array()
+            .expect("lines")
+            .iter()
+            .any(|line| line.as_str().is_some_and(
+                |line| line.contains("levers read: model=some-provider-model-9000 effort=-")
+            )),
+        "the flag reached the agent untouched: {log:#}"
+    );
+    assert_eq!(result["model"], "some-provider-model-9000", "{result:#}");
+    // And the history lists it as what governed.
+    let list = peer
+        .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .expect("session/list ok");
+    assert_eq!(
+        list["sessions"][0]["model"], "some-provider-model-9000",
+        "{list:#}"
     );
 
     peer.close();

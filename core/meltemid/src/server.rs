@@ -2500,6 +2500,9 @@ async fn resume_with_instruction(
         agent_id: record.agent_id.clone(),
         profile: record.profile.clone(),
         source: record.source,
+        // A resume carries no levers of its own.
+        model: None,
+        effort: None,
     };
     match outcome {
         Ok(crate::acp::SessionRun::Ran(session_outcome)) => {

@@ -18,6 +18,7 @@ use meltemi_proto::{SessionEventKind, SessionLever, error_codes};
 
 use crate::config::Config;
 use crate::fleet::{build_catalog, resolve_binary};
+use crate::lever_options::AnnouncedLevers;
 use crate::rpc::RpcError;
 
 /// How a configured agent is launched, resolved from its integration level.
@@ -628,49 +629,79 @@ pub fn l4_target_for(config: &Config) -> Option<String> {
     }
 }
 
-/// Refuses, before anything is created, a lever the agent is already known
-/// not to take (modelo-por-opcion-anunciada D4): its fleet entry declares its
-/// levers and not this one. Nothing is decided by the binary's name.
+/// Splits a session's levers by the way each reaches its agent
+/// (modelo-por-opcion-anunciada design D1), before anything is created:
 ///
-/// A lever that would go by the agent's announcement is refused here too, with
-/// the words it always had, until the announced route exists: nothing is ever
-/// dropped in silence in between.
-pub fn refuse_levers_before_launch(
-    resolved: &ResolvedAgent,
+/// - a lever the entry declares stays in the resolution and in the environment
+///   its adapter reads, and travels as a launch flag;
+/// - a lever of an entry that declares nothing — or of a literal command —
+///   leaves both, to be set on the option the agent announces before the first
+///   prompt. It has not governed anything yet, so neither the resolution event
+///   nor the start record carries it (design D6);
+/// - a lever the entry's declaration leaves out is refused (2006): declared is
+///   the complete set, and nothing is dropped in silence.
+///
+/// Nothing is decided by the binary's name.
+///
+/// # Errors
+///
+/// The 2006 that names the agent and the lever it has no place for.
+pub fn route_levers(
+    resolved: &mut ResolvedAgent,
     agent_command: &[String],
-) -> Result<(), RpcError> {
+) -> Result<AnnouncedLevers, RpcError> {
     let agent = agent_command
         .first()
         .map(String::as_str)
         .unwrap_or("the agent");
-    for (lever, asked, name, remedy) in [
+    let mut announced = AnnouncedLevers::default();
+    for (lever, name, variable, remedy) in [
         (
             SessionLever::Model,
-            resolved.model.is_some(),
             "model",
+            SESSION_MODEL_ENV,
             "Start the session without `model`, or choose an agent whose provider takes one.",
         ),
         (
             SessionLever::Effort,
-            resolved.effort.is_some(),
             "effort",
+            SESSION_EFFORT_ENV,
             "Start the session without `effort`; the agent decides how much it reasons.",
         ),
     ] {
-        if asked && route_lever(lever, resolved.levers.as_deref()) != LeverRoute::Flag {
-            return Err(RpcError::application(
-                error_codes::LEVER_NOT_SUPPORTED,
-                "the agent does not take this lever",
-                "lever_not_supported",
-                format!(
-                    "`{agent}` has no documented place for a per-session {name}, so it was \
-                     refused rather than dropped in silence"
-                ),
-                Some(remedy.into()),
-            ));
+        let route = route_lever(lever, resolved.levers.as_deref());
+        let slot = match lever {
+            SessionLever::Model => &mut resolved.model,
+            SessionLever::Effort => &mut resolved.effort,
+        };
+        let Some(value) = slot.clone() else {
+            continue;
+        };
+        match route {
+            LeverRoute::Flag => {}
+            LeverRoute::Announced => {
+                *slot = None;
+                resolved.env.retain(|(key, _)| key != variable);
+                match lever {
+                    SessionLever::Model => announced.model = Some(value),
+                    SessionLever::Effort => announced.effort = Some(value),
+                }
+            }
+            LeverRoute::NotTaken => {
+                return Err(RpcError::application(
+                    error_codes::LEVER_NOT_SUPPORTED,
+                    "the agent does not take this lever",
+                    "lever_not_supported",
+                    format!(
+                        "`{agent}` has no documented place for a per-session {name}, so it was \
+                         refused rather than dropped in silence"
+                    ),
+                    Some(remedy.into()),
+                ));
+            }
         }
     }
-    Ok(())
+    Ok(announced)
 }
 
 #[cfg(test)]
@@ -782,17 +813,28 @@ mod tests {
                 fleet_registry: Some(registry.clone()),
                 ..Config::default()
             };
-            let resolved = resolve_session_agent(&config, None, &path_var, None)
+            let mut resolved = resolve_session_agent(&config, None, &path_var, None)
                 .expect("the entry resolves")
                 .with_session_levers(model, effort);
             let argv = match &resolved.launch {
                 Launch::Acp { argv, .. } => argv.clone(),
                 other => panic!("an ACP launch, got {other:?}"),
             };
-            refuse_levers_before_launch(&resolved, &argv)
+            route_levers(&mut resolved, &argv).map(|announced| (resolved, announced))
         };
 
-        assert!(resolve("both", Some("gpt-x"), Some("high")).is_ok());
+        // Declared: the flag, for exactly the declared set — in the
+        // resolution, in the environment the adapter reads, and nowhere else.
+        let (flagged, announced) =
+            resolve("both", Some("gpt-x"), Some("high")).expect("both are declared");
+        assert!(announced.is_empty(), "declared levers travel as flags");
+        assert_eq!(flagged.model.as_deref(), Some("gpt-x"));
+        assert!(
+            flagged
+                .env
+                .iter()
+                .any(|(key, value)| key == SESSION_MODEL_ENV && value == "gpt-x")
+        );
         assert!(resolve("model-only", Some("sonnet"), None).is_ok());
         // Not verified is refused with that as the reason rather than guessed
         // at — and the refusal names both the agent and the lever.
@@ -805,6 +847,23 @@ mod tests {
 
         // Asking for nothing is never refused, whatever the entry declares.
         assert!(resolve("silent", None, None).is_ok());
+
+        // Undeclared: both levers leave the launch to be set on what the agent
+        // announces — neither the resolution nor the environment carries them,
+        // because nothing has governed yet (design D6).
+        let (silent, announced) =
+            resolve("silent", Some("slow"), Some("high")).expect("an undeclared entry routes");
+        assert_eq!(announced.model.as_deref(), Some("slow"));
+        assert_eq!(announced.effort.as_deref(), Some("high"));
+        assert_eq!((silent.model, silent.effort), (None, None));
+        assert!(
+            !silent
+                .env
+                .iter()
+                .any(|(key, _)| key == SESSION_MODEL_ENV || key == SESSION_EFFORT_ENV),
+            "the announced route leaves the adapter's environment alone: {:?}",
+            silent.env.iter().map(|(key, _)| key).collect::<Vec<_>>()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

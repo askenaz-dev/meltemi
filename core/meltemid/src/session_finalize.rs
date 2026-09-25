@@ -47,6 +47,11 @@ pub struct SessionContext<'a> {
     /// The autonomy mode the session declared, so the record it leaves behind
     /// can say what the session was allowed to decide (modos-de-autonomia).
     pub mode: Option<meltemi_proto::AutonomyMode>,
+    /// The model and the effort that went by launch flag, which governed from
+    /// the start. Those set on the agent's announcement arrive with the outcome,
+    /// once confirmed (modelo-por-opcion-anunciada design D6).
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 /// The pieces a caller reports after a finalized successful turn.
@@ -58,6 +63,10 @@ pub struct Finalized {
     /// Whether the turn this reports was declared empty (turno-vacio-es-error
     /// design D3).
     pub empty_turn: bool,
+    /// The model and the effort that governed, whichever way they reached the
+    /// agent (modelo-por-opcion-anunciada design D6).
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 async fn append(log: &Arc<Mutex<SessionLog>>, kind: SessionEventKind) {
@@ -70,6 +79,18 @@ async fn append(log: &Arc<Mutex<SessionLog>>, kind: SessionEventKind) {
 /// capability), deregister, and return the outcome pieces the caller reports.
 pub async fn finalize_ok(ctx: &SessionContext<'_>, outcome: SessionOutcome) -> Finalized {
     let status = outcome.status;
+    // A lever goes one way only, so the two never compete: what the agent
+    // confirmed on its announcement, else what travelled by flag.
+    let model = outcome
+        .levers_applied
+        .model
+        .clone()
+        .or_else(|| ctx.model.clone());
+    let effort = outcome
+        .levers_applied
+        .effort
+        .clone()
+        .or_else(|| ctx.effort.clone());
     append(
         ctx.log,
         SessionEventKind::TurnCompleted {
@@ -108,8 +129,10 @@ pub async fn finalize_ok(ctx: &SessionContext<'_>, outcome: SessionOutcome) -> F
             agent_id: ctx.agent_id.clone(),
             profile: ctx.profile.clone(),
             mode: ctx.mode,
-            model: None,
-            effort: None,
+            // What governed: the index takes it from here, because a lever set
+            // on the announcement was confirmed after the start record.
+            model: model.clone(),
+            effort: effort.clone(),
             source: ctx.source,
             // The fold keeps the title the opening record set (design D4).
             title: None,
@@ -122,6 +145,8 @@ pub async fn finalize_ok(ctx: &SessionContext<'_>, outcome: SessionOutcome) -> F
         agent_session_id: outcome.agent_session_id,
         supports_load: outcome.supports_load,
         empty_turn: outcome.last_turn_empty,
+        model,
+        effort,
     }
 }
 

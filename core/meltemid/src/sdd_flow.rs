@@ -631,6 +631,9 @@ async fn run_turn(
         agent_id: resolved.agent_id.clone(),
         profile: resolved.profile.clone(),
         source: Some(resolved.source),
+        // This verb routes no lever yet: nothing governed by flag.
+        model: None,
+        effort: None,
     };
     match outcome {
         Ok(SessionRun::Ran(session_outcome)) => {
