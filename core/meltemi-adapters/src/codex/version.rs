@@ -85,11 +85,15 @@ pub fn unreadable(layer: &str, user_agent: &str, announced: &str) -> Refusal {
         "provider_version_unreadable",
         layer,
         format!(
-            "the handshake announced `{user_agent}`; this adapter reads the CLI's version from the              first token, `{}/<version>` or `{announced}/<version>`, and found neither",
+            "the handshake announced `{user_agent}`; this adapter reads the CLI's version from the \
+             first token, `{}/<version>` or `{announced}/<version>`, and found neither",
             wire::USER_AGENT_PRODUCT
         ),
         format!(
-            "If `{}` is set in the environment Meltemi was started from, the CLI announces that              name instead of `{announced}`: start Meltemi without it. Otherwise this CLI speaks a              user agent this adapter was not verified against: update Meltemi, or tell the              project which CLI version answered this.",
+            "If `{}` is set in the environment Meltemi was started from, the CLI announces that \
+             name instead of `{announced}`: start Meltemi without it. Otherwise this CLI speaks a \
+             user agent this adapter was not verified against: update Meltemi, or tell the \
+             project which CLI version answered this.",
             wire::ORIGINATOR_OVERRIDE_ENV
         ),
     )
@@ -235,6 +239,12 @@ mod tests {
             "it does not blame the binary for a user agent it could not read: {}",
             refusal.remedy
         );
+        for text in [&refusal.detail, &refusal.remedy] {
+            assert!(
+                !text.contains("  "),
+                "one space between words, as a human reads it: {text}"
+            );
+        }
     }
 
     #[test]
