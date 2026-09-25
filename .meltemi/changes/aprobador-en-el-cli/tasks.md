@@ -32,7 +32,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   «Ninguna regla del terminal alcanza la configuración de Meltemi», «En un
   worktree de tarea no se ofrece regla» — gates: suite de `meltemi` (tui)
 
-- [ ] 2.2 Fuentes de teclas: la de terminal (modo crudo sin pantalla
+- [x] 2.2 Fuentes de teclas: la de terminal (modo crudo sin pantalla
   alternativa, sondeo en tramos, descarte de lo pendiente, solo pulsaciones,
   repeticiones de Windows ignoradas, pegado entre corchetes en Unix) y la
   programada para pruebas (teclas tecleadas antes, esperas hasta la retirada,

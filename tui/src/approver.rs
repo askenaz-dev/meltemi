@@ -9,6 +9,8 @@
 //! the choices it shares with the shell's tray — so every rule of it is
 //! testable without a terminal or a daemon.
 
+pub mod keys;
+
 use meltemi_proto::{
     PendingPermission, PermissionOption, PermissionOptionKind, PermissionRequestParams,
     PermissionRule, PermissionRuleEffect, PermissionRuleScope,
