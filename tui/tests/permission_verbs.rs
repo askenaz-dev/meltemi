@@ -22,7 +22,7 @@ use tokio::task::JoinHandle;
 use meltemi_client::rpc::{Peer, RpcError};
 use meltemi_proto::{InitializeParams, PROTOCOL_VERSION, PeerInfo, methods};
 
-use common::{mock_agent_bin, spawn_daemon};
+use common::{FakeDaemon, mock_agent_bin, spawn_daemon, test_endpoint};
 
 /// A fixture project whose agent is the mock with `mock_args`, with no rule of
 /// any kind: every request waits for a human. `extra` is appended to its
@@ -225,6 +225,7 @@ async fn the_permission_verbs_end_to_end() {
     from_a_shell_with_no_terminal(&endpoint).await;
 
     daemon.abort();
+    a_decision_that_loses_the_race(&endpoint).await;
 }
 
 // Scenario: permissions muestra lo que espera y desde cuándo
@@ -519,4 +520,58 @@ async fn from_a_shell_with_no_terminal(endpoint: &str) {
         json!({ "outcome": "selected", "optionId": "allow" })
     );
     let _ = std::fs::remove_dir_all(&root);
+}
+
+// Scenario: Una petición que ya no espera no se decide
+async fn a_decision_that_loses_the_race(_real: &str) {
+    // Waiting when read, resolved by another surface before this decision
+    // arrives: the daemon answers `already_resolved`. No real daemon stages
+    // that on cue, so the test plays it.
+    let endpoint = test_endpoint("decide-lost-race");
+    let mut listener = meltemi_client::transport::Listener::bind(&endpoint)
+        .await
+        .expect("bind");
+    let decide = tokio::spawn({
+        let endpoint = endpoint.clone();
+        async move { run(&endpoint, &["--json", "approve", "perm-7"]).await }
+    });
+    let mut daemon = FakeDaemon::accept(&mut listener).await;
+    daemon.initialize().await;
+    daemon
+        .answer(
+            methods::PERMISSION_PENDING,
+            json!({ "pending": [{
+                "requestId": "perm-7",
+                "sessionId": "s-7",
+                "tool": "edit",
+                "summary": "Write the proposal",
+                "options": [
+                    { "optionId": "allow", "name": "Allow", "kind": "allow_once" },
+                    { "optionId": "reject", "name": "Reject", "kind": "reject_once" },
+                ],
+                "waitingSeconds": 3,
+                "expired": false,
+            }] }),
+        )
+        .await;
+    daemon
+        .answer(
+            methods::PERMISSION_DECIDE,
+            json!({ "status": "already_resolved" }),
+        )
+        .await;
+    let (code, stdout, stderr) = tokio::time::timeout(Duration::from_secs(10), decide)
+        .await
+        .expect("the decision answered")
+        .expect("the decision task");
+    assert_eq!(code, 12, "{stdout} / {stderr}");
+    let said: Value = serde_json::from_str(stdout.trim()).expect("one JSON object");
+    assert_eq!(said["error"]["code"], 12, "{said}");
+    assert!(
+        said["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("the first decision wins")),
+        "{said}"
+    );
+    drop(daemon);
 }

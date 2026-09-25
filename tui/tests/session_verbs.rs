@@ -19,7 +19,7 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -27,7 +27,7 @@ use meltemi_client::rpc::Peer;
 use meltemi_client::transport::Listener;
 use meltemi_proto::{InitializeParams, PROTOCOL_VERSION, PeerInfo, methods};
 
-use common::{mock_agent_bin, spawn_daemon, test_endpoint};
+use common::{FakeDaemon, mock_agent_bin, spawn_daemon, test_endpoint};
 
 fn fixture(tag: &str, mock_args: &[&str]) -> PathBuf {
     let mock = mock_agent_bin();
@@ -414,53 +414,17 @@ async fn stopping_the_watch_leaves_the_session_running(endpoint: &str) {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The test as the daemon: it answers what `watch` asks, from a script.
-struct FakeDaemon {
-    lines: tokio::io::Lines<BufReader<tokio::io::ReadHalf<meltemi_client::transport::Stream>>>,
-    write: tokio::io::WriteHalf<meltemi_client::transport::Stream>,
+/// What a watch asks of the daemon, answered by the test.
+trait Watched {
+    async fn open(&mut self, session: &str);
+    async fn record(&mut self, session: &str, kind: &str);
 }
 
-impl FakeDaemon {
-    async fn accept(listener: &mut Listener) -> Self {
-        let stream = tokio::time::timeout(Duration::from_secs(10), listener.accept())
-            .await
-            .expect("the watch dials the endpoint")
-            .expect("accept");
-        let (read, write) = tokio::io::split(stream);
-        Self {
-            lines: BufReader::new(read).lines(),
-            write,
-        }
-    }
-
-    /// Answers the next request, which must be `method`, with `result`.
-    async fn answer(&mut self, method: &str, result: Value) {
-        let line = tokio::time::timeout(Duration::from_secs(10), self.lines.next_line())
-            .await
-            .unwrap_or_else(|_| panic!("the watch asked for `{method}`"))
-            .expect("read")
-            .expect("a line");
-        let request: Value = serde_json::from_str(&line).expect("a JSON-RPC line");
-        assert_eq!(request["method"], method, "{request}");
-        self.send(json!({ "jsonrpc": "2.0", "id": request["id"], "result": result }))
-            .await;
-    }
-
-    async fn send(&mut self, message: Value) {
-        let mut line = message.to_string();
-        line.push('\n');
-        self.write.write_all(line.as_bytes()).await.expect("write");
-        self.write.flush().await.expect("flush");
-    }
-
+impl Watched for FakeDaemon {
     /// The opening every watch makes: initialize, the interest, and the look
     /// that finds the session running.
     async fn open(&mut self, session: &str) {
-        self.answer(
-            methods::INITIALIZE,
-            json!({ "protocolVersion": PROTOCOL_VERSION, "daemon": { "name": "fake", "version": "0" } }),
-        )
-        .await;
+        self.initialize().await;
         self.answer(
             methods::SESSION_WATCH,
             json!({ "sessionId": session, "watching": true }),

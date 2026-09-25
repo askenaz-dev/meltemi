@@ -43,6 +43,13 @@ los e2e cargan el binario `mock-agent` ya construido.
   (design D11) — escenario «Aprobar sin terminal desde otra conexión» — gates:
   `-p meltemi --test permission_verbs`
 
+- [x] 2.4 (Hallazgo de la revisión propia antes del cierre) La decisión que
+  pierde la carrera —esperaba al leerla y el daemon responde `already_resolved`—
+  termina con `12` y lo dice, pineada con la prueba como daemon; el daemon
+  falso pasa a `tui/tests/common` para las dos pruebas que lo usan (design D4)
+  — escenario «Una petición que ya no espera no se decide» — gates: `-p meltemi
+  --test permission_verbs`, `-p meltemi --test session_verbs`
+
 ## 3. Seguir, leer y cancelar
 
 - [x] 3.1 `tui/src/follow.rs`: la línea del registro con los escapes de JSON, el
