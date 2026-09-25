@@ -91,6 +91,21 @@ impl CliError {
         Self::new(ExitCode::Contract, "contract_error", message)
     }
 
+    /// Refused by the permission proxy's policy (exit 12): a decision that
+    /// reached a request no longer waiting, where the first decision wins
+    /// (verbos-del-agent-boss design D4).
+    pub fn denied(kind: &'static str, message: impl Into<String>) -> Self {
+        Self::new(ExitCode::Denied, kind, message)
+    }
+
+    /// Something the daemon's own answer says does not exist (exit 11): the
+    /// same fact the daemon reports as a contract error when a verb names it
+    /// directly — an unknown session is `session_not_found` for `direct` too
+    /// (verbos-del-agent-boss design D4).
+    pub fn not_found(kind: &'static str, message: impl Into<String>) -> Self {
+        Self::new(ExitCode::Contract, kind, message)
+    }
+
     /// An unexpected internal error (exit 1).
     pub fn internal(detail: impl std::fmt::Display) -> Self {
         Self::new(

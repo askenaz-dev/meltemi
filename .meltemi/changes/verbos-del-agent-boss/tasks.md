@@ -25,7 +25,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   aprobaciones exigen nombrar una», «El listado escapa el texto del agente» —
   gates: suite de `meltemi`
 
-- [ ] 2.2 `permissions`, `approve` y `deny` sobre `permission/pending` y
+- [x] 2.2 `permissions`, `approve` y `deny` sobre `permission/pending` y
   `permission/decide`, con los códigos `12` y `2` y sus mensajes; e2e
   `tui/tests/permission_verbs.rs` con el daemon en proceso y el simulado: una
   sesión que abre un cliente crudo que no responde el empuje, listada y

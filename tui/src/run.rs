@@ -40,6 +40,7 @@ use meltemi_proto::{
 
 use crate::approver::Approver;
 use crate::cli::Command;
+use crate::decide::{NotWaiting, Verdict};
 use crate::format::{Paint, paint};
 use crate::output::{CliError, Outcome};
 
@@ -192,10 +193,12 @@ pub async fn execute(
         Command::Watch { .. } | Command::Log { .. } => Err(CliError::internal(
             "`watch` and `log` are dispatched with the process writer, not through `execute`",
         )),
-        Command::Permissions
-        | Command::Approve { .. }
-        | Command::Deny { .. }
-        | Command::Cancel { .. } => Err(CliError::internal(
+        Command::Permissions => permissions(endpoint).await,
+        Command::Approve { request, option } => {
+            decide(Verdict::Approve, request, option, endpoint).await
+        }
+        Command::Deny { request, option } => decide(Verdict::Deny, request, option, endpoint).await,
+        Command::Cancel { .. } => Err(CliError::internal(
             "this verb is recognized by the grammar and wired by a later task of \
              verbos-del-agent-boss",
         )),
@@ -1564,6 +1567,110 @@ async fn direct(
         human: render_direct(&value),
         json: value,
     })
+}
+
+/// `permissions`: what waits for a decision (`permission/pending`), listed with
+/// the options each agent offered — what `approve` and `deny` choose from.
+async fn permissions(endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer.request(methods::PERMISSION_PENDING, &json!({})).await;
+    background.finish(&peer).await;
+
+    let value = response.map_err(CliError::contract)?;
+    let result: meltemi_proto::PermissionPendingResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: crate::decide::render_pending(&result.pending),
+        json: value,
+    })
+}
+
+/// `approve` and `deny`: ONE waiting request, decided with one of the options
+/// its agent offered for it (verbos-del-agent-boss design D2).
+async fn decide(
+    verdict: Verdict,
+    request: String,
+    option: Option<String>,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let outcome = decide_on(&peer, verdict, &request, option.as_deref()).await;
+    background.finish(&peer).await;
+    outcome
+}
+
+/// Reads the request in the queue, chooses among its agent's options, and
+/// decides. The queue is read first because the options are the request's, and
+/// because the daemon takes any id it is sent: holding a typed id to the
+/// agent's list is this verb's job, never the daemon's (design D2).
+async fn decide_on(
+    peer: &Peer,
+    verdict: Verdict,
+    request: &str,
+    option: Option<&str>,
+) -> Result<Outcome, CliError> {
+    use crate::decide::{choose, decided_line, decided_value, not_waiting_message};
+    use meltemi_proto::{
+        PermissionDecideParams, PermissionDecideResult, PermissionDecideStatus,
+        PermissionPendingResult,
+    };
+
+    let queue = peer
+        .request(methods::PERMISSION_PENDING, &json!({}))
+        .await
+        .map_err(CliError::contract)?;
+    let queue: PermissionPendingResult =
+        serde_json::from_value(queue).map_err(CliError::internal)?;
+    let Some(entry) = queue
+        .pending
+        .into_iter()
+        .find(|entry| entry.request_id == request)
+    else {
+        return Err(CliError::denied(
+            "not_waiting",
+            not_waiting_message(request, NotWaiting::Absent),
+        ));
+    };
+    if entry.expired {
+        return Err(CliError::denied(
+            "not_waiting",
+            not_waiting_message(request, NotWaiting::Expired),
+        ));
+    }
+    let choice = choose(verdict, &entry.options, option).map_err(|refusal| {
+        CliError::usage(crate::decide::refusal_message(
+            verdict,
+            request,
+            &entry.options,
+            &refusal,
+        ))
+    })?;
+
+    let answer = peer
+        .request(
+            methods::PERMISSION_DECIDE,
+            &PermissionDecideParams {
+                request_id: entry.request_id.clone(),
+                option_id: choice.option_id().map(str::to_string),
+                persist_rule: None,
+            },
+        )
+        .await
+        .map_err(CliError::contract)?;
+    let answer: PermissionDecideResult =
+        serde_json::from_value(answer).map_err(CliError::internal)?;
+    match answer.status {
+        PermissionDecideStatus::Applied => Ok(Outcome {
+            human: decided_line(verdict, &entry, &choice),
+            json: decided_value(verdict, &entry, &choice),
+        }),
+        // Waiting when read, resolved by another decision before this one
+        // arrived: the first decision wins, and this one says it lost.
+        PermissionDecideStatus::AlreadyResolved => Err(CliError::denied(
+            "not_waiting",
+            not_waiting_message(request, NotWaiting::LostRace),
+        )),
+    }
 }
 
 /// `harness`: what applies, and where each piece comes from.
