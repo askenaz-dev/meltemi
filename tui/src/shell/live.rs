@@ -5,8 +5,8 @@
 //! reducer stays testable, and so rendering reads one coherent snapshot.
 
 use meltemi_proto::{
-    FleetAgent, FleetAgentSource, PendingPermission, PermissionOptionKind, PermissionRule,
-    PermissionRuleEffect, PermissionRuleScope, SessionInfo, SessionState,
+    FleetAgent, FleetAgentSource, PendingPermission, PermissionRule, PermissionRuleEffect,
+    PermissionRuleScope, SessionInfo, SessionState,
 };
 
 use crate::shell::render::ConnState;
@@ -478,16 +478,12 @@ impl LiveData {
     }
 
     /// The option id of the selected request that grants it, if the agent
-    /// offered one (a tray "approve" never invents an option).
+    /// offered one (a tray "approve" never invents an option). The choice is
+    /// the one the terminal approver makes too (aprobador-en-el-cli D5).
     #[must_use]
     pub fn selected_allow_option(&self) -> Option<(String, String)> {
         let row = self.selected_permission()?;
-        let option = row.options.iter().find(|o| {
-            matches!(
-                o.kind,
-                PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
-            )
-        })?;
+        let option = crate::approver::allow_option(&row.options)?;
         Some((row.request_id.clone(), option.option_id.clone()))
     }
 
@@ -496,16 +492,7 @@ impl LiveData {
     #[must_use]
     pub fn selected_deny(&self) -> Option<(String, Option<String>)> {
         let row = self.selected_permission()?;
-        let option = row
-            .options
-            .iter()
-            .find(|o| {
-                matches!(
-                    o.kind,
-                    PermissionOptionKind::RejectOnce | PermissionOptionKind::RejectAlways
-                )
-            })
-            .map(|o| o.option_id.clone());
+        let option = crate::approver::reject_option(&row.options).map(|o| o.option_id.clone());
         Some((row.request_id.clone(), option))
     }
 

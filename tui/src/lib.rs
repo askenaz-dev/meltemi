@@ -9,6 +9,7 @@
 //! discipline and the command↔RPC mapping so all of it is testable off the
 //! process boundary.
 
+pub mod approver;
 pub mod cli;
 pub mod exit;
 pub mod format;
@@ -63,13 +64,36 @@ pub fn conclude(
 }
 
 /// Runs a resolved [`Plan`] against the daemon at `endpoint`, writing to the
-/// given stdout/stderr sinks, and returns the process exit code.
+/// given stdout/stderr sinks, and returns the process exit code. Permission
+/// requests are refused: nothing in the library waits for a key on its own.
 pub async fn dispatch(
     plan: Plan,
     endpoint: &str,
     stdout_is_tty: bool,
     out: &mut impl Write,
     err: &mut impl Write,
+) -> i32 {
+    dispatch_with(
+        plan,
+        endpoint,
+        stdout_is_tty,
+        out,
+        err,
+        approver::Approver::deny(),
+    )
+    .await
+}
+
+/// [`dispatch`], answering the permission requests a command's sessions raise
+/// with `approver` (aprobador-en-el-cli). The binary passes the terminal's
+/// when there is one to ask in.
+pub async fn dispatch_with(
+    plan: Plan,
+    endpoint: &str,
+    stdout_is_tty: bool,
+    out: &mut impl Write,
+    err: &mut impl Write,
+    approver: approver::Approver,
 ) -> i32 {
     let format = plan.format;
     // One decision, taken once: the format, the explicit flag, the environment
@@ -132,7 +156,10 @@ pub async fn dispatch(
             // (its `clean` field is the stable signal), and any answer that
             // declares an empty turn exits `15` (see [`conclude`]).
             let is_validate = matches!(command, Command::Validate { .. });
-            match run::execute(command, endpoint, painting).await {
+            let result = run::execute_with(command, endpoint, painting, approver.clone()).await;
+            // No read is left in raw mode, whatever the command came to.
+            approver.settle().await;
+            let code = match result {
                 Ok(outcome) => {
                     let _ = render_outcome(&outcome, format, out);
                     conclude(is_validate, &outcome.json, format.is_machine(), err).code()
@@ -141,6 +168,13 @@ pub async fn dispatch(
                     let _ = render_error(&error, format, out, err);
                     error.exit.code()
                 }
+            };
+            // The human stopped it at a question: whatever the daemon answered
+            // is shown, and the command says it was cancelled (design D11).
+            if approver.stopped() {
+                ExitCode::Cancelled.code()
+            } else {
+                code
             }
         }
     }

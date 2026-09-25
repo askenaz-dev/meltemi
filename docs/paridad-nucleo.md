@@ -56,8 +56,8 @@ future change — never a silent omission.
 | `change/land` | `land` | `land` | registry |
 | `spec/list` | `specs` | `specs` | registry + Project view |
 | `spec/show` | `specs <capability>` | `specs` | registry |
-| `permission/pending` | — | `permissions` (`a`, tray) | registry + Permissions view |
-| `permission/decide` | — | `permissions` (tray) | registry + Permissions view |
+| `permission/pending` | the terminal approver (every verb: a question is asked only while it still stands) | `permissions` (`a`, tray) | registry + Permissions view |
+| `permission/decide` | the terminal approver (`r` + `y` in `session` and `propose`) | `permissions` (tray) | registry + Permissions view |
 | `worktree/assign` | `assign` | `assign` | registry |
 | `worktree/list` | `worktrees` | `worktrees` | registry |
 | `worktree/remove` | — | `worktree-remove` | registry |
@@ -126,6 +126,20 @@ The TUI's `usage` home stays reserved, as it is for the rest of the activity.
 This is **not** a §4 break: the capability is the verdict, and it reaches all
 three surfaces; each reads it from the carrier it already consumes.
 
+### `requestId`, and why only the CLI reads it from the push
+
+The live push carries the id its request holds in the pending queue
+(aprobador-en-el-cli D4). The CLI reads it because it answers the push itself:
+with the id it confirms the request still stands before asking, remembers a rule
+by `permission/decide`, and withdraws the question once the queue lets the
+request go. The TUI and the GUI decide from the queue — `permission/pending` and
+`permission/changed` — where every entry already carries that id, so they have no
+need to read it from the push.
+
+This is **not** a §4 break: deciding and remembering by id is reachable from all
+three surfaces, and the field only lets the one surface that answers pushes do
+it from the push.
+
 ## Infrastructure
 
 | Method | Role |
@@ -134,11 +148,14 @@ three surfaces; each reads it from the carrier it already consumes.
 
 ## Daemon-initiated traffic
 
-Not client-invocable; delivered to every connected surface alike.
+Not client-invocable. `permission/changed` reaches every connected client;
+`permission/request` and `permission/timeout` go to the connection that started
+the session; `session/event` goes to that connection and to those watching the
+session.
 
-| Method | Kind | TUI | GUI |
-|---|---|---|---|
-| `session/event` | notification | transcript append | `daemon:incoming` → transcript |
-| `permission/request` | request (held) | notice; tray decides | `daemon:incoming`; tray decides |
-| `permission/timeout` | notification | persistent notice | persistent notice |
-| `permission/changed` | notification | tray counter | tray counter |
+| Method | Kind | CLI | TUI | GUI |
+|---|---|---|---|---|
+| `session/event` | notification | the approver keeps tool calls, to show what a question is about | transcript append | `daemon:incoming` → transcript |
+| `permission/request` | request (held) | asked on the terminal; without one, refused with the agent's rejection | notice; tray decides | `daemon:incoming`; tray decides |
+| `permission/timeout` | notification | withdraws the open question, checked against the queue | persistent notice | persistent notice |
+| `permission/changed` | notification | withdraws the open question once the queue no longer lists it | tray counter | tray counter |

@@ -1379,7 +1379,33 @@ fn permission_conforms() {
                     kind,
                 })
                 .collect(),
+            request_id: None,
         },
+    );
+    // The push names its queue id (aprobador-en-el-cli design D4): additive, so
+    // a push without it is the same bytes as before the field existed.
+    let named = PermissionRequestParams {
+        session_id: "sess-1".into(),
+        tool_call: json!({ "toolCallId": "call-1" }),
+        options: vec![PermissionOption {
+            option_id: "allow".into(),
+            name: "Allow".into(),
+            kind: PermissionOptionKind::AllowOnce,
+        }],
+        request_id: Some("perm-7".into()),
+    };
+    assert_conforms("permission", "requestParams", &named);
+    assert_eq!(serde_json::to_value(&named).unwrap()["requestId"], "perm-7");
+    let bare = PermissionRequestParams {
+        request_id: None,
+        ..named
+    };
+    assert!(
+        serde_json::to_value(&bare)
+            .unwrap()
+            .get("requestId")
+            .is_none(),
+        "absent leaves no key"
     );
     assert_conforms(
         "permission",

@@ -1888,6 +1888,11 @@ pub struct PermissionRequestParams {
     pub tool_call: serde_json::Value,
     /// Options for the user to choose from.
     pub options: Vec<PermissionOption>,
+    /// The id this request holds in the pending queue (aprobador-en-el-cli
+    /// design D4): what lets the client that answers the push also decide or
+    /// remember it by id, and recognise when another path resolved it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 /// The decision on a permission request, mirroring ACP

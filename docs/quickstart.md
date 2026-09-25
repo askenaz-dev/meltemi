@@ -50,7 +50,11 @@ meltemi propose "add a dark-mode toggle to the settings page"
 
 Meltemi scaffolds the change under `.meltemi/changes/`, then delegates the
 proposal to your agent under the permission proxy (deny-by-default without a
-connected client). Review the spec deltas as a checklist:
+connected client). In a terminal, each permission the agent asks for is asked
+on stderr as it comes: a digit picks one of the agent's options, `d` denies,
+Ctrl+C stops the session (see [free sessions](sesion-libre.md#terminal)).
+Without a terminal the requests are denied, and stderr names the rules file that
+grants without a human. Review the spec deltas as a checklist:
 
 ```
 meltemi review add-dark-mode-toggle

@@ -37,6 +37,17 @@ A bare invocation without a TTY is a usage error that points to `meltemi help` �
 the client never waits on interactive input when there is no terminal. With a
 subcommand it always runs scriptably, one-shot.
 
+The same holds for the permissions an agent asks for. They are asked only when
+stdin and stderr are a terminal; otherwise each one is denied at once with the
+agent's own rejection and a notice on stderr, and nothing waits for a key. When
+they are asked, the question is plain text on stderr — no color, no box drawing,
+no full-screen mode — and every answer is a single key: a digit for one of the
+agent's options, `d` or Esc to deny, Ctrl+C to stop. Enter never decides. Keys
+typed before a question could be read are set aside rather than taken as an
+answer, and once it can be read there is no time limit on the human: the only
+deadline is the daemon's own `[permissions] wait`. stdout is untouched, so
+`--json` stays one object.
+
 ## Remote and constrained terminals
 
 For remote use, tunnel the local socket over SSH (see
