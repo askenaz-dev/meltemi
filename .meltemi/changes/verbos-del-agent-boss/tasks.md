@@ -94,7 +94,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 5. Cierre
 
-- [ ] 5.1 `meltemi validate verbos-del-agent-boss` limpio, `meltemi verify
+- [x] 5.1 `meltemi validate verbos-del-agent-boss` limpio, `meltemi verify
   verbos-del-agent-boss` completo, gate del workspace (`cargo test --workspace
   --no-fail-fast`, clippy, fmt), el daemon que arranquen `validate`/`verify`/`land`
   detenido, estado de la change en `docs/plan-de-cambios.md`, `meltemi land
