@@ -12,7 +12,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   id» — gates: `cargo build --workspace`, suites de `meltemi-proto` y
   `meltemid`
 
-- [ ] 1.2 `mock-agent --titled-permission`: su petición de permiso lleva
+- [x] 1.2 `mock-agent --titled-permission`: su petición de permiso lleva
   `kind: edit` y un título; apagado por omisión, con su unit test (design D10)
   — gates: `cargo build -p mock-agent`, suite de `mock-agent`
 

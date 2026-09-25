@@ -23,7 +23,7 @@ use agent_client_protocol::schema::v1::{
     SessionConfigSelectOption, SessionId, SessionMode, SessionModeId, SessionModeState,
     SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
-    TextContent, ToolCallUpdate, ToolCallUpdateFields,
+    TextContent, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Result, Stdio};
 use std::sync::Mutex;
@@ -406,10 +406,10 @@ async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
     // v1) and the daemon's rule matchers read it. A mock that omitted it was
     // under-modelling the protocol, and any posture bounded BY PATH would have
     // looked broken against it (modos-de-autonomia design D5).
-    let mut fields = ToolCallUpdateFields::new();
-    if let Some(path) = proposal_path(prompt).or_else(|| sdd_artifact_path(prompt)) {
-        fields = fields.raw_input(serde_json::json!({ "path": path }));
-    }
+    let fields = permission_fields(
+        titled_in(std::env::args()),
+        proposal_path(prompt).or_else(|| sdd_artifact_path(prompt)),
+    );
     let request = RequestPermissionRequest::new(
         session_id,
         ToolCallUpdate::new("write-proposal", fields),
@@ -473,6 +473,28 @@ fn thinks() -> bool {
 /// (preguntas-del-agente design D6).
 fn asks() -> bool {
     std::env::args().any(|a| a == "--ask")
+}
+
+/// Whether `--titled-permission` was passed: the mock's permission request then
+/// carries a kind and a title, as a real agent's does, so the rule a human
+/// remembers from a terminal has a tool to name (aprobador-en-el-cli design
+/// D10). Off by default: without it the request carries neither, which is what
+/// every existing permission test reads.
+fn titled_in(args: impl IntoIterator<Item = String>) -> bool {
+    args.into_iter().any(|arg| arg == "--titled-permission")
+}
+
+/// The fields of the mock's permission request: the path it would write when
+/// the prompt names one, and a kind and a title when `titled`.
+fn permission_fields(titled: bool, path: Option<std::path::PathBuf>) -> ToolCallUpdateFields {
+    let mut fields = ToolCallUpdateFields::new();
+    if let Some(path) = path {
+        fields = fields.raw_input(serde_json::json!({ "path": path }));
+    }
+    if titled {
+        fields = fields.kind(ToolKind::Edit).title("Write the proposal");
+    }
+    fields
 }
 
 /// Holds the turn open for `--turn-delay-ms`, if given. `false` when a
@@ -659,7 +681,27 @@ fn proposal_path(prompt: &PromptRequest) -> Option<std::path::PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::silent_in;
+    use super::{ToolKind, permission_fields, silent_in, titled_in};
+
+    #[test]
+    fn a_titled_permission_names_its_kind_and_title_and_only_when_asked() {
+        let args = |list: &[&str]| -> Vec<String> {
+            std::iter::once("mock-agent")
+                .chain(list.iter().copied())
+                .map(str::to_string)
+                .collect()
+        };
+        assert!(titled_in(args(&["--titled-permission"])));
+        assert!(!titled_in(args(&["--think"])));
+
+        let titled = permission_fields(true, Some(std::path::PathBuf::from("/repo/proposal.md")));
+        assert_eq!(titled.kind, Some(ToolKind::Edit));
+        assert_eq!(titled.title.as_deref(), Some("Write the proposal"));
+        assert!(titled.raw_input.is_some(), "the path still travels");
+
+        let bare = permission_fields(false, None);
+        assert!(bare.kind.is_none() && bare.title.is_none() && bare.raw_input.is_none());
+    }
 
     fn args(list: &[&str]) -> Vec<String> {
         std::iter::once("mock-agent")
