@@ -289,7 +289,7 @@ pub async fn handle_propose(
                 status: fin.status,
                 // Declared honestly: how many requests the turn denied (H1).
                 denied_permissions: fin.denied_permissions,
-                empty_turn: false,
+                empty_turn: fin.empty_turn,
             }
         }
         Err(e) => {

@@ -36,7 +36,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   fragmento de solo espacios no cuenta como trabajo», «Lo que describe la
   sesión no cuenta como trabajo» — gates: suite de `meltemid`
 
-- [ ] 2.2 Las respuestas lo dicen y el log lo registra de punta a punta:
+- [x] 2.2 Las respuestas lo dicen y el log lo registra de punta a punta:
   `emptyTurn` en `session/start` sin `detach`, `propose`, reanudación de
   `session/direct`, `worktree/dispatch` y `sdd/explore`, `sdd/propose`,
   `sdd/plan`, `sdd/constitution` y `sdd/gate` (`run_turn` y `author_artifact`

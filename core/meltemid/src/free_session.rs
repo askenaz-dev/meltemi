@@ -371,7 +371,7 @@ pub async fn handle_session_start(
                         checkpoint_ref,
                         checkpoint_unavailable,
                         checkpoint_remedy,
-                        empty_turn: false,
+                        empty_turn: fin.empty_turn,
                     };
                     Ok(serde_json::to_value(result).expect("SessionStartResult serializes"))
                 }

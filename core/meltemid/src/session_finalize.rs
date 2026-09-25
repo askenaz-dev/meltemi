@@ -55,6 +55,9 @@ pub struct Finalized {
     pub denied_permissions: u32,
     pub agent_session_id: Option<String>,
     pub supports_load: bool,
+    /// Whether the turn this reports was declared empty (turno-vacio-es-error
+    /// design D3).
+    pub empty_turn: bool,
 }
 
 async fn append(log: &Arc<Mutex<SessionLog>>, kind: SessionEventKind) {
@@ -118,6 +121,7 @@ pub async fn finalize_ok(ctx: &SessionContext<'_>, outcome: SessionOutcome) -> F
         denied_permissions: outcome.denied_permissions,
         agent_session_id: outcome.agent_session_id,
         supports_load: outcome.supports_load,
+        empty_turn: outcome.last_turn_empty,
     }
 }
 

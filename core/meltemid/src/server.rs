@@ -1034,7 +1034,7 @@ async fn handle_worktree_dispatch(
         status,
         task_ticked: false,
         session_id: Some(session_id),
-        empty_turn: false,
+        empty_turn: outcome.as_ref().is_ok_and(|o| o.last_turn_empty),
     };
     Ok(serde_json::to_value(result).expect("WorktreeDispatchResult serializes"))
 }
@@ -2474,7 +2474,7 @@ async fn resume_with_instruction(
                 queue_position: None,
                 status: Some(fin.status),
                 denied_permissions: fin.denied_permissions,
-                empty_turn: false,
+                empty_turn: fin.empty_turn,
             };
             Ok(serde_json::to_value(result).expect("SessionDirectResult serializes"))
         }
