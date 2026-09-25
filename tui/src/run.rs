@@ -331,7 +331,7 @@ async fn propose(
         .await;
     background.finish(&peer).await;
 
-    let value = response.map_err(CliError::contract)?;
+    let value = response.map_err(CliError::from_rpc)?;
     let result: ProposeResult =
         serde_json::from_value(value.clone()).map_err(CliError::internal)?;
     Ok(Outcome {
@@ -376,7 +376,7 @@ async fn session(
         .await;
     background.finish(&peer).await;
 
-    let value = response.map_err(CliError::contract)?;
+    let value = response.map_err(CliError::from_rpc)?;
     let result: meltemi_proto::SessionStartResult =
         serde_json::from_value(value.clone()).map_err(CliError::internal)?;
     Ok(Outcome {
@@ -402,6 +402,15 @@ fn render_session(result: &meltemi_proto::SessionStartResult) -> String {
             .map_or_else(|| "started".to_string(), status_word),
         result.agent_command.join(" ")
     );
+    // What governed, whichever way it reached the agent — and nothing when
+    // nothing was declared (modelo-por-opcion-anunciada D6).
+    if let Some(line) = crate::lever::governed_line(
+        result.model.as_deref(),
+        result.effort.as_deref(),
+        crate::shell::messages::Lang::En,
+    ) {
+        out.push_str(&format!("\n{line}"));
+    }
     match (&result.checkpoint_ref, result.checkpoint_unavailable) {
         (Some(git_ref), _) => out.push_str(&format!("\nrestore point: {git_ref}")),
         (None, cause) => {
@@ -581,7 +590,7 @@ async fn sdd_verb(
     let response = peer.request(method, &params).await;
     background.finish(&peer).await;
 
-    let value = response.map_err(CliError::contract)?;
+    let value = response.map_err(CliError::from_rpc)?;
     let phase = value["phase"].as_str().unwrap_or("done");
     let mut human = format!("sdd: {phase}");
     if let Some(artifact) = value["artifact"].as_str() {
@@ -914,7 +923,7 @@ async fn implement(
         .await;
     background.finish(&peer).await;
 
-    let value = response.map_err(CliError::contract)?;
+    let value = response.map_err(CliError::from_rpc)?;
     let result: SddImplementResult =
         serde_json::from_value(value.clone()).map_err(CliError::internal)?;
     Ok(Outcome {
@@ -951,7 +960,7 @@ async fn dispatch(
         .await;
     background.finish(&peer).await;
 
-    let value = response.map_err(CliError::contract)?;
+    let value = response.map_err(CliError::from_rpc)?;
     let result: WorktreeDispatchResult =
         serde_json::from_value(value.clone()).map_err(CliError::internal)?;
     Ok(Outcome {
@@ -2529,6 +2538,38 @@ fn render_race(result: &WorktreeDiffResult) -> String {
 
 #[cfg(test)]
 mod tests {
+    // Scenario: El CLI dice el modelo que rigió
+    #[test]
+    fn the_free_session_says_the_model_and_effort_that_governed() {
+        let result = |model: Option<&str>, effort: Option<&str>| {
+            let mut value = serde_json::json!({
+                "sessionId": "s-1",
+                "agentCommand": ["mock-agent"],
+                "status": "completed",
+                "deniedPermissions": 0,
+                "checkpointRef": "refs/meltemi/checkpoints/x",
+            });
+            if let Some(model) = model {
+                value["model"] = model.into();
+            }
+            if let Some(effort) = effort {
+                value["effort"] = effort.into();
+            }
+            serde_json::from_value::<meltemi_proto::SessionStartResult>(value)
+                .expect("a start result")
+        };
+        let out = super::render_session(&result(Some("slow"), Some("high")));
+        assert!(out.contains("model: slow · effort: high"), "{out}");
+        let out = super::render_session(&result(Some("slow"), None));
+        assert!(
+            out.contains("model: slow") && !out.contains("effort"),
+            "{out}"
+        );
+        // Nothing declared, nothing said — never an invented default.
+        let out = super::render_session(&result(None, None));
+        assert!(!out.contains("model") && !out.contains("effort"), "{out}");
+    }
+
     #[test]
     fn usage_names_the_empty_turns_only_where_there_are_some() {
         // Scenario: Las superficies muestran los turnos vacíos

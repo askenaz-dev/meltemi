@@ -66,7 +66,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 3. Superficies y documentación
 
-- [ ] 3.1 El CLI dice el modelo y el esfuerzo que rigieron e imprime el rehúso
+- [x] 3.1 El CLI dice el modelo y el esfuerzo que rigieron e imprime el rehúso
   acotado y escapado (`approver::clean`); la transcripción de la TUI dice la
   palanca rehusada, en español e inglés (design D4, D6) — escenarios «El CLI
   dice el modelo que rigió», «El rehúso se imprime acotado y escapado», «El
