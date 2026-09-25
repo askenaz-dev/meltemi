@@ -11,7 +11,7 @@
   en claro», «La guía declara con qué se verificó» — gates: suite de `meltemid`
   (el test nuevo y la guía de agentes)
 
-- [ ] 1.2 La pierna «proveedor local» en `docs/conformidad-manual.md`, pendiente
+- [x] 1.2 La pierna «proveedor local» en `docs/conformidad-manual.md`, pendiente
   y con lo verificado en forma (design D5) — escenarios «La pierna declara sus
   criterios y lo que registra», «Sin corrida en vivo la pierna queda pendiente»
   — gates: tests de docs

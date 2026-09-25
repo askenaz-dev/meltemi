@@ -218,6 +218,41 @@ que el agente no anunció como tal es la señal de que vino del campo viejo.
 
 El resultado se anota abajo, en la corrida del día.
 
+## Pierna de proveedor local — OpenCode contra un modelo de la propia máquina
+
+**Estado: pendiente.** Verificada en forma el 2026-09-25 con OpenCode 1.18.32:
+con la receta 1 de [`docs/local-models.md`](local-models.md), `opencode models
+ollama` lista `ollama/qwen2.5-coder:7b`, y a través de Meltemi, con su perfil,
+OpenCode anuncia ese modelo como vigente, `--model ollama/qwen2.5-coder:7b` se
+fija y se confirma antes del primer prompt y un modelo no anunciado se rehúsa
+sin prompt. Sin servidor de modelos el turno falla a los ~70 s con el «Cannot
+connect to API» de OpenCode. Nunca corrida en vivo: la máquina que la escribió
+no tiene servidor de modelos. Quien la corra reemplaza este párrafo por su
+resultado; hasta entonces la pierna no está aprobada.
+
+Es una pierna de **nivel 1**, a mano y por opt-in como todo lo de esta página:
+el arnés automatizado (`conformance_real`) cubre los dos adaptadores propios, y
+automatizar un agente nativo es de `corrida-integrada`. No gasta la cuenta de
+nadie: el modelo corre en la máquina.
+
+**Requisitos**: el servidor de modelos instalado y sirviendo, con el modelo
+bajado (`winget install Ollama.Ollama`; `ollama pull qwen2.5-coder:7b`);
+OpenCode 1.18.32 o posterior; y la receta 1 como el perfil `opencode-ollama` de
+un repositorio fixture — nunca este.
+
+| Criterio | Cómo se ejerce | Pasa si |
+| --- | --- | --- |
+| sesión | `meltemi session "resume el README" --agent opencode-ollama` en el fixture | la sesión abre, el log trae `agent_resolved` y `config_options_announced`, y cierra con `session_ended` |
+| streaming | el mismo turno | llegan fragmentos del agente (`agent_update` con `agent_message_chunk`) antes del cierre, y el turno no se declara vacío |
+| permisos | `meltemi session "crea NOTAS.md con una línea" --agent opencode-ollama`, en un terminal | el aprobador pregunta con las opciones del agente y la decisión queda en el log (`permission_decided`) |
+| cancelación | otra sesión que pida escribir; **Ctrl+C** en la pregunta del aprobador | la sesión se cancela antes que nada, el turno cierra `cancelled` y el comando sale con `13` |
+
+**Qué se registra**, en lugar del estado de arriba: la fecha, `opencode
+--version`, la versión del servidor de modelos, el modelo, el sistema, el
+resultado por criterio y los tiempos medidos —hasta el primer fragmento y el
+turno completo—. Un criterio que no se pudo ejercer no se escribe, y no se
+escribe como aprobado.
+
 ## Cómo se registra en el método
 
 Los escenarios que **solo** un CLI real ejerce se marcan con nota, fuente y

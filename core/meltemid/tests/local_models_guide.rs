@@ -203,3 +203,41 @@ fn the_guide_says_when_what_and_how_far_it_was_verified() {
     // And how far: in form, and whether live.
     assert!(guide.contains("**in form**") && guide.contains("**live**"));
 }
+
+// Scenario: La pierna declara sus criterios y lo que registra
+// Scenario: Sin corrida en vivo la pierna queda pendiente
+#[test]
+fn the_local_provider_leg_is_written_with_its_criteria_and_stays_pending() {
+    let manual = std::fs::read_to_string(repo_root().join("docs/conformidad-manual.md"))
+        .expect("read docs/conformidad-manual.md");
+    let start = manual
+        .find("## Pierna de proveedor local")
+        .expect("the manual run has the local-provider leg");
+    let leg = &manual[start..];
+    let leg = leg[3..].find("\n## ").map_or(leg, |end| &leg[..end + 3]);
+    // The four criteria of level 1, each with how it is exercised.
+    for criterion in [
+        "| sesión |",
+        "| streaming |",
+        "| permisos |",
+        "| cancelación |",
+    ] {
+        assert!(leg.contains(criterion), "the leg exercises {criterion}");
+    }
+    // What a run must record.
+    for record in ["opencode\n--version", "el modelo", "los tiempos medidos"] {
+        assert!(
+            leg.contains(record) || leg.replace('\n', " ").contains(&record.replace('\n', " ")),
+            "the leg says what to record: {record}"
+        );
+    }
+    // Until somebody runs it live, it is pending — never passed.
+    assert!(
+        leg.contains("**Estado: pendiente.**"),
+        "the leg states it is pending"
+    );
+    assert!(
+        leg.contains("no está aprobada"),
+        "and says it is not passed"
+    );
+}
