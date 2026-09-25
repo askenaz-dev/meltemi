@@ -309,6 +309,29 @@ pub fn uncovered_by_gate() -> SessionUpdate {
     )
 }
 
+/// The row that declares a CLI newer than the version this adapter was
+/// verified against (codex-al-dia design D2): the session opens, and says so
+/// before the first turn instead of presenting itself as verified.
+#[must_use]
+pub fn beyond_verified(effective: &str, verified: &str) -> SessionUpdate {
+    SessionUpdate::ToolCall(
+        ToolCall::new(
+            "meltemi:provider-version",
+            format!(
+                "Codex {effective} is newer than {verified}, the version this adapter was verified \
+                 against"
+            ),
+        )
+        .kind(ToolKind::Other)
+        .status(ToolCallStatus::Completed)
+        .content(vec![text_content(&format!(
+            "The session opens under the same gate, which is still checked on every thread and \
+             refuses any value it does not know. What changed in the wire after {verified} has not \
+             been verified; if something here looks wrong, say that Codex {effective} answered."
+        ))]),
+    )
+}
+
 /// The text of a prompt, as the wire takes it.
 ///
 /// Only text blocks: the adapter announces no capability for images or embedded
@@ -640,6 +663,17 @@ mod tests {
             &json!({"threadId": "t", "name": "codex_apps", "status": "starting"}),
         );
         assert_eq!(other.updates.len(), 1, "another server is another row");
+    }
+
+    #[test]
+    fn a_newer_cli_is_declared_with_both_versions() {
+        // Scenario: Versión posterior a la verificada declarada, no rehusada
+        let SessionUpdate::ToolCall(row) = beyond_verified("0.157.0", "0.156.1") else {
+            panic!("a visible row");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "meltemi:provider-version");
+        assert!(row.title.contains("0.157.0") && row.title.contains("0.156.1"));
+        assert!(!row.title.contains("  "), "{}", row.title);
     }
 
     #[test]

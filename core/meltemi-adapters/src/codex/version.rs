@@ -47,7 +47,14 @@ pub fn of(user_agent: &str, announced: &str) -> Option<Version> {
     if product != wire::USER_AGENT_PRODUCT && product != announced {
         return None;
     }
-    let core = token
+    parse(token)
+}
+
+/// A version as the CLI writes it, `<major>.<minor>.<patch>`, with any
+/// pre-release or build suffix ignored.
+#[must_use]
+pub fn parse(text: &str) -> Option<Version> {
+    let core = text
         .split(['-', '+'])
         .next()
         .filter(|core| !core.is_empty())?;
@@ -58,6 +65,45 @@ pub fn of(user_agent: &str, announced: &str) -> Option<Version> {
     // was verified against, and guessing at it is exactly what the refusal is
     // for.
     parts.next().is_none().then_some(version)
+}
+
+/// Whether a version inside the range is newer than the one this adapter was
+/// verified against — the floor, which is the version of the vendored dump.
+/// Such a version opens, declaring the distance, and is never presented as
+/// verified (codex-al-dia design D2).
+#[must_use]
+pub fn beyond_verified(version: Version) -> bool {
+    version > wire::SUPPORTED_FLOOR
+}
+
+/// Checks the version the thread says created it against the one the
+/// handshake read (codex-al-dia design D1).
+///
+/// A thread that does not say is not contradicting anything. One that says
+/// something else — or something that cannot be read as a version — was not
+/// made by the CLI whose version was checked, and the session is refused.
+///
+/// # Errors
+///
+/// Refuses, naming both versions, when they differ.
+pub fn contrast(layer: &str, read: &str, thread_cli: Option<&str>) -> Result<(), Refusal> {
+    let Some(declared) = thread_cli else {
+        return Ok(());
+    };
+    if parse(declared).map(render).as_deref() == Some(read) {
+        return Ok(());
+    }
+    Err(Refusal::new(
+        "provider_version_contradicted",
+        layer,
+        format!(
+            "the handshake read version {read} from the user agent, and the thread it opened \
+             says it was created by version `{declared}`; the CLI answering is not the one whose \
+             version was checked"
+        ),
+        "Check that one Codex CLI answers where Meltemi launches it (`meltemi fleet` shows the \
+         effective binary), and open the session again.",
+    ))
 }
 
 /// Whether the version falls inside the range this adapter declares.
@@ -187,6 +233,50 @@ mod tests {
                 None,
                 "`{announced}`: a product that is not accepted in first place is refused"
             );
+        }
+    }
+
+    #[test]
+    fn the_verified_version_is_the_floor_and_the_one_the_dump_came_from() {
+        // Scenario: Versión posterior a la verificada declarada, no rehusada
+        assert_eq!(
+            parse(wire::VENDORED_SCHEMA_VERSION),
+            Some(wire::SUPPORTED_FLOOR)
+        );
+        assert!(!beyond_verified(wire::SUPPORTED_FLOOR));
+        assert!(beyond_verified((0, 156, 2)) && beyond_verified((0, 157, 0)));
+        assert!(
+            supported((0, 157, 0)),
+            "newer and inside the range: it opens, declared, not refused"
+        );
+        assert_eq!(parse("0.157.0-alpha.2"), Some((0, 157, 0)));
+        assert_eq!(parse("0.157"), None);
+        assert_eq!(parse("0.157.0.1"), None);
+    }
+
+    #[test]
+    fn a_thread_that_contradicts_the_version_read_is_refused_naming_both() {
+        // Scenario: El hilo contradice la versión leída
+        let layer = "the official `codex` CLI";
+        assert!(contrast(layer, "0.156.1", Some("0.156.1")).is_ok());
+        assert!(
+            contrast(layer, "0.157.0", Some("0.157.0-alpha.2")).is_ok(),
+            "the same suffix-free version the user agent is read with"
+        );
+        assert!(
+            contrast(layer, "0.156.1", None).is_ok(),
+            "a thread that does not say contradicts nothing"
+        );
+        for declared in ["0.157.0", "0.77.0", "not-a-version"] {
+            let refusal = contrast(layer, "0.156.1", Some(declared))
+                .expect_err("another CLI answered than the one checked");
+            assert_eq!(refusal.kind, "provider_version_contradicted");
+            assert!(
+                refusal.detail.contains("0.156.1") && refusal.detail.contains(declared),
+                "the diagnosis names both: {}",
+                refusal.detail
+            );
+            assert!(!refusal.detail.contains("  ") && !refusal.remedy.contains("  "));
         }
     }
 

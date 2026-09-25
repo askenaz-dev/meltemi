@@ -228,12 +228,16 @@ pub enum ApprovalsReviewer {
     User,
 }
 
-/// A thread, of which the adapter reads only its identity.
+/// A thread, of which the adapter reads its identity and the CLI that made it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Thread {
     /// The thread id every later call carries.
     pub id: String,
+    /// The version of the CLI that created the thread, when the answer says it.
+    /// Contrasted with the one the handshake read (codex-al-dia design D1).
+    #[serde(default)]
+    pub cli_version: Option<String>,
 }
 
 /// `mcpServer/startupStatus/updated`, of which the adapter reads the server's

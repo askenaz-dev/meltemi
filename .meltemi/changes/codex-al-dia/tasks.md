@@ -94,7 +94,7 @@ archivo del volcado llega con la tarea que lo usa.
   (`RemoteControlStatusChangedNotification.json` vendorizado, en el guion con
   `disabled` y en `SCHEMAS`) (design D5) — escenario «Un control remoto activo
   rehúsa la sesión» — gates: suite de `meltemi-adapters`, e2e del adaptador
-- [ ] 2.4 Versión: `providerVerifiedVersion` en la procedencia y una fila
+- [x] 2.4 Versión: `providerVerifiedVersion` en la procedencia y una fila
   visible cuando la versión efectiva supera la verificada; contraste con
   `thread.cliVersion` que rehúsa si difiere (design D2, D1) — escenarios
   «Versión posterior a la verificada declarada, no rehusada», «El hilo

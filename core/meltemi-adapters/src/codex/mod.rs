@@ -131,6 +131,7 @@ impl Provenance {
         let mut meltemi = json!({
             "providerBin": self.program,
             "providerVersion": self.version,
+            "providerVerifiedVersion": wire::VENDORED_SCHEMA_VERSION,
             "providerUserAgent": self.user_agent,
         });
         if let Some(gate) = &self.gate {
@@ -142,6 +143,33 @@ impl Provenance {
         meta.insert("meltemi".into(), meltemi);
         meta
     }
+}
+
+impl Provenance {
+    /// Whether the CLI is newer than the version this adapter was verified
+    /// against. A version that cannot be read is not declared newer: it never
+    /// got this far, because the handshake refuses it.
+    #[must_use]
+    pub fn beyond_verified(&self) -> bool {
+        version::parse(&self.version).is_some_and(version::beyond_verified)
+    }
+}
+
+/// What the session says as it opens, in order, before anything else it does:
+/// the provenance for the log, what the gate does not cover, and — when the
+/// CLI is newer than the verified version — that distance.
+fn declared_on_opening(provenance: &Provenance) -> Vec<SessionUpdate> {
+    let mut rows = vec![
+        SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta())),
+        mapping::uncovered_by_gate(),
+    ];
+    if provenance.beyond_verified() {
+        rows.push(mapping::beyond_verified(
+            &provenance.version,
+            wire::VENDORED_SCHEMA_VERSION,
+        ));
+    }
+    rows
 }
 
 /// A session over the official CLI's server mode.
@@ -748,7 +776,7 @@ impl ProviderDialect for CodexDialect {
         let (mut control, writer, reader) = provider.into_parts();
         let (peer, incoming) = Peer::start(writer, reader, HANDSHAKE_ID + 1);
 
-        let thread_id = match open_thread(&peer, &request).await {
+        let thread_id = match open_thread(&peer, &request, &provenance.version).await {
             Ok((thread_id, effective)) => {
                 provenance.gate = Some(effective);
                 thread_id
@@ -761,17 +789,12 @@ impl ProviderDialect for CodexDialect {
         };
 
         // The effective binary and the version it turned out to be, into the
-        // session log, before anything else this session does.
-        let _ = cx.send_notification(SessionNotification::new(
-            session_id.clone(),
-            SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta())),
-        ));
-        // And, before the first turn, what the gate does not cover: a loss the
-        // hard-gate requirement keeps visible rather than silent.
-        let _ = cx.send_notification(SessionNotification::new(
-            session_id.clone(),
-            mapping::uncovered_by_gate(),
-        ));
+        // session log, before anything else this session does; then, before
+        // the first turn, what the gate does not cover and how far the CLI is
+        // from the verified version: losses kept visible rather than silent.
+        for update in declared_on_opening(&provenance) {
+            let _ = cx.send_notification(SessionNotification::new(session_id.clone(), update));
+        }
 
         let session = CodexSession {
             peer,
@@ -825,6 +848,7 @@ impl ProviderDialect for CodexDialect {
 async fn open_thread<W: AsyncWrite + Unpin + Send>(
     peer: &Peer<W>,
     request: &NewSessionRequest,
+    read: &str,
 ) -> Result<(String, gate::Effective), Refusal> {
     // The user's model, carried verbatim to where this provider's schema
     // accepts it (the thread), under the strictest gate the CLI offers.
@@ -839,6 +863,13 @@ async fn open_thread<W: AsyncWrite + Unpin + Send>(
             "the server opened a thread this adapter cannot read ({error})"
         ))
     })?;
+    // The CLI that made the thread is the one whose version was checked, or
+    // nothing it says about its gate is worth reading.
+    version::contrast(
+        SPEC.provider_layer,
+        read,
+        result.thread.cli_version.as_deref(),
+    )?;
     let effective = gate::verify(SPEC.provider_layer, &result)?;
     Ok((result.thread.id, effective))
 }
@@ -1237,7 +1268,7 @@ mod tests {
         // Scenario: El adaptador pide la compuerta más estricta
         let (peer, _incoming, _turn, mut server) = wired(Duration::from_millis(50));
         let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
-        let opening = tokio::spawn(async move { open_thread(&peer, &request).await });
+        let opening = tokio::spawn(async move { open_thread(&peer, &request, "0.156.1").await });
 
         let call = server.next_call().await;
         assert_eq!(call["method"], wire::THREAD_START);
@@ -1264,7 +1295,7 @@ mod tests {
         // to the provider's own reviewer — never becomes a session.
         let (peer, _incoming, _turn, mut server) = wired(Duration::from_millis(50));
         let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
-        let opening = tokio::spawn(async move { open_thread(&peer, &request).await });
+        let opening = tokio::spawn(async move { open_thread(&peer, &request, "0.156.1").await });
 
         let call = server.next_call().await;
         server
@@ -1606,7 +1637,7 @@ mod tests {
         let stream = Collected::default();
         let mut mapper = mapping::Mapper::new();
         let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
-        let opening = open_thread(&peer, &request);
+        let opening = open_thread(&peer, &request, "0.156.1");
         let serving = async {
             let start = server.next_call().await;
             server
@@ -1992,6 +2023,66 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_thread_made_by_another_version_than_the_one_read_is_refused() {
+        // Scenario: El hilo contradice la versión leída
+        let (peer, _incoming, _turn, mut server) = wired(Duration::from_millis(50));
+        let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
+        let opening = tokio::spawn(async move { open_thread(&peer, &request, "0.156.1").await });
+        let call = server.next_call().await;
+        server
+            .say(&json!({"id": call["id"], "result": {
+                "thread": {"id": "thread-1", "cliVersion": "0.157.0"},
+                "approvalPolicy": "untrusted", "approvalsReviewer": "user",
+                "sandbox": {"type": "readOnly", "networkAccess": false}
+            }}))
+            .await;
+        let refusal = opening
+            .await
+            .unwrap()
+            .expect_err("the CLI answering is not the one checked");
+        assert_eq!(refusal.kind, "provider_version_contradicted");
+        assert!(refusal.detail.contains("0.156.1") && refusal.detail.contains("0.157.0"));
+    }
+
+    #[tokio::test]
+    async fn a_version_newer_than_the_verified_one_opens_declaring_the_distance() {
+        // Scenario: Versión posterior a la verificada declarada, no rehusada
+        //
+        // Inside the range and past the verified version: the handshake does
+        // not refuse, and the session says so before its first turn.
+        let (outcome, _) = handshake_against(&announcing(
+            "meltemi-codex-acp/0.157.0 (Windows 10.0.26200; x86_64) unknown (meltemi-codex-acp; 0.1.1)",
+        ))
+        .await;
+        let provenance = outcome.expect("newer, inside the range: not refused");
+        assert!(provenance.beyond_verified());
+        let rows = declared_on_opening(&provenance);
+        let SessionUpdate::SessionInfoUpdate(info) = &rows[0] else {
+            panic!("the provenance comes first: {rows:?}");
+        };
+        let logged = serde_json::to_value(info).unwrap();
+        assert_eq!(logged["_meta"]["meltemi"]["providerVersion"], "0.157.0");
+        assert_eq!(
+            logged["_meta"]["meltemi"]["providerVerifiedVersion"],
+            wire::VENDORED_SCHEMA_VERSION,
+            "the log registers both"
+        );
+        let Some(SessionUpdate::ToolCall(row)) = rows.last() else {
+            panic!("the distance is a visible row: {rows:?}");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "meltemi:provider-version");
+        assert!(row.title.contains("0.157.0") && row.title.contains(wire::VENDORED_SCHEMA_VERSION));
+
+        // At the verified version itself there is no distance to declare.
+        let (outcome, _) = handshake_against(&announcing(
+            "meltemi-codex-acp/0.156.1 (Windows 10.0.26200; x86_64) unknown (meltemi-codex-acp; 0.1.1)",
+        ))
+        .await;
+        let rows = declared_on_opening(&outcome.unwrap());
+        assert_eq!(rows.len(), 2, "provenance and the gate's losses: {rows:?}");
+    }
+
     #[test]
     fn the_provenance_travels_as_acp_extension_metadata() {
         // Scenario: Versión efectiva registrada en el log
@@ -2019,6 +2110,10 @@ mod tests {
             "/opt/homebrew/bin/codex"
         );
         assert_eq!(logged["_meta"]["meltemi"]["providerVersion"], "0.156.1");
+        assert_eq!(
+            logged["_meta"]["meltemi"]["providerVerifiedVersion"],
+            wire::VENDORED_SCHEMA_VERSION
+        );
         assert_eq!(
             logged["_meta"]["meltemi"]["providerUserAgent"],
             "meltemi-codex-acp/0.156.1 (macOS) unknown (meltemi-codex-acp; 0.1.1)"

@@ -244,6 +244,17 @@ async fn the_daemon_pilots_the_real_adapter_and_the_provider_reaches_the_permiss
         "the log names what was launched: {provenance:#}"
     );
     assert_eq!(provenance["providerVersion"], "0.156.1");
+    // Scenario: Versión posterior a la verificada declarada, no rehusada
+    //
+    // The log registers the verified version beside the effective one; at the
+    // verified version itself, there is no distance row.
+    assert_eq!(provenance["providerVerifiedVersion"], "0.156.1");
+    assert!(
+        updates
+            .iter()
+            .all(|update| update["toolCallId"] != "meltemi:provider-version"),
+        "no distance to declare at the verified version: {updates:#?}"
+    );
 
     // Scenario: Lo que la compuerta del CLI no cubre se declara al abrir
     //
