@@ -576,6 +576,16 @@ where
             }
         }
         Incoming::Request { id, method, params } => {
+            // A question about something the session never saw — a network
+            // access has no item of its own — shows that something first.
+            if permission::is_approval(&method)
+                && let Ok(approval) = serde_json::from_value::<wire::ApprovalParams>(params.clone())
+                && mapper.announce(&approval.item_id)
+            {
+                stream.emit(SessionUpdate::ToolCall(permission::announcement(
+                    &method, &approval,
+                )));
+            }
             relay_approval(peer, turn, stream, session_id, &id, &method, &params).await;
             Ok(None)
         }
@@ -2026,6 +2036,75 @@ mod tests {
             })
             .collect();
         assert_eq!(declined, vec!["server-request:21", "server-request:22"]);
+    }
+
+    #[tokio::test]
+    async fn a_network_approval_is_shown_before_it_is_asked_and_asked_by_host() {
+        // Scenario: Una aprobación de red muestra a qué se conecta
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        stream
+            .answers
+            .lock()
+            .unwrap()
+            .push(permission::Decision::Selected(permission::REJECT.into()));
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::for_thread("thread-1");
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                .await;
+            server
+                .say(&json!({"id": 51, "method": wire::COMMAND_EXECUTION_APPROVAL,
+                             "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "net-1",
+                                        "startedAtMs": 1_790_000_000_000_u64, "command": null, "cwd": null,
+                                        "networkApprovalContext": {"host": "registry.npmjs.org", "protocol": "https"}}}))
+                .await;
+            let answer = server.next_call().await;
+            assert_eq!(answer["result"]["decision"], "decline");
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+        };
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+
+        let updates = stream.updates.lock().unwrap();
+        let shown = updates.iter().find_map(|update| match update {
+            SessionUpdate::ToolCall(tool) if tool.tool_call_id.0.as_ref() == "net-1" => Some(tool),
+            _ => None,
+        });
+        let shown = shown.expect("the access is shown before it is asked about");
+        assert!(shown.title.contains("registry.npmjs.org"), "{shown:?}");
+        let asked = stream.asked.lock().unwrap();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0].tool_call.tool_call_id.0.as_ref(), "net-1");
+        assert!(
+            asked[0]
+                .tool_call
+                .fields
+                .title
+                .as_deref()
+                .is_some_and(
+                    |title| title.contains("registry.npmjs.org") && title.contains("https")
+                ),
+            "asked by host and protocol: {:?}",
+            asked[0].tool_call.fields.title
+        );
     }
 
     /// Plays a turn in which the server makes each of `requests` and answers

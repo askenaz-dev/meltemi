@@ -553,8 +553,9 @@ pub enum ThreadItem {
 // --- Approvals -----------------------------------------------------------
 
 /// What the server asks approval for, in the shape both approval requests
-/// share: the item it is about, and an optional reason.
-#[derive(Debug, Clone, Deserialize)]
+/// share — the item it is about, and an optional reason — plus what each of
+/// them may add about what the approval really grants (codex-al-dia design D7).
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalParams {
     /// The thread the item belongs to.
@@ -566,6 +567,30 @@ pub struct ApprovalParams {
     /// Why the server is asking, when it says.
     #[serde(default)]
     pub reason: Option<String>,
+    /// A command approval's kind: a new command (`command`, the default) or
+    /// input to a terminal already running ([`COMMAND_KIND_WRITE_STDIN`]).
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// A command approval that is really a network access: where to.
+    #[serde(default)]
+    pub network_approval_context: Option<NetworkApprovalContext>,
+    /// A file change approval that also asks to write under this root for the
+    /// rest of the session.
+    #[serde(default)]
+    pub grant_root: Option<String>,
+}
+
+/// The kind of a command approval that writes to a terminal already running.
+pub const COMMAND_KIND_WRITE_STDIN: &str = "writeStdin";
+
+/// Where a network access goes.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NetworkApprovalContext {
+    /// The host it connects to.
+    pub host: String,
+    /// `http`, `https`, `socks5Tcp` or `socks5Udp` in the dump; read as text so
+    /// a protocol a later version adds is still shown.
+    pub protocol: String,
 }
 
 /// The decision the adapter hands back — always the permission proxy's, never

@@ -117,7 +117,7 @@ archivo del volcado llega con la tarea que lo usa.
   conformidad», «Una petición no relevada se rehúsa a la vista», «Credenciales y
   atestación jamás llegan al proxy» — gates: suite de `meltemi-adapters`, e2e
   del adaptador
-- [ ] 2.7 Contexto de aprobación: `networkApprovalContext` (host y protocolo,
+- [x] 2.7 Contexto de aprobación: `networkApprovalContext` (host y protocolo,
   con una herramienta emitida antes si el id nunca se anunció), `kind:
   "writeStdin"` y `grantRoot` (raíz y alcance en título, contenido y
   ubicación) llevados a la petición de permiso; tests en `permission.rs` y en el

@@ -117,6 +117,8 @@ pub struct Mapper {
     set_aside: HashSet<String>,
     /// Threads opened under the session's, already declared.
     children: HashSet<String>,
+    /// Tool calls the session has already been shown, by id.
+    announced: HashSet<String>,
 }
 
 impl Mapper {
@@ -133,6 +135,12 @@ impl Mapper {
             thread: Some(thread.into()),
             ..Self::default()
         }
+    }
+
+    /// Records that the session has been shown a tool call; `true` the first
+    /// time, so an approval about something never shown can show it first.
+    pub fn announce(&mut self, tool_call: &str) -> bool {
+        self.announced.insert(tool_call.to_string())
     }
 
     /// Records that a turn is over.
@@ -360,6 +368,7 @@ impl Mapper {
         let Some(rendered) = render(&item, &raw, completed) else {
             return Mapped::default();
         };
+        self.announced.insert(rendered.id.clone());
         Mapped::updates(vec![if completed {
             SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                 rendered.id,
