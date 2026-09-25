@@ -148,7 +148,7 @@ archivo del volcado llega con la tarea que lo usa.
   por su cuenta; test que compara la versión mínima de la guía con
   `SUPPORTED_FLOOR` (design D1, D2, D5) — escenario «La guía y el adaptador
   declaran la misma versión mínima» — gates: suite de `meltemi-adapters`
-- [ ] 3.3 Corrida real contra `codex-cli 0.156.1`: `conformance_real` con
+- [x] 3.3 Corrida real contra `codex-cli 0.156.1`: `conformance_real` con
   `MELTEMI_CONFORMANCE_AGENT=codex-cli` y una sesión por Meltemi con una
   escritura aprobada; resultado, plataforma, compuerta efectiva observada,
   consecuencia de la configuración MCP y tiempos en
