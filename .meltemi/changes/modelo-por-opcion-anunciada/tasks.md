@@ -73,7 +73,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   terminal dice la palanca rehusada», «El terminal muestra el modelo efectivo» —
   gates: suite de `meltemi` (tui)
 
-- [ ] 3.2 La conversación de la GUI dice la palanca rehusada y el cierre
+- [x] 3.2 La conversación de la GUI dice la palanca rehusada y el cierre
   `lever_refused`, en español e inglés (design D4) — escenarios «La
   conversación dice la palanca rehusada», «Se elige con búsqueda y se admite
   entrada libre», «La ficha no inventa lo que no sabe», «Cambiar en marcha se

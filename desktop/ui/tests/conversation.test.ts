@@ -220,6 +220,59 @@ test("El turno vacío se lee en la conversación", () => {
   assert.equal(new Set(accounted).size, 4);
 });
 
+test("La conversación dice la palanca rehusada", () => {
+  // As the daemon logs a lever refused at open (modelo-por-opcion-anunciada):
+  // what the agent announced, the refusal, and the session's own ending — and
+  // no prompt, because none went out.
+  const values = Array.from({ length: 25 }, (_, n) => `provider/model-${n}`);
+  const items = fold([
+    event("config_options_announced", { options: [] }),
+    event("lever_refused", {
+      lever: "model",
+      requested: "ollama/qwen",
+      reason: "not_a_value",
+      values,
+      more: 292,
+    }),
+    event("session_ended", { reason: "lever_refused" }),
+  ]);
+  const refused = items.filter((item) => item.kind === "lever");
+  assert.equal(refused.length, 1, "the refusal is its own item");
+  if (refused[0].kind !== "lever") return;
+  assert.equal(refused[0].lever, "model");
+  assert.equal(refused[0].requested, "ollama/qwen");
+  assert.equal(refused[0].reason, "not_a_value");
+  // Bounded to twenty, and the rest counted: five over the list, plus what the
+  // daemon already left out.
+  assert.equal(refused[0].announced.length, 20);
+  assert.equal(refused[0].more, 297);
+  assert.equal(
+    items.some((item) => item.kind === "human"),
+    false,
+    "no prompt went out, so none is shown",
+  );
+  const ended = items.find((item) => item.kind === "system" && item.type === "session_ended");
+  assert.ok(ended, "the ending is its own line, translated by the view");
+  // Nothing is dropped: every event is accounted for exactly once.
+  const accounted = items.flatMap((item) => item.eventIds).sort((a, b) => a - b);
+  assert.equal(new Set(accounted).size, 3);
+
+  // Options stand in for values when that is what the agent named.
+  const twins = fold([
+    event("lever_refused", {
+      lever: "model",
+      requested: "slow",
+      reason: "ambiguous",
+      options: [
+        { id: "model", name: "Model", category: "model" },
+        { id: "model-backup", name: "Backup", category: "model" },
+      ],
+    }),
+  ]);
+  if (twins[0].kind !== "lever") return assert.fail("a lever item");
+  assert.deepEqual(twins[0].announced, ["model (Model)", "model-backup (Backup)"]);
+});
+
 test("Un turno con salida no muestra el aviso", () => {
   const items = fold([
     event("prompt_sent", { text: "arregla el build" }),

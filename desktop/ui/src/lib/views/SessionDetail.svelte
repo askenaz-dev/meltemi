@@ -19,7 +19,7 @@
     type SessionState,
   } from "../stores";
   import { agentLabelOf } from "../tree";
-  import { fold } from "../conversation";
+  import { fold, type LeverRefused } from "../conversation";
   import Avatar from "../components/Avatar.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Icon from "../components/Icon.svelte";
@@ -87,6 +87,8 @@
     mcp_injected: { glyph: "·", tone: "faint" },
     mcp_not_delivered: { glyph: "▲", tone: "warn" },
     config_options_announced: { glyph: "◎", tone: "faint" },
+    levers_applied: { glyph: "◎", tone: "info" },
+    lever_refused: { glyph: "⊘", tone: "warn" },
     turn_completed: { glyph: "■", tone: "ok" },
     turn_interrupted: { glyph: "⤳", tone: "accent" },
     turn_empty: { glyph: "∅", tone: "warn" },
@@ -155,6 +157,21 @@
    * verbatim: an untranslated fact beats a swallowed one.
    */
   function systemText(type: string, text: string): string {
+    // What the agent confirmed on its announcement, in the surface's words
+    // (modelo-por-opcion-anunciada design D6). The line's text is its payload
+    // flattened, which for this event is the payload itself.
+    if (type === "levers_applied" && text) {
+      try {
+        const set = JSON.parse(text) as { model?: string; effort?: string };
+        const said = [
+          set.model ? `${$t("model.label")}: ${set.model}` : null,
+          set.effort ? `${$t("effort.label")}: ${set.effort}` : null,
+        ].filter((part) => part !== null);
+        return said.length > 0 ? said.join(" · ") : text;
+      } catch {
+        return text;
+      }
+    }
     if (type !== "session_ended" || !text) return text;
     const key = `end.${text}` as MessageKey;
     const translated = $t(key);
@@ -179,6 +196,40 @@
     }
     return [];
   });
+
+  /**
+   * What governed this session: what the agent confirmed on its announcement
+   * before the first prompt — read off the log, because the session's record
+   * learns it only when the session closes — else what the record says went by
+   * flag (modelo-por-opcion-anunciada design D6).
+   */
+  const governed: { model: string | null; effort: string | null } = $derived.by(() => {
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      if (lines[index].kind !== "levers_applied") continue;
+      const payload = lines[index].payload as { model?: string; effort?: string } | undefined;
+      return {
+        model: payload?.model ?? session?.model ?? null,
+        effort: payload?.effort ?? session?.effort ?? null,
+      };
+    }
+    return { model: session?.model ?? null, effort: session?.effort ?? null };
+  });
+
+  /**
+   * A refused lever's reason in words. What the agent left, when it left
+   * something, is the more useful half of the sentence.
+   */
+  function leverReason(item: LeverRefused): string {
+    if (item.reason === "not_confirmed" && item.left) {
+      return $t("conv.lever.kept", { left: item.left });
+    }
+    if (item.reason === "mode_changed" && item.left) {
+      return $t("conv.lever.movedMode", { left: item.left });
+    }
+    const key = `conv.lever.reason.${item.reason}` as MessageKey;
+    const said = $t(key);
+    return said === key ? item.reason : said;
+  }
 
   /** Whether any announced option is about the model, which is what the cache
    *  and cost warning is actually about. */
@@ -921,6 +972,30 @@
               <p class="cardMeta">{$t("conv.emptyTurn.remedy")}</p>
             </div>
           </div>
+        {:else if item.kind === "lever"}
+          <!-- A lever refused as the session opened, before any prompt: its
+               own item, said in words — the lever, what was asked, why, and
+               what the agent announced — never the contract's identifiers
+               (modelo-por-opcion-anunciada design D4). -->
+          <div class="emptyTurn" role="note">
+            <span class="glyph" aria-hidden="true">⊘</span>
+            <div>
+              <p class="emptyHead">
+                {$t("conv.lever.refused", {
+                  lever: $t(item.lever === "effort" ? "conv.lever.effort" : "conv.lever.model"),
+                  requested: item.requested,
+                })}
+              </p>
+              <p class="cardMeta">{leverReason(item)}</p>
+              {#if item.announced.length > 0}
+                <p class="cardMeta">
+                  {$t("conv.lever.announced", { list: item.announced.join(", ") })}{item.more > 0
+                    ? ` ${$t("conv.lever.more", { count: item.more })}`
+                    : ""}
+                </p>
+              {/if}
+            </div>
+          </div>
         {:else if item.kind === "permission"}
           {@const live = item.id === liveCard}
           <div class="card" class:resolved={item.decided !== null || !live}>
@@ -1086,9 +1161,9 @@
       <!-- What actually governed this session, beside what it was allowed to
            decide. Absent means none was declared: shown as absent rather than
            as a guess (modelo-y-esfuerzo-por-sesion design D5). -->
-      {#if session?.model}
+      {#if governed.model || governed.effort}
         <span class="modeChip" title={$t("model.label")}>
-          {session.model}{session.effort ? ` · ${session.effort}` : ""}
+          {[governed.model, governed.effort].filter(Boolean).join(" · ")}
         </span>
       {/if}
 
