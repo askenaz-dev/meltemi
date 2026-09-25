@@ -3084,7 +3084,7 @@ fn the_fleet_reads_by_agent_and_by_subscription() {
 
     let fleet = read("desktop/ui/src/lib/views/Fleet.svelte");
     assert!(
-        fleet.contains("import { groupFleet } from \"../fleet-groups\"")
+        fleet.contains("import { groupFleet, levelState } from \"../fleet-groups\"")
             && fleet.contains("$derived(groupFleet($fleet))"),
         "the table consumes the tested grouping"
     );
@@ -3127,19 +3127,35 @@ fn the_fleet_reads_by_agent_and_by_subscription() {
     );
 
     // The level distinction is a WORD, which is what the living requirement
-    // asks for: a bare check mark is exactly what it forbids.
+    // asks for: a bare check mark is exactly what it forbids. The words live in
+    // the tested module — with the version the level was measured against
+    // (codex-al-dia D11) — and the view says them through it, in the table and
+    // in the detail.
+    let groups = read("desktop/ui/src/lib/fleet-groups.ts");
     assert!(
-        fleet.contains("function levelState(")
-            && fleet.contains("$t(\"fleet.level.verified\")")
-            && fleet.contains("$t(\"fleet.level.declared\")"),
+        groups.contains("export function levelState(")
+            && groups.contains("t(\"fleet.level.verified\")")
+            && groups.contains("t(\"fleet.level.declared\")")
+            && groups.contains("t(\"fleet.level.verifiedWith\""),
         "declared and verified are said in words"
+    );
+    assert_eq!(
+        fleet.matches("levelState(").count(),
+        2,
+        "the table and the detail both say the level through the tested words"
+    );
+    assert!(
+        tests.contains("a verified level says which version it was measured against"),
+        "the executed case for the words is there"
     );
     let messages = read("desktop/ui/src/lib/messages.ts");
     for key in [
         "\"fleet.level.declared\": \"declarado\"",
         "\"fleet.level.verified\": \"verificado\"",
+        "\"fleet.level.verifiedWith\": \"verificado con {version}\"",
         "\"fleet.level.declared\": \"declared\"",
         "\"fleet.level.verified\": \"verified\"",
+        "\"fleet.level.verifiedWith\": \"verified with {version}\"",
     ] {
         assert!(
             messages.contains(key),
