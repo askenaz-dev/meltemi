@@ -56,7 +56,12 @@
         "artifact": { "type": "string" },
         "mode": { "type": "string", "enum": ["spec_full", "fast_forward"] },
         "diagnostics": { "type": "array", "items": { "type": "string" } },
-        "gateHint": { "type": "string" }
+        "gateHint": { "type": "string" },
+        "emptyTurn": {
+          "type": "boolean",
+          "const": true,
+          "description": "Present, and true, only when some authoring turn this call ran ended having said and done nothing."
+        }
       }
     }
   }

@@ -70,6 +70,7 @@ pub async fn handle_explore(
         mode: None,
         diagnostics: vec![],
         gate_hint: None,
+        empty_turn: false,
     }))
 }
 
@@ -125,6 +126,7 @@ pub async fn handle_constitution(
         mode: Some("fast_forward".into()),
         diagnostics: vec![],
         gate_hint: Some(gate_hint("constitution")),
+        empty_turn: false,
     }))
 }
 
@@ -220,6 +222,7 @@ pub async fn handle_plan(
         mode: Some(mode_str(cycle.mode)),
         diagnostics: vec![],
         gate_hint: Some(gate_hint(&params.change_name)),
+        empty_turn: false,
     }))
 }
 
@@ -296,6 +299,7 @@ pub async fn handle_gate(
                         mode: Some(mode_str(cycle.mode)),
                         diagnostics,
                         gate_hint: None,
+                        empty_turn: false,
                     }))
                 }
             }
@@ -339,6 +343,7 @@ async fn author_and_gate(
                 mode: Some(mode_str(cycle.mode)),
                 diagnostics: vec![],
                 gate_hint: Some(gate_hint(&change_name)),
+                empty_turn: false,
             }))
         }
         Err(diagnostics) => {
@@ -350,6 +355,7 @@ async fn author_and_gate(
                 mode: Some(mode_str(cycle.mode)),
                 diagnostics,
                 gate_hint: None,
+                empty_turn: false,
             }))
         }
     }
@@ -371,6 +377,7 @@ async fn reopen_and_report(
         mode: Some(mode_str(cycle.mode)),
         diagnostics: vec![],
         gate_hint: Some(gate_hint(change_name)),
+        empty_turn: false,
     }))
 }
 
@@ -671,6 +678,7 @@ fn done(change_name: &str, phase: &str, mode: Mode) -> SddResult {
         mode: Some(mode_str(mode)),
         diagnostics: vec![],
         gate_hint: None,
+        empty_turn: false,
     }
 }
 

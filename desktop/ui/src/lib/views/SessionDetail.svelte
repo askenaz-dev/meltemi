@@ -89,6 +89,7 @@
     config_options_announced: { glyph: "◎", tone: "faint" },
     turn_completed: { glyph: "■", tone: "ok" },
     turn_interrupted: { glyph: "⤳", tone: "accent" },
+    turn_empty: { glyph: "∅", tone: "warn" },
     checkpoint_created: { glyph: "·", tone: "info" },
     checkpoint_restored: { glyph: "·", tone: "info" },
     agent_resolved: { glyph: "·", tone: "faint" },

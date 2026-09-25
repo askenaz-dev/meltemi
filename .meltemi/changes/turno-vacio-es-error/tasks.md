@@ -11,7 +11,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   (sin interruptor, todos los turnos, solo el turno `N`) (design D8) — gates:
   `cargo build -p mock-agent`, suite de `mock-agent`
 
-- [ ] 1.2 Contrato aditivo, con el workspace verde en el mismo commit: evento
+- [x] 1.2 Contrato aditivo, con el workspace verde en el mismo commit: evento
   `turn_empty { stopReason }` en `SessionEventKind` y en
   `session-event.schema.json`; `emptyTurn` opcional (omitido si es falso) en
   `SessionStartResult`, `ProposeResult`, `SessionDirectResult`,

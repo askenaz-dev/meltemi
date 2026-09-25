@@ -863,6 +863,10 @@ pub struct UsageActivity {
     pub commits: u32,
     pub checkpoints: u32,
     pub errors: u32,
+    /// Turns declared empty in the folded records (turno-vacio-es-error
+    /// design D7). Zero when there were none.
+    #[serde(default)]
+    pub empty_turns: u32,
 }
 
 /// Measured token counters. Every field is optional on purpose: a counter the
@@ -1470,6 +1474,10 @@ pub struct SddResult {
     /// How to decide the pending gate (scriptable guidance, never a hang).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate_hint: Option<String>,
+    /// Present, and `true`, only when some authoring turn this call ran ended
+    /// having said and done nothing (turno-vacio-es-error design D3).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_turn: bool,
 }
 
 /// Params of `repo/map`.
@@ -1617,6 +1625,11 @@ pub struct ProposeResult {
     /// zero the artifact may be incomplete (honesty of result, H1/H4/H5).
     #[serde(default)]
     pub denied_permissions: u32,
+    /// Present, and `true`, only when the turn whose status this reports ended
+    /// having said and done nothing (turno-vacio-es-error design D3). The
+    /// status stays what the agent reported: this is measured beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_turn: bool,
 }
 
 /// Params of the `session/cancel` notification.
@@ -1753,6 +1766,11 @@ pub struct SessionStartResult {
     /// The English remedy matching that cause, for surfaces that show prose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkpoint_remedy: Option<String>,
+    /// Present, and `true`, only when the turn whose status this reports ended
+    /// having said and done nothing (turno-vacio-es-error design D3). The
+    /// status stays what the agent reported: this is measured beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_turn: bool,
 }
 
 /// Params of `session/direct`: an instruction aimed at an existing session.
@@ -1825,6 +1843,11 @@ pub struct SessionDirectResult {
     /// merely queued). Greater than zero means the result may be incomplete.
     #[serde(default)]
     pub denied_permissions: u32,
+    /// Present, and `true`, only when the turn whose status this reports ended
+    /// having said and done nothing (turno-vacio-es-error design D3). The
+    /// status stays what the agent reported: this is measured beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_turn: bool,
 }
 
 /// Hint about the nature of a permission option (mirrors ACP).
@@ -2218,6 +2241,14 @@ pub enum SessionEventKind {
     TurnInterrupted {
         /// The instruction that relayed the interrupted turn.
         instruction: String,
+    },
+    /// The agent closed a turn as finished having said and done nothing: no
+    /// message or thought with content, no tool call, no plan, no permission
+    /// request — and nobody asked it to stop (turno-vacio-es-error design D2).
+    /// Written per turn, beside the stop reason, which it never changes.
+    TurnEmpty {
+        /// The stop reason the agent reported for the empty turn.
+        stop_reason: TurnStatus,
     },
     /// A pre-task checkpoint of the worktree was created (checkpoints-rollback).
     CheckpointCreated {
@@ -2665,6 +2696,11 @@ pub struct WorktreeDispatchResult {
     /// lane with the session that ran it (tablero-de-carrera design D2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Present, and `true`, only when the turn whose status this reports ended
+    /// having said and done nothing (turno-vacio-es-error design D3). The
+    /// status stays what the agent reported: this is measured beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_turn: bool,
 }
 
 /// Parameters of `worktree/apply-edit` (gui-tauri-paridad design D5): the

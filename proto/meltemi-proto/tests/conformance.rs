@@ -207,6 +207,7 @@ fn propose_conforms() {
                     .into(),
                 status,
                 denied_permissions: 0,
+                empty_turn: false,
             },
         );
     }
@@ -219,7 +220,80 @@ fn propose_conforms() {
             proposal_path: "/repo/.meltemi/changes/add-dark-mode/proposal.md".into(),
             status: TurnStatus::Completed,
             denied_permissions: 3,
+            empty_turn: false,
         },
+    );
+}
+
+/// The empty-turn verdict (turno-vacio-es-error design D3, D7): additive,
+/// present only when true, so a turn that carried work leaves no key behind and
+/// a client written before the field reads the same bytes it always did.
+#[test]
+fn an_empty_turn_verdict_is_present_only_when_true() {
+    let worked = ProposeResult {
+        change_name: "add-dark-mode".into(),
+        proposal_path: "/repo/.meltemi/changes/add-dark-mode/proposal.md".into(),
+        status: TurnStatus::Completed,
+        denied_permissions: 0,
+        empty_turn: false,
+    };
+    let bytes = serde_json::to_value(&worked).unwrap();
+    assert!(
+        bytes.get("emptyTurn").is_none(),
+        "a turn that carried work leaves no key: {bytes:#}"
+    );
+    let empty = ProposeResult {
+        empty_turn: true,
+        ..worked
+    };
+    assert_conforms("propose", "result", &empty);
+    assert_eq!(serde_json::to_value(&empty).unwrap()["emptyTurn"], true);
+    // The status is what the agent reported; the verdict sits beside it.
+    assert_eq!(serde_json::to_value(&empty).unwrap()["status"], "completed");
+
+    // Every result that reports a turn declares it; written out as false it is
+    // not a verdict at all, and the schema says so.
+    for (file, def) in [
+        ("propose", "result"),
+        ("session-start", "result"),
+        ("session-direct", "result"),
+        ("worktree", "dispatchResult"),
+        ("sdd", "result"),
+    ] {
+        let schema = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../schemas/v1")
+                .join(format!("{file}.schema.json")),
+        )
+        .unwrap();
+        assert!(
+            schema.contains("\"emptyTurn\""),
+            "{file} declares the verdict in its {def}"
+        );
+    }
+    let mut forged = bytes;
+    forged["emptyTurn"] = serde_json::json!(false);
+    assert_rejected("propose", "result", &forged);
+
+    // The empty turn is its own event in the log, and it validates.
+    assert_conforms(
+        "session-event",
+        "sessionEvent",
+        &event(SessionEventKind::TurnEmpty {
+            stop_reason: TurnStatus::Completed,
+        }),
+    );
+
+    // And the activity counts them; zero is what a cell without any says.
+    let activity = UsageActivity {
+        empty_turns: 2,
+        ..UsageActivity::default()
+    };
+    assert_conforms("analytics", "activity", &activity);
+    assert_eq!(serde_json::to_value(&activity).unwrap()["emptyTurns"], 2);
+    assert_eq!(
+        serde_json::to_value(UsageActivity::default()).unwrap()["emptyTurns"],
+        0
     );
 }
 
@@ -807,6 +881,7 @@ fn session_direct_conforms() {
             queue_position: Some(1),
             status: None,
             denied_permissions: 0,
+            empty_turn: false,
         },
     );
     // Resumed: a terminated resumable session was resumed with the instruction.
@@ -820,6 +895,7 @@ fn session_direct_conforms() {
             queue_position: None,
             status: Some(TurnStatus::Completed),
             denied_permissions: 2,
+            empty_turn: false,
         },
     );
 }
@@ -1123,6 +1199,7 @@ fn session_start_conforms() {
         checkpoint_ref: Some("refs/meltemi/checkpoints/free/sess-1-mock".into()),
         checkpoint_unavailable: None,
         checkpoint_remedy: None,
+        empty_turn: false,
     };
     assert_conforms("session-start", "result", &started);
     // Every turn outcome the contract knows, including a cancelled one.
@@ -1499,6 +1576,9 @@ fn session_events_conform() {
         SessionEventKind::TurnCompleted {
             stop_reason: TurnStatus::Completed,
         },
+        SessionEventKind::TurnEmpty {
+            stop_reason: TurnStatus::Completed,
+        },
         SessionEventKind::InstructionQueued {
             instruction: "also add a dark theme".into(),
         },
@@ -1574,6 +1654,7 @@ fn analytics_usage_conforms() {
         commits: 1,
         checkpoints: 1,
         errors: 0,
+        empty_turns: 0,
     };
     let coverage = UsageCoverage {
         measured_sessions: 1,
@@ -2011,6 +2092,7 @@ fn worktree_conforms() {
             status: TurnStatus::Completed,
             task_ticked: false,
             session_id: Some("6f1f0a2e-2b0e-4a1c-9f4d-3b1c2d5e6f70".into()),
+            empty_turn: false,
         },
     );
     // task_ticked MUST be false — a dispatch never marks the task.
@@ -2222,6 +2304,7 @@ fn a_dispatch_result_names_its_session_and_omits_it_compatibly() {
         status: TurnStatus::Completed,
         task_ticked: false,
         session_id: None,
+        empty_turn: false,
     };
     assert_conforms("worktree", "dispatchResult", &result);
     let before = serde_json::to_value(&result).unwrap();

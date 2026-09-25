@@ -871,6 +871,7 @@ mod tests {
             queue_position: Some(2),
             status: None,
             denied_permissions: 0,
+            empty_turn: false,
         })
         .expect("serializes");
         let notice = direct_notice(&queued, Lang::Es);
@@ -892,6 +893,7 @@ mod tests {
             queue_position: None,
             status: Some(TurnStatus::Completed),
             denied_permissions: 0,
+            empty_turn: false,
         })
         .expect("serializes");
         let notice = direct_notice(&resumed, Lang::En);
