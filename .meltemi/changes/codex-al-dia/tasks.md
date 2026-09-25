@@ -160,7 +160,7 @@ archivo del volcado llega con la tarea que lo usa.
 
 ## 4. Cierre
 
-- [ ] 4.1 `meltemi validate codex-al-dia` limpio, `meltemi verify
+- [x] 4.1 `meltemi validate codex-al-dia` limpio, `meltemi verify
   codex-al-dia` completo, gate del workspace
   (`cargo test --workspace --no-fail-fast`, clippy, fmt), estado de la change
   en `docs/plan-de-cambios.md`, y `meltemi land codex-al-dia`
