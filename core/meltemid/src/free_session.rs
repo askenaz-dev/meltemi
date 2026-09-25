@@ -372,6 +372,10 @@ pub async fn handle_session_start(
                         checkpoint_unavailable,
                         checkpoint_remedy,
                         empty_turn: fin.empty_turn,
+                        // Filled with what governed by the lever routing
+                        // (modelo-por-opcion-anunciada 2.3).
+                        model: None,
+                        effort: None,
                     };
                     Ok(serde_json::to_value(result).expect("SessionStartResult serializes"))
                 }
@@ -419,6 +423,9 @@ pub async fn handle_session_start(
         checkpoint_unavailable,
         checkpoint_remedy,
         empty_turn: false,
+        // A detached start answers before anything governed.
+        model: None,
+        effort: None,
     };
     Ok(serde_json::to_value(result).expect("SessionStartResult serializes"))
 }

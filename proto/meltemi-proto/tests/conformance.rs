@@ -921,6 +921,20 @@ fn the_two_copies_of_the_config_option_shape_agree() {
     }
 }
 
+/// The refusal a session log records and the one a 2007 carries are one shape,
+/// copied into both schemas for the same reason as the config option: this
+/// holds the copies together (modelo-por-opcion-anunciada D4).
+#[test]
+fn the_two_copies_of_the_lever_refusal_shape_agree() {
+    let error = schema_doc("error");
+    let event = schema_doc("session-event");
+    assert!(!error["$defs"]["leverRefusal"].is_null());
+    assert_eq!(
+        error["$defs"]["leverRefusal"], event["$defs"]["leverRefusal"],
+        "`leverRefusal` drifted between error.schema.json and session-event.schema.json"
+    );
+}
+
 // Scenario: Cada pieza dice de qué capa viene
 // Scenario: Lo pisado y lo inválido también se ven
 #[test]
@@ -1200,8 +1214,27 @@ fn session_start_conforms() {
         checkpoint_unavailable: None,
         checkpoint_remedy: None,
         empty_turn: false,
+        model: None,
+        effort: None,
     };
     assert_conforms("session-start", "result", &started);
+    // What governed, when a lever was asked for (modelo-por-opcion-anunciada
+    // D6): additive, and absent means none was asked.
+    let governed = SessionStartResult {
+        model: Some("slow".into()),
+        effort: Some("high".into()),
+        ..started.clone()
+    };
+    assert_conforms("session-start", "result", &governed);
+    let value = serde_json::to_value(&governed).unwrap();
+    assert_eq!(value["model"], "slow");
+    assert_eq!(value["effort"], "high");
+    assert!(
+        serde_json::to_value(&started)
+            .unwrap()
+            .get("model")
+            .is_none()
+    );
     // Every turn outcome the contract knows, including a cancelled one.
     for status in [
         TurnStatus::Completed,
@@ -1577,6 +1610,48 @@ fn session_events_conform() {
             reasoning_tokens: Some(1),
             total_tokens: Some(10),
         },
+        // What the agent confirmed when its announced options were set before
+        // the first prompt (modelo-por-opcion-anunciada D3).
+        SessionEventKind::LeversApplied {
+            model: Some("slow".into()),
+            effort: None,
+        },
+        SessionEventKind::LeversApplied {
+            model: None,
+            effort: Some("true".into()),
+        },
+        // A lever refused when the session opened, in each shape it takes.
+        SessionEventKind::LeverRefused(LeverRefusal {
+            lever: SessionLever::Model,
+            requested: "claude-opus".into(),
+            reason: LeverRefusalReason::NotAnnounced,
+            values: Vec::new(),
+            options: vec![AnnouncedOption {
+                id: "verbosity".into(),
+                name: "Verbosity".into(),
+                category: Some("_output".into()),
+            }],
+            more: 0,
+            left: None,
+        }),
+        SessionEventKind::LeverRefused(LeverRefusal {
+            lever: SessionLever::Model,
+            requested: "slow".into(),
+            reason: LeverRefusalReason::NotConfirmed,
+            values: Vec::new(),
+            options: Vec::new(),
+            more: 0,
+            left: Some("fast".into()),
+        }),
+        SessionEventKind::LeverRefused(LeverRefusal {
+            lever: SessionLever::Effort,
+            requested: "high".into(),
+            reason: LeverRefusalReason::NoAnswer,
+            values: Vec::new(),
+            options: Vec::new(),
+            more: 0,
+            left: None,
+        }),
         // The same agent under no profile: the id is still recorded.
         SessionEventKind::AgentResolved {
             model: Some("a-model-name".into()),
@@ -2840,6 +2915,7 @@ fn error_data_conforms() {
             detail: "The agent `acme-agent` is not detected on this system.".into(),
             remedy: Some("Set agent.command in your meltemi config.".into()),
             candidates: None,
+            lever_refused: None,
         },
     );
     assert_conforms(
@@ -2850,7 +2926,33 @@ fn error_data_conforms() {
             detail: "Call initialize first.".into(),
             remedy: None,
             candidates: None,
+            lever_refused: None,
         },
+    );
+    // A lever refused when its session opened (2007) carries the record the
+    // log keeps (modelo-por-opcion-anunciada D4).
+    let refused = ErrorData {
+        kind: "lever_refused".into(),
+        detail: "the agent did not announce `ollama/qwen` for its model option".into(),
+        remedy: Some("Ask for one of the announced models.".into()),
+        candidates: None,
+        lever_refused: Some(LeverRefusal {
+            lever: SessionLever::Model,
+            requested: "ollama/qwen".into(),
+            reason: LeverRefusalReason::NotAValue,
+            values: vec!["fast".into(), "slow".into()],
+            options: Vec::new(),
+            more: 315,
+            left: None,
+        }),
+    };
+    assert_conforms("error", "errorData", &refused);
+    let value = serde_json::to_value(&refused).unwrap();
+    assert_eq!(value["leverRefused"]["reason"], "not_a_value");
+    assert_eq!(value["leverRefused"]["more"], 315);
+    assert!(
+        value["leverRefused"].get("options").is_none(),
+        "empty lists are omitted"
     );
 }
 
@@ -2884,6 +2986,7 @@ fn resolution_refusals_carry_the_fleet_candidates() {
                     })
                     .collect(),
             ),
+            lever_refused: None,
         },
     );
     // A detected candidate needs no remedy at all.
@@ -2901,6 +3004,7 @@ fn resolution_refusals_carry_the_fleet_candidates() {
                 remedy: None,
                 remedy_command: None,
             }]),
+            lever_refused: None,
         },
     );
     // The fleet was consulted and nothing was found: an answer, not an omission.
@@ -2912,6 +3016,7 @@ fn resolution_refusals_carry_the_fleet_candidates() {
             detail: "No agent is configured and none was detected.".into(),
             remedy: Some("Install one of the supported CLIs.".into()),
             candidates: Some(vec![]),
+            lever_refused: None,
         },
     );
 

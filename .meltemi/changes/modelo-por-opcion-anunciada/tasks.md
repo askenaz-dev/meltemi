@@ -5,7 +5,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 1. El contrato y el registro
 
-- [ ] 1.1 Contrato: `SessionLever`; los eventos `levers_applied` (el modelo y el
+- [x] 1.1 Contrato: `SessionLever`; los eventos `levers_applied` (el modelo y el
   esfuerzo que rigieron) y `lever_refused` (la palanca, lo pedido, la razón, lo
   que el agente anunció o dejó —a lo sumo 20— y cuántos más); el modelo y el
   esfuerzo que rigieron en la respuesta de `session/start`; y los datos del error

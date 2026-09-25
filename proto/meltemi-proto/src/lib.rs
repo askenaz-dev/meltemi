@@ -283,6 +283,11 @@ pub struct ErrorData {
     /// itself an answer — the fleet was consulted and nothing was found.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidates: Option<Vec<AgentCandidate>>,
+    /// The lever a session refused when it opened, when the error is that
+    /// refusal (2007): the same record its log keeps, so a surface can say it
+    /// in its own words (modelo-por-opcion-anunciada design D4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lever_refused: Option<LeverRefusal>,
 }
 
 /// One agent offered as a way out of a resolution refusal. It carries the very
@@ -1321,6 +1326,84 @@ pub struct FleetAgent {
     pub effort: Option<String>,
 }
 
+/// A per-session lever an agent can take: which model runs, and how much it
+/// reasons (modelo-por-opcion-anunciada).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionLever {
+    /// The model the session runs with.
+    Model,
+    /// How much the agent reasons.
+    Effort,
+}
+
+/// Why a lever was refused when its session opened
+/// (modelo-por-opcion-anunciada design D1, D3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeverRefusalReason {
+    /// The agent announced no option of the lever's category.
+    NotAnnounced,
+    /// It announced more than one: picking one would be a guess.
+    Ambiguous,
+    /// The value is not among the announced ones, or a toggle got neither
+    /// `true` nor `false`.
+    NotAValue,
+    /// The agent's answer left another value than the one asked for, or none.
+    NotConfirmed,
+    /// Setting the lever changed the agent's mode, which nobody asked for.
+    ModeChanged,
+    /// The agent did not answer within the wait.
+    NoAnswer,
+}
+
+/// An option the agent announced, named in a refusal whose lever found no
+/// single option of its category.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnouncedOption {
+    /// The option's id — what `set-option` takes.
+    pub id: String,
+    /// The agent's label for it.
+    pub name: String,
+    /// Its category, when the agent gave one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+}
+
+/// A lever refused when its session opened, before any prompt
+/// (modelo-por-opcion-anunciada design D4): what the session log records and
+/// what the error that answers the verb carries. Lists are bounded — an agent
+/// may announce hundreds of values — and say how many were left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeverRefusal {
+    /// The lever refused.
+    pub lever: SessionLever,
+    /// What was asked for, verbatim.
+    pub requested: String,
+    /// Why.
+    pub reason: LeverRefusalReason,
+    /// The values the agent announced for the lever's option, at most 20.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<String>,
+    /// The options it announced, when none or several carried the lever's
+    /// category, at most 20.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<AnnouncedOption>,
+    /// How many values or options were left out of those lists.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub more: u32,
+    /// What the agent left instead: the value its answer kept, or the mode it
+    /// moved to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<String>,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
+}
+
 /// Result of `fleet/list`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1771,6 +1854,14 @@ pub struct SessionStartResult {
     /// status stays what the agent reported: this is measured beside it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub empty_turn: bool,
+    /// The model that governed the session: what travelled as a launch flag, or
+    /// what the agent confirmed through its announced option — never what was
+    /// only asked for (modelo-por-opcion-anunciada design D6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The effort that governed, on the same terms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// Params of `session/direct`: an instruction aimed at an existing session.
@@ -2233,6 +2324,21 @@ pub enum SessionEventKind {
         /// The options, verbatim as the agent sent them.
         options: Vec<SessionConfigOption>,
     },
+    /// The levers a session asked for were set through the options the agent
+    /// announced and confirmed by its answer, before the first prompt
+    /// (modelo-por-opcion-anunciada design D3). A value the agent did not
+    /// confirm is refused, so what this carries is what governed.
+    LeversApplied {
+        /// The model that governed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// The effort that governed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
+    },
+    /// A lever was refused when the session opened, and no prompt was sent
+    /// (modelo-por-opcion-anunciada design D4).
+    LeverRefused(LeverRefusal),
     /// The agent turn finished.
     TurnCompleted {
         /// Mapped ACP stop reason.
