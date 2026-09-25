@@ -43,7 +43,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   «Cobertura declarada junto al total», «Medido y no reportado nunca comparten
   cifra» — gates: suite de `meltemid`
 
-- [ ] 2.2 E2e con el simulado a través del daemon: una sesión libre con
+- [x] 2.2 E2e con el simulado a través del daemon: una sesión libre con
   `--usage`, otra con `--usage-no-cost`, otra con `--usage-currency EUR`, un
   `implement` de dos tareas con `--usage` y una sesión sin reporte; la
   contabilidad dice lo reportado, suma por conversación y por moneda, y conserva
