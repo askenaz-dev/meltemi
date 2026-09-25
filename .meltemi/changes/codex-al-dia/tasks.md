@@ -141,7 +141,7 @@ archivo del volcado llega con la tarea que lo usa.
   vista Flota de la GUI y de la TUI; `docs/paridad-nucleo.md` al día (design
   D11) — escenario «El catálogo nombra la versión medida» — gates: suites de
   `meltemid`, `meltemi-proto`, `tui` y `desktop`
-- [ ] 3.2 `docs/agentes.md`: versión mínima de Codex, remedio cuando el CLI es
+- [x] 3.2 `docs/agentes.md`: versión mínima de Codex, remedio cuando el CLI es
   más viejo o más nuevo que la verificada, la compuerta que el adaptador
   configura y lo que no cubre, el nombre con que se presenta al CLI (que el CLI
   informa a su backend como `originator`) y la etiqueta `source` que el CLI pone
