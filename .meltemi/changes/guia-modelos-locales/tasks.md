@@ -28,7 +28,7 @@
 
 ## 2. Cierre
 
-- [ ] 2.1 `meltemi validate guia-modelos-locales` limpio, `meltemi verify
+- [x] 2.1 `meltemi validate guia-modelos-locales` limpio, `meltemi verify
   guia-modelos-locales` completo, gate del workspace (`cargo test --workspace
   --no-fail-fast`, clippy, fmt), el daemon que arranquen `validate`/`verify`/`land`
   detenido, estado de la change en `docs/plan-de-cambios.md`, `meltemi land
