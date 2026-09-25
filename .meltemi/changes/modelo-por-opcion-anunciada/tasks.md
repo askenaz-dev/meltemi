@@ -24,7 +24,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 2. Confirmar o rehusar antes del primer prompt
 
-- [ ] 2.1 El simulado demuestra: `--config-clamp`, `--config-hang`,
+- [x] 2.1 El simulado demuestra: `--config-clamp`, `--config-hang`,
   `--config-mode-shift`, `--config-twins`, `--echo-levers` y `--reasoning`,
   apagados por omisión y con sus unit tests (design D7) — gates: `cargo build -p mock-agent`, suite de
   `mock-agent`

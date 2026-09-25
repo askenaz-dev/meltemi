@@ -39,6 +39,14 @@ const ALLOW_OPTION: &str = "allow";
 /// daemon side and a mock that only had one would leave the other untested.
 const MODEL_OPTION: &str = "model";
 const THINKING_OPTION: &str = "thinking";
+/// Effort as a selector (`--reasoning`), the realistic shape of it
+/// (modelo-por-opcion-anunciada design D7).
+const REASONING_OPTION: &str = "reasoning";
+/// A second option of category `model` (`--config-twins`), so which one is
+/// "the model" cannot be told.
+const TWIN_OPTION: &str = "model-backup";
+/// A `mode` option (`--config-mode-shift`) that setting the model flips.
+const CONFIG_MODE_OPTION: &str = "mode";
 
 /// The two modes the mock announces under `--modes`, by the protocol's OLDER
 /// field — the one that describes modes and nothing else.
@@ -54,6 +62,10 @@ const ACCEPT_EDITS_MODE: &str = "acceptEdits";
 /// what the next announcement says, which is what the daemon reads back.
 static CURRENT_MODEL: Mutex<String> = Mutex::new(String::new());
 static CURRENT_THINKING: AtomicBool = AtomicBool::new(false);
+/// The reasoning level under `--reasoning`.
+static CURRENT_REASONING: Mutex<String> = Mutex::new(String::new());
+/// The `mode` option under `--config-mode-shift`.
+static CURRENT_CONFIG_MODE: Mutex<String> = Mutex::new(String::new());
 /// Which mode the mock is in, for the same reason: `session/set_mode` has to
 /// change something a later announcement reflects.
 static CURRENT_MODE: Mutex<String> = Mutex::new(String::new());
@@ -99,36 +111,142 @@ fn drifted_options() -> Vec<SessionConfigOption> {
     ]
 }
 
+/// Which options the mock announces, from its switches (design D7 of
+/// modelo-por-opcion-anunciada). Off by default, like every other switch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Shape {
+    /// `--reasoning`: effort as a `low`/`high` selector instead of the toggle.
+    reasoning: bool,
+    /// `--config-twins`: a second option of category `model`.
+    twins: bool,
+    /// `--config-mode-shift`: a `mode` option, which setting the model flips.
+    mode_shift: bool,
+}
+
+impl Shape {
+    fn from_args(args: impl IntoIterator<Item = String>) -> Self {
+        let mut shape = Self::default();
+        for arg in args {
+            match arg.as_str() {
+                "--reasoning" => shape.reasoning = true,
+                "--config-twins" => shape.twins = true,
+                "--config-mode-shift" => shape.mode_shift = true,
+                _ => {}
+            }
+        }
+        shape
+    }
+}
+
+/// What a state variable holds, or its default while nothing set it.
+fn current(state: &Mutex<String>, default: &str) -> String {
+    let value = state.lock().expect("mock config state").clone();
+    if value.is_empty() {
+        default.to_string()
+    } else {
+        value
+    }
+}
+
 /// The options as they stand right now.
 fn announced_options() -> Vec<SessionConfigOption> {
-    let current = CURRENT_MODEL.lock().expect("mock config state").clone();
-    let current = if current.is_empty() {
-        "fast".to_string()
-    } else {
-        current
+    options_for(
+        Shape::from_args(std::env::args()),
+        &current(&CURRENT_MODEL, "fast"),
+        CURRENT_THINKING.load(Ordering::SeqCst),
+        &current(&CURRENT_REASONING, "low"),
+        &current(&CURRENT_CONFIG_MODE, "ask"),
+    )
+}
+
+/// The announcement for a shape and a state: a model selector always; the
+/// thinking toggle or, with `--reasoning`, a reasoning selector; a twin model
+/// selector with `--config-twins`; a `mode` option with `--config-mode-shift`.
+fn options_for(
+    shape: Shape,
+    model: &str,
+    thinking: bool,
+    reasoning: &str,
+    mode: &str,
+) -> Vec<SessionConfigOption> {
+    let models = || {
+        vec![
+            SessionConfigSelectOption::new("fast", "Fast"),
+            SessionConfigSelectOption::new("slow", "Slow").description("The careful one"),
+        ]
     };
-    vec![
+    let mut options = vec![
         SessionConfigOption::new(
             MODEL_OPTION,
             "Model",
+            SessionConfigKind::Select(SessionConfigSelect::new(model.to_string(), models())),
+        )
+        .category(SessionConfigOptionCategory::Model),
+    ];
+    options.push(if shape.reasoning {
+        SessionConfigOption::new(
+            REASONING_OPTION,
+            "Reasoning",
             SessionConfigKind::Select(SessionConfigSelect::new(
-                current,
+                reasoning.to_string(),
                 vec![
-                    SessionConfigSelectOption::new("fast", "Fast"),
-                    SessionConfigSelectOption::new("slow", "Slow").description("The careful one"),
+                    SessionConfigSelectOption::new("low", "Low"),
+                    SessionConfigSelectOption::new("high", "High"),
                 ],
             )),
         )
-        .category(SessionConfigOptionCategory::Model),
+        .category(SessionConfigOptionCategory::ThoughtLevel)
+    } else {
         SessionConfigOption::new(
             THINKING_OPTION,
             "Extended thinking",
-            SessionConfigKind::Boolean(SessionConfigBoolean::new(
-                CURRENT_THINKING.load(Ordering::SeqCst),
-            )),
+            SessionConfigKind::Boolean(SessionConfigBoolean::new(thinking)),
         )
-        .category(SessionConfigOptionCategory::ThoughtLevel),
-    ]
+        .category(SessionConfigOptionCategory::ThoughtLevel)
+    });
+    if shape.twins {
+        options.push(
+            SessionConfigOption::new(
+                TWIN_OPTION,
+                "Backup model",
+                SessionConfigKind::Select(SessionConfigSelect::new("fast".to_string(), models())),
+            )
+            .category(SessionConfigOptionCategory::Model),
+        );
+    }
+    if shape.mode_shift {
+        options.push(
+            SessionConfigOption::new(
+                CONFIG_MODE_OPTION,
+                "Mode",
+                SessionConfigKind::Select(SessionConfigSelect::new(
+                    mode.to_string(),
+                    vec![
+                        SessionConfigSelectOption::new("ask", "Ask first"),
+                        SessionConfigSelectOption::new("auto", "Act on its own"),
+                    ],
+                )),
+            )
+            .category(SessionConfigOptionCategory::Mode),
+        );
+    }
+    options
+}
+
+/// The other model: what `--config-clamp` leaves instead of what was asked.
+fn clamped(asked: &str) -> &'static str {
+    if asked == "fast" { "slow" } else { "fast" }
+}
+
+/// What `--echo-levers` says it read from the environment the daemon
+/// composed: the proof that the launch-flag route reaches the agent, and that
+/// the announced route leaves that environment alone.
+fn levers_line(model: Option<String>, effort: Option<String>) -> String {
+    format!(
+        "levers read: model={} effort={}",
+        model.as_deref().unwrap_or("-"),
+        effort.as_deref().unwrap_or("-")
+    )
 }
 
 /// Set when the client sends `session/cancel` AND `--honor-cancel` was passed.
@@ -177,6 +295,13 @@ async fn main() -> Result<()> {
     // `--options-drift` makes it send a wholly different list of options
     // mid-turn, so "replaced whole" can be told apart from "merged".
     let drifts_options = std::env::args().any(|a| a == "--options-drift");
+    // `--config-clamp` answers a model change with the OTHER model, the agent
+    // that falls back on its own; `--config-hang` never answers one; and
+    // `--config-mode-shift` flips its `mode` option when the model is set
+    // (modelo-por-opcion-anunciada design D7).
+    let clamps = std::env::args().any(|a| a == "--config-clamp");
+    let hangs = std::env::args().any(|a| a == "--config-hang");
+    let shifts_mode = Shape::from_args(std::env::args()).mode_shift;
 
     Agent
         .builder()
@@ -240,11 +365,30 @@ async fn main() -> Result<()> {
                 if !announces_config {
                     return responder.respond(SetSessionConfigOptionResponse::new(Vec::new()));
                 }
+                // The answer never comes: the responder is kept, never used.
+                if hangs {
+                    std::mem::forget(responder);
+                    return Ok(());
+                }
                 match (set.config_id.0.as_ref(), &set.value) {
                     (MODEL_OPTION, SessionConfigOptionValue::ValueId { value })
                         if matches!(value.0.as_ref(), "fast" | "slow") =>
                     {
-                        *CURRENT_MODEL.lock().expect("mock config state") = value.0.to_string();
+                        let kept = if clamps {
+                            clamped(value.0.as_ref())
+                        } else {
+                            value.0.as_ref()
+                        };
+                        *CURRENT_MODEL.lock().expect("mock config state") = kept.to_string();
+                        if shifts_mode {
+                            *CURRENT_CONFIG_MODE.lock().expect("mock config state") =
+                                "auto".to_string();
+                        }
+                    }
+                    (REASONING_OPTION, SessionConfigOptionValue::ValueId { value })
+                        if matches!(value.0.as_ref(), "low" | "high") =>
+                    {
+                        *CURRENT_REASONING.lock().expect("mock config state") = value.0.to_string();
                     }
                     (THINKING_OPTION, SessionConfigOptionValue::Boolean { value }) => {
                         CURRENT_THINKING.store(*value, Ordering::SeqCst);
@@ -360,6 +504,20 @@ async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
             session_id.clone(),
             SessionUpdate::AgentThoughtChunk(ContentChunk::new(ContentBlock::Text(
                 TextContent::new("Reading the proposal before writing it."),
+            ))),
+        ));
+    }
+
+    // 0b. With `--echo-levers`, say what the launch environment carried, so a
+    // test can see the launch-flag route arrive (modelo-por-opcion-anunciada).
+    if std::env::args().any(|a| a == "--echo-levers") {
+        let _ = cx.send_notification(SessionNotification::new(
+            session_id.clone(),
+            SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
+                TextContent::new(levers_line(
+                    std::env::var("MELTEMI_SESSION_MODEL").ok(),
+                    std::env::var("MELTEMI_SESSION_EFFORT").ok(),
+                )),
             ))),
         ));
     }
@@ -681,7 +839,53 @@ fn proposal_path(prompt: &PromptRequest) -> Option<std::path::PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ToolKind, permission_fields, silent_in, titled_in};
+    use super::{
+        CONFIG_MODE_OPTION, MODEL_OPTION, REASONING_OPTION, Shape, THINKING_OPTION, TWIN_OPTION,
+        ToolKind, clamped, levers_line, options_for, permission_fields, silent_in, titled_in,
+    };
+
+    #[test]
+    fn the_switches_shape_what_is_announced() {
+        let args = |list: &[&str]| -> Vec<String> {
+            std::iter::once("mock-agent")
+                .chain(list.iter().copied())
+                .map(str::to_string)
+                .collect()
+        };
+        let ids = |shape: Shape| -> Vec<String> {
+            options_for(shape, "fast", false, "low", "ask")
+                .into_iter()
+                .map(|option| option.id.0.to_string())
+                .collect()
+        };
+        // Off by default: the model selector and the thinking toggle, as ever.
+        let plain = Shape::from_args(args(&["--config-options"]));
+        assert_eq!(plain, Shape::default());
+        assert_eq!(ids(plain), vec![MODEL_OPTION, THINKING_OPTION]);
+        // `--reasoning` puts a selector where the toggle was.
+        let reasoning = Shape::from_args(args(&["--reasoning"]));
+        assert_eq!(ids(reasoning), vec![MODEL_OPTION, REASONING_OPTION]);
+        // `--config-twins` adds a second model selector; `--config-mode-shift`
+        // a mode option.
+        let twins = Shape::from_args(args(&["--config-twins"]));
+        assert_eq!(ids(twins), vec![MODEL_OPTION, THINKING_OPTION, TWIN_OPTION]);
+        let shifting = Shape::from_args(args(&["--config-mode-shift"]));
+        assert_eq!(
+            ids(shifting),
+            vec![MODEL_OPTION, THINKING_OPTION, CONFIG_MODE_OPTION]
+        );
+    }
+
+    #[test]
+    fn a_clamp_leaves_the_other_model_and_the_echo_says_what_was_read() {
+        assert_eq!(clamped("slow"), "fast");
+        assert_eq!(clamped("fast"), "slow");
+        assert_eq!(
+            levers_line(Some("gpt-x".into()), None),
+            "levers read: model=gpt-x effort=-"
+        );
+        assert_eq!(levers_line(None, None), "levers read: model=- effort=-");
+    }
 
     #[test]
     fn a_titled_permission_names_its_kind_and_title_and_only_when_asked() {
