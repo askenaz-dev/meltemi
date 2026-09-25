@@ -198,10 +198,7 @@ pub async fn execute(
             decide(Verdict::Approve, request, option, endpoint).await
         }
         Command::Deny { request, option } => decide(Verdict::Deny, request, option, endpoint).await,
-        Command::Cancel { .. } => Err(CliError::internal(
-            "this verb is recognized by the grammar and wired by a later task of \
-             verbos-del-agent-boss",
-        )),
+        Command::Cancel { session } => cancel(session, endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
         Command::Reserved(name) => Err(CliError::internal(format!(
@@ -289,7 +286,33 @@ async fn connect_and_init(endpoint: &str) -> Result<(Peer, Background), CliError
         async move { approver.serve(peer, incoming, closing, root).await }
     });
     let background = Background { task, closing };
+    initialize(&peer).await?;
+    Ok((peer, background))
+}
 
+/// Connects (starting the daemon on demand) and performs `initialize`, leaving
+/// everything the daemon sends unasked to the caller: a stream reads it itself
+/// (verbos-del-agent-boss). The receiver must be held while the connection is
+/// used — dropping it stops the connection's reader.
+pub(crate) async fn connect_reading(
+    endpoint: &str,
+) -> Result<
+    (
+        Peer,
+        tokio::sync::mpsc::UnboundedReceiver<meltemi_client::rpc::Incoming>,
+    ),
+    CliError,
+> {
+    let stream = bootstrap::connect_or_start(endpoint)
+        .await
+        .map_err(CliError::unreachable)?;
+    let (peer, incoming) = Peer::start(stream);
+    initialize(&peer).await?;
+    Ok((peer, incoming))
+}
+
+/// The mandatory first request of every connection.
+async fn initialize(peer: &Peer) -> Result<(), CliError> {
     peer.request(
         methods::INITIALIZE,
         &InitializeParams {
@@ -302,8 +325,7 @@ async fn connect_and_init(endpoint: &str) -> Result<(Peer, Background), CliError
     )
     .await
     .map_err(CliError::contract)?;
-
-    Ok((peer, background))
+    Ok(())
 }
 
 async fn status(endpoint: &str) -> Result<Outcome, CliError> {
@@ -1566,6 +1588,55 @@ async fn direct(
     Ok(Outcome {
         human: render_direct(&value),
         json: value,
+    })
+}
+
+/// `cancel`: the interactive `x`, from any shell (verbos-del-agent-boss D9).
+async fn cancel(session: String, endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let outcome = cancel_on(&peer, &session).await;
+    background.finish(&peer).await;
+    outcome
+}
+
+/// A session that is not running is not cancelled — and that is no error: what
+/// was wanted, that it not go on, already holds. A running one gets the
+/// notification, and then `status` on the same connection: the daemon's
+/// connection loop dispatches a notification before it reads the next request,
+/// so the answer sees the cancellation applied and says whether the session
+/// was still closing its turn.
+async fn cancel_on(peer: &Peer, session: &str) -> Result<Outcome, CliError> {
+    use crate::approver::clean;
+    use crate::follow::{find, running, state_word, unknown_session};
+
+    let shown = clean(session);
+    if !running(peer, session).await? {
+        let Some(info) = find(peer, session).await? else {
+            return Err(unknown_session(session));
+        };
+        let state = state_word(&info);
+        return Ok(Outcome {
+            human: format!("session {shown} is not running ({state}) — nothing to cancel"),
+            json: json!({ "sessionId": session, "cancel": "not_running", "state": state }),
+        });
+    }
+    peer.notify(
+        methods::SESSION_CANCEL,
+        &meltemi_proto::SessionCancelParams {
+            session_id: session.to_string(),
+        },
+    );
+    let still = running(peer, session).await?;
+    Ok(Outcome {
+        human: if still {
+            format!(
+                "cancel requested for session {shown} — the agent closes its turn and the \
+                 session ends; follow it with `meltemi watch {shown}`"
+            )
+        } else {
+            format!("cancelled: session {shown} has ended")
+        },
+        json: json!({ "sessionId": session, "cancel": "requested", "running": still }),
     })
 }
 

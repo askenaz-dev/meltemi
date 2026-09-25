@@ -45,7 +45,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 3. Seguir, leer y cancelar
 
-- [ ] 3.1 `tui/src/follow.rs`: la línea del registro con los escapes de JSON, el
+- [x] 3.1 `tui/src/follow.rs`: la línea del registro con los escapes de JSON, el
   escritor por formato (JSON Lines, flujo YAML, objeto de error que cierra el
   flujo), `log` (localizar la sesión y paginar `session/log`) y `watch`
   (declarar, localizar, emitir, consultar la vida cada 2 s, cerrar con `10` si
