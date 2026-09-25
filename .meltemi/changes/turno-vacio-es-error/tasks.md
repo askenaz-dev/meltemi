@@ -52,7 +52,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   fue vacío lo declara», «La vía rápida declara el vacío de cualquiera de sus
   turnos» — gates: suite de `meltemid`
 
-- [ ] 2.3 Analítica: `facts_of_log` cuenta `turn_empty`, `accumulate` y
+- [x] 2.3 Analítica: `facts_of_log` cuenta `turn_empty`, `accumulate` y
   `merge_activity` lo suman, y el e2e de analítica lo lee (design D7) —
   escenario «La actividad cuenta los turnos vacíos» — gates: suite de
   `meltemid`

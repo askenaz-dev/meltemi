@@ -110,7 +110,7 @@ fn synthetic_session(
     level: u8,
     started_at: &str,
     ended_at: &str,
-    usage: Option<SessionEventKind>,
+    extra: Option<SessionEventKind>,
 ) {
     let key = meltemid::paths::project_key(project_root);
     session_index::append(
@@ -161,8 +161,9 @@ fn synthetic_session(
         text: "do the thing".into(),
     })
     .expect("prompt");
-    if let Some(event) = usage {
-        log.append(event).expect("usage");
+    // Between the prompt and the close: a usage report, an empty-turn verdict.
+    if let Some(event) = extra {
+        log.append(event).expect("the extra event");
     }
     log.append(SessionEventKind::TurnCompleted {
         stop_reason: TurnStatus::Completed,
@@ -343,6 +344,60 @@ async fn accounting_spans_projects_and_subscriptions_and_measures_only_what_was_
     daemon.abort();
     let _ = std::fs::remove_dir_all(&alpha);
     let _ = std::fs::remove_dir_all(&beta);
+}
+
+#[tokio::test]
+async fn empty_turns_are_counted_over_the_wire() {
+    // Scenario: La actividad cuenta los turnos vacíos
+    let (endpoint, data_dir, daemon) = spawn_daemon("empty").await;
+    let root = std::env::temp_dir().join(format!("meltemi-an-empty-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    synthetic_session(
+        &data_dir,
+        &root,
+        "silent-1",
+        "opencode",
+        Some("free"),
+        1,
+        "2026-09-24T10:00:00Z",
+        "2026-09-24T10:00:10Z",
+        Some(SessionEventKind::TurnEmpty {
+            stop_reason: TurnStatus::Completed,
+        }),
+    );
+    synthetic_session(
+        &data_dir,
+        &root,
+        "worked-1",
+        "opencode",
+        Some("paid"),
+        1,
+        "2026-09-24T11:00:00Z",
+        "2026-09-24T11:00:20Z",
+        None,
+    );
+
+    let peer = init_client(&endpoint).await;
+    let result = peer
+        .request(methods::ANALYTICS_USAGE, &json!({ "granularity": "month" }))
+        .await
+        .expect("analytics/usage ok");
+    assert_eq!(
+        cell_of(&result, "opencode", "free")["activity"]["emptyTurns"],
+        1,
+        "{result:#}"
+    );
+    assert_eq!(
+        cell_of(&result, "opencode", "paid")["activity"]["emptyTurns"],
+        0,
+        "{result:#}"
+    );
+    assert_eq!(result["totals"]["activity"]["emptyTurns"], 1, "{result:#}");
+
+    peer.close();
+    daemon.abort();
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[tokio::test]
