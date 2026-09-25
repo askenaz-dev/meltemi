@@ -125,6 +125,48 @@ pub async fn finalize_ok(ctx: &SessionContext<'_>, outcome: SessionOutcome) -> F
     }
 }
 
+/// Finalize a session whose lever was refused when it opened
+/// (modelo-por-opcion-anunciada design D4): `SessionEnded("lever_refused")`
+/// and NO `TurnCompleted`, because no turn ran; an end record with no final
+/// status and nothing to resume; deregister. The refusal itself is already in
+/// the log — `run_session` wrote it before handing it back.
+pub async fn finalize_refused(ctx: &SessionContext<'_>) {
+    append(
+        ctx.log,
+        SessionEventKind::SessionEnded {
+            reason: "lever_refused".into(),
+        },
+    )
+    .await;
+    let _ = session_index::append(
+        ctx.data_dir,
+        ctx.project_key,
+        &SessionRecord {
+            session_id: ctx.session_id.to_string(),
+            agent_command: ctx.agent_command.to_vec(),
+            project_root: ctx.project_root.to_string(),
+            level: ctx.level,
+            started_at: ctx.started_at.to_string(),
+            ended_at: Some(crate::clock::now_rfc3339()),
+            final_status: None,
+            agent_session_id: None,
+            supports_load: false,
+            resumed_from: ctx.resumed_from.clone(),
+            agent_id: ctx.agent_id.clone(),
+            profile: ctx.profile.clone(),
+            mode: ctx.mode,
+            // What was asked lives in `lever_refused`; nothing governed
+            // (design D6).
+            model: None,
+            effort: None,
+            source: ctx.source,
+            // The fold keeps the title the opening record set (design D4).
+            title: None,
+        },
+    );
+    ctx.sessions.deregister(ctx.session_id).await;
+}
+
 /// Finalize a failed turn: emit `Error` + `SessionEnded("error")`, write an end
 /// record with no final status (a failed session is neither mislabeled
 /// interrupted nor advertised resumable), and deregister.

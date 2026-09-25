@@ -25,6 +25,7 @@ pub mod git;
 pub mod harness;
 pub mod implement;
 pub mod levels;
+pub mod lever_options;
 pub mod logging;
 pub mod mcp;
 pub mod navigate;

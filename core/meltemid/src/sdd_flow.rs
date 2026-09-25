@@ -20,7 +20,7 @@ use meltemi_proto::{
     SessionState, error_codes,
 };
 
-use crate::acp::{self, SessionParams};
+use crate::acp::{self, SessionParams, SessionRun};
 use crate::config::Config;
 use crate::permissions::RuleSet;
 use crate::rpc::{Peer, RpcError};
@@ -604,6 +604,10 @@ async fn run_turn(
         // not directable.
         instruction_queue: None,
         edit_scope: Some(edit_scope.handle()),
+        // Nothing is asked of the agent's announcement here: a lever goes by its
+        // declared flag or is refused before launch.
+        announced_levers: crate::lever_options::AnnouncedLevers::default(),
+        lever_wait: crate::lever_options::LEVER_WAIT,
     })
     .await;
 
@@ -629,9 +633,15 @@ async fn run_turn(
         source: Some(resolved.source),
     };
     match outcome {
-        Ok(session_outcome) => {
+        Ok(SessionRun::Ran(session_outcome)) => {
             let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
             Ok(fin.empty_turn)
+        }
+        // No turn ran, and the agent did not fail: the refusal is its own
+        // ending and its own answer (modelo-por-opcion-anunciada D4).
+        Ok(SessionRun::LeverRefused(refusal)) => {
+            crate::session_finalize::finalize_refused(&ctx).await;
+            Err(crate::lever_options::refused_error(refusal))
         }
         Err(e) => {
             crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())

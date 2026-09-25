@@ -29,13 +29,14 @@ los e2e cargan el binario `mock-agent` ya construido.
   apagados por omisión y con sus unit tests (design D7) — gates: `cargo build -p mock-agent`, suite de
   `mock-agent`
 
-- [ ] 2.2 `run_session` fija las palancas anunciadas antes del primer prompt: el
+- [x] 2.2 `run_session` fija las palancas anunciadas antes del primer prompt: el
   modelo primero, el esfuerzo contra lo que quede anunciado, la última respuesta
   decide, el modo no se mueve, espera acotada y cancelable; rehúsa con
-  `lever_refused` y un resultado tipado, y anota `levers_applied` con lo que
-  rigió; unit tests de la elección de opción, de la validación y de la
-  comparación (design D1, D3, D4) — gates: `cargo build --workspace`, suite de
-  `meltemid`
+  `lever_refused` y un resultado tipado —que cada llamador está obligado a
+  distinguir: cierre `lever_refused` sin `turn_completed` y el 2007 con sus
+  datos—, y anota `levers_applied` con lo que rigió; unit tests de la elección
+  de opción, de la validación y de la comparación (design D1, D3, D4) — gates:
+  `cargo build --workspace`, suite de `meltemid`
 
 - [ ] 2.3 La sesión libre reparte las palancas por vía, cierra `lever_refused`
   sin `turn_completed`, responde el 2007 con sus datos y lo deja en el log si

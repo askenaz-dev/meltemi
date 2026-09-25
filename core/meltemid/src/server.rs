@@ -953,8 +953,38 @@ async fn handle_worktree_dispatch(
         // A competitor dispatch is a single self-managed turn, not directable.
         instruction_queue: None,
         edit_scope: Some(edit_scope.handle()),
+        // Nothing is asked of the agent's announcement here: a lever goes by its
+        // declared flag or is refused before launch.
+        announced_levers: crate::lever_options::AnnouncedLevers::default(),
+        lever_wait: crate::lever_options::LEVER_WAIT,
     })
     .await;
+    let outcome = match outcome {
+        Ok(crate::acp::SessionRun::Ran(outcome)) => Ok(outcome),
+        // No turn ran: nothing to commit, and not the agent refusing to go on.
+        // The lane ends on its own reason and the caller gets the refusal
+        // itself (modelo-por-opcion-anunciada D4).
+        Ok(crate::acp::SessionRun::LeverRefused(refusal)) => {
+            append(
+                &log,
+                SessionEventKind::SessionEnded {
+                    reason: "lever_refused".to_string(),
+                },
+            )
+            .await;
+            let _ = crate::session_index::append(
+                &state.data_dir,
+                &project_key,
+                &dispatch_record(Some(crate::clock::now_rfc3339()), None, None, false),
+            );
+            state
+                .sessions
+                .set_state(&session_id, meltemi_proto::SessionState::Ended)
+                .await;
+            return Err(crate::lever_options::refused_error(refusal));
+        }
+        Err(e) => Err(e),
+    };
     let status = outcome
         .as_ref()
         .map(|o| o.status)
@@ -1868,6 +1898,10 @@ async fn handle_sdd_implement(
             // `implement` drives its own per-task loop; each turn is not directable.
             instruction_queue: None,
             edit_scope: Some(task_edit_scope.handle()),
+            // Nothing is asked of the agent's announcement here: a lever goes by
+            // its declared flag or is refused before launch.
+            announced_levers: crate::lever_options::AnnouncedLevers::default(),
+            lever_wait: crate::lever_options::LEVER_WAIT,
         })
         .await;
 
@@ -2445,6 +2479,9 @@ async fn resume_with_instruction(
         // The resumed session is itself directable.
         instruction_queue,
         edit_scope: Some(edit_scope.handle()),
+        // A resume carries no levers: it continues what already governed.
+        announced_levers: crate::lever_options::AnnouncedLevers::default(),
+        lever_wait: crate::lever_options::LEVER_WAIT,
     })
     .await;
 
@@ -2465,7 +2502,7 @@ async fn resume_with_instruction(
         source: record.source,
     };
     match outcome {
-        Ok(session_outcome) => {
+        Ok(crate::acp::SessionRun::Ran(session_outcome)) => {
             let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
             let result = SessionDirectResult {
                 disposition: DirectDisposition::Resumed,
@@ -2477,6 +2514,10 @@ async fn resume_with_instruction(
                 empty_turn: fin.empty_turn,
             };
             Ok(serde_json::to_value(result).expect("SessionDirectResult serializes"))
+        }
+        Ok(crate::acp::SessionRun::LeverRefused(refusal)) => {
+            crate::session_finalize::finalize_refused(&ctx).await;
+            Err(crate::lever_options::refused_error(refusal))
         }
         Err(e) => {
             crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())
