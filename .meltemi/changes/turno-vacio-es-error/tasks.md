@@ -5,7 +5,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 1. El simulado y el contrato
 
-- [ ] 1.1 `mock-agent --silent-turn` y `--silent-turn-at <N>`: el turno
+- [x] 1.1 `mock-agent --silent-turn` y `--silent-turn-at <N>`: el turno
   callado respeta `--turn-delay-ms` y responde con el motivo de un turno normal;
   la decisión es la función pura `silent_in(args, turn)` con su unit test
   (sin interruptor, todos los turnos, solo el turno `N`) (design D8) — gates:

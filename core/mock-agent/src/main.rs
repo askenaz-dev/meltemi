@@ -27,7 +27,7 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Result, Stdio};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 /// Fixed session id the scripted agent hands back from `session/new`.
 const SESSION_ID: &str = "mock-session";
@@ -138,6 +138,10 @@ fn announced_options() -> Vec<SessionConfigOption> {
 /// tests assert what the daemon does when an agent *ignores* the cancel — which
 /// is the case the daemon has to survive (redirigir-turno design D6).
 static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// How many prompts this process has received, so a switch can single out the
+/// first turns of a session.
+static TURNS_SEEN: AtomicU32 = AtomicU32::new(0);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -275,6 +279,24 @@ async fn main() -> Result<()> {
                 cx.spawn({
                     let cx = cx.clone();
                     async move {
+                        // A silent turn says nothing and does nothing: the
+                        // agent whose provider failed and who closed the turn
+                        // anyway (turno-vacio-es-error).
+                        // It still holds the turn open for `--turn-delay-ms`,
+                        // so a test can stop it in flight, and answers with the
+                        // same stop reason a turn that worked would.
+                        let turn = TURNS_SEEN.fetch_add(1, Ordering::SeqCst);
+                        if silent_in(std::env::args(), turn) {
+                            hold_turn().await;
+                            let stop = if cancels_itself
+                                || CANCEL_REQUESTED.swap(false, Ordering::SeqCst)
+                            {
+                                StopReason::Cancelled
+                            } else {
+                                StopReason::EndTurn
+                            };
+                            return responder.respond(PromptResponse::new(stop));
+                        }
                         // The agent changing things on its own account, before
                         // it does any work: nobody asked, and the daemon has to
                         // notice anyway.
@@ -325,14 +347,8 @@ async fn run_scripted_turn(prompt: &PromptRequest, cx: &ConnectionTo<Client>) {
     // `--turn-delay-ms <N>` holds each turn open for N milliseconds before doing
     // any work, so a test can race a `session/direct` into an active turn
     // (control-remoto-asistido). Default: no delay.
-    if let Some(ms) = turn_delay_ms() {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
-        while std::time::Instant::now() < deadline {
-            if CANCEL_REQUESTED.load(Ordering::SeqCst) {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+    if !hold_turn().await {
+        return;
     }
 
     // 0. `--think` streams a thought chunk before speaking, so the surfaces
@@ -457,6 +473,41 @@ fn thinks() -> bool {
 /// (preguntas-del-agente design D6).
 fn asks() -> bool {
     std::env::args().any(|a| a == "--ask")
+}
+
+/// Holds the turn open for `--turn-delay-ms`, if given. `false` when a
+/// cancellation this mock honours arrived meanwhile, which ends the turn's work.
+async fn hold_turn() -> bool {
+    if let Some(ms) = turn_delay_ms() {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < deadline {
+            if CANCEL_REQUESTED.load(Ordering::SeqCst) {
+                return false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+    true
+}
+
+/// Whether the turn numbered `turn` (from zero) ends in silence: no update, no
+/// permission request, just its stop reason (turno-vacio-es-error design D8).
+///
+/// `--silent-turn` silences every turn; `--silent-turn-at <N>` only turn `N`,
+/// so a session of several turns can run work, then silence, then work again.
+/// Off by default, like every other switch here: a mock that fell silent on its
+/// own would change what every existing test reads.
+fn silent_in(args: impl IntoIterator<Item = String>, turn: u32) -> bool {
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        if arg == "--silent-turn" {
+            return true;
+        }
+        if arg == "--silent-turn-at" {
+            return args.next().and_then(|n| n.parse::<u32>().ok()) == Some(turn);
+        }
+    }
+    false
 }
 
 fn turn_delay_ms() -> Option<u64> {
@@ -604,4 +655,43 @@ fn proposal_path(prompt: &PromptRequest) -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::silent_in;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        std::iter::once("mock-agent")
+            .chain(list.iter().copied())
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn no_switch_silences_nothing() {
+        for turn in 0..3 {
+            assert!(!silent_in(args(&[]), turn));
+            assert!(!silent_in(args(&["--think", "--ask"]), turn));
+        }
+    }
+
+    #[test]
+    fn the_silent_switch_silences_every_turn() {
+        for turn in 0..3 {
+            assert!(silent_in(args(&["--silent-turn"]), turn));
+        }
+    }
+
+    #[test]
+    fn a_numbered_turn_is_the_only_silent_one() {
+        let at_one = args(&["--silent-turn-at", "1"]);
+        assert!(!silent_in(at_one.clone(), 0), "work first");
+        assert!(silent_in(at_one.clone(), 1), "then silence");
+        assert!(!silent_in(at_one, 2), "then work again");
+        assert!(
+            !silent_in(args(&["--silent-turn-at", "x"]), 0),
+            "an unreadable turn silences none"
+        );
+    }
 }
