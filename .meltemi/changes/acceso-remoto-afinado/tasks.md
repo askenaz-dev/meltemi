@@ -63,7 +63,7 @@ pruebas del arranque cargan el `meltemid` ya construido.
 
 ## 4. Cierre
 
-- [ ] 4.1 `meltemi validate acceso-remoto-afinado` limpio, `meltemi verify
+- [x] 4.1 `meltemi validate acceso-remoto-afinado` limpio, `meltemi verify
   acceso-remoto-afinado` completo, gate del workspace (`cargo test --workspace
   --no-fail-fast`, clippy, fmt), el daemon que arranquen `validate`/`verify`/`land`
   detenido, estado de la change en `docs/plan-de-cambios.md`, `meltemi land

@@ -16,9 +16,9 @@ use common::test_endpoint;
 #[tokio::test]
 async fn unreachable_daemon_is_reported_as_unreachable() {
     // Scenario: Daemon inalcanzable
-    // Scenario: Fallo de arranque se reporta como inalcanzable. Nothing is
-    // listening, and the on-demand launcher is pointed at a binary that does
-    // not exist, so the bootstrap cannot spawn a daemon and gives up. The
+    // Scenario: Fallo de arranque se reporta como inalcanzable
+    // Nothing is listening, and the on-demand launcher is pointed at a binary
+    // that does not exist, so the bootstrap cannot spawn a daemon and gives up. The
     // endpoint is a test's, not the user's own, so the start is asked for
     // explicitly — unasked, nothing would be started there at all
     // (acceso-remoto-afinado D1).

@@ -190,3 +190,25 @@ remite al smoke para lo medido.
 Quien aísle un entorno y cuente con que la CLI, la TUI, la GUI o el devclient
 arranquen el daemon en su endpoint explícito fija `MELTEMI_START_HERE=1`. El
 endpoint propio arranca igual que antes. El contrato no cambia.
+
+## Revisión propia (2026-09-25)
+
+Contra el código y los documentos, antes del cierre:
+
+- **El cierre de la propia change lo necesitó**: los scripts que validan,
+  verifican y aterrizan cada change fijan un endpoint aislado y contaban con que
+  la CLI arrancara ahí el daemon. Con el binario de esta change, sin la bandera,
+  se habrían rehusado; ganaron `MELTEMI_START_HERE=1`. Es el caso de R1, visto
+  desde dentro, y confirma que el error nombra lo que hay que hacer.
+- **Una prueba de la GUI contaba con el arranque**: «Fallo de arranque
+  diagnosticado» sigue pasando —el diagnóstico con el endpoint no depende de
+  intentar arrancar—, pero su comentario describía un arranque que ya no ocurre.
+  Tarea 1.3.
+- **Un marcador que nunca enlazó**: «Fallo de arranque se reporta como
+  inalcanzable» compartía línea con otra frase y `verify` no lo leía; al
+  restablecer el requisito como MODIFIED apareció sin verificar. Queda en su
+  propia línea.
+- **Lo que esta máquina no puede medir** queda como está en el smoke: sin host
+  macOS/Linux no hay socket reenviado que un cliente de Windows pueda usar, y
+  el tramo `sshd` de Windows exige instalar un servicio del sistema.
+
