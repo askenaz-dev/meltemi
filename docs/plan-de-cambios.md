@@ -268,7 +268,7 @@ exportar sesión) → `escritorio-que-recuerda`; `paleta-que-encuentra` +
 | 1º | ✅ `codex-al-dia` | completa · **implementada** (17/17, verify 40/40) | AI-1 | Codex no arranca con ninguna versión (0.77: modelo de cuenta; 0.156: user agent que el adaptador no lee). Cerrada: re-anclada a 0.156.1 con compuerta estricta verificada, y la corrida real del 2026-09-25 le re-otorgó el nivel 2 | — |
 | 2º | ✅ `turno-vacio-es-error` | completa (el código de salida `15` modifica la taxonomía viva) · **implementada** (10/10, verify 29/29) | AI-11 | un turno sin mensajes ni herramientas se reportó como éxito. Cerrada: el daemon mide cada turno y escribe `turn_empty` salvo que un humano lo detuviera; cinco respuestas llevan `emptyTurn`; el CLI sale con `15`; GUI, TUI y la analítica lo muestran | — |
 | 3º | ✅ `aprobador-en-el-cli` | completa · **implementada** (7/7, verify 21/21) | AI-12 | el CLI denegaba todo permiso: con Claude Code solo servía para charlar. Cerrada: en un terminal pregunta con las opciones del agente y lo que envió (completado con la `tool_call` de la sesión, sin texto crudo del agente); recordar escribe la regla más específica o no se ofrece; sin terminal, el rechazo del agente y un aviso que nombra las reglas; Ctrl+C cancela primero (el log dice `interrupted`) y sale con `13`; el terminal siempre sale del modo crudo | — |
-| 4º | `modelo-por-opcion-anunciada` | completa | LM-3, LM-6 | `--model` rehusado a un agente que anuncia modelos; el `model` del perfil se pierde en propose/dispatch/implement | — |
+| 4º | ✅ `modelo-por-opcion-anunciada` | completa · **implementada** (10/10, verify 27/27) | LM-3, LM-6 | `--model` rehusado a un agente que anuncia modelos; el `model` del perfil se pierde en propose/dispatch/implement. Cerrada: cada palanca va por la bandera que declara su entrada del registro (`levers`: Codex modelo y esfuerzo, Claude Code modelo) o por la opción que el agente anuncia, fijada y confirmada antes del primer prompt (la última respuesta decide, el modo no se mueve, espera acotada `[sessions] lever-wait` y cancelable); si no, se rehúsa sin prompt como `lever_refused` y el 2007 con sus datos, acotados y escapados en las tres superficies; el perfil rige en todo verbo antes de sus efectos (`propose` ya no deja andamio); el histórico dice lo que rigió y nunca lo rehusado | — |
 | 5º | `usage-desde-acp` | rápida | LM-7 | `usage_update` está en el log y `usage` dice «no reportado» | — |
 | 6º | `guia-modelos-locales` | rápida | LM-1/2/5/8, P5 | la única vía funcional (OpenCode) sin escribir; corrige «Aider funciona hoy» | ollama en la máquina del mantenedor (pierna local) |
 | 7º | `verbos-del-agent-boss` | rápida | MOB-5, C-F | aprobar, seguir y cancelar por SSH sin TUI; la CLI como herramienta de agentes | — |
@@ -295,6 +295,16 @@ y ruta, y las tres superficies proponen la misma regla) y
 `auditar-reglas-y-procedencia` (crear una regla queda en el log,
 `permission/decide` dice si no pudo escribirla, y la denegación de un cliente
 sin terminal deja de parecer la tecla de una persona).
+
+**Nacida de `modelo-por-opcion-anunciada` (2026-09-25)**, con propuesta escrita
+y sin turno: `selector-de-modelo-que-sabe` (recordar lo que cada agente anunció,
+por agente y perfil, acotado y con escritura atómica, para que el selector lo
+ofrezca y avise antes de abrir; la revisión adversarial la sacó del alcance
+porque su clave, sus cotas y su contenido publicado —§9— merecen diseño propio).
+Desviación declarada al implementar: el contrato de `worktree/dispatch` llevaba
+`model` y `effort` que el daemon ignoraba en silencio; ahora rigen (design D5).
+Hallazgo anotado para una change aparte: el mismo `dispatch` ignora el `mode`
+que su schema y el formulario de la GUI ofrecen.
 
 #### Tanda 2 — estado vivo, transcript rico, remoto usable (1–2 meses)
 

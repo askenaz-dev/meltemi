@@ -64,6 +64,7 @@ impl RpcError {
             detail: detail.into(),
             remedy,
             candidates: None,
+            lever_refused: None,
         };
         Self {
             code,
@@ -91,6 +92,7 @@ impl RpcError {
             detail: detail.into(),
             remedy,
             candidates: Some(candidates),
+            lever_refused: None,
         };
         Self {
             code,

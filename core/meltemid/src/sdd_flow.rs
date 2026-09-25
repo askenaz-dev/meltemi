@@ -20,7 +20,7 @@ use meltemi_proto::{
     SessionState, error_codes,
 };
 
-use crate::acp::{self, SessionParams};
+use crate::acp::{self, SessionParams, SessionRun};
 use crate::config::Config;
 use crate::permissions::RuleSet;
 use crate::rpc::{Peer, RpcError};
@@ -499,6 +499,13 @@ async fn run_turn(
             ));
         }
     };
+    // The profile's levers, routed BEFORE anything is created, the way the free
+    // session routes its own: by flag into the environment its adapter reads,
+    // by the agent's announcement before the first prompt, or refused (2006)
+    // here (modelo-por-opcion-anunciada D4, D5). This verb takes no levers of
+    // its own: a profile that declares none imposes none.
+    let mut resolved = resolved.with_session_levers(None, None);
+    let announced_levers = crate::levels::route_levers(&mut resolved, &agent_command)?;
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
@@ -525,8 +532,10 @@ async fn run_turn(
     // proposal and every authoring turn was mute about who wrote it
     // (lanzador-conversacional 4.2).
     let _ = log.append(SessionEventKind::AgentResolved {
-        model: None,
-        effort: None,
+        // Only what travelled by flag: a lever set on the agent's announcement
+        // has not governed anything yet (modelo-por-opcion-anunciada D6).
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -604,6 +613,8 @@ async fn run_turn(
         // not directable.
         instruction_queue: None,
         edit_scope: Some(edit_scope.handle()),
+        announced_levers,
+        lever_wait: config.lever_wait(),
     })
     .await;
 
@@ -627,11 +638,21 @@ async fn run_turn(
         agent_id: resolved.agent_id.clone(),
         profile: resolved.profile.clone(),
         source: Some(resolved.source),
+        // What went by flag governed from the start; what went by the
+        // announcement arrives with the outcome.
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
     };
     match outcome {
-        Ok(session_outcome) => {
+        Ok(SessionRun::Ran(session_outcome)) => {
             let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
             Ok(fin.empty_turn)
+        }
+        // No turn ran, and the agent did not fail: the refusal is its own
+        // ending and its own answer (modelo-por-opcion-anunciada D4).
+        Ok(SessionRun::LeverRefused(refusal)) => {
+            crate::session_finalize::finalize_refused(&ctx).await;
+            Err(crate::lever_options::refused_error(refusal))
         }
         Err(e) => {
             crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())

@@ -83,6 +83,32 @@ fn fixture(tag: &str, permissions: Option<&str>) -> PathBuf {
     root
 }
 
+/// A fixture whose agent is the mock as a FLEET ENTRY declaring `levers` —
+/// the way its own adapters are declared (modelo-por-opcion-anunciada D2) —
+/// with every permission allowed. The mock says what its launch environment
+/// carried (`--echo-levers`), which is how a test sees a flag arrive.
+fn levers_fixture(tag: &str, levers: &str) -> PathBuf {
+    let root = fixture(tag, Some("[[rule]]\neffect = \"allow\"\n"));
+    let mock = mock_agent_bin().display().to_string().replace('\\', "/");
+    let registry = root.join(".meltemi").join("registry.toml");
+    std::fs::write(
+        &registry,
+        format!(
+            "version = \"levers-e2e\"\n\
+             [[agents]]\nid = \"mock\"\nname = \"Mock\"\nlevel = 1\nbin = \"mock-agent\"\n\
+             candidate-paths = ['{mock}']\nacp-args = [\"--echo-levers\"]\nlevers = {levers}\n"
+        ),
+    )
+    .unwrap();
+    let registry = registry.display().to_string().replace('\\', "/");
+    std::fs::write(
+        root.join(".meltemi").join("config.toml"),
+        format!("[agent]\nid = \"mock\"\n\n[fleet]\nregistry = '{registry}'\n"),
+    )
+    .unwrap();
+    root
+}
+
 async fn spawn_daemon(tag: &str) -> (String, tokio::task::JoinHandle<()>) {
     let endpoint = test_endpoint(tag);
     let listener = Listener::bind(&endpoint).await.expect("bind");
@@ -1240,12 +1266,13 @@ async fn the_log_says_which_mode_governed_the_session_and_each_decision() {
 
 // Scenario: El modelo pedido viaja sin interpretarse
 // Scenario: Lo que rigió queda en el registro
+// Scenario: Una entrada declara sus palancas de lanzamiento
 #[tokio::test]
 async fn a_declared_model_travels_untouched_and_is_recorded_as_what_ran() {
-    // The mock ignores the levers entirely — they are opaque to it too — which
-    // is the point: what is asserted here is the CORE's behaviour, with no
-    // provider involved (§5).
-    let root = fixture("levers", Some("[[rule]]\neffect = \"allow\"\n"));
+    // The mock's entry declares the model as a launch flag, the way the own
+    // adapters' entries do: the value travels untouched, and the core does not
+    // judge it (§5).
+    let root = levers_fixture("levers", "[\"model\"]");
     let root_str = root.display().to_string();
     let (endpoint, daemon) = spawn_daemon("levers").await;
     let (peer, _incoming) = init_client(&endpoint).await;
@@ -1285,6 +1312,28 @@ async fn a_declared_model_travels_untouched_and_is_recorded_as_what_ran() {
         resolved["payload"]["model"], "some-provider-model-9000",
         "what governed is written where it is consulted: {resolved:#}"
     );
+    // The agent received it exactly as sent: the mock repeats what its launch
+    // environment carried.
+    assert!(
+        log["lines"]
+            .as_array()
+            .expect("lines")
+            .iter()
+            .any(|line| line.as_str().is_some_and(
+                |line| line.contains("levers read: model=some-provider-model-9000 effort=-")
+            )),
+        "the flag reached the agent untouched: {log:#}"
+    );
+    assert_eq!(result["model"], "some-provider-model-9000", "{result:#}");
+    // And the history lists it as what governed.
+    let list = peer
+        .request(methods::SESSION_LIST, &json!({ "projectRoot": root_str }))
+        .await
+        .expect("session/list ok");
+    assert_eq!(
+        list["sessions"][0]["model"], "some-provider-model-9000",
+        "{list:#}"
+    );
 
     peer.close();
     daemon.abort();
@@ -1294,11 +1343,11 @@ async fn a_declared_model_travels_untouched_and_is_recorded_as_what_ran() {
 // Scenario: Una palanca que el agente no admite se rehúsa
 #[tokio::test]
 async fn asking_an_agent_for_a_lever_it_has_no_place_for_refuses_by_name() {
-    // The mock takes a model and NOT an effort — the shape of a real provider
-    // that documents one lever and not the other. Asking for the one it has no
-    // place for is refused rather than dropped: a lever that silently does
-    // nothing is worse than no lever.
-    let root = fixture("lever-refused", Some("[[rule]]\neffect = \"allow\"\n"));
+    // The mock's entry declares a model and NOT an effort — the shape of a
+    // real provider that documents one lever and not the other. Asking for
+    // the one it has no place for is refused rather than dropped: a lever that
+    // silently does nothing is worse than no lever.
+    let root = levers_fixture("lever-refused", "[\"model\"]");
     let root_str = root.display().to_string();
     let (endpoint, daemon) = spawn_daemon("lever-refused").await;
     let (peer, _incoming) = init_client(&endpoint).await;

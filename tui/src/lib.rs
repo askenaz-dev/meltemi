@@ -13,6 +13,7 @@ pub mod approver;
 pub mod cli;
 pub mod exit;
 pub mod format;
+pub mod lever;
 pub mod output;
 pub mod run;
 pub mod shell;

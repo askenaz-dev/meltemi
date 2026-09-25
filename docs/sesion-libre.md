@@ -147,6 +147,22 @@ session id, how the turn ended, the restore point (or its absence with the
 remedy), and a warning if any permission was denied — a denied permission usually
 means the work is incomplete, and silence about it would be a lie.
 
+```
+meltemi session "..." --agent opencode --model anthropic/claude-haiku-4-5
+meltemi session "..." --agent codex-cli --model <model> --effort high
+```
+
+`--model` and `--effort` are the provider's own words. Each reaches the agent as
+the launch flag its entry declares, or through the option the agent announces,
+set and confirmed before the first prompt ([how](agentes.md#model-and-effort-per-session)),
+and the output says what governed: `model: … · effort: …`. A lever the agent does
+not take is refused, never dropped in silence: before the session opens when its
+entry declares no place for it (exit `11`, error 2006), or as it opens, with no
+prompt sent, when the agent did not announce it, announced it twice, did not
+confirm it or did not answer in time (exit `11`, error 2007). The refusal names
+the lever, what you asked for, why, and what the agent announced — twenty values
+at most and how many more, with every word of the agent's escaped.
+
 When the terminal is yours — stdin and stderr are a terminal — the permissions
 the agent asks for are asked right there, on stderr, one at a time, with what the
 agent sent about the call:

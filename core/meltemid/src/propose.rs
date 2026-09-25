@@ -22,7 +22,7 @@ use tokio::sync::Mutex;
 
 use meltemi_proto::{ProposeParams, ProposeResult, SessionEventKind, SessionState, error_codes};
 
-use crate::acp::{self, SessionParams};
+use crate::acp::{self, SessionParams, SessionRun};
 use crate::config::Config;
 use crate::paths;
 use crate::rpc::RpcError;
@@ -73,11 +73,6 @@ pub async fn handle_propose(
             Some(format!("Try a different idea, e.g. `{change_name}-v2`.")),
         ));
     }
-    std::fs::create_dir_all(&change_dir).map_err(RpcError::internal)?;
-    let proposal_path = change_dir.join("proposal.md");
-    std::fs::write(&proposal_path, scaffold(&change_name, &params.idea))
-        .map_err(RpcError::internal)?;
-
     // The agent must be resolved before a session can run: the one the request
     // named — a launch profile or a catalog id, in the fleet's own order — or,
     // when it named none, the project's configured agent exactly as before that
@@ -114,6 +109,22 @@ pub async fn handle_propose(
         }
     };
 
+    // The profile's levers, routed BEFORE anything is created, the way the free
+    // session routes its own: by flag into the environment its adapter reads,
+    // by the agent's announcement before the first prompt, or refused (2006)
+    // here (modelo-por-opcion-anunciada D4, D5). This verb takes no levers of
+    // its own: a profile that declares none imposes none.
+    let mut resolved = resolved.with_session_levers(None, None);
+    let announced_levers = crate::levels::route_levers(&mut resolved, &agent_command)?;
+
+    // Written only once the agent resolved and its levers were routed: a refusal
+    // must leave nothing behind, or the retry would find "the change already
+    // exists" (modelo-por-opcion-anunciada D4).
+    std::fs::create_dir_all(&change_dir).map_err(RpcError::internal)?;
+    let proposal_path = change_dir.join("proposal.md");
+    let scaffolded = scaffold(&change_name, &params.idea);
+    std::fs::write(&proposal_path, &scaffolded).map_err(RpcError::internal)?;
+
     // Open the session and its log.
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
@@ -141,8 +152,10 @@ pub async fn handle_propose(
     // proposal and every authoring turn was mute about who wrote it
     // (lanzador-conversacional 4.2).
     let _ = log.append(SessionEventKind::AgentResolved {
-        model: None,
-        effort: None,
+        // Only what travelled by flag: a lever set on the agent's announcement
+        // has not governed anything yet (modelo-por-opcion-anunciada D6).
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -184,8 +197,8 @@ pub async fn handle_propose(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             mode: None,
-            model: None,
-            effort: None,
+            model: resolved.model.clone(),
+            effort: resolved.effort.clone(),
             source: Some(resolved.source),
             title: title.clone(),
         },
@@ -256,6 +269,8 @@ pub async fn handle_propose(
         // Authoring flows carry their own rule posture and declare no mode.
         mode: None,
         edit_scope: Some(edit_scope.handle()),
+        announced_levers,
+        lever_wait: config.lever_wait(),
     })
     .await;
 
@@ -278,9 +293,13 @@ pub async fn handle_propose(
         agent_id: resolved.agent_id.clone(),
         profile: resolved.profile.clone(),
         source: Some(resolved.source),
+        // What went by flag governed from the start; what went by the
+        // announcement arrives with the outcome.
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
     };
     let result = match outcome {
-        Ok(session_outcome) => {
+        Ok(SessionRun::Ran(session_outcome)) => {
             let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
             ProposeResult {
                 change_name,
@@ -291,6 +310,16 @@ pub async fn handle_propose(
                 denied_permissions: fin.denied_permissions,
                 empty_turn: fin.empty_turn,
             }
+        }
+        // No turn ran, and the agent did not fail: the refusal is its own
+        // ending and its own answer (modelo-por-opcion-anunciada D4).
+        Ok(SessionRun::LeverRefused(refusal)) => {
+            crate::session_finalize::finalize_refused(&ctx).await;
+            // No prompt went out, so the agent wrote nothing: what is there is
+            // the scaffold, and it goes, so the retry does not collide with
+            // "the change already exists" (modelo-por-opcion-anunciada D4).
+            remove_intact_scaffold(&change_dir, &proposal_path, &scaffolded);
+            return Err(crate::lever_options::refused_error(refusal));
         }
         Err(e) => {
             crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())
@@ -306,6 +335,23 @@ pub async fn handle_propose(
     };
 
     Ok(serde_json::to_value(result).expect("ProposeResult serializes"))
+}
+
+/// Removes the change a refused proposal scaffolded — only while nothing but
+/// the scaffold is there, exactly as written. A human who edited it in the
+/// meantime keeps what they wrote.
+fn remove_intact_scaffold(change_dir: &Path, proposal_path: &Path, scaffolded: &str) {
+    let only_the_proposal = std::fs::read_dir(change_dir).is_ok_and(|entries| {
+        let names: Vec<_> = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name())
+            .collect();
+        names.len() == 1 && names[0] == "proposal.md"
+    });
+    let untouched = std::fs::read_to_string(proposal_path).is_ok_and(|text| text == scaffolded);
+    if only_the_proposal && untouched {
+        let _ = std::fs::remove_dir_all(change_dir);
+    }
 }
 
 async fn append(log: &Arc<Mutex<SessionLog>>, kind: SessionEventKind) {

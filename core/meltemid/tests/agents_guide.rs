@@ -330,3 +330,51 @@ fn the_guide_claims_no_provider_approval_the_registry_does_not_declare() {
         "the guide promises to cite a source before changing a posture"
     );
 }
+
+// Scenario: Una entrada declara sus palancas de lanzamiento
+#[test]
+fn the_guide_states_the_launch_levers_each_entry_declares() {
+    // What an adapter takes by flag is data in the registry, and the guide is
+    // where a user reads it: the two must not disagree, and an entry that
+    // declares nothing must not read as one that does — its levers go by what
+    // the agent announces (modelo-por-opcion-anunciada D2).
+    use meltemi_proto::SessionLever;
+    const CLAIM: &str = "Per-session levers by launch flag:";
+    let guide = guide();
+    let registry = registry();
+    for agent in &registry.agents {
+        let body = section(&guide, &agent.id);
+        let line = body.lines().find(|line| line.contains(CLAIM));
+        match &agent.levers {
+            Some(levers) => {
+                let line = line.unwrap_or_else(|| {
+                    panic!(
+                        "the section of `{}` states the levers it declares",
+                        agent.id
+                    )
+                });
+                let named = inline_code_spans(line);
+                let declared: std::collections::BTreeSet<String> = levers
+                    .iter()
+                    .map(|lever| match lever {
+                        SessionLever::Model => "model".to_string(),
+                        SessionLever::Effort => "effort".to_string(),
+                    })
+                    .collect();
+                assert_eq!(
+                    named, declared,
+                    "the section of `{}` states exactly the levers its entry declares",
+                    agent.id
+                );
+            }
+            None => assert!(
+                line.is_none(),
+                "the section of `{}` claims launch levers its entry does not declare",
+                agent.id
+            ),
+        }
+    }
+    // And the routes are explained where the sections point.
+    assert!(guide.contains("## Model and effort per session"));
+    assert!(flat(&guide).contains("before the first prompt"));
+}

@@ -25,7 +25,47 @@
           "type": "array",
           "items": { "$ref": "#/$defs/agentCandidate" },
           "description": "The fleet agents detected on this system, carried by a refusal to resolve one (2000/2001) so a surface can offer a choice instead of transcribing a lament. Absent means the error has nothing to do with resolving an agent; an empty array means the fleet was consulted and nothing was found — which is an answer, not an omission."
+        },
+        "leverRefused": {
+          "$ref": "#/$defs/leverRefusal",
+          "description": "The lever a session refused when it opened, when the error is that refusal (2007): the same record its log keeps, so a surface can say it in its own words."
         }
+      }
+    },
+    "leverRefusal": {
+      "type": "object",
+      "description": "A lever refused when its session opened, before any prompt: what the session log records and what the 2007 error carries. Lists are bounded and say how many were left out.",
+      "required": ["lever", "requested", "reason"],
+      "properties": {
+        "lever": { "type": "string", "enum": ["model", "effort"] },
+        "requested": { "type": "string", "description": "What was asked for, verbatim." },
+        "reason": {
+          "type": "string",
+          "enum": ["not_announced", "ambiguous", "not_a_value", "not_confirmed", "mode_changed", "no_answer"],
+          "description": "not_announced: no option of the lever's category; ambiguous: more than one; not_a_value: the value is not among the announced ones, or a toggle got neither true nor false; not_confirmed: the agent's answer left another value, or none; mode_changed: setting the lever changed the agent's mode; no_answer: no answer within the wait."
+        },
+        "values": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string" },
+          "description": "The values the agent announced for the lever's option."
+        },
+        "options": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "category": { "type": "string" }
+            }
+          },
+          "description": "The options the agent announced, when none or several carried the lever's category."
+        },
+        "more": { "type": "integer", "minimum": 0, "description": "How many values or options were left out of those lists." },
+        "left": { "type": "string", "description": "What the agent left instead: the value its answer kept, or the mode it moved to." }
       }
     },
     "agentCandidate": {
@@ -115,7 +155,7 @@
         },
         "2007": {
           "kind": "config_option_not_announced",
-          "description": "A live configuration change was asked for that the agent never announced: an unknown option id, a value the option does not list, or a session whose agent announced no options at all. Distinct from 2006, which is refused before the session exists against what the adapter documents; this one is refused against what THIS agent said about THIS session. It is what keeps Meltemi from offering a selector on the agent's behalf."
+          "description": "A configuration the agent never announced or never confirmed. Live, from session/set-config-option: an unknown option id, a value the option does not list, or a session whose agent announced no options at all. At open, from every verb that starts an agent: a model or effort that goes by the agent's announcement and has no single option of its category, is not among the announced values, is not confirmed by the agent's answer, moves the agent's mode, or gets no answer in time — the session ends as lever_refused with no prompt sent, data.kind is lever_refused and data.leverRefused carries the lever, what was asked, the reason and what the agent announced or left, bounded. Distinct from 2006, which is refused before the session exists against what the agent's entry declares; this one is refused against what THIS agent said about THIS session. It is what keeps Meltemi from offering a selector on the agent's behalf, or prompting a model nobody chose."
         },
         "3000": {
           "kind": "change_already_exists",

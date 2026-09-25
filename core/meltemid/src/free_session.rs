@@ -29,7 +29,7 @@ use meltemi_proto::{
     error_codes,
 };
 
-use crate::acp::{self, SessionParams};
+use crate::acp::{self, SessionParams, SessionRun};
 use crate::config::Config;
 use crate::levels::ResolvedAgent;
 use crate::paths;
@@ -113,15 +113,14 @@ pub async fn handle_session_start(
         }
     };
 
-    // The levers are resolved BEFORE anything is created: refusing after a
+    // The levers are routed BEFORE anything is created: refusing after a
     // session exists would leave a session nobody asked for, and the refusal is
-    // the whole point — a lever silently dropped is worse than no lever.
-    let resolved = resolved.with_session_levers(params.model.as_deref(), params.effort.as_deref());
-    crate::levels::refuse_unsupported_levers(
-        &agent_command,
-        resolved.model.as_deref(),
-        resolved.effort.as_deref(),
-    )?;
+    // the whole point — a lever silently dropped is worse than no lever. What
+    // goes by the agent's announcement leaves the resolution here, and is set
+    // and confirmed before the first prompt (modelo-por-opcion-anunciada D1).
+    let mut resolved =
+        resolved.with_session_levers(params.model.as_deref(), params.effort.as_deref());
+    let announced_levers = crate::levels::route_levers(&mut resolved, &agent_command)?;
 
     // Open the session and its log.
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -336,6 +335,8 @@ pub async fn handle_session_start(
                 // The caller's declared posture, or none at all.
                 mode: params.mode,
                 edit_scope: Some(edit_scope.handle()),
+                announced_levers,
+                lever_wait: config.lever_wait(),
             })
             .await;
 
@@ -359,9 +360,13 @@ pub async fn handle_session_start(
                 agent_id: resolved.agent_id.clone(),
                 profile: resolved.profile.clone(),
                 source: Some(resolved.source),
+                // What went by flag governed from the start; what went by the
+                // announcement arrives with the outcome.
+                model: resolved.model.clone(),
+                effort: resolved.effort.clone(),
             };
             match outcome {
-                Ok(session_outcome) => {
+                Ok(SessionRun::Ran(session_outcome)) => {
                     let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
                     let result = SessionStartResult {
                         session_id,
@@ -372,8 +377,17 @@ pub async fn handle_session_start(
                         checkpoint_unavailable,
                         checkpoint_remedy,
                         empty_turn: fin.empty_turn,
+                        // What governed, whichever way it reached the agent.
+                        model: fin.model,
+                        effort: fin.effort,
                     };
                     Ok(serde_json::to_value(result).expect("SessionStartResult serializes"))
+                }
+                // No turn ran, and the agent did not fail: the refusal is its own
+                // ending and its own answer (modelo-por-opcion-anunciada D4).
+                Ok(SessionRun::LeverRefused(refusal)) => {
+                    crate::session_finalize::finalize_refused(&ctx).await;
+                    Err(crate::lever_options::refused_error(refusal))
                 }
                 Err(e) => {
                     crate::session_finalize::finalize_err(
@@ -406,8 +420,15 @@ pub async fn handle_session_start(
     // `status` because the turn has not happened — the one thing a result must
     // never invent (design D2).
     tokio::spawn(async move {
-        if let Err(error) = run.await {
-            tracing::warn!(?error, "a detached session ended with an error");
+        match run.await {
+            Ok(_) => {}
+            // Not a failure: a lever refused when the session opened. Its log
+            // already says so, which is how a detached session answers
+            // (modelo-por-opcion-anunciada D4).
+            Err(error) if error.code == error_codes::CONFIG_OPTION_NOT_ANNOUNCED => {
+                tracing::info!(%error, "a detached session refused a lever when it opened");
+            }
+            Err(error) => tracing::warn!(?error, "a detached session ended with an error"),
         }
     });
     let result = SessionStartResult {
@@ -419,6 +440,9 @@ pub async fn handle_session_start(
         checkpoint_unavailable,
         checkpoint_remedy,
         empty_turn: false,
+        // A detached start answers before anything governed.
+        model: None,
+        effort: None,
     };
     Ok(serde_json::to_value(result).expect("SessionStartResult serializes"))
 }
@@ -536,6 +560,7 @@ mod tests {
             source: meltemi_proto::FleetResolutionSource::Configured,
             profile: None,
             agent_id: None,
+            levers: None,
         };
         let argv = vec!["/opt/bin/mock-agent".to_string(), "--acp".to_string()];
         assert_eq!(agent_label(&resolved, &argv), "mock-agent");

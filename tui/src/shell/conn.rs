@@ -18,10 +18,10 @@ use meltemi_client::rpc::{Incoming, Peer, RpcError};
 use meltemi_proto::{
     ChangeListParams, ChangeListResult, ContextProjectParams, ContextProjectResult,
     FleetListParams, FleetListResult, HarnessEffectiveParams, HarnessEffectiveResult,
-    InitializeParams, PROTOCOL_VERSION, PeerInfo, PermissionChangedParams, PermissionDecideParams,
-    PermissionPendingResult, PermissionRule, SessionCancelParams, SessionDirectParams,
-    SessionListParams, SessionListResult, SessionLogParams, SessionLogResult, StatusResult,
-    WorktreeDiffResult, methods,
+    InitializeParams, LeverRefusal, PROTOCOL_VERSION, PeerInfo, PermissionChangedParams,
+    PermissionDecideParams, PermissionPendingResult, PermissionRule, SessionCancelParams,
+    SessionDirectParams, SessionListParams, SessionListResult, SessionLogParams, SessionLogResult,
+    StatusResult, WorktreeDiffResult, methods,
 };
 
 use crate::shell::live::{
@@ -340,7 +340,13 @@ async fn serve_connection(
                         });
                         let notice = match peer.request(methods::WORKTREE_DISPATCH, &params).await {
                             Ok(value) => dispatch_notice(&value, &agent, lang),
-                            Err(error) => format!("worktree/dispatch: {error}"),
+                            // A lever refused as the lane opened is said in
+                            // words, with the agent's text escaped
+                            // (modelo-por-opcion-anunciada D4).
+                            Err(error) => match lever_refusal(&error, lang) {
+                                Some(line) => format!("worktree/dispatch: {line}"),
+                                None => format!("worktree/dispatch: {error}"),
+                            },
                         };
                         let _ = updates.send(Update::Notice(notice));
                         // The turn is over: the lane has a new diff and a new
@@ -541,6 +547,9 @@ fn summarize_log_line(line: &str, lang: Lang) -> String {
             let ts = event.get("ts").and_then(Value::as_str).unwrap_or("");
             if kind == "turn_empty" {
                 return format!("{ts}  {}", text(Msg::EmptyTurn, lang));
+            }
+            if let Some(line) = lever_said(kind, event.get("payload"), lang) {
+                return format!("{ts}  {line}");
             }
             format!("{ts}  {kind}")
         }
@@ -773,6 +782,46 @@ fn refusal_line(error: &RpcError) -> String {
     }
 }
 
+/// What a lever event says, in words: a lever refused as the session opened —
+/// the lever, what was asked, why, and what the agent announced — or the
+/// levers the agent confirmed (modelo-por-opcion-anunciada D4, D6). `None` for
+/// any other event.
+fn lever_said(kind: &str, payload: Option<&Value>, lang: Lang) -> Option<String> {
+    match kind {
+        "lever_refused" => {
+            let refusal: LeverRefusal = serde_json::from_value(payload?.clone()).ok()?;
+            Some(refusal_words(&refusal, lang))
+        }
+        "levers_applied" => {
+            let payload = payload?;
+            crate::lever::governed_line(
+                payload.get("model").and_then(Value::as_str),
+                payload.get("effort").and_then(Value::as_str),
+                lang,
+            )
+        }
+        _ => None,
+    }
+}
+
+/// A refused lever in one line, with what the agent announced after it.
+fn refusal_words(refusal: &LeverRefusal, lang: Lang) -> String {
+    let mut line = crate::lever::refusal_line(refusal, lang);
+    if let Some(announced) = crate::lever::announced_line(refusal, lang) {
+        line.push_str(" — ");
+        line.push_str(&announced);
+    }
+    line
+}
+
+/// The refusal a daemon error carries, when it is a lever refused as its
+/// session opened.
+fn lever_refusal(error: &RpcError, lang: Lang) -> Option<String> {
+    let refusal: LeverRefusal =
+        serde_json::from_value(error.data.as_ref()?.get("leverRefused")?.clone()).ok()?;
+    Some(refusal_words(&refusal, lang))
+}
+
 /// A refused direction, behind the surface's own label.
 fn refusal_notice(error: &RpcError, lang: Lang) -> String {
     format!(
@@ -810,6 +859,9 @@ fn summarize_event(params: &Value, lang: Lang) -> Option<String> {
     // its remedy (turno-vacio-es-error design D6).
     if kind == "turn_empty" {
         return Some(format!("[{session}] {}", text(Msg::EmptyTurn, lang)));
+    }
+    if let Some(line) = lever_said(kind, event.and_then(|e| e.get("payload")), lang) {
+        return Some(format!("[{session}] {line}"));
     }
     let said = event
         .and_then(|e| e.get("payload"))
@@ -933,6 +985,74 @@ mod tests {
             notice.contains("s-9") && notice.contains("meltemi sessions"),
             "the diagnosis and the remedy are the daemon's, and both survive: {notice}"
         );
+    }
+
+    fn refused_event() -> Value {
+        serde_json::json!({
+            "lever": "model",
+            "requested": "gpt-x",
+            "reason": "not_a_value",
+            "values": ["fast", "slow"],
+        })
+    }
+
+    // Scenario: El terminal dice la palanca rehusada
+    #[test]
+    fn the_transcript_says_the_refused_lever_what_was_asked_and_why() {
+        let event = serde_json::json!({
+            "sessionId": "s-1",
+            "event": { "type": "lever_refused", "payload": refused_event() }
+        });
+        let es = summarize_event(&event, Lang::Es).expect("a line");
+        assert!(
+            es.starts_with("[s-1] el agente no tomó el modelo `gpt-x`"),
+            "{es}"
+        );
+        assert!(es.contains("anunció: fast, slow"), "{es}");
+        let en = summarize_event(&event, Lang::En).expect("a line");
+        assert!(
+            en.starts_with("[s-1] the agent did not take the model `gpt-x`"),
+            "{en}"
+        );
+        assert!(en.contains("announced: fast, slow"), "{en}");
+        assert!(
+            !en.contains("lever_refused"),
+            "never the raw event name: {en}"
+        );
+
+        // The historical detail says it in the same words.
+        let line = format!(
+            r#"{{"v":1,"ts":"2026-09-25T10:00:00Z","type":"lever_refused","payload":{}}}"#,
+            refused_event()
+        );
+        let es = summarize_log_line(&line, Lang::Es);
+        assert!(
+            es.contains("2026-09-25T10:00:00Z  el agente no tomó el modelo"),
+            "{es}"
+        );
+
+        // And what the agent confirmed is said as what governed.
+        let applied = serde_json::json!({
+            "sessionId": "s-1",
+            "event": { "type": "levers_applied", "payload": { "model": "slow" } }
+        });
+        assert_eq!(
+            summarize_event(&applied, Lang::Es).as_deref(),
+            Some("[s-1] modelo: slow")
+        );
+
+        // A refused dispatch from the board says it too.
+        let error = RpcError {
+            code: 2007,
+            message: "the agent did not take the lever".into(),
+            data: Some(serde_json::json!({
+                "kind": "lever_refused",
+                "detail": "d",
+                "leverRefused": refused_event(),
+            })),
+        };
+        let said = lever_refusal(&error, Lang::En).expect("a lever refusal");
+        assert!(said.contains("the model `gpt-x`"), "{said}");
     }
 
     // Scenario: El transcript nombra el turno vacío

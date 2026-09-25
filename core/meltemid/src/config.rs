@@ -143,6 +143,10 @@ pub struct Config {
     /// the default (3). Reaching it closes the OLDEST wait, never refuses a new
     /// session.
     pub max_idle_sessions: Option<usize>,
+    /// `[sessions] lever-wait`: seconds the agent may take to answer each lever
+    /// set on what it announces, before the session is refused without a
+    /// prompt. `None` keeps the default (30) (modelo-por-opcion-anunciada D3).
+    pub lever_wait: Option<u64>,
     /// Diagnostics for invalid `[sessions]` values (default kept).
     pub session_diagnostics: Vec<String>,
 }
@@ -180,6 +184,14 @@ impl Config {
     pub fn max_idle_sessions(&self) -> usize {
         self.max_idle_sessions.unwrap_or(3)
     }
+
+    /// How long the agent may take to answer each lever set on what it
+    /// announces. Bounded because the first prompt waits on it, and a session
+    /// that never starts is worse than one refused with a reason.
+    pub fn lever_wait(&self) -> Duration {
+        self.lever_wait
+            .map_or(crate::lever_options::LEVER_WAIT, Duration::from_secs)
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -205,6 +217,10 @@ struct RawSessions {
     /// Non-negative count (0 = do not keep any session waiting).
     #[serde(default, rename = "max-idle")]
     max_idle: Option<i64>,
+    /// Positive seconds: zero would refuse every lever before the agent could
+    /// answer it.
+    #[serde(default, rename = "lever-wait")]
+    lever_wait: Option<i64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -440,6 +456,15 @@ impl Config {
             } else {
                 self.session_diagnostics.push(format!(
                     "sessions.max-idle `{count}` must be zero or more (default kept)"
+                ));
+            }
+        }
+        if let Some(seconds) = raw.sessions.lever_wait {
+            if seconds >= 1 {
+                self.lever_wait = Some(seconds as u64);
+            } else {
+                self.session_diagnostics.push(format!(
+                    "sessions.lever-wait `{seconds}` must be one second or more (default kept)"
                 ));
             }
         }
@@ -1036,6 +1061,25 @@ mod espera_humana_tests {
             3,
             "{:?}",
             config.permission_diagnostics
+        );
+    }
+
+    #[test]
+    fn the_lever_wait_is_bounded_and_positive() {
+        // Thirty seconds by default (modelo-por-opcion-anunciada D3); a
+        // project may shorten it, but never to nothing: zero would refuse
+        // every lever before the agent could answer it.
+        assert_eq!(parse("").lever_wait(), Duration::from_secs(30));
+        let shortened = parse("[sessions]\nlever-wait = 2\n");
+        assert_eq!(shortened.lever_wait(), Duration::from_secs(2));
+        assert!(shortened.session_diagnostics.is_empty());
+        let zero = parse("[sessions]\nlever-wait = 0\n");
+        assert_eq!(zero.lever_wait(), Duration::from_secs(30));
+        assert_eq!(
+            zero.session_diagnostics.len(),
+            1,
+            "{:?}",
+            zero.session_diagnostics
         );
     }
 }

@@ -26,7 +26,8 @@ use serde_json::Value;
 
 use meltemi_proto::{
     ConformanceResult, FleetAgent, FleetAgentSource, FleetInstallState, FleetLayer, FleetLayerKind,
-    FleetLayerSource, FleetLegalStatus, FleetListParams, FleetListResult, error_codes,
+    FleetLayerSource, FleetLegalStatus, FleetListParams, FleetListResult, SessionLever,
+    error_codes,
 };
 
 use crate::config::Config;
@@ -93,6 +94,9 @@ pub struct RegistryAgent {
     pub auth_context_var: Option<String>,
     /// The provider's documented login gesture, as snapshot data.
     pub login_hint: Option<String>,
+    /// The levers this entry's agent takes as launch flags — the complete set
+    /// — when the entry declares them (modelo-por-opcion-anunciada D2).
+    pub levers: Option<Vec<SessionLever>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +156,12 @@ struct RawRegistryAgent {
     legal_status: Option<String>,
     #[serde(default)]
     legal_note: Option<String>,
+    /// The levers the agent takes as launch flags, as data: what used to be
+    /// decided by the binary's name (modelo-por-opcion-anunciada D2). A name
+    /// outside the known levers makes the document invalid, like a level
+    /// outside the scale.
+    #[serde(default)]
+    levers: Option<Vec<SessionLever>>,
 }
 
 /// The binary name of an entry: one for every OS, or a per-OS table.
@@ -213,6 +223,17 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
         if !seen.insert(agent.id.clone()) {
             return Err(format!("duplicate registry id `{}`", agent.id));
         }
+        if let Some(levers) = &agent.levers
+            && levers
+                .iter()
+                .enumerate()
+                .any(|(index, lever)| levers[..index].contains(lever))
+        {
+            return Err(format!(
+                "registry entry `{}` declares the same lever twice",
+                agent.id
+            ));
+        }
         // An entry piloted through an adapter must declare the provider's own
         // official CLI, or the fleet cannot say which layer is missing
         // (flota-deteccion-guia design D1).
@@ -265,6 +286,7 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
             bundled: agent.bundled,
             legal_status: agent.legal_status,
             legal_note: agent.legal_note,
+            levers: agent.levers,
         });
     }
     Ok(Registry {
@@ -493,6 +515,9 @@ pub struct CatalogEntry {
     pub auth_context_var: Option<String>,
     /// The provider's documented login gesture, as snapshot data.
     pub login_hint: Option<String>,
+    /// The levers taken as launch flags, when the registry declares them. A
+    /// custom entry declares none: its levers are whatever it announces.
+    pub levers: Option<Vec<SessionLever>>,
 }
 
 impl Default for CatalogEntry {
@@ -521,6 +546,7 @@ impl Default for CatalogEntry {
             bundled: false,
             legal_status: None,
             legal_note: None,
+            levers: None,
         }
     }
 }
@@ -566,6 +592,7 @@ pub fn build_catalog(config: &Config) -> Catalog {
             bundled: agent.bundled,
             legal_status: agent.legal_status,
             legal_note: agent.legal_note,
+            levers: agent.levers,
         })
         .collect();
     for custom in &config.fleet_custom {
@@ -1609,6 +1636,42 @@ login-hint = \"other login\"
             .is_err(),
             "duplicate id"
         );
+        // A lever outside the known ones, or the same one twice, invalidates
+        // the document like a level outside the scale.
+        assert!(
+            parse_registry(
+                "version=\"v\"\n[[agents]]\nid=\"a\"\nname=\"A\"\nlevel=1\nlevers=[\"temperature\"]\n"
+            )
+            .is_err(),
+            "unknown lever"
+        );
+        assert!(
+            parse_registry(
+                "version=\"v\"\n[[agents]]\nid=\"a\"\nname=\"A\"\nlevel=1\nlevers=[\"model\",\"model\"]\n"
+            )
+            .is_err(),
+            "the same lever twice"
+        );
+    }
+
+    #[test]
+    fn the_embedded_registry_declares_the_levers_of_its_own_adapters() {
+        use meltemi_proto::SessionLever::{Effort, Model};
+        // Only the two adapters Meltemi builds read the levers from the
+        // environment it composes, so only they can honestly declare them —
+        // and dropping one here would silently turn a working lever into a
+        // refusal, which is why this is pinned (modelo-por-opcion-anunciada D2).
+        let catalog = build_catalog(&Config::default());
+        for entry in &catalog.entries {
+            let expected = match entry.id.as_str() {
+                "codex-cli" => Some(vec![Model, Effort]),
+                "claude-code" => Some(vec![Model]),
+                _ => None,
+            };
+            assert_eq!(entry.levers, expected, "`{}` declares its levers", entry.id);
+        }
+        assert!(catalog.entries.iter().any(|e| e.id == "codex-cli"));
+        assert!(catalog.entries.iter().any(|e| e.id == "claude-code"));
     }
 
     #[test]

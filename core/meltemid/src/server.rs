@@ -793,6 +793,15 @@ async fn handle_worktree_dispatch(
             ));
         }
     };
+    // The levers, routed BEFORE the worktree exists, the way the free session
+    // routes its own: by flag into the environment its adapter reads, by the
+    // agent's announcement before the first prompt, or refused (2006) here
+    // (modelo-por-opcion-anunciada D4, D5). The contract has carried a model and
+    // an effort for this verb all along; what the caller declares overrides the
+    // profile's default, and a profile that declares none imposes none.
+    let mut resolved =
+        resolved.with_session_levers(params.model.as_deref(), params.effort.as_deref());
+    let announced_levers = crate::levels::route_levers(&mut resolved, &agent_command)?;
 
     // The common base is fixed by the assignment; create/reuse the worktree.
     let base = crate::git::head_rev(&root).ok_or_else(|| {
@@ -845,8 +854,9 @@ async fn handle_worktree_dispatch(
         title: None,
     });
     let _ = log.append(SessionEventKind::AgentResolved {
-        model: None,
-        effort: None,
+        // Only what travelled by flag (modelo-por-opcion-anunciada D6).
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -868,7 +878,9 @@ async fn handle_worktree_dispatch(
     let dispatch_record = |ended_at: Option<String>,
                            final_status: Option<meltemi_proto::TurnStatus>,
                            agent_session_id: Option<String>,
-                           supports_load: bool| {
+                           supports_load: bool,
+                           model: Option<String>,
+                           effort: Option<String>| {
         crate::session_index::SessionRecord {
             session_id: session_id.clone(),
             agent_command: agent_command.clone(),
@@ -885,8 +897,8 @@ async fn handle_worktree_dispatch(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             mode: None,
-            model: None,
-            effort: None,
+            model,
+            effort,
             source: Some(resolved.source),
             // A race lane is not born from a sentence (design D2).
             title: None,
@@ -895,7 +907,14 @@ async fn handle_worktree_dispatch(
     let _ = crate::session_index::append(
         &state.data_dir,
         &project_key,
-        &dispatch_record(None, None, None, false),
+        &dispatch_record(
+            None,
+            None,
+            None,
+            false,
+            resolved.model.clone(),
+            resolved.effort.clone(),
+        ),
     );
 
     // The prompt points the agent at a per-task artifact so its work is
@@ -953,8 +972,43 @@ async fn handle_worktree_dispatch(
         // A competitor dispatch is a single self-managed turn, not directable.
         instruction_queue: None,
         edit_scope: Some(edit_scope.handle()),
+        announced_levers,
+        lever_wait: config.lever_wait(),
     })
     .await;
+    let outcome = match outcome {
+        Ok(crate::acp::SessionRun::Ran(outcome)) => Ok(outcome),
+        // No turn ran: nothing to commit, and not the agent refusing to go on.
+        // The lane ends on its own reason and the caller gets the refusal
+        // itself (modelo-por-opcion-anunciada D4).
+        Ok(crate::acp::SessionRun::LeverRefused(refusal)) => {
+            append(
+                &log,
+                SessionEventKind::SessionEnded {
+                    reason: "lever_refused".to_string(),
+                },
+            )
+            .await;
+            let _ = crate::session_index::append(
+                &state.data_dir,
+                &project_key,
+                &dispatch_record(
+                    Some(crate::clock::now_rfc3339()),
+                    None,
+                    None,
+                    false,
+                    None,
+                    None,
+                ),
+            );
+            state
+                .sessions
+                .set_state(&session_id, meltemi_proto::SessionState::Ended)
+                .await;
+            return Err(crate::lever_options::refused_error(refusal));
+        }
+        Err(e) => Err(e),
+    };
     let status = outcome
         .as_ref()
         .map(|o| o.status)
@@ -1010,6 +1064,17 @@ async fn handle_worktree_dispatch(
                 .ok()
                 .and_then(|o| o.agent_session_id.clone()),
             outcome.as_ref().is_ok_and(|o| o.supports_load),
+            // What governed: confirmed on the announcement, else the flag.
+            outcome
+                .as_ref()
+                .ok()
+                .and_then(|o| o.levers_applied.model.clone())
+                .or_else(|| resolved.model.clone()),
+            outcome
+                .as_ref()
+                .ok()
+                .and_then(|o| o.levers_applied.effort.clone())
+                .or_else(|| resolved.effort.clone()),
         ),
     );
     state
@@ -1733,6 +1798,13 @@ async fn handle_sdd_implement(
             ));
         }
     };
+    // The profile's levers, routed BEFORE any worktree exists, the way the free
+    // session routes its own: by flag into the environment its adapter reads,
+    // by the agent's announcement before the first prompt, or refused (2006)
+    // here (modelo-por-opcion-anunciada D4, D5). This verb takes no levers of
+    // its own: a profile that declares none imposes none.
+    let mut resolved = resolved.with_session_levers(None, None);
+    let announced_levers = crate::levels::route_levers(&mut resolved, &agent_command)?;
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
@@ -1755,10 +1827,11 @@ async fn handle_sdd_implement(
         // and the change and task are what name its work (design D2).
         title: None,
     });
-    // Record which binary/source ran — never the env values (§2).
+    // Record which binary/source ran — never the env values (§2) — and only
+    // the levers that travelled by flag (modelo-por-opcion-anunciada D6).
     let _ = log.append(SessionEventKind::AgentResolved {
-        model: None,
-        effort: None,
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -1842,7 +1915,7 @@ async fn handle_sdd_implement(
             artifact.display()
         );
         let task_edit_scope = state.edits.enter(&worktree, &session_id, log.clone());
-        let _ = crate::acp::run_session(crate::acp::SessionParams {
+        let run = crate::acp::run_session(crate::acp::SessionParams {
             agent_command: agent_command.clone(),
             project_root: worktree.clone(),
             prompt,
@@ -1868,8 +1941,29 @@ async fn handle_sdd_implement(
             // `implement` drives its own per-task loop; each turn is not directable.
             instruction_queue: None,
             edit_scope: Some(task_edit_scope.handle()),
+            // Each task opens its agent anew, so each sets the levers anew.
+            announced_levers: announced_levers.clone(),
+            lever_wait: config.lever_wait(),
         })
         .await;
+        // No turn ran, so there is nothing to commit, and the deployment stops:
+        // the next task would open the same agent with the same lever. The
+        // caller gets the refusal itself, never an agent that "refused to go
+        // on" (modelo-por-opcion-anunciada D4).
+        if let Ok(crate::acp::SessionRun::LeverRefused(refusal)) = run {
+            append(
+                &log,
+                SessionEventKind::SessionEnded {
+                    reason: "lever_refused".to_string(),
+                },
+            )
+            .await;
+            state
+                .sessions
+                .set_state(&session_id, meltemi_proto::SessionState::Ended)
+                .await;
+            return Err(crate::lever_options::refused_error(refusal));
+        }
 
         // Commit the task with traceability. If nothing was produced (e.g. the
         // turn was denied), the commit fails and the task is left pending.
@@ -2445,6 +2539,9 @@ async fn resume_with_instruction(
         // The resumed session is itself directable.
         instruction_queue,
         edit_scope: Some(edit_scope.handle()),
+        // A resume carries no levers: it continues what already governed.
+        announced_levers: crate::lever_options::AnnouncedLevers::default(),
+        lever_wait: crate::lever_options::LEVER_WAIT,
     })
     .await;
 
@@ -2463,9 +2560,12 @@ async fn resume_with_instruction(
         agent_id: record.agent_id.clone(),
         profile: record.profile.clone(),
         source: record.source,
+        // A resume carries no levers of its own.
+        model: None,
+        effort: None,
     };
     match outcome {
-        Ok(session_outcome) => {
+        Ok(crate::acp::SessionRun::Ran(session_outcome)) => {
             let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
             let result = SessionDirectResult {
                 disposition: DirectDisposition::Resumed,
@@ -2477,6 +2577,10 @@ async fn resume_with_instruction(
                 empty_turn: fin.empty_turn,
             };
             Ok(serde_json::to_value(result).expect("SessionDirectResult serializes"))
+        }
+        Ok(crate::acp::SessionRun::LeverRefused(refusal)) => {
+            crate::session_finalize::finalize_refused(&ctx).await;
+            Err(crate::lever_options::refused_error(refusal))
         }
         Err(e) => {
             crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())

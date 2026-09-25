@@ -57,6 +57,40 @@ impl CliError {
         )
     }
 
+    /// The daemon answered with a contract error, said in the CLI's own words
+    /// when it is a lever refused as its session opened: the lever, what was
+    /// asked, why, and what the agent announced or left — bounded, and with the
+    /// agent's text escaped before it reaches the terminal
+    /// (modelo-por-opcion-anunciada D4). Anything else is
+    /// [`CliError::contract`] unchanged, and so is the exit code either way.
+    pub fn from_rpc(error: meltemi_client::rpc::RpcError) -> Self {
+        let data = error.data.as_ref();
+        let Some(refusal) = data
+            .and_then(|data| data.get("leverRefused"))
+            .and_then(|value| {
+                serde_json::from_value::<meltemi_proto::LeverRefusal>(value.clone()).ok()
+            })
+        else {
+            return Self::contract(error);
+        };
+        let lang = crate::shell::messages::Lang::En;
+        let mut message = format!(
+            "contract error: [{}] {}",
+            error.code,
+            crate::lever::refusal_line(&refusal, lang)
+        );
+        if let Some(line) = crate::lever::announced_line(&refusal, lang) {
+            message.push_str(&format!("\n  {line}"));
+        }
+        if let Some(remedy) = data
+            .and_then(|data| data.get("remedy"))
+            .and_then(Value::as_str)
+        {
+            message.push_str(&format!("\n  remedy: {}", crate::approver::clean(remedy)));
+        }
+        Self::new(ExitCode::Contract, "contract_error", message)
+    }
+
     /// An unexpected internal error (exit 1).
     pub fn internal(detail: impl std::fmt::Display) -> Self {
         Self::new(
@@ -161,6 +195,80 @@ mod tests {
 
     fn strings() -> (Vec<u8>, Vec<u8>) {
         (Vec::new(), Vec::new())
+    }
+
+    // Scenario: El rehúso se imprime acotado y escapado
+    #[test]
+    fn a_refused_lever_prints_bounded_and_escaped_and_json_stays_one_object() {
+        // More values than a terminal should carry, one of them with a control
+        // sequence that would clear the screen, and what the agent left with a
+        // bell in it: the agent's text, which is never obeyed.
+        let mut values: Vec<String> = (0..25).map(|n| format!("model-{n}")).collect();
+        values[3] = "evil\u{1b}[2J".into();
+        let error = meltemi_client::rpc::RpcError {
+            code: 2007,
+            message: "the agent did not take the lever".into(),
+            data: Some(json!({
+                "kind": "lever_refused",
+                "detail": "raw detail \u{1b}[31m",
+                "remedy": "Ask for one of the values the agent announced for its model.",
+                "leverRefused": {
+                    "lever": "model",
+                    "requested": "gpt-x",
+                    "reason": "not_confirmed",
+                    "values": values,
+                    "more": 3,
+                    "left": "fast\u{7}",
+                },
+            })),
+        };
+        let cli = CliError::from_rpc(error);
+        assert_eq!(cli.exit, ExitCode::Contract, "still a contract error");
+        let message = &cli.message;
+        assert!(message.contains("the model `gpt-x`"), "{message}");
+        assert!(message.contains("kept `fast\\u{0007}`"), "{message}");
+        assert!(
+            message.contains("model-19"),
+            "the twentieth is shown: {message}"
+        );
+        assert!(
+            !message.contains("model-20"),
+            "the twenty-first is not: {message}"
+        );
+        assert!(
+            message.contains("and 8 more"),
+            "the rest are counted: {message}"
+        );
+        assert!(message.contains("evil\\u{001b}[2J"), "escaped: {message}");
+        assert!(
+            !message.contains('\u{1b}') && !message.contains('\u{7}'),
+            "no control character reaches the terminal: {message:?}"
+        );
+        assert!(
+            !message.contains("raw detail"),
+            "the daemon's prose is not printed in place of the escaped words"
+        );
+        assert!(message.contains("remedy: Ask for one of the values"));
+
+        // Under --json, stdout still carries exactly one object.
+        let (mut out, mut err) = strings();
+        render_error(&cli, Format::Json, &mut out, &mut err).unwrap();
+        let printed = String::from_utf8(out).unwrap();
+        assert_eq!(printed.trim().lines().count(), 1, "{printed}");
+        let parsed: Value = serde_json::from_str(printed.trim()).expect("one JSON object");
+        assert_eq!(parsed["error"]["code"], 11);
+        assert!(err.is_empty());
+
+        // Any other daemon error reads exactly as before.
+        let other = meltemi_client::rpc::RpcError {
+            code: 2004,
+            message: "session not found".into(),
+            data: None,
+        };
+        assert_eq!(
+            CliError::from_rpc(other.clone()).message,
+            CliError::contract(other).message
+        );
     }
 
     #[test]

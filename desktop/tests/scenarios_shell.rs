@@ -5282,8 +5282,9 @@ fn the_model_is_searched_offered_and_never_priced() {
         "a live change is warned about, and only while something is running"
     );
     assert!(
-        detail.contains("session.model"),
-        "and the session shows the model that governed it"
+        detail.contains("governed.model") && detail.contains("session?.model"),
+        "and the session shows the model that governed it: what the agent confirmed, \
+         else its record (modelo-por-opcion-anunciada D6)"
     );
 
     for key in [
@@ -5349,5 +5350,81 @@ fn the_fleet_drill_in_shows_the_harness_with_the_layer_each_piece_comes_from() {
     assert!(
         !fleet.contains("harness/set") && !fleet.contains("harness/write"),
         "and it invokes no writing verb, because none exists"
+    );
+}
+
+// Scenario: La conversación dice la palanca rehusada
+#[test]
+fn the_conversation_says_the_refused_lever_what_was_asked_and_why() {
+    // The fold reads the refusal as its own item, bounded, and an executed case
+    // pins it; the view says it in words in both languages, and the session's
+    // own ending is translated like every other (modelo-por-opcion-anunciada
+    // design D4).
+    let tests = read("desktop/ui/tests/conversation.test.ts");
+    assert!(
+        tests.contains("La conversación dice la palanca rehusada"),
+        "the fold has an executed case for the refused lever"
+    );
+    let fold = read("desktop/ui/src/lib/conversation.ts");
+    assert!(
+        fold.contains("event.type === \"lever_refused\"")
+            && fold.contains("kind: \"lever\"")
+            && fold.contains("LEVER_LISTED"),
+        "the fold reads the refusal as its own, bounded item"
+    );
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    let block = detail
+        .split("{:else if item.kind === \"lever\"}")
+        .nth(1)
+        .expect("the conversation renders the refused lever")
+        .split("{:else if")
+        .next()
+        .expect("its block");
+    for piece in [
+        "⊘",
+        "$t(\"conv.lever.refused\"",
+        "requested: item.requested",
+        "leverReason(item)",
+        "$t(\"conv.lever.announced\"",
+        "$t(\"conv.lever.more\"",
+    ] {
+        assert!(
+            block.contains(piece),
+            "a glyph, the lever, what was asked, why and what was announced: {piece}"
+        );
+    }
+    assert!(
+        detail.contains("`conv.lever.reason.${item.reason}`"),
+        "the reason is put in words, never shown as the contract's identifier"
+    );
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    for key in [
+        "\"conv.lever.refused\":",
+        "\"conv.lever.model\":",
+        "\"conv.lever.effort\":",
+        "\"conv.lever.reason.not_announced\":",
+        "\"conv.lever.reason.ambiguous\":",
+        "\"conv.lever.reason.not_a_value\":",
+        "\"conv.lever.reason.not_confirmed\":",
+        "\"conv.lever.reason.mode_changed\":",
+        "\"conv.lever.reason.no_answer\":",
+        "\"conv.lever.kept\":",
+        "\"conv.lever.movedMode\":",
+        "\"conv.lever.announced\":",
+        "\"conv.lever.more\":",
+        "\"end.lever_refused\":",
+    ] {
+        assert_eq!(
+            messages.matches(key).count(),
+            2,
+            "both languages carry {key}"
+        );
+    }
+    // What governed is read off the log while the session runs: the record
+    // learns an announced lever only when the session closes.
+    assert!(
+        detail.contains("lines[index].kind !== \"levers_applied\"")
+            && detail.contains("governed.model || governed.effort"),
+        "the chip shows what the agent confirmed, not only what the record says"
     );
 }
