@@ -47,9 +47,34 @@ The daemon listens **only** on a local endpoint, never a network port:
 
 ### Remote use over SSH
 
-To drive Meltemi on a remote machine, forward the **local socket** over an SSH
-tunnel; the daemon itself never opens a network port. Forward the Unix socket
-(`ssh -L`), then point the client at the forwarded endpoint.
+The daemon never opens a network port: remote use rides the user's own SSH.
+Which end runs what:
+
+- **On the daemon's machine (macOS/Linux)**: `meltemi tunnel <user@host>`
+  prints the `ssh -R` command that pushes this daemon's socket out to the
+  remote host, with a heartbeat so a dead tunnel ends instead of lingering.
+  The far end then points `MELTEMI_ENDPOINT` at the forwarded socket.
+- **On a macOS/Linux client's machine**: the same socket can be pulled in with
+  `ssh -L <local.sock>:<daemon.sock> <host>` — the mirror image, run from the
+  other end.
+- **When the daemon is on Windows**: its named pipe cannot be forwarded at
+  all; `ssh <pc> meltemi bridge` carries the connection over SSH's own stdio,
+  and the scriptable verbs (`ssh <pc> meltemi permissions`, …) run on the PC
+  itself.
+
+A client whose `MELTEMI_ENDPOINT` points at a forwarded socket never starts a
+daemon there: if the tunnel is down, it says so and names the tunnel. The
+served Windows PC, the phone and the waiting settings are in
+[acceso-remoto.md](acceso-remoto.md).
+
+### Isolating an environment
+
+`MELTEMI_ENDPOINT`, `MELTEMI_DATA_DIR`, `MELTEMI_CONFIG_DIR` and
+`MELTEMI_DAEMON_BIN` isolate a daemon from the user's own — for tests, scripts
+or a second setup. A client starts a daemon on demand only at the user's own
+endpoint; to let it start one at an isolated endpoint, also set
+`MELTEMI_START_HERE=1`. Without it, a client that finds nothing there refuses
+at once instead of starting one.
 
 ## Windows (git-bash) {#windows-git-bash}
 

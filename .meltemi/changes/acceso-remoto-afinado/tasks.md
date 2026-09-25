@@ -38,7 +38,7 @@ pruebas del arranque cargan el `meltemid` ya construido.
 
 ## 3. Documentación y smoke
 
-- [ ] 3.1 `docs/acceso-remoto.md`: «Windows como PC servido», «Desde el
+- [x] 3.1 `docs/acceso-remoto.md`: «Windows como PC servido», «Desde el
   teléfono, hoy» (absorbe «Aprobar desde el teléfono, hoy»: verbos, TUI por
   `ssh -t` con 80×24, `MELTEMI_BELL`, lo que no hay) y «Cuánto se espera al
   humano»; `docs/plataformas.md` sin contradecir al helper; la bandera

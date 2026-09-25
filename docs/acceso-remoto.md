@@ -27,8 +27,7 @@ con la misma superficie de ataque: ninguna.
 Sobre un túnel vivo, cualquier cliente (TUI, GUI, y en fase 3 el compañero
 móvil) ejerce los tres verbos del control remoto, todos por paridad de núcleo
 (§4) y ninguno exclusivo de una sola superficie. Y por el SSH del propio
-usuario, sin túnel, los ejerce la CLI (ver [Aprobar desde el teléfono,
-hoy](#aprobar-desde-el-teléfono-hoy)):
+usuario, sin túnel, los ejerce la CLI (ver [Desde el teléfono, hoy](#desde-el-teléfono-hoy)):
 
 - **Monitorear** — `session/list` y `session/log` consultan las sesiones activas
   e históricas y su transcripción JSONL; `session/watch` sigue una en vivo
@@ -42,7 +41,9 @@ hoy](#aprobar-desde-el-teléfono-hoy)):
   terminada y reanudable. Cada instrucción queda registrada en el log (encolada,
   luego despachada), de modo que la dirección remota es auditable.
 
-## Aprobar desde el teléfono, hoy
+## Desde el teléfono, hoy
+
+### Aprobar y seguir sin la TUI
 
 No hace falta túnel, ni puente, ni la TUI: basta el SSH del propio usuario hasta
 la máquina del daemon, desde cualquier app de terminal del teléfono. Cada orden
@@ -80,6 +81,50 @@ Un `watch` conectado cuenta como cliente: con la política de espera por omisió
 —exactamente como con la GUI abierta—, y eso es lo que da tiempo a aprobar desde
 el teléfono.
 
+### La TUI por SSH
+
+La interfaz completa también llega al teléfono: `ssh -t <tu-pc> meltemi` abre la
+TUI en la app de terminal. `-t` pide la terminal que la TUI necesita, y la TUI
+exige al menos **80×24**: por debajo muestra un aviso en vez de dibujarse a
+medias, así que en un teléfono suele pedir la pantalla en horizontal o una
+fuente más chica.
+
+### La campana como aviso local
+
+Con `MELTEMI_BELL=1`, la TUI toca la campana del terminal cuando algo te
+necesita: una petición de permiso que espera, un gate que espera tu decisión,
+una sesión que terminó. Algunas apps de terminal convierten la campana en una
+notificación del teléfono —si lo hacen y cómo depende de cada app—, y ese aviso
+no pasa por ningún servidor: es la misma conexión SSH que ya tenías abierta.
+En un PC macOS/Linux, `ssh -t <tu-pc> MELTEMI_BELL=1 meltemi`; en uno Windows,
+fija `MELTEMI_BELL=1` entre las variables de entorno de tu usuario.
+
+### Lo que no hay
+
+No hay push sin conexión: si el teléfono no tiene una sesión SSH abierta con el
+PC, nada le avisa. Es la frontera de esta página, no un olvido (ver [Sin push
+sin túnel — y por qué](#sin-push-sin-túnel--y-por-qué)). El aviso de espera
+opt-in —emitido por un proceso tuyo, nunca por el daemon— está especificado y
+todavía no existe.
+
+## Cuánto se espera al humano
+
+Cada espera tiene su ajuste, en el `config.toml` global o en el
+`.meltemi/config.toml` del proyecto (el del proyecto manda):
+
+| Ajuste | Por omisión | Qué hace |
+|---|---|---|
+| `[permissions] wait` | `"while-connected"` | Cuánto espera una petición de los flujos interactivos (`session`, `propose`, el ciclo SDD, `direct`): mientras haya un cliente conectado, o los segundos que digas (`wait = 300`). Al vencer se deniega y queda registrada como vencida. |
+| `[permissions] implement-wait` | `30` | Lo mismo para los turnos autónomos de `implement`: acotado, para que un pipeline desatendido no se quede parado en silencio. |
+| `[permissions] no-client-grace` | `30` | Segundos que una petición sobrevive sin ningún cliente conectado antes de la denegación constitucional (§3): absorbe un corte breve del túnel. |
+| `[sessions] idle-timeout` | `900` | Segundos que una sesión espera su siguiente instrucción con el agente vivo; `0` no espera. |
+| `[sessions] max-idle` | `3` | Cuántas sesiones pueden esperar a la vez; al llegar, se cierra la que más lleva esperando. |
+| `[sessions] lever-wait` | `30` | Segundos que el agente tiene para confirmar un modelo o un esfuerzo pedidos por lo que anunció, antes de que la sesión se rehúse sin enviar el prompt. |
+
+Cualquier cliente conectado cuenta: la GUI abierta, la TUI, un `meltemi watch`
+por SSH. Con `while-connected`, mientras alguno siga conectado, una petición
+espera tu decisión.
+
 ## El helper de túnel
 
 `meltemi tunnel [user@host]` compone —usando el `ssh` que el usuario ya tiene— el
@@ -87,6 +132,18 @@ comando exacto de reenvío inverso (`ssh -R`) que lleva el endpoint local de est
 daemon al host remoto, más el snippet equivalente de `~/.ssh/config` y el valor
 de `MELTEMI_ENDPOINT` que el extremo remoto debe fijar. Con `--exec` lanza ese
 `ssh` como proceso visible; jamás deja túneles en segundo plano sin pedirlo.
+
+El comando lleva latido (`ServerAliveInterval=30`, `ServerAliveCountMax=3`) y
+`ExitOnForwardFailure=yes`: sin respuesta del otro extremo en unos 90 segundos,
+o si el reenvío no se puede montar, `ssh` termina en vez de seguir vivo como
+proceso y muerto como camino. Con `--exec`, cuando termina, `meltemi` dice con
+qué estado y qué suele significar, y un túnel que murió nunca se presenta como
+un éxito.
+
+Del otro lado, un cliente con `MELTEMI_ENDPOINT` apuntando al socket reenviado
+**nunca arranca un daemon ahí**: si el túnel está caído, lo dice y nombra el
+túnel, en lugar de levantar un daemon local vacío con ese nombre que responda
+en nombre de tu PC.
 
 El helper es un **formateador**: no abre sockets propios, no introduce transporte
 de red en el daemon y nunca genera, lee ni almacena material de claves. Se
@@ -122,6 +179,40 @@ incómodo— y su remedio nombra este comando.
 Si no hay daemon escuchando, el puente rehúsa de inmediato con su remedio en
 lugar de esperar: al otro lado de un `ssh` no hay nadie mirando un indicador de
 progreso.
+
+## Windows como PC servido
+
+Un PC con Windows se sirve con el servidor OpenSSH que Windows trae como
+característica opcional. En una PowerShell **de administrador** del PC:
+
+```
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Start-Service sshd
+Set-Service -Name sshd -StartupType Automatic
+```
+
+Opcional, que las sesiones SSH abran PowerShell en vez de `cmd`:
+
+```
+New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force
+```
+
+Desde el otro extremo, con `meltemi` en el `PATH` del PC:
+
+- `ssh <tu-pc> meltemi bridge` — un canal JSON-RPC completo hacia el daemon: el
+  último metro de arriba, y lo único que alcanza un named pipe desde fuera.
+- `ssh <tu-pc> meltemi permissions`, `approve`, `watch`… — los verbos sin TUI
+  (ver [Desde el teléfono, hoy](#desde-el-teléfono-hoy)).
+- `ssh -t <tu-pc> meltemi` — la TUI.
+
+Conviene que el daemon lo arranque la sesión de escritorio del PC —abrir la
+aplicación, o `meltemi status` en una terminal local— antes de irse.
+
+**Medido**, en Windows y por las pruebas e2e del repositorio: el puente contra
+un named pipe con su entrada y salida en tuberías, y los verbos sin terminal
+contra el daemon. **No medido**: el tramo a través de un `sshd` real de
+Windows, y qué pasa si lo primero que arranca el daemon es una sesión SSH en vez
+de la de escritorio.
 
 ## El punto de encuentro: acceso en dos vías
 
