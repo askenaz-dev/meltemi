@@ -20,7 +20,7 @@
   la propuesta de `motor-propio-byok` (design D6) — escenario «Lo que no se
   lanza no se promete» — gates: tests de docs
 
-- [ ] 1.4 Enlaces: la sección OpenCode de `docs/agentes.md`, el README, el
+- [x] 1.4 Enlaces: la sección OpenCode de `docs/agentes.md`, el README, el
   LEEME y la página de agentes del sitio en sus dos idiomas, sin nombres de
   terceros donde no se pueden nombrar (design D7) — escenario «La página de
   agentes enlaza la guía de modelos propios» — gates: lint del sitio, tests de

@@ -105,6 +105,9 @@ the surfaces show which of the two you are looking at.
 
 - Level 1 (native ACP), launched as `opencode acp`.
 - Meltemi looks for: `opencode`
+- Your own model — on your machine, behind one endpoint for many providers, or
+  through an aggregator — goes through OpenCode's own configuration: the
+  verified recipes and their profiles are in [the local-models guide](local-models.md).
 
 ### claude-code — Claude Code
 
