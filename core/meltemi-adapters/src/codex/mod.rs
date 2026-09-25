@@ -155,6 +155,8 @@ pub struct CodexSession {
     control: Mutex<Option<ChildProcess>>,
     /// The turn in flight, and whether it has been asked to stop.
     turn: TurnControl,
+    /// What the session has already shown, which outlives any one turn.
+    mapper: Mutex<mapping::Mapper>,
     /// Where this session's updates go.
     stream: AcpStream,
     /// How long the provider gets to exit on its own.
@@ -170,6 +172,7 @@ impl ProviderSession for CodexSession {
         // One turn at a time is the bridge's own invariant, so holding the
         // incoming half for the length of a turn takes nothing from anyone.
         let mut incoming = self.incoming.lock().await;
+        let mut mapper = self.mapper.lock().await;
 
         let params = wire::TurnStartParams {
             thread_id: self.turn.thread_id.clone(),
@@ -187,6 +190,7 @@ impl ProviderSession for CodexSession {
             &self.stream,
             &self.stream.session_id,
             &params,
+            &mut mapper,
         )
         .await?
         {
@@ -360,12 +364,12 @@ async fn drive_turn<W, S>(
     stream: &S,
     session_id: &SessionId,
     params: &wire::TurnStartParams,
+    mapper: &mut mapping::Mapper,
 ) -> Result<TurnOutcome, Refusal>
 where
     W: AsyncWrite + Unpin + Send,
     S: TurnStream,
 {
-    let mut mapper = mapping::Mapper::new();
     let started = peer.request(wire::TURN_START, params);
     let mut started = std::pin::pin!(started);
     let mut answered = false;
@@ -391,7 +395,7 @@ where
                     // server already said belongs to it. Returning without
                     // showing what is still queued would silently swallow the
                     // whole turn whenever the answer happened to win the race.
-                    drain(peer, incoming, turn, stream, session_id, &mut mapper).await?;
+                    drain(peer, incoming, turn, stream, session_id, mapper).await?;
                     return Ok(outcome);
                 }
             }
@@ -405,7 +409,7 @@ where
                     return Err(provider_gone());
                 };
                 if let Some(outcome) =
-                    handle(peer, turn, stream, session_id, &mut mapper, message).await?
+                    handle(peer, turn, stream, session_id, mapper, message).await?
                 {
                     return Ok(outcome);
                 }
@@ -698,6 +702,12 @@ impl ProviderDialect for CodexDialect {
             session_id.clone(),
             SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta())),
         ));
+        // And, before the first turn, what the gate does not cover: a loss the
+        // hard-gate requirement keeps visible rather than silent.
+        let _ = cx.send_notification(SessionNotification::new(
+            session_id.clone(),
+            mapping::uncovered_by_gate(),
+        ));
 
         // The id it was handed: this dialect keeps no sessions of its own to
         // resume, so it has no better name to answer to.
@@ -708,6 +718,7 @@ impl ProviderDialect for CodexDialect {
                 incoming: Mutex::new(incoming),
                 control: Mutex::new(Some(control)),
                 turn: TurnControl::new(thread_id, INTERRUPT_GRACE),
+                mapper: Mutex::new(mapping::Mapper::new()),
                 stream: AcpStream { session_id, cx },
                 shutdown: self.shutdown,
             },
@@ -1182,7 +1193,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             let call = server.next_call().await;
             assert_eq!(call["method"], wire::TURN_START);
@@ -1228,7 +1248,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             let start = server.next_call().await;
             interrupt(&peer, &turn).await;
@@ -1283,7 +1312,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             let start = server.next_call().await;
             assert_eq!(start["method"], wire::TURN_START);
@@ -1348,7 +1386,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             server.next_call().await;
             server
@@ -1385,7 +1432,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             let start = server.next_call().await;
             server
@@ -1435,7 +1491,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             let start = server.next_call().await;
             server
@@ -1474,7 +1539,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             server.next_call().await;
             drop(server);

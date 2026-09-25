@@ -245,6 +245,29 @@ async fn the_daemon_pilots_the_real_adapter_and_the_provider_reaches_the_permiss
     );
     assert_eq!(provenance["providerVersion"], "0.156.1");
 
+    // Scenario: Lo que la compuerta del CLI no cubre se declara al abrir
+    //
+    // What Codex runs without asking the proxy is on the record before the
+    // first turn: the row comes before the prompt in the append-only log.
+    let at = |found: &dyn Fn(&Value) -> bool| events.iter().position(found);
+    let gate_row = at(&|event| {
+        event["type"] == "agent_update"
+            && event["payload"]["update"]["toolCallId"] == "meltemi:gate"
+    })
+    .unwrap_or_else(|| panic!("the losses are declared: {events:#?}"));
+    let prompt = at(&|event| event["type"] == "prompt_sent")
+        .unwrap_or_else(|| panic!("the prompt is in the log: {events:#?}"));
+    assert!(gate_row < prompt, "declared before the first turn");
+    // And the MCP server the scripted CLI reported, named once.
+    assert_eq!(
+        updates
+            .iter()
+            .filter(|update| update["toolCallId"] == "meltemi:mcp-server:mock-tools")
+            .count(),
+        1,
+        "{updates:#?}"
+    );
+
     // And the turn streamed: the message the wire sent in chunks is in the log.
     let said: String = updates
         .iter()

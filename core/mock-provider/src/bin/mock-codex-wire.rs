@@ -49,6 +49,7 @@ const SCHEMAS: &[(&str, &str)] = vendored_schemas![
     "ItemCompletedNotification.json",
     "ItemStartedNotification.json",
     "JSONRPCMessage.json",
+    "McpServerStatusUpdatedNotification.json",
     "ReasoningSummaryTextDeltaNotification.json",
     "ReasoningTextDeltaNotification.json",
     "ServerRequestResolvedNotification.json",

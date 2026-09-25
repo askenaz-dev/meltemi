@@ -82,9 +82,9 @@ archivo del volcado llega con la tarea que lo usa.
   de confianza, pidió aprobación de comando (`kind: "command"`) y corrió al
   concederla. La alternativa `workspace-write` que R5 dejaba abierta no hace
   falta. -->
-- [ ] 2.2 Pérdidas visibles: una fila al abrir la sesión que nombra lo que la
+- [x] 2.2 Pérdidas visibles: una fila al abrir la sesión que nombra lo que la
   compuerta de Codex no cubre, y una fila por servidor MCP que el CLI informa
-  arrancando (`McpServerStartupStatusUpdatedNotification.json` vendorizado, en
+  arrancando (`McpServerStatusUpdatedNotification.json` vendorizado, en
   el guion y en `SCHEMAS`) (design D5) — escenarios «Lo que la compuerta del CLI
   no cubre se declara al abrir», «Un servidor de herramientas que el CLI arranca
   se nombra» — gates: suite de `meltemi-adapters`, e2e del adaptador

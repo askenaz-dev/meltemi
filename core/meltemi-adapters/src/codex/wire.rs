@@ -109,6 +109,8 @@ pub const REASONING_TEXT_DELTA: &str = "item/reasoning/textDelta";
 pub const REASONING_SUMMARY_TEXT_DELTA: &str = "item/reasoning/summaryTextDelta";
 /// The turn hit an error; `willRetry` says whether the server carries on.
 pub const ERROR: &str = "error";
+/// An MCP server from the CLI's own configuration changed its startup state.
+pub const MCP_SERVER_STARTUP_STATUS: &str = "mcpServer/startupStatus/updated";
 
 // --- Requests the server makes of the adapter ---------------------------
 
@@ -227,6 +229,18 @@ pub enum ApprovalsReviewer {
 pub struct Thread {
     /// The thread id every later call carries.
     pub id: String,
+}
+
+/// `mcpServer/startupStatus/updated`, of which the adapter reads the server's
+/// name: it is enough to say, once, that the server exists.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerStartupStatus {
+    /// The server's name in the CLI's configuration.
+    pub name: String,
+    /// Its startup state, when the server says it.
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 /// `thread/start` result.

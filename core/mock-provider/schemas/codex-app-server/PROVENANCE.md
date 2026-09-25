@@ -41,7 +41,11 @@ Además de lo que el adaptador envía y mapea, se vendorizan
 `ThreadTokenUsageUpdatedNotification.json` y
 `ServerRequestResolvedNotification.json`: tres notificaciones que el servidor
 real intercala en cada turno y que el adaptador no mapea. El guion las lleva
-para probar que ignorarlas no cuesta nada, y por eso se validan.
+para probar que ignorarlas no cuesta nada, y por eso se validan. Y
+`McpServerStatusUpdatedNotification.json`: el servidor informa así cada
+servidor MCP que arranca desde la configuración del propio CLI, y el adaptador
+lo nombra en la sesión, porque corre fuera del sandbox del CLI y fuera del
+proxy (codex-al-dia design D5).
 
 La transcripción del servidor real vive junto al guion, saneada:
 `../../scripts/codex-app-server-0.156.1.transcript.ndjson`. Es evidencia, no un

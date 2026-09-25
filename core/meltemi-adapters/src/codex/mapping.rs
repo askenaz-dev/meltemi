@@ -85,10 +85,13 @@ impl Mapped {
 pub struct Mapper {
     /// Items whose text already reached the session as chunks.
     streamed: HashSet<String>,
+    /// MCP servers of the CLI's own configuration already named in the
+    /// session. The mapper lives as long as the session, so each is named once.
+    announced_servers: HashSet<String>,
 }
 
 impl Mapper {
-    /// A mapper for a fresh turn.
+    /// A mapper for a fresh session.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -116,8 +119,39 @@ impl Mapper {
             }
             wire::ITEM_STARTED => self.item(params, false),
             wire::ITEM_COMPLETED => self.item(params, true),
+            wire::MCP_SERVER_STARTUP_STATUS => self.mcp_server(params),
             _ => Mapped::default(),
         }
+    }
+
+    /// An MCP server the CLI starts from its own configuration: named in the
+    /// session the first time it is reported, and never again (codex-al-dia
+    /// design D5). It runs outside the CLI's sandbox, and the calls the CLI
+    /// does not submit for approval never reach the proxy; saying so is what
+    /// keeps that loss visible.
+    fn mcp_server(&mut self, params: &Value) -> Mapped {
+        let Some(server) = parse::<wire::McpServerStartupStatus>(params) else {
+            return Mapped::noted(format!("unreadable MCP server status: {params}"));
+        };
+        if !self.announced_servers.insert(server.name.clone()) {
+            return Mapped::default();
+        }
+        Mapped::updates(vec![SessionUpdate::ToolCall(
+            ToolCall::new(
+                format!("meltemi:mcp-server:{}", server.name),
+                format!(
+                    "MCP server `{}` from the Codex configuration: outside the permission proxy",
+                    server.name
+                ),
+            )
+            .kind(ToolKind::Other)
+            .status(ToolCallStatus::Completed)
+            .content(vec![text_content(
+                "Codex starts this server from its own configuration. It runs outside Codex's \
+                 sandbox, and the calls Codex does not submit for approval run without Meltemi's \
+                 permission proxy deciding.",
+            )]),
+        )])
     }
 
     /// A streamed chunk of an item's text.
@@ -215,6 +249,29 @@ impl Mapper {
         }
         Mapped::signal(Signal::TurnFailed(error.error.message))
     }
+}
+
+/// The row that opens every session: what Codex still runs without asking the
+/// permission proxy under the strictest gate it offers (codex-al-dia design
+/// D5). The hard-gate requirement promises visible losses; this is the one this
+/// provider cannot close from the adapter.
+#[must_use]
+pub fn uncovered_by_gate() -> SessionUpdate {
+    SessionUpdate::ToolCall(
+        ToolCall::new(
+            "meltemi:gate",
+            "Codex runs some things without asking the permission proxy",
+        )
+        .kind(ToolKind::Other)
+        .status(ToolCallStatus::Completed)
+        .content(vec![text_content(
+            "Under the strictest gate Codex offers (approval policy `untrusted`, a read-only \
+             sandbox, approvals sent to Meltemi), these still run without a decision from the \
+             permission proxy: commands Codex trusts as read-only, inside its read-only sandbox; \
+             the provider's own web search; and calls to MCP servers from Codex's configuration \
+             that Codex does not submit for approval, which run outside its sandbox.",
+        )]),
+    )
 }
 
 /// The text of a prompt, as the wire takes it.
@@ -505,6 +562,49 @@ mod tests {
             Some(1),
             "so a client can follow along to the file"
         );
+    }
+
+    #[test]
+    fn what_the_gate_does_not_cover_is_said_before_anything_else() {
+        // Scenario: Lo que la compuerta del CLI no cubre se declara al abrir
+        //
+        // The row the session opens with (the adapter sends it before the
+        // first turn; the daemon's end-to-end test checks the order).
+        let SessionUpdate::ToolCall(row) = uncovered_by_gate() else {
+            panic!("the losses are a row the surfaces already draw");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "meltemi:gate");
+        assert_eq!(row.kind, ToolKind::Other);
+        assert_eq!(row.status, ToolCallStatus::Completed);
+        let said = format!("{:?}", row.content);
+        for loss in ["read-only", "web search", "MCP servers"] {
+            assert!(said.contains(loss), "the row names `{loss}`: {said}");
+        }
+    }
+
+    #[test]
+    fn an_mcp_server_the_cli_starts_is_named_once_per_session() {
+        // Scenario: Un servidor de herramientas que el CLI arranca se nombra
+        //
+        // As 0.156.1 reports it (recorded 2026-09-24): starting, then ready, and
+        // again in a later turn. One row, the first time.
+        let mut mapper = Mapper::new();
+        let report = |status: &str| json!({"threadId": "t", "name": "node_repl", "status": status, "error": null, "failureReason": null});
+        let first = mapper.map(wire::MCP_SERVER_STARTUP_STATUS, &report("starting"));
+        let [SessionUpdate::ToolCall(row)] = first.updates.as_slice() else {
+            panic!("the server is named: {first:?}");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "meltemi:mcp-server:node_repl");
+        assert!(row.title.contains("node_repl") && row.title.contains("permission proxy"));
+        for status in ["ready", "ready"] {
+            let again = mapper.map(wire::MCP_SERVER_STARTUP_STATUS, &report(status));
+            assert!(again.updates.is_empty(), "never twice: {again:?}");
+        }
+        let other = mapper.map(
+            wire::MCP_SERVER_STARTUP_STATUS,
+            &json!({"threadId": "t", "name": "codex_apps", "status": "starting"}),
+        );
+        assert_eq!(other.updates.len(), 1, "another server is another row");
     }
 
     #[test]

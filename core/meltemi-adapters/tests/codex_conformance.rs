@@ -265,6 +265,10 @@ fn params_schema() -> BTreeMap<&'static str, &'static str> {
             "serverRequest/resolved",
             "ServerRequestResolvedNotification.json",
         ),
+        (
+            wire::MCP_SERVER_STARTUP_STATUS,
+            "McpServerStatusUpdatedNotification.json",
+        ),
     ])
 }
 
