@@ -71,7 +71,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 4. Documentación
 
-- [ ] 4.1 `docs/acceso-remoto.md` gana «Aprobar desde el teléfono, hoy» (la
+- [x] 4.1 `docs/acceso-remoto.md` gana «Aprobar desde el teléfono, hoy» (la
   receta, sin túnel, una petición por vez, `watch` para seguir, qué muestra la
   cola y dónde está el resto) con su test de docs; `docs/paridad-nucleo.md`
   nombra los verbos en las cinco filas; el pin del escenario restablecido

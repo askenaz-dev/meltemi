@@ -26,17 +26,59 @@ con la misma superficie de ataque: ninguna.
 
 Sobre un túnel vivo, cualquier cliente (TUI, GUI, y en fase 3 el compañero
 móvil) ejerce los tres verbos del control remoto, todos por paridad de núcleo
-(§4) y ninguno exclusivo de una sola superficie:
+(§4) y ninguno exclusivo de una sola superficie. Y por el SSH del propio
+usuario, sin túnel, los ejerce la CLI (ver [Aprobar desde el teléfono,
+hoy](#aprobar-desde-el-teléfono-hoy)):
 
 - **Monitorear** — `session/list` y `session/log` consultan las sesiones activas
-  e históricas y su transcripción JSONL.
+  e históricas y su transcripción JSONL; `session/watch` sigue una en vivo
+  (`meltemi sessions`, `meltemi log`, `meltemi watch`).
 - **Aprobar** — la cola de permisos sobrevive a las reconexiones: una petición
   de permiso pendiente sigue ahí cuando el cliente vuelve, y se resuelve en
-  remoto igual que en local.
+  remoto igual que en local (`meltemi permissions`, `meltemi approve`,
+  `meltemi deny`).
 - **Dirigir** — `session/direct` envía una instrucción a una sesión existente:
   se encola como el siguiente turno de una sesión activa, o reanuda una sesión
   terminada y reanudable. Cada instrucción queda registrada en el log (encolada,
   luego despachada), de modo que la dirección remota es auditable.
+
+## Aprobar desde el teléfono, hoy
+
+No hace falta túnel, ni puente, ni la TUI: basta el SSH del propio usuario hasta
+la máquina del daemon, desde cualquier app de terminal del teléfono. Cada orden
+corre **en esa máquina** y habla con su daemon por el socket local —también por
+el named pipe de Windows, que la orden alcanza desde dentro—, y ninguna pregunta
+nada, lee el teclado ni pide un tamaño de pantalla:
+
+```
+ssh <tu-pc> meltemi permissions
+ssh <tu-pc> meltemi approve perm-3
+ssh <tu-pc> meltemi watch <sesión>
+```
+
+`permissions` lista lo que espera una decisión —id, sesión, herramienta, título,
+cuánto lleva esperando y cuándo vence— y, bajo cada petición, las opciones que
+su agente ofreció. `approve <id>` elige la aprobación de una sola vez cuando el
+agente ofreció exactamente una; `deny <id>` elige su rechazo, o cancela si no
+ofreció ninguno; `--option <id>` nombra otra de esas opciones, y nombrarla es
+consentirla. **Una petición por vez, nunca en bloque**: para conceder sin que te
+pregunten está la regla de permisos, que queda escrita, auditada y con alcance.
+
+La primera decisión gana. Si la bandeja de la GUI o de la TUI ya decidió la
+petición, la tuya no se aplica y la orden termina con `12`; si la decides tú,
+las otras superficies la retiran. La cola lleva la herramienta y el título que
+el agente puso; la llamada completa —comando, rutas, contenido— está en el
+registro de la sesión: `ssh <tu-pc> meltemi log <sesión>`.
+
+`watch` imprime cada registro de la sesión a medida que ocurre, uno por línea, y
+termina cuando la sesión termina —o con `10` si el daemon se va—. `Ctrl+C` deja
+de seguirla sin cancelarla; cancelarla es `meltemi cancel <sesión>`, lo mismo
+que la `x` de la TUI.
+
+Un `watch` conectado cuenta como cliente: con la política de espera por omisión
+(`while-connected`), una petición espera tu decisión en lugar de denegarse
+—exactamente como con la GUI abierta—, y eso es lo que da tiempo a aprobar desde
+el teléfono.
 
 ## El helper de túnel
 

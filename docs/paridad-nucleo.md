@@ -25,9 +25,9 @@ future change — never a silent omission.
 | `context/project` | `project` | `project` | registry |
 | `harness/effective` | `harness` | `harness [agente]` (bajo Flota) | registry + drill-in de Flota |
 | `session/list` | `sessions` | `sessions` | registry + Sessions view |
-| `session/log` | — | `sessions` (drill-in) | registry + session drill-in |
-| `session/watch` | — | `sessions` (drill-in) | registry + session drill-in (live stream) |
-| `session/cancel` | — | `cancel` (`x`) | registry + session drill-in |
+| `session/log` | `log` | `sessions` (drill-in) | registry + session drill-in |
+| `session/watch` | `watch` | `sessions` (drill-in) | registry + session drill-in (live stream) |
+| `session/cancel` | `cancel` | `cancel` (`x`) | registry + session drill-in |
 | `session/direct` | `direct` | `direct` (drill-in, entrada de instrucción) | registry |
 | `session/set-config-option` | `set-option` | `set-option` (reservado) | registry + selector en la ficha de sesión |
 | `session/start` | `session` | `session` | registry |
@@ -56,8 +56,8 @@ future change — never a silent omission.
 | `change/land` | `land` | `land` | registry |
 | `spec/list` | `specs` | `specs` | registry + Project view |
 | `spec/show` | `specs <capability>` | `specs` | registry |
-| `permission/pending` | the terminal approver (every verb: a question is asked only while it still stands) | `permissions` (`a`, tray) | registry + Permissions view |
-| `permission/decide` | the terminal approver (`r` + `y` in `session` and `propose`) | `permissions` (tray) | registry + Permissions view |
+| `permission/pending` | `permissions`; the terminal approver (every verb: a question is asked only while it still stands) | `permissions` (`a`, tray) | registry + Permissions view |
+| `permission/decide` | `approve`, `deny`; the terminal approver (`r` + `y` in `session` and `propose`) | `permissions` (tray) | registry + Permissions view |
 | `worktree/assign` | `assign` | `assign` | registry |
 | `worktree/list` | `worktrees` | `worktrees` | registry |
 | `worktree/remove` | — | `worktree-remove` | registry |

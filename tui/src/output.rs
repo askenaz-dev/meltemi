@@ -299,6 +299,7 @@ mod tests {
 
     #[test]
     fn json_outcome_is_one_object_on_stdout() {
+        // Scenario: Éxito en JSON emite un objeto
         let (mut out, _err) = strings();
         let outcome = Outcome {
             human: "ignored".into(),
