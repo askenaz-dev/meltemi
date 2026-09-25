@@ -54,10 +54,11 @@ los e2e cargan el binario `mock-agent` ya construido.
   «Lo que rigió queda en el registro», «Lo rehusado no figura como lo que rigió»
   — gates: suite de `meltemid`
 
-- [ ] 2.4 Todos los verbos que arrancan un agente: resuelven y reparten las
+- [x] 2.4 Todos los verbos que arrancan un agente: resuelven y reparten las
   palancas antes de sus efectos, aplican las del perfil, y entregan el rehúso
   (`propose` retira su andamio intacto; `dispatch` e `implement` responden el
-  2007, nunca «el agente se negó»); e2e de `propose`, un verbo de autoría,
+  2007, nunca «el agente se negó»); `dispatch` deja de ignorar el `model` y el
+  `effort` de su contrato (design D5); e2e de `propose`, un verbo de autoría,
   `dispatch` e `implement`, cada uno con su rehúso (design D4, D5) — escenarios
   «El modelo del perfil rige en todo verbo que arranca un agente», «La sesión
   pisa el default del perfil», «Un perfil sin declaración no impone nada», «El

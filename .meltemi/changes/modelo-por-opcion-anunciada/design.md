@@ -161,6 +161,13 @@ con la misma función, las tres vías de D1, la confirmación de D3 y el rehúso
 D4. Precedencia sin cambios: lo explícito de la sesión pisa el perfil; un perfil
 que no declara no impone. Estos verbos no ganan banderas propias.
 
+Una excepción que ya estaba escrita: el contrato de `worktree/dispatch` lleva
+`model` y `effort` desde `modelo-y-esfuerzo-por-sesion`, y el daemon los
+ignoraba en silencio —exactamente el defecto que esta change existe para
+cerrar—. Pasan a regir como en la sesión libre, pisando al perfil; el CLI sigue
+sin enviarlos. (Hallado al implementar, 2026-09-25; el `mode` del mismo contrato,
+que también se ignora, es autonomía y no palanca: queda anotado aparte.)
+
 ### D6 — El histórico dice lo que rigió, nunca lo que se rehusó
 
 - El evento de resolución y el registro de inicio llevan **solo** lo que viajó
