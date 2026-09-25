@@ -25,8 +25,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use meltemi_proto::{
-    FleetAgent, FleetAgentSource, FleetInstallState, FleetLayer, FleetLayerKind, FleetLayerSource,
-    FleetLegalStatus, FleetListParams, FleetListResult, error_codes,
+    ConformanceResult, FleetAgent, FleetAgentSource, FleetInstallState, FleetLayer, FleetLayerKind,
+    FleetLayerSource, FleetLegalStatus, FleetListParams, FleetListResult, error_codes,
 };
 
 use crate::config::Config;
@@ -903,6 +903,7 @@ pub fn list(
                 // Enriched from persisted conformance in `handle_fleet_list`.
                 verified_level: None,
                 verified_at: None,
+                verified_version: None,
                 mcp_support: entry.mcp,
                 detected: binary.is_some(),
                 binary_path: binary.map(|p| p.display().to_string()),
@@ -942,6 +943,7 @@ pub fn list(
             integration_level: underlying.map_or(1, |e| e.level),
             verified_level: None,
             verified_at: None,
+            verified_version: None,
             mcp_support: underlying.is_some_and(|e| e.mcp),
             detected: binary.is_some(),
             binary_path: binary.map(|p| p.display().to_string()),
@@ -1036,16 +1038,28 @@ pub fn handle_fleet_list(params: Value, state: &Arc<DaemonState>) -> Result<Valu
         &path_var,
         bundled.as_deref(),
     );
-    // Enrich with the verified level from the last persisted conformance run
-    // (design D4): declared vs verified is visible in the surfaces.
-    let verified = crate::conformance::latest_by_agent(&state.data_dir);
+    fold_verified(
+        &mut result,
+        &crate::conformance::latest_by_agent(&state.data_dir),
+    );
+    Ok(serde_json::to_value(result).expect("FleetListResult serializes"))
+}
+
+/// Folds each agent's last persisted conformance run into its row (design
+/// D4): declared vs verified is visible in the surfaces — the level verified,
+/// when, and against which version of the agent (integration-levels, «El
+/// nivel verificado dice contra qué versión se midió»).
+fn fold_verified(
+    result: &mut FleetListResult,
+    runs: &std::collections::HashMap<String, ConformanceResult>,
+) {
     for agent in &mut result.agents {
-        if let Some(run) = verified.get(&agent.id) {
+        if let Some(run) = runs.get(&agent.id) {
             agent.verified_level = Some(run.verified_level);
             agent.verified_at = Some(run.run_at.clone());
+            agent.verified_version = run.agent_version.clone();
         }
     }
-    Ok(serde_json::to_value(result).expect("FleetListResult serializes"))
 }
 
 /// Resolves the agent argv for a new session, honoring the precedence
@@ -1141,6 +1155,39 @@ mod tests {
     /// Windows shims: `.cmd` is a launch target, `.ps1` is evidence only
     /// (flota-deteccion-guia design D4).
     #[cfg(windows)]
+    #[test]
+    fn the_catalog_names_the_version_a_level_was_verified_against() {
+        // Scenario: El catálogo nombra la versión medida
+        let mut result = list(&Config::default(), None, OsStr::new(""), None);
+        let runs = std::collections::HashMap::from([(
+            "codex-cli".to_string(),
+            ConformanceResult {
+                agent_id: "codex-cli".into(),
+                verified_level: 2,
+                agent_version: Some("0.156.1".into()),
+                run_at: "2026-09-24T12:00:00Z".into(),
+                criteria: Vec::new(),
+            },
+        )]);
+        fold_verified(&mut result, &runs);
+        let codex = result
+            .agents
+            .iter()
+            .find(|agent| agent.id == "codex-cli")
+            .expect("the catalog lists Codex");
+        assert_eq!(codex.verified_level, Some(2));
+        assert_eq!(codex.verified_at.as_deref(), Some("2026-09-24T12:00:00Z"));
+        assert_eq!(codex.verified_version.as_deref(), Some("0.156.1"));
+        assert!(
+            result
+                .agents
+                .iter()
+                .filter(|agent| agent.id != "codex-cli")
+                .all(|agent| agent.verified_version.is_none()),
+            "an agent without a run names no version"
+        );
+    }
+
     #[test]
     fn windows_script_shims_are_evidence_not_launch_targets() {
         let dir = std::env::temp_dir().join(format!("mel-shims-{}", std::process::id()));

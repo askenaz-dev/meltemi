@@ -403,6 +403,7 @@ fn fleet_conforms() {
                     integration_level: 1,
                     verified_level: None,
                     verified_at: None,
+                    verified_version: None,
                     mcp_support: false,
                     detected: true,
                     binary_path: Some("C:\\bin\\native-agent.exe".into()),
@@ -425,6 +426,7 @@ fn fleet_conforms() {
                     integration_level: 4,
                     verified_level: None,
                     verified_at: None,
+                    verified_version: None,
                     mcp_support: false,
                     detected: false,
                     binary_path: None,
@@ -447,6 +449,7 @@ fn fleet_conforms() {
                     integration_level: 1,
                     verified_level: None,
                     verified_at: None,
+                    verified_version: None,
                     mcp_support: false,
                     detected: false,
                     binary_path: None,
@@ -471,6 +474,7 @@ fn fleet_conforms() {
                     integration_level: 1,
                     verified_level: None,
                     verified_at: None,
+                    verified_version: None,
                     mcp_support: false,
                     detected: true,
                     binary_path: Some("C:\\bin\\native-agent.exe".into()),
@@ -2972,6 +2976,7 @@ fn a_fleet_row_may_declare_its_auth_context_variable() {
         integration_level: 1,
         verified_level: None,
         verified_at: None,
+        verified_version: None,
         mcp_support: false,
         detected: false,
         binary_path: None,
@@ -3003,6 +3008,55 @@ fn a_fleet_row_may_declare_its_auth_context_variable() {
     let mut broken = serde_json::to_value(&declared).unwrap();
     broken["authContextVar"] = serde_json::json!("");
     assert_rejected("fleet", "fleetAgent", &broken);
+}
+
+/// The version a level was verified against (codex-al-dia design D11):
+/// additive, omissible, and never empty.
+#[test]
+fn a_fleet_row_names_the_version_its_level_was_verified_against() {
+    // Scenario: El catálogo nombra la versión medida
+    let verified = FleetAgent {
+        model: None,
+        effort: None,
+        id: "codex-cli".into(),
+        display_name: "Codex CLI".into(),
+        source: FleetAgentSource::Registry,
+        integration_level: 2,
+        verified_level: Some(2),
+        verified_at: Some("2026-09-24T12:00:00Z".into()),
+        verified_version: Some("0.156.1".into()),
+        mcp_support: false,
+        detected: true,
+        binary_path: None,
+        configured: false,
+        underlying_agent: None,
+        layers: Vec::new(),
+        install_state: None,
+        remedy: None,
+        remedy_command: None,
+        legal_status: None,
+        legal_note: None,
+        auth_context_var: None,
+    };
+    assert_conforms("fleet", "fleetAgent", &verified);
+    let value = serde_json::to_value(&verified).unwrap();
+    assert_eq!(value["verifiedVersion"], "0.156.1");
+
+    let unmeasured = FleetAgent {
+        verified_version: None,
+        ..verified.clone()
+    };
+    assert_conforms("fleet", "fleetAgent", &unmeasured);
+    assert!(
+        serde_json::to_value(&unmeasured)
+            .unwrap()
+            .get("verifiedVersion")
+            .is_none(),
+        "omission leaves no key behind"
+    );
+    let mut empty = value;
+    empty["verifiedVersion"] = serde_json::json!("");
+    assert_rejected("fleet", "fleetAgent", &empty);
 }
 
 /// The subscription link/unlink contract (vincular-suscripciones design D5):

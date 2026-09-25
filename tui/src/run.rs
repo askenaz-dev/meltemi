@@ -1824,6 +1824,16 @@ fn pilot_is_bundled(layers: &[meltemi_proto::FleetLayer]) -> bool {
         .is_some_and(|layer| layer.source == Some(meltemi_proto::FleetLayerSource::Bundled))
 }
 
+/// The verified level in words, with the version it was measured against when
+/// the run recorded one (codex-al-dia design D11).
+fn verified_words(agent: &meltemi_proto::FleetAgent) -> String {
+    match (agent.verified_level, &agent.verified_version) {
+        (Some(level), Some(version)) => format!("verified L{level} with {version}"),
+        (Some(level), None) => format!("verified L{level}"),
+        (None, _) => "unverified".to_string(),
+    }
+}
+
 /// Human rendering of the fleet catalog: detection word, declared level,
 /// id, name, then the detected path and the configured marker.
 fn render_fleet(fleet: &FleetListResult) -> String {
@@ -1844,10 +1854,7 @@ fn render_fleet(fleet: &FleetListResult) -> String {
         } else {
             "not-detected"
         };
-        let verified = match agent.verified_level {
-            Some(v) => format!("verified L{v}"),
-            None => "unverified".to_string(),
-        };
+        let verified = verified_words(agent);
         let _ = write!(
             out,
             "\n  {word}  L{} ({verified})  {:<id_width$}  {}",
@@ -2502,6 +2509,25 @@ fn render_race(result: &WorktreeDiffResult) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_fleet_says_which_version_a_level_was_verified_against() {
+        // Scenario: El catálogo nombra la versión medida
+        let fleet: super::FleetListResult = serde_json::from_value(serde_json::json!({
+            "registryVersion": "2026-09-24",
+            "agents": [
+                {"id": "codex-cli", "displayName": "Codex CLI", "source": "registry",
+                 "integrationLevel": 2, "verifiedLevel": 2, "verifiedAt": "2026-09-24T12:00:00Z",
+                 "verifiedVersion": "0.156.1", "detected": true, "configured": false},
+                {"id": "other", "displayName": "Other", "source": "registry",
+                 "integrationLevel": 1, "detected": false, "configured": false}
+            ]
+        }))
+        .expect("a fleet listing");
+        let out = super::render_fleet(&fleet);
+        assert!(out.contains("verified L2 with 0.156.1"), "{out}");
+        assert!(out.contains("unverified"), "{out}");
+    }
+
     use super::*;
     use meltemi_proto::{FleetResolutionSource, WorktreeCompetitorDiff};
 

@@ -136,7 +136,7 @@ archivo del volcado llega con la tarea que lo usa.
 
 ## 3. Catálogo, evidencia y documentación
 
-- [ ] 3.1 `verifiedVersion` en `fleet/list` desde la corrida persistida
+- [x] 3.1 `verifiedVersion` en `fleet/list` desde la corrida persistida
   (schema de `proto/` aditivo, tipos de `meltemi-proto`, daemon), mostrada en la
   vista Flota de la GUI y de la TUI; `docs/paridad-nucleo.md` al día (design
   D11) — escenario «El catálogo nombra la versión medida» — gates: suites de

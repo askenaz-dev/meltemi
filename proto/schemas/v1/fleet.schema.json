@@ -54,6 +54,11 @@
           "format": "date-time",
           "description": "The date of the conformance run behind verifiedLevel."
         },
+        "verifiedVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The agent version the conformance run behind verifiedLevel measured, as the agent reported it: a level is verified against a version."
+        },
         "mcpSupport": {
           "type": "boolean",
           "description": "Whether the agent declares MCP passthrough support in the registry."

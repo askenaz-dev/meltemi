@@ -3,7 +3,21 @@
 // followed by the subscriptions linked to it. A pure view of what `fleet/list`
 // already returns — nothing is asked of the daemon and nothing is stored.
 
+import type { Translate } from "./i18n";
 import type { FleetAgent } from "./stores";
+
+/**
+ * The level's state in words — `integration-levels` asks for the
+ * declared/verified distinction "con etiqueta textual" — and, when the run
+ * recorded it, the agent version the level was measured against
+ * (codex-al-dia design D11).
+ */
+export function levelState(agent: FleetAgent, t: Translate): string {
+  if (agent.verifiedLevel === undefined) return t("fleet.level.declared");
+  return agent.verifiedVersion
+    ? t("fleet.level.verifiedWith", { version: agent.verifiedVersion })
+    : t("fleet.level.verified");
+}
 
 export interface FleetRow {
   agent: FleetAgent;

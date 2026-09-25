@@ -1262,6 +1262,11 @@ pub struct FleetAgent {
     /// The date (RFC 3339) of the conformance run behind `verified_level`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verified_at: Option<String>,
+    /// The agent version the conformance run behind `verified_level`
+    /// measured (codex-al-dia design D11): a level is verified against a
+    /// version, and a newer one has not been measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_version: Option<String>,
     /// Whether the agent declares MCP passthrough support in the registry.
     #[serde(default)]
     pub mcp_support: bool,
