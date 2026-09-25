@@ -112,7 +112,10 @@ async fn a_contract_error_surfaces_kind_detail_and_remedy() {
 // Scenario: Fallo de arranque diagnosticado
 #[tokio::test]
 async fn requests_while_unreachable_fail_fast_with_the_endpoint_diagnosed() {
-    // No daemon here, and the spawn fast-fails: the actor stays in backoff.
+    // No daemon here, and none is started: the endpoint is a test's, not the
+    // user's own (acceso-remoto-afinado D1) — and were a start asked for, the
+    // launcher points at a binary that does not exist. The actor stays in
+    // backoff either way.
     unsafe {
         std::env::set_var("MELTEMI_DAEMON_BIN", "nonexistent-meltemid-binary");
     }

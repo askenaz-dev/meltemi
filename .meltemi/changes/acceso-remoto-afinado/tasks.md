@@ -26,6 +26,13 @@ pruebas del arranque cargan el `meltemid` ya construido.
   explícito caído se reporta sin arrancar nada» — gates: `cargo build
   --workspace`, las pruebas nuevas, `-p meltemi --test unreachable`
 
+- [x] 1.3 (Hallazgo de la revisión propia) La prueba de la GUI «Fallo de
+  arranque diagnosticado» (`desktop/tests/bridge.rs`) sigue pasando —un endpoint
+  de prueba sin daemon queda inalcanzable con su endpoint en el diagnóstico—,
+  pero su comentario contaba con un arranque que ya no se intenta; dice ahora
+  por qué no se arranca nada ahí (design D1) — gates: `-p meltemi-desktop
+  --test bridge`
+
 ## 2. El túnel
 
 - [x] 2.1 `tui/src/tunnel.rs`: el latido y `ExitOnForwardFailure` en el
