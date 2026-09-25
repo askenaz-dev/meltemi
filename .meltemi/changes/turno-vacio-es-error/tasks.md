@@ -70,7 +70,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   máquina lleva el veredicto», «Un verbo de autoría sigue la misma regla» —
   gates: suite de `meltemi` (tui), test de frescura de la referencia
 
-- [ ] 3.2 GUI: el pliegue convierte `turn_empty` en un aviso `empty`; la
+- [x] 3.2 GUI: el pliegue convierte `turn_empty` en un aviso `empty`; la
   conversación lo pinta con `∅`, palabra y remedio; claves ES/EN; la vista
   Consumo gana la columna de turnos vacíos; casos en `conversation.test.ts` y
   sus pines con `// Scenario:` en `desktop/tests/scenarios_shell.rs`, y el pin

@@ -309,6 +309,30 @@ fn the_disclosure_is_rendered_beside_the_numbers_without_an_interaction() {
     );
 }
 
+// Scenario: Las superficies muestran los turnos vacíos
+#[test]
+fn the_panel_shows_the_empty_turns_as_one_more_activity_column() {
+    // The CLI half is executed by `render_usage`'s unit test in the tui crate;
+    // this pins the GUI half (turno-vacio-es-error design D7): a column with a
+    // word for a header, in the rows and in the totals.
+    let panel = read("desktop/ui/src/lib/views/Usage.svelte");
+    assert!(
+        panel.contains("$t(\"usage.col.emptyTurns\")"),
+        "the column is named with a word"
+    );
+    assert!(
+        panel.contains("cell.activity.emptyTurns")
+            && panel.contains("result.totals.activity.emptyTurns"),
+        "each cell and the totals show their count"
+    );
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    assert_eq!(
+        catalog.matches("\"usage.col.emptyTurns\":").count(),
+        2,
+        "the header is translated in ES and EN"
+    );
+}
+
 // Scenario: Panel denso con numerales tabulares
 #[test]
 fn the_panel_is_dense_and_uses_tabular_numerals() {

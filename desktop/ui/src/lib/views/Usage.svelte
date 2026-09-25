@@ -40,6 +40,8 @@
     commits: number;
     checkpoints: number;
     errors: number;
+    /** Turns declared empty (turno-vacio-es-error design D7). */
+    emptyTurns?: number;
   }
 
   type UnreportedKind =
@@ -233,6 +235,7 @@
             <th scope="col" class="num">{$t("usage.col.permissions")}</th>
             <th scope="col" class="num">{$t("usage.col.edits")}</th>
             <th scope="col" class="num">{$t("usage.col.commits")}</th>
+            <th scope="col" class="num">{$t("usage.col.emptyTurns")}</th>
             <th scope="col" class="num">{$t("usage.col.tokensIn")}</th>
             <th scope="col" class="num">{$t("usage.col.tokensOut")}</th>
             <th scope="col">{$t("usage.col.coverage")}</th>
@@ -259,6 +262,7 @@
               <td class="num">{count(cell.activity.permissionsRequested)}</td>
               <td class="num">{count(cell.activity.humanEdits)}</td>
               <td class="num">{count(cell.activity.commits)}</td>
+              <td class="num">{count(cell.activity.emptyTurns ?? 0)}</td>
               <!-- An absent counter is symbol + word with its reason, never a 0. -->
               <td class="num">
                 {#if cell.tokens?.input !== undefined}
@@ -300,6 +304,7 @@
             <td class="num">{count(result.totals.activity.permissionsRequested)}</td>
             <td class="num">{count(result.totals.activity.humanEdits)}</td>
             <td class="num">{count(result.totals.activity.commits)}</td>
+            <td class="num">{count(result.totals.activity.emptyTurns ?? 0)}</td>
             <td class="num">
               {#if result.totals.tokens?.input !== undefined}
                 {count(result.totals.tokens.input)}
