@@ -49,6 +49,19 @@ pub enum Signal {
     RemoteControl(String),
 }
 
+/// Whose a message is, as far as the session's turn is concerned
+/// (codex-al-dia design D6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Belongs {
+    /// The session's thread and, as far as can be told, its turn.
+    Ours,
+    /// Another thread, by its id.
+    OtherThread(String),
+    /// Another turn of the session's thread — a finished one, or not the one in
+    /// progress — by its id.
+    OtherTurn(String),
+}
+
 /// One notification, translated.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Mapped {
@@ -94,13 +107,79 @@ pub struct Mapper {
     announced_servers: HashSet<String>,
     /// The CLI's remote control, when the last report said it is not off.
     remote_control: Option<String>,
+    /// The session's thread, once it is open. Without one nothing is set aside
+    /// by thread.
+    thread: Option<String>,
+    /// Turns that are over. Whatever they still say moves no later turn, even
+    /// one that has no id yet.
+    finished: HashSet<String>,
+    /// Threads and turns already noted as set aside, so each is noted once.
+    set_aside: HashSet<String>,
+    /// Threads opened under the session's, already declared.
+    children: HashSet<String>,
 }
 
 impl Mapper {
-    /// A mapper for a fresh session.
+    /// A mapper that knows no thread: nothing is set aside by thread.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A mapper for the session over `thread`.
+    #[must_use]
+    pub fn for_thread(thread: impl Into<String>) -> Self {
+        Self {
+            thread: Some(thread.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Records that a turn is over.
+    pub fn finish(&mut self, turn: &str) {
+        self.finished.insert(turn.to_string());
+    }
+
+    /// Whose a message is (codex-al-dia design D6).
+    ///
+    /// Another thread's is not the session's. Once the turn in progress is
+    /// known, another turn's is not either; a finished turn's never is, even
+    /// before the next turn has an id. A message that does not say its thread
+    /// or its turn is not set aside on that account: the provider's warnings
+    /// and the remote control's reports carry neither.
+    #[must_use]
+    pub fn belongs(&self, current_turn: Option<&str>, params: &Value) -> Belongs {
+        if let (Some(ours), Some(theirs)) = (
+            self.thread.as_deref(),
+            params.get("threadId").and_then(Value::as_str),
+        ) && ours != theirs
+        {
+            return Belongs::OtherThread(theirs.to_string());
+        }
+        let turn = params
+            .get("turnId")
+            .and_then(Value::as_str)
+            .or_else(|| params.pointer("/turn/id").and_then(Value::as_str));
+        match turn {
+            Some(turn) if self.finished.contains(turn) => Belongs::OtherTurn(turn.to_string()),
+            Some(turn) if current_turn.is_some_and(|current| current != turn) => {
+                Belongs::OtherTurn(turn.to_string())
+            }
+            _ => Belongs::Ours,
+        }
+    }
+
+    /// The line to keep for a notification set aside, the first time its
+    /// thread or turn is set aside; nothing after that.
+    pub fn set_aside(&mut self, method: &str, belongs: &Belongs) -> Option<String> {
+        let (what, id) = match belongs {
+            Belongs::Ours => return None,
+            Belongs::OtherThread(id) => ("thread", id),
+            Belongs::OtherTurn(id) => ("turn", id),
+        };
+        self.set_aside
+            .insert(format!("{what}:{id}"))
+            .then(|| format!("set aside `{method}` and the rest of {what} `{id}`: not this turn's"))
     }
 
     /// What one server notification becomes.
@@ -115,9 +194,15 @@ impl Mapper {
                 None => Mapped::noted(format!("unreadable `{method}`: {params}")),
             },
             wire::TURN_COMPLETED => match parse::<wire::TurnNotification>(params) {
-                Some(turn) => Mapped::signal(Signal::TurnEnded(turn.turn.status)),
+                Some(turn) => {
+                    // Over, and remembered as over: a late copy of this must
+                    // not close the next turn.
+                    self.finished.insert(turn.turn.id);
+                    Mapped::signal(Signal::TurnEnded(turn.turn.status))
+                }
                 None => Mapped::noted(format!("unreadable `{method}`: {params}")),
             },
+            wire::THREAD_STARTED => self.thread_started(params),
             wire::ERROR => self.error(params),
             wire::AGENT_MESSAGE_DELTA => self.chunk(params, false),
             wire::REASONING_TEXT_DELTA | wire::REASONING_SUMMARY_TEXT_DELTA => {
@@ -157,6 +242,37 @@ impl Mapper {
                 "Codex starts this server from its own configuration. It runs outside Codex's \
                  sandbox, and the calls Codex does not submit for approval run without Meltemi's \
                  permission proxy deciding.",
+            )]),
+        )])
+    }
+
+    /// A thread the server opened. The session's own says nothing; one opened
+    /// under it is declared, once (codex-al-dia design D6): what it does is not
+    /// shown in this session yet, and its approvals are declined.
+    fn thread_started(&mut self, params: &Value) -> Mapped {
+        let Some(started) = parse::<wire::ThreadNotification>(params) else {
+            return Mapped::noted(format!("unreadable thread: {params}"));
+        };
+        let child = started.thread;
+        if self.thread.is_none() || child.parent_thread_id != self.thread {
+            return Mapped::default();
+        }
+        if !self.children.insert(child.id.clone()) {
+            return Mapped::default();
+        }
+        Mapped::updates(vec![SessionUpdate::ToolCall(
+            ToolCall::new(
+                format!("meltemi:child-thread:{}", child.id),
+                format!(
+                    "Codex opened a sub-thread `{}` under this session",
+                    child.id
+                ),
+            )
+            .kind(ToolKind::Other)
+            .status(ToolCallStatus::Completed)
+            .content(vec![text_content(
+                "What it does is not shown in this session yet, and any approval it asks for is \
+                 declined without asking you.",
             )]),
         )])
     }
@@ -306,6 +422,30 @@ pub fn uncovered_by_gate() -> SessionUpdate {
              the provider's own web search; and calls to MCP servers from Codex's configuration \
              that Codex does not submit for approval, which run outside its sandbox.",
         )]),
+    )
+}
+
+/// The row for an approval declined because it was not this turn's
+/// (codex-al-dia design D6): a failed tool that says why, without the
+/// request's parameters.
+#[must_use]
+pub fn declined_elsewhere(request_id: &Value, method: &str, belongs: &Belongs) -> SessionUpdate {
+    let id = match request_id {
+        Value::String(id) => id.clone(),
+        other => other.to_string(),
+    };
+    let whose = match belongs {
+        Belongs::OtherThread(thread) => format!("thread `{thread}`, not this session's"),
+        Belongs::OtherTurn(turn) => format!("turn `{turn}`, not the one in progress"),
+        Belongs::Ours => "this turn".to_string(),
+    };
+    SessionUpdate::ToolCall(
+        ToolCall::new(
+            format!("server-request:{id}"),
+            format!("Declined `{method}`: it came from {whose}"),
+        )
+        .kind(ToolKind::Other)
+        .status(ToolCallStatus::Failed),
     )
 }
 
@@ -663,6 +803,131 @@ mod tests {
             &json!({"threadId": "t", "name": "codex_apps", "status": "starting"}),
         );
         assert_eq!(other.updates.len(), 1, "another server is another row");
+    }
+
+    #[test]
+    fn what_another_thread_or_turn_says_is_set_aside() {
+        // Scenarios: Lo que dice otro hilo no cierra el turno en curso; El
+        // cierre rezagado de un turno anterior no cierra el siguiente
+        let mut mapper = Mapper::for_thread("thread-1");
+        let item =
+            |thread: &str, turn: &str| json!({"threadId": thread, "turnId": turn, "itemId": "i"});
+        let closing = |thread: &str, turn: &str| json!({"threadId": thread, "turn": {"id": turn, "status": "completed", "items": []}});
+
+        assert_eq!(
+            mapper.belongs(Some("turn-2"), &closing("thread-2", "turn-2")),
+            Belongs::OtherThread("thread-2".into())
+        );
+        assert_eq!(
+            mapper.belongs(Some("turn-2"), &item("thread-1", "turn-1")),
+            Belongs::OtherTurn("turn-1".into()),
+            "once the turn in progress is known, another turn is not it"
+        );
+        assert_eq!(
+            mapper.belongs(None, &item("thread-1", "turn-1")),
+            Belongs::Ours
+        );
+
+        // A turn that is over is remembered as over, even before the next one
+        // has an id.
+        let over = mapper.map(wire::TURN_COMPLETED, &closing("thread-1", "turn-1"));
+        assert!(matches!(over.signal, Some(Signal::TurnEnded(_))));
+        assert_eq!(
+            mapper.belongs(None, &closing("thread-1", "turn-1")),
+            Belongs::OtherTurn("turn-1".into())
+        );
+
+        // What does not say its thread or its turn is not set aside for it.
+        assert_eq!(
+            mapper.belongs(Some("turn-2"), &json!({"message": "careful"})),
+            Belongs::Ours
+        );
+        assert_eq!(
+            mapper.belongs(
+                Some("turn-2"),
+                &json!({"threadId": "thread-1", "status": {"type": "idle"}})
+            ),
+            Belongs::Ours
+        );
+        // And a mapper that knows no thread sets nothing aside by thread.
+        assert_eq!(
+            Mapper::new().belongs(None, &item("thread-9", "turn-9")),
+            Belongs::Ours
+        );
+
+        // Noted once per thread or turn, not once per chunk.
+        let other = Belongs::OtherThread("thread-2".into());
+        assert!(
+            mapper
+                .set_aside(wire::AGENT_MESSAGE_DELTA, &other)
+                .is_some()
+        );
+        assert!(
+            mapper
+                .set_aside(wire::AGENT_MESSAGE_DELTA, &other)
+                .is_none()
+        );
+        assert!(
+            mapper
+                .set_aside(wire::TURN_COMPLETED, &Belongs::Ours)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_thread_opened_under_the_sessions_is_declared_once() {
+        // Scenario: Un hilo hijo se declara en la sesión
+        let mut mapper = Mapper::for_thread("thread-1");
+        let started =
+            |id: &str, parent: Value| json!({"thread": {"id": id, "parentThreadId": parent}});
+
+        let own = mapper.map(wire::THREAD_STARTED, &started("thread-1", Value::Null));
+        assert_eq!(
+            own,
+            Mapped::default(),
+            "the session's own thread says nothing"
+        );
+        let unrelated = mapper.map(
+            wire::THREAD_STARTED,
+            &started("thread-7", json!("thread-6")),
+        );
+        assert_eq!(unrelated, Mapped::default());
+
+        let child = mapper.map(
+            wire::THREAD_STARTED,
+            &started("thread-2", json!("thread-1")),
+        );
+        let [SessionUpdate::ToolCall(row)] = child.updates.as_slice() else {
+            panic!("a child is declared: {child:?}");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "meltemi:child-thread:thread-2");
+        assert!(row.title.contains("thread-2"));
+        let again = mapper.map(
+            wire::THREAD_STARTED,
+            &started("thread-2", json!("thread-1")),
+        );
+        assert!(again.updates.is_empty(), "once");
+    }
+
+    #[test]
+    fn an_approval_declined_elsewhere_says_why_without_its_parameters() {
+        // Scenario: Una aprobación de otro hilo o turno se declina a la vista
+        let SessionUpdate::ToolCall(row) = declined_elsewhere(
+            &json!(7),
+            wire::COMMAND_EXECUTION_APPROVAL,
+            &Belongs::OtherThread("thread-2".into()),
+        ) else {
+            panic!("a visible row");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "server-request:7");
+        assert_eq!(row.status, ToolCallStatus::Failed);
+        assert!(
+            row.title.contains("thread-2") && row.title.contains(wire::COMMAND_EXECUTION_APPROVAL)
+        );
+        assert!(
+            row.content.is_empty() && row.raw_input.is_none(),
+            "no parameters: {row:?}"
+        );
     }
 
     #[test]

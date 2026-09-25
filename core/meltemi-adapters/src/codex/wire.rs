@@ -95,6 +95,8 @@ pub const TURN_INTERRUPT: &str = "turn/interrupt";
 
 /// A turn began.
 pub const TURN_STARTED: &str = "turn/started";
+/// The server opened a thread: the session's own, or one under it.
+pub const THREAD_STARTED: &str = "thread/started";
 /// A turn ended; carries the status that becomes the ACP stop reason.
 pub const TURN_COMPLETED: &str = "turn/completed";
 /// An item of the turn appeared.
@@ -238,6 +240,17 @@ pub struct Thread {
     /// Contrasted with the one the handshake read (codex-al-dia design D1).
     #[serde(default)]
     pub cli_version: Option<String>,
+    /// The thread this one was opened under, when the CLI opened it as a
+    /// sub-agent (codex-al-dia design D6).
+    #[serde(default)]
+    pub parent_thread_id: Option<String>,
+}
+
+/// `thread/started`: the thread the server opened.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ThreadNotification {
+    /// The thread, of which the adapter reads its identity and its parent.
+    pub thread: Thread,
 }
 
 /// `mcpServer/startupStatus/updated`, of which the adapter reads the server's

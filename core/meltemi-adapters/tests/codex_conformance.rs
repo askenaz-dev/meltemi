@@ -226,6 +226,7 @@ fn params_schema() -> BTreeMap<&'static str, &'static str> {
         (wire::TURN_START, "TurnStartParams.json"),
         (wire::TURN_INTERRUPT, "TurnInterruptParams.json"),
         (wire::TURN_STARTED, "TurnStartedNotification.json"),
+        (wire::THREAD_STARTED, "ThreadStartedNotification.json"),
         (wire::TURN_COMPLETED, "TurnCompletedNotification.json"),
         (wire::ITEM_STARTED, "ItemStartedNotification.json"),
         (wire::ITEM_COMPLETED, "ItemCompletedNotification.json"),
@@ -773,6 +774,34 @@ fn the_adapters_types_parse_what_that_wire_says() {
         )),
         "and so does the file change the approval was about: {items:?}"
     );
+}
+
+#[test]
+fn the_thread_the_real_server_announces_is_read_with_its_parent() {
+    // Scenario: Un hilo hijo se declara en la sesión
+    //
+    // The adapter reads the thread's id and its parent out of `thread/started`;
+    // the recording is what proves those are where the type looks.
+    let announced: Vec<Value> = recording()
+        .into_iter()
+        .map(|line| line["message"].clone())
+        .filter(|message| message["method"] == wire::THREAD_STARTED)
+        .collect();
+    assert!(!announced.is_empty(), "the recording announces its thread");
+    for message in announced {
+        assert_conforms(
+            "ThreadStartedNotification.json",
+            "what the real server announced",
+            &message["params"],
+        );
+        let read: wire::ThreadNotification =
+            serde_json::from_value(message["params"].clone()).expect("the type reads it");
+        assert_eq!(read.thread.id, "thread-1");
+        assert_eq!(
+            read.thread.parent_thread_id, None,
+            "the session's own thread has no parent"
+        );
+    }
 }
 
 #[test]

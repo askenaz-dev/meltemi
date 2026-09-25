@@ -100,7 +100,7 @@ archivo del volcado llega con la tarea que lo usa.
   «Versión posterior a la verificada declarada, no rehusada», «El hilo
   contradice la versión leída» — gates: suite de `meltemi-adapters`, e2e del
   adaptador
-- [ ] 2.5 Ámbito: el hilo de la sesión filtra lo que mueve el turno; una
+- [x] 2.5 Ámbito: el hilo de la sesión filtra lo que mueve el turno; una
   notificación sin hilo o sin turno no se filtra por ese eje; los turnos
   terminados se recuerdan; la aprobación de otro hilo o turno se declina a la
   vista; un hilo hijo se declara en una fila (design D6) — escenarios «Lo que

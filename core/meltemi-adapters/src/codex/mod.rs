@@ -336,6 +336,11 @@ impl TurnControl {
         self.interrupted.send_replace(false);
     }
 
+    /// The id of the turn in progress, once the server has named it.
+    fn current(&self) -> Option<String> {
+        self.with(|state| state.id.clone())
+    }
+
     /// Resolves once an interruption has been asked for — immediately if it
     /// already was.
     async fn wait_interrupted(&self) {
@@ -396,6 +401,28 @@ enum TurnOutcome {
     Abandoned,
 }
 
+/// Runs one turn, and remembers it as over however it ended, so that nothing
+/// it still says moves the next one (codex-al-dia design D6).
+async fn drive_turn<W, S>(
+    peer: &Peer<W>,
+    incoming: &mut mpsc::UnboundedReceiver<Incoming>,
+    turn: &TurnControl,
+    stream: &S,
+    session_id: &SessionId,
+    params: &wire::TurnStartParams,
+    mapper: &mut mapping::Mapper,
+) -> Result<TurnOutcome, Refusal>
+where
+    W: AsyncWrite + Unpin + Send,
+    S: TurnStream,
+{
+    let outcome = drive(peer, incoming, turn, stream, session_id, params, mapper).await;
+    if let Some(id) = turn.current() {
+        mapper.finish(&id);
+    }
+    outcome
+}
+
 /// Runs one turn: start it, stream what the server says, and end when the
 /// server says the turn is over — or when it refuses to.
 ///
@@ -403,7 +430,7 @@ enum TurnOutcome {
 /// the streamed notifications, because the dumped schema does not settle which
 /// comes first and observing it takes a real model call. A turn ends on
 /// whichever terminal signal arrives first.
-async fn drive_turn<W, S>(
+async fn drive<W, S>(
     peer: &Peer<W>,
     incoming: &mut mpsc::UnboundedReceiver<Incoming>,
     turn: &TurnControl,
@@ -493,6 +520,38 @@ where
     W: AsyncWrite + Unpin + Send,
     S: TurnStream,
 {
+    // What is not this turn's does not move it (codex-al-dia design D6).
+    let belongs = match &message {
+        Incoming::Notification { params, .. } | Incoming::Request { params, .. } => {
+            mapper.belongs(turn.current().as_deref(), params)
+        }
+        Incoming::Noise(_) => mapping::Belongs::Ours,
+    };
+    if belongs != mapping::Belongs::Ours {
+        match message {
+            // An approval that is not this turn's is declined without asking
+            // anyone, and in sight.
+            Incoming::Request { id, method, .. } if permission::is_approval(&method) => {
+                let _ = peer
+                    .respond(
+                        &id,
+                        &wire::ApprovalResponse::new(wire::ApprovalDecision::Decline),
+                    )
+                    .await;
+                stream.emit(mapping::declined_elsewhere(&id, &method, &belongs));
+            }
+            Incoming::Request { id, method, params } => {
+                relay_approval(peer, turn, stream, session_id, &id, &method, &params).await;
+            }
+            Incoming::Notification { method, .. } => {
+                if let Some(note) = mapper.set_aside(&method, &belongs) {
+                    stream.note(&note);
+                }
+            }
+            Incoming::Noise(_) => {}
+        }
+        return Ok(None);
+    }
     match message {
         Incoming::Notification { method, params } => {
             let mapped = mapper.map(&method, &params);
@@ -800,8 +859,8 @@ impl ProviderDialect for CodexDialect {
             peer,
             incoming: Mutex::new(incoming),
             control: Mutex::new(Some(control)),
+            mapper: Mutex::new(mapping::Mapper::for_thread(thread_id.clone())),
             turn: TurnControl::new(thread_id, INTERRUPT_GRACE),
-            mapper: Mutex::new(mapping::Mapper::new()),
             stream: AcpStream {
                 session_id: session_id.clone(),
                 cx,
@@ -1772,6 +1831,197 @@ mod tests {
         let (outcome, ()) = tokio::join!(driving, serving);
         let refusal = outcome.expect_err("the turn ends refused, not cancelled");
         assert_eq!(refusal.kind, REMOTE_CONTROL_REFUSED);
+    }
+
+    #[tokio::test]
+    async fn what_another_thread_says_does_not_end_the_turn_in_progress() {
+        // Scenario: Lo que dice otro hilo no cierra el turno en curso
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::for_thread("thread-1");
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                .await;
+            // A sub-agent's thread finishes its own turn, and says something.
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-2", "turn": {"id": "turn-9", "status": "completed", "items": []}}),
+                )
+                .await;
+            server
+                .notify(
+                    wire::AGENT_MESSAGE_DELTA,
+                    json!({"threadId": "thread-2", "turnId": "turn-9", "itemId": "x", "delta": "not ours"}),
+                )
+                .await;
+            server
+                .notify(
+                    wire::AGENT_MESSAGE_DELTA,
+                    json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": "m", "delta": "ours"}),
+                )
+                .await;
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+        };
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+        assert_eq!(
+            stream.said(),
+            vec!["ours".to_string()],
+            "the turn ran to its own end"
+        );
+        let notes = stream.notes.lock().unwrap();
+        assert_eq!(
+            notes
+                .iter()
+                .filter(|note| note.contains("thread-2"))
+                .count(),
+            1,
+            "the other thread is noted once: {notes:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_late_close_of_the_last_turn_does_not_close_the_next() {
+        // Scenario: El cierre rezagado de un turno anterior no cierra el siguiente
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::for_thread("thread-1");
+        let closing = |id: &str| json!({"threadId": "thread-1", "turn": {"id": id, "status": "completed", "items": []}});
+
+        // The first turn ends on its answer.
+        let first = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "completed", "items": []}}}))
+                .await;
+        };
+        let (outcome, ()) = tokio::join!(first, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+
+        // The next one: its close arrives late, before the new turn has a name.
+        turn.begin();
+        let second = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server.notify(wire::TURN_COMPLETED, closing("turn-1")).await;
+            server
+                .notify(
+                    wire::AGENT_MESSAGE_DELTA,
+                    json!({"threadId": "thread-1", "turnId": "turn-2", "itemId": "m", "delta": "the second turn speaks"}),
+                )
+                .await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-2", "status": "inProgress", "items": []}}}))
+                .await;
+            server.notify(wire::TURN_COMPLETED, closing("turn-2")).await;
+        };
+        let (outcome, ()) = tokio::join!(second, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+        assert_eq!(
+            stream.said(),
+            vec!["the second turn speaks".to_string()],
+            "the late close did not end the second turn before it spoke"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_approval_from_another_thread_or_turn_is_declined_in_sight() {
+        // Scenario: Una aprobación de otro hilo o turno se declina a la vista
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::for_thread("thread-1");
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                .await;
+            for (id, thread, turn_id) in [(21, "thread-2", "turn-9"), (22, "thread-1", "turn-0")] {
+                server
+                    .say(
+                        &json!({"id": id, "method": wire::COMMAND_EXECUTION_APPROVAL,
+                                 "params": {"threadId": thread, "turnId": turn_id, "itemId": "c",
+                                            "command": "rm -rf build"}}),
+                    )
+                    .await;
+                let answer = server.next_call().await;
+                assert_eq!(answer["id"], id);
+                assert_eq!(answer["result"]["decision"], "decline", "{answer}");
+            }
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+        };
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+        assert!(
+            stream.asked.lock().unwrap().is_empty(),
+            "nobody was asked about another thread's or turn's approval"
+        );
+        let updates = stream.updates.lock().unwrap();
+        let declined: Vec<&str> = updates
+            .iter()
+            .filter_map(|update| match update {
+                SessionUpdate::ToolCall(row)
+                    if row.status == agent_client_protocol::schema::v1::ToolCallStatus::Failed =>
+                {
+                    Some(row.tool_call_id.0.as_ref())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(declined, vec!["server-request:21", "server-request:22"]);
     }
 
     #[tokio::test]

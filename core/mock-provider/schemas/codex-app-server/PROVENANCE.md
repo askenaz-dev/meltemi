@@ -49,7 +49,9 @@ proxy (codex-al-dia design D5). Y `RemoteControlStatusChangedNotification.json`:
 en cada conexión, antes de responder `thread/start`, el servidor informa el
 estado de su control remoto; el adaptador solo abre sesión si dice `disabled`,
 porque con el control remoto activo otro cliente podría contestar aprobaciones
-fuera del proxy (design D5, constitución §3).
+fuera del proxy (design D5, constitución §3). Y `ThreadStartedNotification.json`:
+el servidor anuncia así cada hilo que abre; el de la sesión no dice nada, y uno
+cuyo `parentThreadId` es el de la sesión se declara en una fila (design D6).
 
 La transcripción del servidor real vive junto al guion, saneada:
 `../../scripts/codex-app-server-0.156.1.transcript.ndjson`. Es evidencia, no un

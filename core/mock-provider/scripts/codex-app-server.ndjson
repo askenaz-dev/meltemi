@@ -43,6 +43,9 @@
 #     the turn's answer. The adapter names each one in the session, once.
 #   * Every connection reports the CLI's remote control before the thread's
 #     answer. Off, as here, it costs nothing; anything else refuses the session.
+#   * The server announces the session's own thread once the first turn is
+#     asked for. It is the session's, so the adapter says nothing about it; a
+#     thread whose parent is the session's would get a row.
 #   * Responses carry no `"jsonrpc"` member and notifications carry an
 #     `emittedAtMs` member beside `params`. This fixture sends `"jsonrpc"`
 #     because JSON-RPC 2.0 requires it and omits `emittedAtMs`; the adapter
@@ -60,6 +63,7 @@
 {"mock":"respond","result":{"thread":{"id":"mock-thread-1","sessionId":"mock-thread-1","forkedFromId":null,"parentThreadId":null,"preview":"","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"paginated","modelProvider":"mock","model":"mock-model","reasoningEffort":"xhigh","createdAt":1790000000,"updatedAt":1790000000,"recencyAt":1790000000,"status":{"type":"idle"},"path":"/mock/codex-home/sessions/mock-thread-1.jsonl","cwd":"/mock/project","cliVersion":"0.156.1","originator":"meltemi-codex-acp","source":"vscode","threadSource":null,"agentNickname":null,"agentRole":null,"gitInfo":null,"name":null,"turns":[]},"model":"mock-model","modelProvider":"mock","serviceTier":"default","disabledPluginIds":[],"cwd":"/mock/project","instructionSources":[],"approvalPolicy":"untrusted","approvalsReviewer":"user","sandbox":{"type":"readOnly","networkAccess":false},"reasoningEffort":"xhigh"}}
 # 3. A turn: answered at once, then streamed as items.
 {"mock":"await-request","method":"turn/start"}
+{"mock":"notify","method":"thread/started","params":{"thread":{"id":"mock-thread-1","sessionId":"mock-thread-1","forkedFromId":null,"parentThreadId":null,"preview":"","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"paginated","modelProvider":"mock","model":"mock-model","reasoningEffort":"xhigh","createdAt":1790000000,"updatedAt":1790000000,"recencyAt":1790000000,"status":{"type":"idle"},"path":"/mock/codex-home/sessions/mock-thread-1.jsonl","cwd":"/mock/project","cliVersion":"0.156.1","originator":"meltemi-codex-acp","source":"vscode","threadSource":null,"agentNickname":null,"agentRole":null,"gitInfo":null,"name":null,"turns":[]}}}
 {"mock":"notify","method":"mcpServer/startupStatus/updated","params":{"threadId":"mock-thread-1","name":"mock-tools","status":"ready","error":null,"failureReason":null}}
 {"mock":"respond","result":{"turn":{"id":"turn-1","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}
 {"mock":"notify","method":"thread/status/changed","params":{"threadId":"mock-thread-1","status":{"type":"active","activeFlags":[]}}}

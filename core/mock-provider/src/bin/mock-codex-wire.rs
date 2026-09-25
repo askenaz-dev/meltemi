@@ -56,6 +56,7 @@ const SCHEMAS: &[(&str, &str)] = vendored_schemas![
     "ServerRequestResolvedNotification.json",
     "ThreadStartParams.json",
     "ThreadStartResponse.json",
+    "ThreadStartedNotification.json",
     "ThreadStatusChangedNotification.json",
     "ThreadTokenUsageUpdatedNotification.json",
     "TurnCompletedNotification.json",
