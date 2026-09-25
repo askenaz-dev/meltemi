@@ -108,7 +108,7 @@ archivo del volcado llega con la tarea que lo usa.
   anterior no cierra el siguiente», «Una aprobación de otro hilo o turno se
   declina a la vista», «Un hilo hijo se declara en la sesión» — gates: suite de
   `meltemi-adapters`, e2e del adaptador
-- [ ] 2.6 Peticiones del servidor: `ServerRequest.json` vendorizado (y en
+- [x] 2.6 Peticiones del servidor: `ServerRequest.json` vendorizado (y en
   `SCHEMAS`); tabla relevar/rehusar; rehúso visible con `toolCallId`
   `server-request:<id>` y sin parámetros; refresco de credenciales y atestación
   pineados (error, sin proxy, sin parámetros registrados); test de conformidad

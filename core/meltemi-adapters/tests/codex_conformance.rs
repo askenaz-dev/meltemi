@@ -23,6 +23,8 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
+use meltemi_adapters::codex::requests;
+
 use meltemi_adapters::codex::wire::{
     self, ApprovalDecision, ApprovalResponse, ClientInfo, ErrorNotification, InitializeParams,
     InitializeResult, ItemNotification, ItemStatus, ThreadItem, ThreadStartParams,
@@ -802,6 +804,61 @@ fn the_thread_the_real_server_announces_is_read_with_its_parent() {
             "the session's own thread has no parent"
         );
     }
+}
+
+/// Every request method a dump of `ServerRequest.json` declares.
+fn declared_requests(dump: &Value) -> Vec<String> {
+    dump["oneOf"]
+        .as_array()
+        .expect("the dump lists the requests as alternatives")
+        .iter()
+        .filter_map(|branch| branch.pointer("/properties/method/enum/0")?.as_str())
+        .map(str::to_string)
+        .collect()
+}
+
+/// The requests of a dump the adapter declares no answer for.
+fn requests_without_an_answer(dump: &Value) -> Vec<String> {
+    declared_requests(dump)
+        .into_iter()
+        .filter(|method| !requests::POLICY.iter().any(|(known, _)| known == method))
+        .collect()
+}
+
+#[test]
+fn every_request_the_server_may_make_has_a_declared_answer() {
+    // Scenario: Una petición nueva del proveedor falla la conformidad
+    let dump = schema_doc("ServerRequest.json");
+    let declared = declared_requests(&dump);
+    assert_eq!(
+        declared.len(),
+        10,
+        "the requests 0.156.1 declares: {declared:?}"
+    );
+    assert_eq!(
+        requests_without_an_answer(&dump),
+        Vec::<String>::new(),
+        "every request the server may make is relayed or refused on purpose"
+    );
+    for (method, _) in requests::POLICY {
+        assert!(
+            declared.iter().any(|declared| declared == method),
+            "`{method}` has an answer but the dump no longer declares it"
+        );
+    }
+}
+
+#[test]
+fn a_request_the_provider_adds_fails_naming_it() {
+    // Scenario: Una petición nueva del proveedor falla la conformidad
+    let mut dump = schema_doc("ServerRequest.json");
+    let mut added = dump["oneOf"][0].clone();
+    added["properties"]["method"]["enum"] = json!(["item/somethingNew/request"]);
+    dump["oneOf"].as_array_mut().unwrap().push(added);
+    assert_eq!(
+        requests_without_an_answer(&dump),
+        vec!["item/somethingNew/request".to_string()]
+    );
 }
 
 #[test]

@@ -53,6 +53,11 @@ fuera del proxy (design D5, constitución §3). Y `ThreadStartedNotification.jso
 el servidor anuncia así cada hilo que abre; el de la sesión no dice nada, y uno
 cuyo `parentThreadId` es el de la sesión se declara en una fila (design D6).
 
+`ServerRequest.json` enumera las diez peticiones que el servidor puede hacerle
+al cliente. La conformidad lo recorre y exige que el adaptador declare para
+cada una si la releva al proxy o la rehúsa (`codex/requests.rs`, design D7):
+una petición que el proveedor añada falla el próximo re-anclaje nombrándola.
+
 La transcripción del servidor real vive junto al guion, saneada:
 `../../scripts/codex-app-server-0.156.1.transcript.ndjson`. Es evidencia, no un
 guion: la conformidad comprueba que el guion sigue su orden. El servidor envía

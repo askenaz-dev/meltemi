@@ -14,6 +14,7 @@
 pub mod gate;
 pub mod mapping;
 pub mod permission;
+pub mod requests;
 pub mod version;
 pub mod wire;
 
@@ -661,10 +662,12 @@ async fn relay_approval<W, S>(
     W: AsyncWrite + Unpin + Send,
     S: TurnStream,
 {
-    if !permission::is_approval(method) {
-        stream.note(&format!(
-            "the server asked `{method}`, which this adapter has no answer for"
-        ));
+    // Every request has a declared answer (codex-al-dia design D7). A refusal
+    // is shown by what it is, never with its parameters: some of them carry
+    // credentials or ask for the client's identity, and nothing of those is
+    // kept anywhere (constitution §2).
+    if let requests::Answer::Refuse(reason) = requests::answer_for(method) {
+        stream.note(&format!("refused `{method}`: {reason}"));
         let _ = peer
             .respond_with_error(
                 id,
@@ -672,6 +675,7 @@ async fn relay_approval<W, S>(
                 "this adapter does not implement that method",
             )
             .await;
+        stream.emit(mapping::refused_request(id, method, reason));
         return;
     }
 
@@ -2022,6 +2026,142 @@ mod tests {
             })
             .collect();
         assert_eq!(declined, vec!["server-request:21", "server-request:22"]);
+    }
+
+    /// Plays a turn in which the server makes each of `requests` and answers
+    /// each refusal, and returns what the session collected.
+    async fn a_turn_asking(requests: Vec<(i64, &'static str, Value)>) -> Collected {
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::for_thread("thread-1");
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                .await;
+            for (id, method, params) in requests {
+                server
+                    .say(&json!({"id": id, "method": method, "params": params}))
+                    .await;
+                let answer = server.next_call().await;
+                assert_eq!(answer["id"], id);
+                assert_eq!(
+                    answer["error"]["code"], METHOD_NOT_FOUND,
+                    "`{method}` is refused with the protocol's own error: {answer}"
+                );
+            }
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+        };
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+        stream
+    }
+
+    /// The failed rows the session shows, by id.
+    fn refused_rows(stream: &Collected) -> Vec<(String, String)> {
+        stream
+            .updates
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|update| match update {
+                SessionUpdate::ToolCall(row)
+                    if row.status == agent_client_protocol::schema::v1::ToolCallStatus::Failed =>
+                {
+                    Some((row.tool_call_id.0.to_string(), row.title.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_request_the_adapter_does_not_relay_is_refused_in_sight() {
+        // Scenarios: Una petición no relevada se rehúsa a la vista; Interacción
+        // no relevable denegada con motivo visible
+        //
+        // A tool asking the human a question is an interaction this adapter
+        // cannot relay yet: refused, and the session says so and why.
+        let stream = a_turn_asking(vec![(
+            31,
+            wire::TOOL_REQUEST_USER_INPUT,
+            json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": "t",
+                   "questions": [{"id": "q", "header": "Pick", "question": "Which branch?"}]}),
+        )])
+        .await;
+        assert!(
+            stream.asked.lock().unwrap().is_empty(),
+            "not put to the proxy"
+        );
+        let rows = refused_rows(&stream);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].0, "server-request:31");
+        assert!(
+            rows[0].1.contains(wire::TOOL_REQUEST_USER_INPUT),
+            "{rows:?}"
+        );
+        assert!(
+            !format!("{:?}", stream.updates.lock().unwrap()).contains("Which branch?"),
+            "without its parameters"
+        );
+    }
+
+    #[tokio::test]
+    async fn credentials_and_attestation_never_reach_the_proxy() {
+        // Scenario: Credenciales y atestación jamás llegan al proxy
+        let stream = a_turn_asking(vec![
+            (
+                41,
+                wire::AUTH_TOKENS_REFRESH,
+                json!({"reason": "unauthorized", "previousAccountId": "acct-secret-123"}),
+            ),
+            (
+                42,
+                wire::ATTESTATION_GENERATE,
+                json!({"nonce": "nonce-secret-456"}),
+            ),
+        ])
+        .await;
+        assert!(
+            stream.asked.lock().unwrap().is_empty(),
+            "never put to the proxy"
+        );
+        let rows = refused_rows(&stream);
+        assert_eq!(
+            rows.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            vec!["server-request:41", "server-request:42"]
+        );
+        let kept = format!(
+            "{:?}{:?}",
+            stream.updates.lock().unwrap(),
+            stream.notes.lock().unwrap()
+        );
+        assert!(
+            !kept.contains("secret"),
+            "nothing of their parameters is kept anywhere: {kept}"
+        );
+        for method in requests::NEVER_TO_THE_PROXY {
+            assert!(
+                kept.contains(method),
+                "but what was refused is named: {method}"
+            );
+        }
     }
 
     #[tokio::test]

@@ -125,6 +125,22 @@ pub const REMOTE_CONTROL_DISABLED: &str = "disabled";
 pub const COMMAND_EXECUTION_APPROVAL: &str = "item/commandExecution/requestApproval";
 /// The server asks to change files.
 pub const FILE_CHANGE_APPROVAL: &str = "item/fileChange/requestApproval";
+/// A tool asks the user a question.
+pub const TOOL_REQUEST_USER_INPUT: &str = "item/tool/requestUserInput";
+/// An MCP server asks for input.
+pub const MCP_SERVER_ELICITATION: &str = "mcpServer/elicitation/request";
+/// The server asks for more permissions for the turn.
+pub const PERMISSIONS_APPROVAL: &str = "item/permissions/requestApproval";
+/// The server calls a dynamic tool the client declared.
+pub const DYNAMIC_TOOL_CALL: &str = "item/tool/call";
+/// The server asks the client for fresh account credentials.
+pub const AUTH_TOKENS_REFRESH: &str = "account/chatgptAuthTokens/refresh";
+/// The server asks the client to attest its identity.
+pub const ATTESTATION_GENERATE: &str = "attestation/generate";
+/// An approval of the retired v1 turns: a patch.
+pub const APPLY_PATCH_APPROVAL_V1: &str = "applyPatchApproval";
+/// An approval of the retired v1 turns: a command.
+pub const EXEC_COMMAND_APPROVAL_V1: &str = "execCommandApproval";
 
 // --- Handshake -----------------------------------------------------------
 

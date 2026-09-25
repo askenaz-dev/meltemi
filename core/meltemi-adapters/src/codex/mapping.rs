@@ -430,10 +430,7 @@ pub fn uncovered_by_gate() -> SessionUpdate {
 /// request's parameters.
 #[must_use]
 pub fn declined_elsewhere(request_id: &Value, method: &str, belongs: &Belongs) -> SessionUpdate {
-    let id = match request_id {
-        Value::String(id) => id.clone(),
-        other => other.to_string(),
-    };
+    let id = request_row_id(request_id);
     let whose = match belongs {
         Belongs::OtherThread(thread) => format!("thread `{thread}`, not this session's"),
         Belongs::OtherTurn(turn) => format!("turn `{turn}`, not the one in progress"),
@@ -447,6 +444,29 @@ pub fn declined_elsewhere(request_id: &Value, method: &str, belongs: &Belongs) -
         .kind(ToolKind::Other)
         .status(ToolCallStatus::Failed),
     )
+}
+
+/// The row for a request the adapter refuses (codex-al-dia design D7): a
+/// failed tool named after the request and why it is refused, and nothing of
+/// its parameters.
+#[must_use]
+pub fn refused_request(request_id: &Value, method: &str, reason: &str) -> SessionUpdate {
+    SessionUpdate::ToolCall(
+        ToolCall::new(
+            format!("server-request:{}", request_row_id(request_id)),
+            format!("Refused `{method}`: {reason}"),
+        )
+        .kind(ToolKind::Other)
+        .status(ToolCallStatus::Failed),
+    )
+}
+
+/// A JSON-RPC request id as the row's id carries it.
+fn request_row_id(id: &Value) -> String {
+    match id {
+        Value::String(id) => id.clone(),
+        other => other.to_string(),
+    }
 }
 
 /// The row that declares a CLI newer than the version this adapter was
@@ -928,6 +948,24 @@ mod tests {
             row.content.is_empty() && row.raw_input.is_none(),
             "no parameters: {row:?}"
         );
+    }
+
+    #[test]
+    fn a_refused_request_is_named_without_its_parameters() {
+        // Scenario: Una petición no relevada se rehúsa a la vista
+        let SessionUpdate::ToolCall(row) = refused_request(
+            &json!("req-3"),
+            wire::TOOL_REQUEST_USER_INPUT,
+            "a question from a tool",
+        ) else {
+            panic!("a visible row");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "server-request:req-3");
+        assert_eq!(row.status, ToolCallStatus::Failed);
+        assert!(
+            row.title.contains(wire::TOOL_REQUEST_USER_INPUT) && row.title.contains("question")
+        );
+        assert!(row.content.is_empty() && row.raw_input.is_none());
     }
 
     #[test]
