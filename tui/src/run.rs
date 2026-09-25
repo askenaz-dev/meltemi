@@ -1199,6 +1199,38 @@ fn disclosure_line(key: meltemi_proto::UsageDisclosure) -> &'static str {
     }
 }
 
+/// The cost the agents declared, one figure per currency with its sessions —
+/// never converted, never summed across currencies — or the absence marker.
+fn agent_cost(cost: &[meltemi_proto::AgentReportCost]) -> String {
+    if cost.is_empty() {
+        return "cost - not reported".to_string();
+    }
+    let figures: Vec<String> = cost
+        .iter()
+        .map(|entry| {
+            format!(
+                "{} {} ({} session(s))",
+                amount(entry.amount),
+                crate::approver::clean(&entry.currency),
+                entry.sessions
+            )
+        })
+        .collect();
+    format!("cost {}", figures.join(", "))
+}
+
+/// An amount as the agent reported it, to four decimals at most and without
+/// trailing zeros: `0.125`, `0.3`, `12`.
+fn amount(value: f64) -> String {
+    let fixed = format!("{value:.4}");
+    let trimmed = fixed.trim_end_matches('0').trim_end_matches('.');
+    if trimmed.is_empty() || trimmed == "-" {
+        "0".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// A measured counter, or the honest absence marker — never a zero standing in
 /// for "unknown".
 fn measured(value: Option<u64>) -> String {
@@ -1241,6 +1273,21 @@ fn render_usage(result: &meltemi_proto::AnalyticsUsageResult) -> String {
                     cell.activity.empty_turns
                 );
             }
+            // What the agents reported over the protocol, said as theirs:
+            // the fullest context and the cost per currency (usage-desde-acp
+            // design D7).
+            if let Some(report) = &cell.agent_report {
+                let _ = write!(
+                    out,
+                    "\n             reported by the agent ({} session(s)): {}; {}",
+                    report.sessions,
+                    match (report.context_used, report.context_size) {
+                        (Some(used), Some(size)) => format!("context max {used} of {size}"),
+                        _ => "context - not reported".to_string(),
+                    },
+                    agent_cost(&report.cost)
+                );
+            }
             if cell.coverage.unreported_sessions > 0 {
                 let reasons: Vec<String> = cell
                     .coverage
@@ -1271,6 +1318,16 @@ fn render_usage(result: &meltemi_proto::AnalyticsUsageResult) -> String {
             "
   unattributed {}: {} human edit(s) with no session",
             unattributed.period, unattributed.human_edits
+        );
+    }
+    // The totals sum the cells; a maximum context is not a sum, so only the
+    // sessions and the cost travel here.
+    if let Some(report) = &result.totals.agent_report {
+        let _ = write!(
+            out,
+            "\n  reported by the agents in total ({} session(s)): {}",
+            report.sessions,
+            agent_cost(&report.cost)
         );
     }
     // The disclosure travels with the numbers, never behind a flag (design D6).
@@ -2543,6 +2600,81 @@ fn render_race(result: &WorktreeDiffResult) -> String {
 
 #[cfg(test)]
 mod tests {
+    // Scenario: Las superficies muestran lo reportado como cifra del agente
+    #[test]
+    fn the_agents_report_reads_as_the_agents_figures() {
+        let activity = serde_json::json!({
+            "sessions": 2, "sessionsClosed": 2, "sessionsOpen": 0,
+            "activeSeconds": 10, "prompts": 2, "permissionsRequested": 0,
+            "permissionsApproved": 0, "permissionsDenied": 0,
+            "permissionsExpired": 0, "humanEdits": 0, "commits": 0,
+            "checkpoints": 0, "errors": 0
+        });
+        let result: meltemi_proto::AnalyticsUsageResult =
+            serde_json::from_value(serde_json::json!({
+                "cells": [
+                    {
+                        "projectKey": "k", "projectRoot": "/repo", "agent": "opencode",
+                        "period": "total", "activity": activity,
+                        "coverage": {
+                            "measuredSessions": 0, "unreportedSessions": 2,
+                            "reasons": [{
+                                "kind": "protocol_carries_context_not_consumption",
+                                "sessions": 2
+                            }]
+                        },
+                        "agentReport": {
+                            "sessions": 2, "contextUsed": 3000, "contextSize": 200000,
+                            "cost": [
+                                { "currency": "EUR", "amount": 0.5, "sessions": 1 },
+                                { "currency": "USD", "amount": 0.30000000000000004, "sessions": 1 }
+                            ]
+                        }
+                    },
+                    {
+                        "projectKey": "k", "projectRoot": "/repo", "agent": "gemini",
+                        "period": "total", "activity": activity,
+                        "coverage": { "measuredSessions": 0, "unreportedSessions": 2 },
+                        "agentReport": { "sessions": 1, "contextUsed": 10, "contextSize": 100 }
+                    }
+                ],
+                "totals": {
+                    "cells": 2, "activity": activity,
+                    "coverage": { "measuredSessions": 0, "unreportedSessions": 4 },
+                    "agentReport": {
+                        "sessions": 3,
+                        "cost": [
+                            { "currency": "EUR", "amount": 0.5, "sessions": 1 },
+                            { "currency": "USD", "amount": 0.3, "sessions": 1 }
+                        ]
+                    }
+                },
+                "truncated": false,
+                "disclosure": ["agent-reported-context-and-cost"]
+            }))
+            .expect("a usage answer");
+        let out = super::render_usage(&result);
+        assert!(
+            out.contains(
+                "reported by the agent (2 session(s)): context max 3000 of 200000; \
+                 cost 0.5 EUR (1 session(s)), 0.3 USD (1 session(s))"
+            ),
+            "the figures are the agent's, one per currency, rounded: {out}"
+        );
+        assert!(
+            out.contains("context max 10 of 100; cost - not reported"),
+            "a cost nobody reported is absent, not zero: {out}"
+        );
+        assert!(
+            out.contains("reported by the agents in total (3 session(s)): cost 0.5 EUR"),
+            "{out}"
+        );
+        assert!(
+            out.contains("Meltemi only sums the cost per currency"),
+            "and the disclosure says so with the numbers: {out}"
+        );
+    }
+
     // Scenario: El CLI dice el modelo que rigió
     #[test]
     fn the_free_session_says_the_model_and_effort_that_governed() {

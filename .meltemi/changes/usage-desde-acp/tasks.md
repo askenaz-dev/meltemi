@@ -56,7 +56,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 3. Superficies y documentación
 
-- [ ] 3.1 La CLI muestra el contexto máx. y el costo por moneda bajo cada celda
+- [x] 3.1 La CLI muestra el contexto máx. y el costo por moneda bajo cada celda
   y el costo en los totales; la vista Uso de la GUI gana las columnas «Contexto
   máx.» y «Costo (del agente)» con la marca de ausente, los tipos y el texto
   ES/EN del motivo nuevo, del motivo reescrito («el agente no reportó uso por el
