@@ -81,7 +81,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   de `desktop/ui` (con la unión temporal a los `node_modules` de `main`,
   retirada al terminar)
 
-- [ ] 3.3 Documentación: `docs/agentes.md` (qué palanca toma cada adaptador, la
+- [x] 3.3 Documentación: `docs/agentes.md` (qué palanca toma cada adaptador, la
   vía anunciada y su confirmación), `docs/sesion-libre.md` (`--model`,
   `--effort`), la ayuda de `session` y `docs/referencia-cli.md` regenerada,
   `docs/paridad-nucleo.md` (los eventos y los campos nuevos) y la descripción

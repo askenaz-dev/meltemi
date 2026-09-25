@@ -119,6 +119,9 @@ the surfaces show which of the two you are looking at.
   SDK. It stays grey because the provider has published no position on
   third-party orchestration of that CLI; if one appears, the note will cite it.
   Meltemi shows this note in the Fleet view instead of hiding it.
+- Per-session levers by launch flag: `model`. The adapter has no verified place
+  for an effort, so asking for one is refused before the session opens (see
+  [model and effort per session](#model-and-effort-per-session)).
 
 ### codex-cli — Codex CLI
 
@@ -153,6 +156,8 @@ the surfaces show which of the two you are looking at.
   as the `originator` of its requests. Meltemi never presents itself as one of
   the provider's own clients. The CLI labels the threads it opens with a
   `source` of its own choosing; Meltemi does not set it.
+- Per-session levers by launch flag: `model`, `effort` (see
+  [model and effort per session](#model-and-effort-per-session)).
 
 ### aider — Aider
 
@@ -164,6 +169,53 @@ the surfaces show which of the two you are looking at.
 - Level 4 (artifacts only): Meltemi projects your context into `AGENTS.md` and
   the agent reads it. Nothing is piloted.
 - Meltemi looks for: `agy`
+
+## Model and effort per session
+
+A session can ask for a model and an effort: `--model` and `--effort` on
+`meltemi session`, the model and effort chips in the desktop composer, or the
+`model` and `effort` of a launch profile. Meltemi keeps no catalog of models
+(constitution §5): the words are the provider's, and each one reaches the agent
+by the way that agent actually has.
+
+1. **A launch flag its entry declares.** The registry's `levers` field lists what
+   an entry's adapter reads from the environment Meltemi composes for it:
+   `meltemi-codex-acp` takes `model` and `effort`, `meltemi-claude-acp` takes
+   `model`. The value travels untouched and is not validated here — the agent
+   accepts or rejects it. A lever the entry does not declare is refused before
+   anything is created (error 2006), naming the agent and the lever.
+2. **The option the agent announces.** An entry that declares no levers — every
+   native ACP agent, and any literal `agent.command`, whatever its binary is
+   called — takes them through the options the agent announces when the session
+   opens: the one option of category `model` for the model, the one of category
+   `thought_level` for the effort. Meltemi sets the model first, then the effort
+   against what the model left on offer, all **before the first prompt**, and
+   sends the prompt only if the agent's last answer holds exactly what was asked
+   and its mode did not move.
+3. **Otherwise it is refused, and no prompt is sent.** No option of the
+   category, or more than one; a value the agent did not announce (a toggle takes
+   only `true` or `false`, the agent's own words); an answer that keeps another
+   value or moves the mode; no answer within `[sessions] lever-wait` seconds (30
+   by default). The session ends as `lever_refused`, the verb answers error 2007
+   with the lever, what was asked, the reason and what the agent announced or
+   left — twenty values at most, and how many more — and every surface says it
+   in words. A prompt carries your repository, so it goes only to the model you
+   chose.
+
+Cancelling while a lever is being set ends the session without a prompt. The
+history lists what governed, and a refused lever is never listed as the model a
+session ran with. `propose`, `explore`, `plan`, `constitution`, `dispatch` and
+`implement` apply a profile's levers the same way, before they create anything.
+
+The category is the key, deliberately: ACP presents it as interface data, but
+nothing else tells "the model" apart without guessing by id or by value. An
+agent that announces its selector without a category, or under two, is refused
+with the options it did announce; set the one you mean by its id in a live
+session with `meltemi set-option <session> <option-id> <value>`.
+
+How long the agent may take to answer each lever is `lever-wait`, in seconds,
+under `[sessions]` in the project's `.meltemi/config.toml` or your user config;
+one second is the least it accepts.
 
 ## Where detection looks
 

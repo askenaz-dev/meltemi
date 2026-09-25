@@ -126,6 +126,25 @@ The TUI's `usage` home stays reserved, as it is for the rest of the activity.
 This is **not** a §4 break: the capability is the verdict, and it reaches all
 three surfaces; each reads it from the carrier it already consumes.
 
+### A lever's route, what governed, and a refusal at open
+
+A model or an effort reaches the agent as the launch flag its entry declares or
+through the option the agent announces, confirmed before the first prompt
+(modelo-por-opcion-anunciada). What that adds to the contract, and where each
+surface reads it:
+
+| Contract | CLI | TUI | GUI |
+|---|---|---|---|
+| `levers_applied` event (what the agent confirmed) | — (the result carries it) | transcript line, live and historical | conversation line; the model chip reads it while the session runs |
+| `lever_refused` event (lever, requested, reason, announced or left) | — (the error carries it) | transcript line in words, ES/EN | its own conversation item in words, ES/EN |
+| `session_ended` reason `lever_refused` | — | transcript | translated ending |
+| `session/start` result `model`, `effort` (what governed) | printed with the outcome | — (the session list carries it) | — (the session list carries it) |
+| error 2007 `data.leverRefused` | printed bounded and escaped, exit `11` | a refused `dispatch` from the board says it | — (the conversation says it) |
+| `worktree/dispatch` params `model`, `effort` | not sent (no flags) | not sent | not offered |
+
+The same record travels in the log and in the error, so every surface can say it
+in its own words, and each bounds the lists and escapes the agent's text itself.
+
 ### `requestId`, and why only the CLI reads it from the push
 
 The live push carries the id its request holds in the pending queue

@@ -41,10 +41,13 @@ SUBCOMMANDS:
                         rules decide exactly as they always did. In every mode
                         an explicit deny of yours prevails and anything
                         irreversible escalates.
-                        `--model` and `--effort` are the PROVIDER's own words:
-                        Meltemi carries them and never reads them, so what
-                        accepts or rejects one is the agent, and an agent that
-                        has no place for a lever refuses it by name
+                        `--model` and `--effort` are the PROVIDER's own words,
+                        never checked against a catalog of ours: each travels
+                        as the launch flag the agent's entry declares, else by
+                        the option the agent announces, set and confirmed
+                        before the first prompt. A lever the agent does not
+                        take is refused by name, and no prompt is sent; the
+                        output says the model and effort that governed
     sessions            list agent sessions (active and historical)
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing

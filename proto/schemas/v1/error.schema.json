@@ -155,7 +155,7 @@
         },
         "2007": {
           "kind": "config_option_not_announced",
-          "description": "A live configuration change was asked for that the agent never announced: an unknown option id, a value the option does not list, or a session whose agent announced no options at all. Distinct from 2006, which is refused before the session exists against what the adapter documents; this one is refused against what THIS agent said about THIS session. It is what keeps Meltemi from offering a selector on the agent's behalf."
+          "description": "A configuration the agent never announced or never confirmed. Live, from session/set-config-option: an unknown option id, a value the option does not list, or a session whose agent announced no options at all. At open, from every verb that starts an agent: a model or effort that goes by the agent's announcement and has no single option of its category, is not among the announced values, is not confirmed by the agent's answer, moves the agent's mode, or gets no answer in time — the session ends as lever_refused with no prompt sent, data.kind is lever_refused and data.leverRefused carries the lever, what was asked, the reason and what the agent announced or left, bounded. Distinct from 2006, which is refused before the session exists against what the agent's entry declares; this one is refused against what THIS agent said about THIS session. It is what keeps Meltemi from offering a selector on the agent's behalf, or prompting a model nobody chose."
         },
         "3000": {
           "kind": "change_already_exists",
