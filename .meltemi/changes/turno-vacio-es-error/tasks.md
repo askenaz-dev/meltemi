@@ -84,7 +84,7 @@ los e2e cargan el binario `mock-agent` ya construido.
   «El transcript nombra el turno vacío», «El detalle histórico nombra el turno
   vacío» — gates: suite de `meltemi` (tui)
 
-- [ ] 3.4 `docs/paridad-nucleo.md`: el veredicto del turno vacío llega a las
+- [x] 3.4 `docs/paridad-nucleo.md`: el veredicto del turno vacío llega a las
   tres superficies por el evento y a los verbos del CLI por la respuesta; los
   métodos sin `emptyTurn` por declaración (`sdd/review-decide`,
   `sdd/implement`, arranques separados, instrucciones encoladas); y los turnos
