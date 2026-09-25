@@ -66,14 +66,18 @@ modelo local: elegir `ollama/…` en OpenCode es exactamente esto.
 
 ### Modified Capabilities
 
-- `acp-session`: + requisito «Modelo y esfuerzo por opción anunciada» (envío
-  verbatim al abrir; rehúso listando lo anunciado; registro del valor
-  confirmado).
-- `fleet-catalog`: + campo `levers` aditivo por entrada y la última lista
-  anunciada por agente en `fleet/list`.
-- `propose-flow`, `worktree-orchestration`, `implement-command`: + las
-  palancas del perfil se aplican en sus verbos (hoy se pierden).
-- `gui-shell` y `tui-shell`: + el selector conoce lo anunciado.
+- `acp-session`: MODIFIED «Modelo y esfuerzo como transporte opaco por
+  sesión» (tres vías por palanca —bandera declarada, opción anunciada,
+  rehúso—; validación solo contra lo anunciado; lo confirmado queda en el
+  registro; rehúso antes de crear cuando ya se sabe y al abrir, sin prompt,
+  cuando solo el anuncio lo dice).
+- `fleet-catalog`: + «El registro declara las palancas de lanzamiento», «La
+  flota recuerda lo último que cada agente anunció» y «Las palancas de cada
+  agente se ven en toda superficie» (CLI y TUI); MODIFIED «El perfil declara su
+  modelo y su esfuerzo» (rige en todo verbo que arranca un agente: sesión
+  libre, `propose`, autoría, `dispatch`, `implement`).
+- `gui-shell`: MODIFIED «El modelo y el esfuerzo se eligen y se ven» (el
+  selector sabe qué ofrece el agente elegido).
 
 ## Impact
 
