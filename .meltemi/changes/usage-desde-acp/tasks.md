@@ -5,7 +5,7 @@ los e2e cargan el binario `mock-agent` ya construido.
 
 ## 1. El contrato y el simulado
 
-- [ ] 1.1 Contrato: `AgentReport` (sesiones, contexto más lleno, costo por
+- [x] 1.1 Contrato: `AgentReport` (sesiones, contexto más lleno, costo por
   moneda con sus sesiones) en la celda y `AgentReportTotals` (sesiones y costo
   por moneda) en los totales; `AgentReportCost`; el motivo
   `protocol_carries_context_not_consumption`; la clave de declaración

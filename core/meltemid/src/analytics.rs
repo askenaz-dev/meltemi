@@ -487,6 +487,9 @@ pub fn aggregate(
             period: key.period,
             activity: bucket.activity,
             tokens: (!bucket.tokens.is_empty()).then_some(bucket.tokens),
+            // Filled by the fold of what the agents reported (usage-desde-acp
+            // 2.1).
+            agent_report: None,
             coverage: UsageCoverage {
                 measured_sessions: bucket.measured_sessions,
                 unreported_sessions: bucket.unreported.values().sum(),

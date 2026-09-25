@@ -1767,6 +1767,72 @@ fn analytics_usage_conforms() {
     };
     assert_conforms("analytics", "activity", &activity);
     assert_conforms("analytics", "coverage", &coverage);
+    // A session whose agent reported context and cost over ACP keeps its
+    // tokens absent with a reason of its own (usage-desde-acp D5).
+    assert_conforms(
+        "analytics",
+        "coverage",
+        &UsageCoverage {
+            measured_sessions: 0,
+            unreported_sessions: 1,
+            reasons: vec![UsageUnreportedReason {
+                kind: UsageUnreportedKind::ProtocolCarriesContextNotConsumption,
+                sessions: 1,
+            }],
+        },
+    );
+
+    // What the agents reported: the fullest context and the cost per
+    // currency, each with its sessions (usage-desde-acp D4).
+    let report = AgentReport {
+        sessions: 2,
+        context_used: Some(12267),
+        context_size: Some(200_000),
+        cost: vec![
+            AgentReportCost {
+                currency: "EUR".into(),
+                amount: 0.125,
+                sessions: 1,
+            },
+            AgentReportCost {
+                currency: "USD".into(),
+                amount: 0.375,
+                sessions: 1,
+            },
+        ],
+    };
+    assert_conforms("analytics", "agentReport", &report);
+    // Context without cost omits the cost entirely: never an empty list, never
+    // a zero.
+    assert_conforms(
+        "analytics",
+        "agentReport",
+        &AgentReport {
+            cost: vec![],
+            ..report.clone()
+        },
+    );
+    assert_rejected(
+        "analytics",
+        "agentReport",
+        &json!({ "sessions": 1, "cost": [] }),
+    );
+    assert_rejected(
+        "analytics",
+        "agentReportCost",
+        &json!({ "amount": 0.5, "sessions": 1 }),
+    );
+    let report_totals = AgentReportTotals {
+        sessions: 2,
+        cost: report.cost.clone(),
+    };
+    assert_conforms("analytics", "agentReportTotals", &report_totals);
+    // A total is a sum: the context, a maximum, has no place in it.
+    assert_rejected(
+        "analytics",
+        "agentReportTotals",
+        &json!({ "sessions": 1, "contextUsed": 10 }),
+    );
 
     // Measured counters: a declared subset only — absence stays absent.
     let tokens = UsageTokens {
@@ -1791,6 +1857,7 @@ fn analytics_usage_conforms() {
         activity: activity.clone(),
         tokens: Some(tokens.clone()),
         coverage: coverage.clone(),
+        agent_report: Some(report.clone()),
     };
     assert_conforms("analytics", "cell", &cell);
     // A cell with nothing measured omits tokens entirely (never zeros).
@@ -1802,6 +1869,7 @@ fn analytics_usage_conforms() {
             agent_id: None,
             profile: None,
             level: None,
+            agent_report: None,
             ..cell.clone()
         },
     );
@@ -1825,6 +1893,7 @@ fn analytics_usage_conforms() {
             activity,
             tokens: Some(tokens),
             coverage,
+            agent_report: Some(report_totals),
         },
         truncated: false,
         disclosure: vec![
@@ -1833,6 +1902,7 @@ fn analytics_usage_conforms() {
             UsageDisclosure::NoQuotaBalanceOrBilling,
             UsageDisclosure::NothingIsEstimated,
             UsageDisclosure::NothingLeavesThisMachine,
+            UsageDisclosure::AgentReportedContextAndCost,
         ],
     };
     assert_conforms("analytics", "result", &result);

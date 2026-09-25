@@ -1191,6 +1191,11 @@ fn disclosure_line(key: meltemi_proto::UsageDisclosure) -> &'static str {
         }
         D::NothingIsEstimated => "nothing is estimated: a counter nobody reported stays absent",
         D::NothingLeavesThisMachine => "no data leaves this machine",
+        D::AgentReportedContextAndCost => {
+            "context and cost are what each agent reported over the protocol: Meltemi only \
+             sums the cost per currency — it estimates, converts and prices nothing — and a \
+             cumulative cost may include spending from before the range"
+        }
     }
 }
 

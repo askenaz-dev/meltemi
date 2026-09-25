@@ -907,8 +907,13 @@ impl UsageTokens {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageUnreportedKind {
-    /// The session ran over ACP, whose protocol does not carry usage.
+    /// The session ran over ACP and its agent reported no usage over the
+    /// protocol.
     ProtocolCarriesNoUsage,
+    /// The session ran over ACP and its agent reported what the protocol
+    /// carries — the context it holds and the cost it declares — which is not
+    /// consumption, so its tokens stay absent (usage-desde-acp design D5).
+    ProtocolCarriesContextNotConsumption,
     /// The integration level runs no process (level 4, artifacts only).
     LevelRunsNoProcess,
     /// A level-3 run whose structured output declared no counters.
@@ -936,8 +941,58 @@ pub struct UsageCoverage {
     pub reasons: Vec<UsageUnreportedReason>,
 }
 
+/// One currency of the cost the agents declared over ACP (usage-desde-acp
+/// design D4): each contributing conversation's last cumulative figure,
+/// summed. Never converted, and never a price of Meltemi's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentReportCost {
+    /// The currency as the agent sent it — ISO 4217 by the protocol, not
+    /// validated here.
+    pub currency: String,
+    /// The sum, in that currency.
+    pub amount: f64,
+    /// How many sessions contributed to it.
+    pub sessions: u32,
+}
+
+/// What the agents reported over ACP (`usage_update`) for the sessions of a
+/// cell (usage-desde-acp design D1, D2, D4): the fullest context and the cost
+/// per currency. The agents' own figures, relayed: never consumption, never
+/// converted, never priced by Meltemi.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentReport {
+    /// Sessions whose agent reported usage over the protocol.
+    pub sessions: u32,
+    /// Tokens in context in the fullest report — the largest share of its
+    /// window. A maximum, not a sum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_used: Option<u64>,
+    /// The window of that same report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_size: Option<u64>,
+    /// The cost per currency, sorted by currency; absent when no session
+    /// declared one (never zero).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cost: Vec<AgentReportCost>,
+}
+
+/// The agents' report over the returned cells: sums only, like every other
+/// total (usage-desde-acp design D4). The context is a maximum, so it is not
+/// here.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentReportTotals {
+    /// Sessions whose agent reported usage over the protocol.
+    pub sessions: u32,
+    /// The cost per currency, sorted by currency.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cost: Vec<AgentReportCost>,
+}
+
 /// One aggregation cell: project × agent × profile × period (design D2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageCell {
     pub project_key: String,
@@ -960,6 +1015,10 @@ pub struct UsageCell {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<UsageTokens>,
     pub coverage: UsageCoverage,
+    /// What the agents reported over the protocol; absent when no session of
+    /// the cell reported (usage-desde-acp).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_report: Option<AgentReport>,
 }
 
 /// Facts that could not be attributed to an agent or a profile. They live in
@@ -989,6 +1048,11 @@ pub enum UsageDisclosure {
     NothingIsEstimated,
     /// No data leaves this machine.
     NothingLeavesThisMachine,
+    /// Context and cost are what each agent reported over the protocol;
+    /// Meltemi only sums the cost per currency — it estimates, converts and
+    /// prices nothing — and a cumulative cost may include spending from
+    /// before the range (usage-desde-acp design D6).
+    AgentReportedContextAndCost,
 }
 
 /// Result of `analytics/usage`.
@@ -1008,7 +1072,7 @@ pub struct AnalyticsUsageResult {
 }
 
 /// Totals over the returned cells.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageTotals {
     pub cells: u32,
@@ -1017,6 +1081,10 @@ pub struct UsageTotals {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<UsageTokens>,
     pub coverage: UsageCoverage,
+    /// The agents' report summed over the returned cells; absent when none
+    /// reported (usage-desde-acp).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_report: Option<AgentReportTotals>,
 }
 
 /// Parameters of `project/list`.
