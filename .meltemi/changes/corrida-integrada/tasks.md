@@ -31,7 +31,7 @@ corrida usa los binarios y los adaptadores de este checkout.
   (design D6) — escenarios «El informe de aceptación existe con su veredicto»,
   «El hito enlaza su informe» — gates: tests de docs
 
-- [ ] 2.2 `docs/conformidad-manual.md`: la pierna de Claude Code 2.1.280 con
+- [x] 2.2 `docs/conformidad-manual.md`: la pierna de Claude Code 2.1.280 con
   `conformance_real`, la de OpenCode 1.18.32 con prompt desde la matriz, y los
   nivel 1 no instalados declarados como no medidos; `docs/agentes.md` gana la
   sección de la última corrida por agente y la regla de repetirla (design D7,
