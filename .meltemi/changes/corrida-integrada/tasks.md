@@ -5,7 +5,7 @@ corrida usa los binarios y los adaptadores de este checkout.
 
 ## 1. La corrida
 
-- [ ] 1.1 `scripts/smoke-agents.ps1` y `scripts/smoke-agents.sh`: el daemon
+- [x] 1.1 `scripts/smoke-agents.ps1` y `scripts/smoke-agents.sh`: el daemon
   aislado por las cinco variables, el fixture temporal con su regla de
   `read`/`edit` por prefijo, la flota detectada, la matriz de siete verbos por
   agente listo, las medidas sacadas de las respuestas y los registros, el
