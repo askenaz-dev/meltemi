@@ -41,6 +41,20 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   presente, equipo sin enlazar», «La identidad nunca es requisito», «Ningún
   token entra ni sale del daemon», «Las máquinas son los pares de la malla» y
   «Presencia no es control» — gates: suite del crate
+  <!-- **BLOQUEADA 2026-09-26.** Esta tarea empieza por «capturar una salida real
+  redactada de `status --json` como fixture», y en este equipo **no hay ningún
+  cliente de malla instalado**: `tailscale`, `netbird`, `zerotier-cli` y
+  `headscale` no están en el PATH ni en Program Files. El design dice por qué eso
+  no se puede saltar: la forma del JSON no es verificable desde el repositorio, y
+  un campo mal nombrado daría un parser verde en CI y un rehúso contra el cliente
+  de verdad. Inventar el fixture sería exactamente el fallo que el design nombró
+  para evitarlo, así que la change se detiene aquí en vez de fingir.
+  **Qué la desbloquea**: instalar un cliente de malla, iniciar sesión y capturar
+  `<cliente> status --json` una vez. Con eso, de la 2.2 a la 4.1 es
+  implementación.
+  La rama queda con `main` traído. Las tareas 1.1 y 2.1 —contrato y
+  configuración— no parsean la salida del cliente y podrían hacerse sin él; no se
+  hacen ahora para no dejar media change aterrizada. -->
 - [ ] 2.3 `identity/link`: el gesto compuesto (POSIX y PowerShell) con el
   servidor de login y el nombre del equipo, la pista del navegador, sin
   secretos y sin lanzar nada (design D3) — escenarios «El gesto de vínculo se
