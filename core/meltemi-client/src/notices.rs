@@ -221,6 +221,142 @@ pub fn send(config_dir: &Path, notice: &Notice) -> bool {
     true
 }
 
+/// The floor between two notices.
+///
+/// An agent that asks for six permissions in two seconds would produce six
+/// notifications on a phone, and six notifications in a row is how a person
+/// learns to silence a channel. The floor turns a burst into one notice carrying
+/// its count (design D5).
+pub const FLOOR: Duration = Duration::from_secs(30);
+
+/// Decides when a notice is worth sending, and remembers when the last one was.
+///
+/// A surface holds one of these. The record of when it fired lives here and not
+/// in the session log, because a notice is a fact about the user's machine, not
+/// about the session (design D7).
+#[derive(Debug)]
+pub struct Emitter {
+    config_dir: std::path::PathBuf,
+    last: Option<std::time::Instant>,
+    floor: Duration,
+}
+
+impl Emitter {
+    /// An emitter reading this user's configuration.
+    #[must_use]
+    pub fn new(config_dir: std::path::PathBuf) -> Self {
+        Self {
+            config_dir,
+            last: None,
+            floor: FLOOR,
+        }
+    }
+
+    /// The same, with a floor of the caller's choosing. For tests, and for a
+    /// surface that has measured a reason to differ.
+    #[must_use]
+    pub fn with_floor(config_dir: std::path::PathBuf, floor: Duration) -> Self {
+        Self {
+            config_dir,
+            last: None,
+            floor,
+        }
+    }
+
+    /// When the last notice went out, if any.
+    #[must_use]
+    pub fn last_sent(&self) -> Option<std::time::Instant> {
+        self.last
+    }
+
+    /// Something started waiting. Answers whether a notice went out.
+    ///
+    /// One notice per waiting event and not one per queued item: `count` is what
+    /// carries the rest. Within the floor, nothing goes out and the count of the
+    /// next one will say what happened.
+    pub fn waiting(&mut self, waiting: Waiting, session: &str, count: u32) -> bool {
+        if let Some(last) = self.last
+            && last.elapsed() < self.floor
+        {
+            return false;
+        }
+        let notice = Notice {
+            waiting,
+            session: session.to_string(),
+            machine: machine_name(),
+            at: crate::notices::now_rfc3339(),
+            count,
+        };
+        if send(&self.config_dir, &notice) {
+            self.last = Some(std::time::Instant::now());
+            return true;
+        }
+        false
+    }
+
+    /// The wait resolved. Sends nothing, deliberately.
+    ///
+    /// Telling the user it is no longer needed is noise that arrives while they
+    /// are already on their way, and it would spend the floor that the next real
+    /// wait needs (design D5).
+    pub fn resolved(&mut self) {}
+
+    /// The user asked for a test notice.
+    ///
+    /// Ignores the floor, because a person pressing the button twice means it
+    /// twice, and updates nothing: a rehearsal must not spend the floor a real
+    /// wait needs. Answers whether a command was launched, which is the only
+    /// moment a misconfiguration is visible (design D6).
+    pub fn test(&mut self, session: &str) -> bool {
+        let notice = Notice {
+            waiting: Waiting::Test,
+            session: session.to_string(),
+            machine: machine_name(),
+            at: now_rfc3339(),
+            count: 0,
+        };
+        send(&self.config_dir, &notice)
+    }
+}
+
+/// Now, as the contract spells an instant: RFC 3339 in UTC.
+///
+/// The client's own, because the daemon is not involved in a notice at all and
+/// asking it for the time would make it a participant.
+#[must_use]
+pub fn now_rfc3339() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or_default())
+        .unwrap_or_default();
+    format_rfc3339(secs)
+}
+
+/// A unix instant as RFC 3339 in UTC.
+///
+/// Split from [`now_rfc3339`] so the arithmetic can be checked against known
+/// dates: a clock is exactly the kind of code that looks right and is off by a
+/// day, and a notice with a wrong instant is a notice nobody can correlate.
+#[must_use]
+pub fn format_rfc3339(secs: i64) -> String {
+    // Days since the epoch to a civil date, by the usual era arithmetic. No
+    // dependency for five fields, and the daemon's own clock module does the
+    // same thing for the same reason.
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    let (h, m, sec) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { y + 1 } else { y };
+    format!("{year:04}-{month:02}-{d:02}T{h:02}:{m:02}:{sec:02}Z")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,6 +420,38 @@ echo \"$MELTEMI_WAITING $MELTEMI_SESSION $MELTEMI_COUNT $MELTEMI_MACHINE\" > '{}
         path
     }
 
+    /// A script that appends one line per call, so notices can be counted.
+    #[cfg(windows)]
+    fn write_appender(dir: &std::path::Path, seen: &std::path::Path) -> std::path::PathBuf {
+        let path = dir.join("append.cmd");
+        std::fs::write(
+            &path,
+            format!(
+                "@echo off\r\necho %MELTEMI_WAITING% %MELTEMI_COUNT% >> \"{}\"\r\n",
+                seen.display()
+            ),
+        )
+        .expect("write the script");
+        path
+    }
+
+    #[cfg(unix)]
+    fn write_appender(dir: &std::path::Path, seen: &std::path::Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join("append.sh");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\necho \"$MELTEMI_WAITING $MELTEMI_COUNT\" >> '{}'\n",
+                seen.display()
+            ),
+        )
+        .expect("write the script");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("make it executable");
+        path
+    }
+
     /// Whether a process id belongs to something still running.
     fn alive(pid: u32) -> bool {
         #[cfg(windows)]
@@ -308,6 +476,141 @@ echo \"$MELTEMI_WAITING $MELTEMI_SESSION $MELTEMI_COUNT $MELTEMI_MACHINE\" > '{}
                 .status()
                 .is_ok_and(|status| status.success())
         }
+    }
+
+    /// A configuration whose command records each call by appending a line.
+    fn recording_dir(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = temp_dir(tag);
+        let seen = dir.join("seen.txt");
+        let script = write_appender(&dir, &seen);
+        std::fs::write(
+            dir.join("config.toml"),
+            format!(
+                "[notices]\non-waiting = \"{}\"\n",
+                script.display().to_string().replace('\\', "/")
+            ),
+        )
+        .expect("write the config");
+        (dir, seen)
+    }
+
+    /// How many notices arrived so far.
+    fn arrived(seen: &std::path::Path) -> usize {
+        std::fs::read_to_string(seen)
+            .map(|text| text.lines().filter(|line| !line.trim().is_empty()).count())
+            .unwrap_or(0)
+    }
+
+    fn wait_for(seen: &std::path::Path, want: usize) -> usize {
+        for _ in 0..200 {
+            if arrived(seen) >= want {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        arrived(seen)
+    }
+
+    // Scenario: Una ráfaga de esperas produce un aviso con su cuenta
+    // Scenario: Resolver la espera no avisa
+    #[test]
+    fn a_burst_sends_one_notice_with_its_count_and_resolving_sends_none() {
+        let (dir, seen) = recording_dir("burst");
+        // A floor long enough that nothing in this test can pass it.
+        let mut emitter = Emitter::with_floor(dir.clone(), Duration::from_secs(600));
+
+        assert!(
+            emitter.waiting(Waiting::Permission, "s-1", 1),
+            "the first wait is told"
+        );
+        assert_eq!(wait_for(&seen, 1), 1);
+
+        // Five more in the same burst: nothing goes out, because the count of the
+        // next real notice is what carries them.
+        for n in 2..=6 {
+            assert!(
+                !emitter.waiting(Waiting::Permission, "s-1", n),
+                "wait {n} was inside the floor and must not notify"
+            );
+        }
+        assert_eq!(arrived(&seen), 1, "one notification, not six");
+
+        // And resolving is silent by design: it must not spend the floor the
+        // next real wait needs.
+        emitter.resolved();
+        assert_eq!(arrived(&seen), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn past_the_floor_the_next_wait_is_told_again() {
+        let (dir, seen) = recording_dir("past-floor");
+        let mut emitter = Emitter::with_floor(dir.clone(), Duration::from_millis(200));
+
+        assert!(emitter.waiting(Waiting::Permission, "s-1", 1));
+        assert_eq!(wait_for(&seen, 1), 1);
+        assert!(!emitter.waiting(Waiting::Permission, "s-1", 2), "inside");
+        std::thread::sleep(Duration::from_millis(350));
+        assert!(
+            emitter.waiting(Waiting::Gate, "s-1", 3),
+            "past the floor it is told again"
+        );
+        assert_eq!(wait_for(&seen, 2), 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_test_notice_ignores_the_floor_and_does_not_spend_it() {
+        // A person pressing the button twice means it twice; and a rehearsal must
+        // not consume the floor that a real wait needs.
+        let (dir, seen) = recording_dir("rehearsal");
+        let mut emitter = Emitter::with_floor(dir.clone(), Duration::from_secs(600));
+
+        assert!(emitter.test("s-1"));
+        assert!(emitter.test("s-1"), "twice means twice");
+        assert_eq!(wait_for(&seen, 2), 2);
+        assert!(
+            emitter.last_sent().is_none(),
+            "a rehearsal did not spend the floor"
+        );
+        assert!(
+            emitter.waiting(Waiting::Permission, "s-1", 1),
+            "so a real wait right after is still told"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_instant_is_a_utc_timestamp_the_contract_can_carry() {
+        let now = now_rfc3339();
+        assert!(now.ends_with('Z'), "{now}");
+        assert_eq!(now.len(), 20, "{now}");
+        // The shape, not the value: a clock that produced something unparseable
+        // would send a notice nobody can read.
+        assert!(
+            now.chars().nth(4) == Some('-') && now.chars().nth(10) == Some('T'),
+            "{now}"
+        );
+    }
+
+    #[test]
+    fn the_clock_is_right_at_dates_that_catch_the_usual_mistakes() {
+        // Not the shape but the value, because a clock is exactly the code that
+        // looks right and is off by a day. Each of these breaks a different way
+        // of getting the era arithmetic wrong.
+        assert_eq!(format_rfc3339(0), "1970-01-01T00:00:00Z");
+        assert_eq!(format_rfc3339(86_399), "1970-01-01T23:59:59Z");
+        assert_eq!(format_rfc3339(86_400), "1970-01-02T00:00:00Z");
+        // A leap day, and the day after it.
+        assert_eq!(format_rfc3339(951_782_400), "2000-02-29T00:00:00Z");
+        assert_eq!(format_rfc3339(951_868_800), "2000-03-01T00:00:00Z");
+        // A century that is not a leap year, which is where the naive rule fails.
+        assert_eq!(format_rfc3339(4_107_542_400), "2100-03-01T00:00:00Z");
+        // And a date in this project's own present.
+        assert_eq!(format_rfc3339(1_790_000_000), "2026-09-21T14:13:20Z");
     }
 
     // Scenario: Sin configurar, no se emite nada

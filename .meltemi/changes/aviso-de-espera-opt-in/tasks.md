@@ -44,11 +44,23 @@ dependencia**; el daemon no se toca y no hay RPC nuevo.
   `cfg!(windows)` es un valor, no un atributo, así que las dos ramas compilan y la
   de Unix le pidió permisos de archivo a un build de Windows. Se parte con
   `#[cfg]` de verdad. -->
-- [ ] 1.3 La coalescencia: un aviso por evento de espera con su cuenta, un piso
+- [x] 1.3 La coalescencia: un aviso por evento de espera con su cuenta, un piso
   de treinta segundos entre avisos, y nada al resolverse la espera; el registro
   de cuándo disparó vive en el emisor (design D5, D7) — escenarios «Una ráfaga de
   esperas produce un aviso con su cuenta» y «Resolver la espera no avisa» —
   gates: suite de `meltemi-client`
+  <!-- 2026-09-26: dos reglas que el design no había separado y que los tests
+  obligaron a decidir. (1) El aviso de prueba **ignora el piso y no lo gasta**:
+  quien pulsa el botón dos veces lo quiere dos veces, y un ensayo que consumiera
+  el piso dejaría muda la primera espera real que llegue después. (2) `resolved`
+  no manda nada **y tampoco toca el piso**, por lo mismo.
+  El instante lo pone el cliente, no el daemon, porque el daemon no participa en
+  un aviso y pedirle la hora lo convertiría en participante. La aritmética de la
+  fecha se parte en `format_rfc3339(secs)` para poder comprobarla contra fechas
+  conocidas —época, frontera de día, 29 de febrero, el día siguiente, y un siglo
+  que no es bisiesto—, que es lo único que atrapa un reloj que se ve bien y está
+  desplazado un día. De paso: mi valor esperado para una de esas fechas estaba mal
+  y el test lo dijo; 51.200 segundos son 14:13:20, no 09:33:20. -->
 
 ## 2. Las superficies
 
