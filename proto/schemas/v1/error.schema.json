@@ -6,7 +6,10 @@
   "$defs": {
     "errorData": {
       "type": "object",
-      "required": ["kind", "detail"],
+      "required": [
+        "kind",
+        "detail"
+      ],
       "properties": {
         "kind": {
           "type": "string",
@@ -23,7 +26,9 @@
         },
         "candidates": {
           "type": "array",
-          "items": { "$ref": "#/$defs/agentCandidate" },
+          "items": {
+            "$ref": "#/$defs/agentCandidate"
+          },
           "description": "The fleet agents detected on this system, carried by a refusal to resolve one (2000/2001) so a surface can offer a choice instead of transcribing a lament. Absent means the error has nothing to do with resolving an agent; an empty array means the fleet was consulted and nothing was found — which is an answer, not an omission."
         },
         "leverRefused": {
@@ -35,19 +40,41 @@
     "leverRefusal": {
       "type": "object",
       "description": "A lever refused when its session opened, before any prompt: what the session log records and what the 2007 error carries. Lists are bounded and say how many were left out.",
-      "required": ["lever", "requested", "reason"],
+      "required": [
+        "lever",
+        "requested",
+        "reason"
+      ],
       "properties": {
-        "lever": { "type": "string", "enum": ["model", "effort"] },
-        "requested": { "type": "string", "description": "What was asked for, verbatim." },
+        "lever": {
+          "type": "string",
+          "enum": [
+            "model",
+            "effort"
+          ]
+        },
+        "requested": {
+          "type": "string",
+          "description": "What was asked for, verbatim."
+        },
         "reason": {
           "type": "string",
-          "enum": ["not_announced", "ambiguous", "not_a_value", "not_confirmed", "mode_changed", "no_answer"],
+          "enum": [
+            "not_announced",
+            "ambiguous",
+            "not_a_value",
+            "not_confirmed",
+            "mode_changed",
+            "no_answer"
+          ],
           "description": "not_announced: no option of the lever's category; ambiguous: more than one; not_a_value: the value is not among the announced ones, or a toggle got neither true nor false; not_confirmed: the agent's answer left another value, or none; mode_changed: setting the lever changed the agent's mode; no_answer: no answer within the wait."
         },
         "values": {
           "type": "array",
           "maxItems": 20,
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "The values the agent announced for the lever's option."
         },
         "options": {
@@ -55,22 +82,42 @@
           "maxItems": 20,
           "items": {
             "type": "object",
-            "required": ["id", "name"],
+            "required": [
+              "id",
+              "name"
+            ],
             "properties": {
-              "id": { "type": "string" },
-              "name": { "type": "string" },
-              "category": { "type": "string" }
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              }
             }
           },
           "description": "The options the agent announced, when none or several carried the lever's category."
         },
-        "more": { "type": "integer", "minimum": 0, "description": "How many values or options were left out of those lists." },
-        "left": { "type": "string", "description": "What the agent left instead: the value its answer kept, or the mode it moved to." }
+        "more": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many values or options were left out of those lists."
+        },
+        "left": {
+          "type": "string",
+          "description": "What the agent left instead: the value its answer kept, or the mode it moved to."
+        }
       }
     },
     "agentCandidate": {
       "type": "object",
-      "required": ["id", "detected", "installState"],
+      "required": [
+        "id",
+        "detected",
+        "installState"
+      ],
       "description": "One agent offered as a way out of a resolution refusal, in the vocabulary fleet/list publishes and computed by the same detection path, so the error and the Fleet view cannot disagree. Ids, detection, state and remedies only: never an environment value, a credential path or anything shaped like a secret (fair play §2).",
       "properties": {
         "id": {
@@ -84,7 +131,13 @@
         },
         "installState": {
           "type": "string",
-          "enum": ["ready", "adapter_missing", "cli_missing", "not_detected", "not_launchable"],
+          "enum": [
+            "ready",
+            "adapter_missing",
+            "cli_missing",
+            "not_detected",
+            "not_launchable"
+          ],
           "description": "The composed install state across the entry's layers, identical to the one fleet/list reports for it."
         },
         "remedy": {
@@ -102,16 +155,49 @@
     "errorObject": {
       "type": "object",
       "description": "JSON-RPC 2.0 error object with structured data.",
-      "required": ["code", "message"],
+      "required": [
+        "code",
+        "message"
+      ],
       "properties": {
-        "code": { "type": "integer" },
-        "message": { "type": "string" },
-        "data": { "$ref": "#/$defs/errorData" }
+        "code": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/errorData"
+        }
       }
     },
     "errorCode": {
       "type": "integer",
-      "enum": [1000, 1001, 1002, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 3000, 3001, 3002, 4000, 4001, 4002, 4003, 4004, 4005, 4006, 5000],
+      "enum": [
+        1000,
+        1001,
+        1002,
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        3000,
+        3001,
+        3002,
+        4000,
+        4001,
+        4002,
+        4003,
+        4004,
+        4005,
+        4006,
+        5000,
+        6000
+      ],
       "x-catalog": {
         "1000": {
           "kind": "protocol_version_unsupported",
@@ -200,6 +286,10 @@
         "5000": {
           "kind": "invalid_usage_query",
           "description": "An analytics/usage query is unusable as written (inverted range, unparseable bound, empty limit). detail says which parameter and remedy how to write it; the daemon never substitutes a default period in silence."
+        },
+        "6000": {
+          "kind": "identity_unavailable",
+          "description": "Identity could not be answered: no [identity] table in the user's configuration, no mesh client where it was named, or a client that is present and not signed in. detail names which of the three and remedy says what to do; a status answer with available:false carries the same reason without being an error."
         }
       }
     }

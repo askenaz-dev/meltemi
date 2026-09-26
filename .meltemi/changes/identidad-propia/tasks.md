@@ -10,7 +10,7 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
 
 ## 1. El contrato
 
-- [ ] 1.1 `proto/meltemi-proto`: métodos `identity/status` e `identity/link`
+- [x] 1.1 `proto/meltemi-proto`: métodos `identity/status` e `identity/link`
   con sus params/results (`IdentityStatusResult` con `available`, `user`,
   `provider`, `this` y `machines[]` de nombre, presencia, sistema y última
   vez visto; `IdentityLinkParams` con `hostname` opcional;
@@ -21,6 +21,22 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   `x-catalog` de `error.schema.json` con `kind: identity_unavailable` —en el
   daemon el `kind` es un literal en el sitio del rehúso, no una tabla— (design
   D5, D9) — gates: `cargo test -p meltemi-proto`
+  <!-- 2026-09-26: hecha **sin el cliente de malla**, porque el contrato no
+  parsea su salida: lo que 2.2 necesita medir es la forma del JSON del cliente,
+  no la del contrato. El taller trajo `main` otra vez antes de empezar, para
+  partir de `estado-en-vivo`, `via-ssh-del-cliente` y `aviso-de-espera-opt-in`
+  ya aterrizadas.
+  Dos guardianes del repositorio saltaron y los dos tenían razón. El primero es
+  una **lista a mano** de los códigos de error en el test de conformidad, con un
+  comentario que dice que existe porque es lo que hizo visible la deriva del
+  2005; añadir 6000 al enum y al catálogo no basta, hay que añadirlo también ahí.
+  El segundo es el gate de paridad: estos dos métodos **sí** son invocables por
+  el cliente, así que van a la paleta de la TUI, al registro de la GUI y a la
+  matriz, al contrario que `session/state` de la tanda anterior.
+  Un campo que la tarea no listaba y que el contrato necesita: `thisMachine` por
+  máquina. Sin él, marcar el equipo actual sería adivinarlo comparando nombres, y
+  el test rechaza una máquina que lo omita — porque omitirlo la marcaría como
+  «no es esta» por descuido. -->
 
 ## 2. El daemon
 

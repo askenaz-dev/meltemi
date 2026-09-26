@@ -1791,6 +1791,115 @@ fn session_state_conforms() {
     );
 }
 
+/// Identity: the user's own mesh, read and never issued (identidad-propia D9).
+#[test]
+fn identity_conforms() {
+    assert_conforms("identity", "statusParams", &IdentityStatusParams::default());
+    assert_conforms("identity", "linkParams", &IdentityLinkParams::default());
+    assert_conforms(
+        "identity",
+        "linkParams",
+        &IdentityLinkParams {
+            hostname: Some("mi-pc".into()),
+        },
+    );
+
+    // The three refusals, each one an ANSWER rather than an error: a user who
+    // never wanted identity is not in a broken state.
+    for reason in [
+        IdentityUnavailable::NotConfigured,
+        IdentityUnavailable::ClientMissing,
+        IdentityUnavailable::NotLinked,
+    ] {
+        assert_conforms(
+            "identity",
+            "statusResult",
+            &IdentityStatusResult {
+                available: false,
+                reason: Some(reason),
+                remedy: Some("add an [identity] table to your user configuration".into()),
+                user: None,
+                provider: None,
+                this: None,
+                machines: Vec::new(),
+            },
+        );
+    }
+
+    // And the answer when it is available, with presence on both sides.
+    assert_conforms(
+        "identity",
+        "statusResult",
+        &IdentityStatusResult {
+            available: true,
+            reason: None,
+            remedy: None,
+            user: Some("guillermo@askenaz.dev".into()),
+            provider: Some("tailscale".into()),
+            this: Some("mi-pc".into()),
+            machines: vec![
+                MeshMachine {
+                    name: "mi-pc".into(),
+                    presence: MeshPresence::Online,
+                    system: Some("windows".into()),
+                    last_seen: Some("2026-09-26T18:04:00Z".into()),
+                    this_machine: true,
+                },
+                MeshMachine {
+                    name: "el-portatil".into(),
+                    presence: MeshPresence::Offline,
+                    system: None,
+                    last_seen: None,
+                    this_machine: false,
+                },
+            ],
+        },
+    );
+
+    assert_conforms(
+        "identity",
+        "linkResult",
+        &IdentityLinkResult {
+            command: "tailscale up --login-server https://headscale.askenaz.dev --hostname mi-pc"
+                .into(),
+            posix: "tailscale up --login-server https://headscale.askenaz.dev --hostname mi-pc"
+                .into(),
+            powershell:
+                "tailscale up --login-server https://headscale.askenaz.dev --hostname mi-pc".into(),
+            opens_browser: true,
+            login_server: Some("https://headscale.askenaz.dev".into()),
+        },
+    );
+
+    // What the contract must refuse. A presence nobody declared, because the set
+    // is the contract and not a hint; and a gesture with no command at all,
+    // because a surface would show an empty thing to copy.
+    assert_rejected(
+        "identity",
+        "statusResult",
+        &json!({
+            "available": true,
+            "machines": [{ "name": "mi-pc", "presence": "away", "thisMachine": true }]
+        }),
+    );
+    assert_rejected(
+        "identity",
+        "linkResult",
+        &json!({ "command": "", "posix": "x", "powershell": "x", "opensBrowser": false }),
+    );
+    // A machine that does not say whether it is this one: the surfaces mark the
+    // current machine, and a row that left it out would be marked as not-this by
+    // omission.
+    assert_rejected(
+        "identity",
+        "statusResult",
+        &json!({
+            "available": true,
+            "machines": [{ "name": "mi-pc", "presence": "online" }]
+        }),
+    );
+}
+
 // Local usage accounting (analitica-consumo-local D5).
 #[test]
 fn analytics_usage_conforms() {
@@ -3231,6 +3340,9 @@ fn error_codes_match_catalog() {
         error_codes::SPEC_MERGE_CONFLICT,
         error_codes::ARTIFACT_NOT_FOUND,
         error_codes::USAGE_QUERY_INVALID,
+        // 6xxx opens a domain: identity and mesh. A list somebody has to edit is
+        // the point — it is what made 2005's drift visible.
+        error_codes::IDENTITY_UNAVAILABLE,
     ];
     let mut sorted = constants.to_vec();
     sorted.sort_unstable();
