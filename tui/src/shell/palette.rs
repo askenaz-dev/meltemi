@@ -94,6 +94,16 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "shut down the daemon (confirms)",
     },
     Entry {
+        // No contract method: the notice is the client's own doing and the daemon
+        // takes no part in it, so this entry contributes nothing to the parity
+        // union (aviso-de-espera-opt-in design D2).
+        name: "notice-test",
+        reserved: false,
+        methods: &[],
+        desc_es: "enviar un aviso de espera de prueba",
+        desc_en: "send a test waiting notice",
+    },
+    Entry {
         name: "quit",
         reserved: false,
         methods: &[],

@@ -105,6 +105,8 @@ pub enum Overlay {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     Quit,
+    /// Rehearse the waiting notice (aviso-de-espera-opt-in design D6).
+    TestNotice,
     CancelActiveSession,
     ShutdownDaemon,
     RefreshStatus,
@@ -452,6 +454,7 @@ impl ShellState {
                         None
                     }
                     "status" | "refresh" => Some(Effect::RefreshStatus),
+                    "notice-test" | "aviso-prueba" => Some(Effect::TestNotice),
                     // `projects` alone widens to every known project; with an
                     // argument it scopes to the projects matching that text.
                     _ if command == "projects" || command == "proyectos" => {
@@ -695,6 +698,21 @@ mod tests {
             press(state, Key::Char(c));
         }
         press(state, Key::Enter)
+    }
+
+    // Scenario: La paleta de la TUI envía un aviso de prueba
+    #[test]
+    fn the_palette_asks_for_a_test_notice_in_both_languages() {
+        // A rehearsal is the only moment a misconfigured notice is visible, so it
+        // has to be reachable without leaving a session waiting and walking away.
+        for command in ["notice-test", "aviso-prueba"] {
+            let mut state = ShellState::new();
+            assert_eq!(
+                palette(&mut state, command),
+                Some(Effect::TestNotice),
+                "`{command}` rehearses the notice"
+            );
+        }
     }
 
     #[test]

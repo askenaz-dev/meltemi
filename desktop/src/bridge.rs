@@ -47,6 +47,58 @@ pub enum ConnState {
     },
 }
 
+/// Emits the waiting notice when a notification says something started waiting
+/// for a person.
+///
+/// Reads the daemon's own pushes and nothing else: the queue's snapshot says how
+/// many permissions wait, and the live state says when a session parked. A wait
+/// that has gone away emits nothing, which is what keeps a resolved queue from
+/// spending the floor the next real wait needs.
+fn notice_for(
+    notices: &mut meltemi_client::notices::Emitter,
+    method: &str,
+    params: &serde_json::Value,
+) {
+    use meltemi_client::notices::Waiting;
+
+    let (waiting, session, count) = match method {
+        methods::PERMISSION_CHANGED => {
+            let pending = params
+                .get("pending")
+                .and_then(serde_json::Value::as_array)
+                .map_or(0, Vec::len);
+            if pending == 0 {
+                // The queue emptied: somebody decided. Nothing to say.
+                notices.resolved();
+                return;
+            }
+            let session = params["pending"][0]["sessionId"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            (
+                Waiting::Permission,
+                session,
+                u32::try_from(pending).unwrap_or(u32::MAX),
+            )
+        }
+        methods::SESSION_STATE => {
+            let state = params.get("state").and_then(serde_json::Value::as_str);
+            if state != Some("waiting_instruction") {
+                return;
+            }
+            let session = params
+                .get("sessionId")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            (Waiting::Instruction, session, 1)
+        }
+        _ => return,
+    };
+    notices.waiting(waiting, &session, count);
+}
+
 /// An event pushed from the actor to the host (the Tauri layer forwards it to
 /// the webview; tests consume it directly).
 #[derive(Debug, Clone, Serialize)]
@@ -150,6 +202,10 @@ pub async fn bridge_actor(
     events: mpsc::UnboundedSender<BridgeEvent>,
 ) {
     let mut backoff = MIN_BACKOFF;
+    // Outside the loop on purpose: the record of when the last notice went out
+    // has to survive a reconnection, or a daemon that drops and comes back would
+    // reset the floor and let a burst through (aviso-de-espera-opt-in design D5).
+    let mut notices = meltemi_client::notices::Emitter::new(meltemi_client::paths::config_dir());
     loop {
         let _ = events.send(BridgeEvent::State(ConnState::Connecting));
         let stream = match bootstrap::connect_or_start(&endpoint).await {
@@ -168,7 +224,7 @@ pub async fn bridge_actor(
         };
         backoff = MIN_BACKOFF;
 
-        match serve_connection(stream, &mut commands, &events, &endpoint).await {
+        match serve_connection(stream, &mut commands, &events, &endpoint, &mut notices).await {
             ConnExit::HostGone => return,
             ConnExit::Disconnected => continue,
         }
@@ -185,6 +241,7 @@ async fn serve_connection(
     commands: &mut mpsc::UnboundedReceiver<BridgeCommand>,
     events: &mpsc::UnboundedSender<BridgeEvent>,
     endpoint: &str,
+    notices: &mut meltemi_client::notices::Emitter,
 ) -> ConnExit {
     let (peer, mut incoming) = Peer::start(stream);
 
@@ -219,6 +276,11 @@ async fn serve_connection(
                     peer.respond(id, Err(RpcError::method_not_found(&method)));
                 }
                 Some(Incoming::Notification { method, params }) => {
+                    // The waiting notice, decided here and not in the webview: a
+                    // view that could run commands would be a surface nobody
+                    // needs to open, and this process already talks to the
+                    // operating system (aviso-de-espera-opt-in design D2).
+                    notice_for(notices, &method, &params);
                     let _ = events.send(BridgeEvent::Incoming { method, params });
                 }
             },
