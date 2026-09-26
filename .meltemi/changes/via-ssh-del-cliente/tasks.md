@@ -20,7 +20,7 @@ aterriza en `main` con `meltemi land` al cerrar.**
   comando del usuario en silencio. También se añade el nombre abreviado para el
   cromo, que es de la tarea 2.2 pero pertenece a este módulo: muestra el programa
   sin su ruta y el primer argumento, que para el caso que existe es el host. -->
-- [ ] 1.2 `transport.rs`: la forma `exec:` del endpoint; lanza el proceso
+- [x] 1.2 `transport.rs`: la forma `exec:` del endpoint; lanza el proceso
   dentro de un `Scope` de `meltemi-process`, une su stdin y su stdout en un
   `Stream`, recoge las últimas líneas de su `stderr` en un buffer acotado, y
   al soltarse termina el proceso y el ámbito; `meltemi-client` gana la
@@ -28,11 +28,27 @@ aterriza en `main` con `meltemi land` al cerrar.**
   escenarios «El cliente habla por el comando que el usuario nombró» y «Al
   cerrar el cliente no queda el proceso» — gates: suite de `meltemi-client`,
   `cargo deny check bans`
-- [ ] 1.3 El rehúse con causa: un proceso que muere antes del apretón de manos
+- [x] 1.3 El rehúse con causa: un proceso que muere antes del apretón de manos
   produce un error que nombra el comando, adjunta lo que escribió en `stderr` y
   dice el remedio; Meltemi no añade ninguna opción al comando del usuario
   (design D5) — escenario «Un comando que no llega a hablar el protocolo se
   rehúsa con su causa» — gates: suite de `meltemi-client`
+  <!-- 2026-09-26: **1.2 y 1.3 aterrizan en el mismo commit y separarlas habría
+  sido falso.** El rehúse con causa no es un añadido al transporte: es lo que el
+  transporte hace cuando la salida del proceso termina. Un `ExecStream` que
+  reportara fin de flujo limpio ahí estaría tirando la única explicación que
+  existe, y por tanto no hay una versión intermedia del transporte que valga la
+  pena cometer.
+  **D9 nuevo, descubierto al escribir el test**: el endpoint se **quita** del
+  entorno del hijo. Un comando que ejecute a su vez `meltemi` heredaría este
+  endpoint y marcaría contra sí mismo; con `ssh` remoto no pasa, con cualquier
+  ayudante local sí. El test de eso enseñó además una asimetría de plataforma:
+  `cmd` deja `%VAR%` literal cuando la variable no existe, así que la aserción
+  correcta es por ausencia del valor, no por un par de corchetes vacío.
+  Se declaran además las features de tokio que el crate **ya usaba** por
+  unificación de otro crate (`macros`, y `rt` para el recolector): antes
+  `cargo build -p meltemi-client` a solas no compilaba, y ahora sí. No entra
+  ninguna dependencia nueva a la clausura; `cargo deny check bans` verde. -->
 - [ ] 1.4 `bootstrap.rs`: un endpoint `exec:` **jamás** arranca un daemon,
   escrito explícitamente y con su test, en vez de depender de que la
   comparación con el endpoint propio no coincida por accidente (design D4) —

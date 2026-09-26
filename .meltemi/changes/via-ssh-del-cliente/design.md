@@ -148,6 +148,20 @@ tiene derecho a saber si la está viendo en su máquina o en otra. Un cliente qu
 callara la diferencia haría que un borrado en la máquina equivocada pareciera
 un borrado en la propia.
 
+### D9 — El endpoint no viaja al entorno del hijo
+
+`MELTEMI_ENDPOINT` se **quita** del entorno del proceso que se lanza.
+
+La razón es un bucle concreto: si el comando ejecuta a su vez un `meltemi`
+—un ayudante local, un script envoltorio—, heredaría este mismo endpoint y
+marcaría contra sí mismo. Con `ssh` remoto no pasa, porque el shell del otro
+lado no hereda nada; con cualquier comando local, sí.
+
+Se quita en vez de sobrescribirse, para que el hijo caiga en el valor por
+defecto de **su** máquina, que es lo correcto tanto para el `ssh` remoto como
+para un ayudante local. Un script que quiera un endpoint concreto lo fija él,
+después de heredar, y eso sigue funcionando.
+
 ## Risks / Trade-offs
 
 - **Sin shell, sin tuberías.** Declarado en D2 y con remedio: un script.

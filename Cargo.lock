@@ -2435,6 +2435,7 @@ name = "meltemi-client"
 version = "0.1.1"
 dependencies = [
  "directories",
+ "meltemi-process",
  "meltemi-proto",
  "serde",
  "serde_json",
