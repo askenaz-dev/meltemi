@@ -64,12 +64,18 @@ existe y ya está probado, en vez de contra una promesa.
   fijan `Active` sobre una sesión ya activa, y un `since` que se moviera en cada
   uno reiniciaría el cronómetro que la superficie muestra. Comprobado que el
   test muerde: sin la guarda, falla con un segundo de diferencia. -->
-- [ ] 2.2 `events.rs`: el hub gana un **segundo canal** `broadcast` para el
+- [x] 2.2 `events.rs`: el hub gana un **segundo canal** `broadcast` para el
   estado, con su propio sobre y sin la regla de `delivers` —toda conexión
   iniciada recibe toda transición, sin origen y sin vigilancia—, y un test que
   pinea que dos suscriptores reciben la misma afirmación una vez cada uno
   (design D2) — escenario «Una transición llega a un cliente que no inició la
   sesión» — gates: suite de `meltemid`
+  <!-- 2026-09-26: el canal de estado **no lleva sobre**. El del evento sella el
+  origen porque `delivers` lo necesita; aquí no hay nada por lo que filtrar, y
+  sellar un origen que nadie usa sería una invitación a que alguien filtre por
+  él mañana. Se añade además un test de que los dos canales no se cruzan: un
+  evento que apareciera en el canal de estado habría pasado de contrabando por
+  delante de `delivers`. -->
 - [ ] 2.3 `session.rs` + los cinco puntos de mutación: publicar la afirmación
   al canal en cada transición, con el estado entero y no un delta; un test por
   transición que compruebe que lo publicado coincide con lo que `session/list`
