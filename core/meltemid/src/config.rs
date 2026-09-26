@@ -143,6 +143,17 @@ pub struct Config {
     /// the default (3). Reaching it closes the OLDEST wait, never refuses a new
     /// session.
     pub max_idle_sessions: Option<usize>,
+    /// `[identity]`: which mesh to read the user's identity from, and where to
+    /// send a machine to sign in. `None` means identity is off, which is the
+    /// default and not an error (identidad-propia design D5).
+    ///
+    /// User scope only. A table in a project's configuration is ignored with a
+    /// diagnostic, because identity belongs to the person and the machine and a
+    /// `login-server` in a versioned file would be committed.
+    pub identity: Option<IdentityConfig>,
+    /// Diagnostics for `[identity]`: an unknown mesh, a login server that is not
+    /// an `https` URL, or a table found where it does not belong.
+    pub identity_diagnostics: Vec<String>,
     /// `[sessions] lever-wait`: seconds the agent may take to answer each lever
     /// set on what it announces, before the session is refused without a
     /// prompt. `None` keeps the default (30) (modelo-por-opcion-anunciada D3).
@@ -194,6 +205,37 @@ impl Config {
     }
 }
 
+/// Which mesh answers for identity, and how to reach its login.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityConfig {
+    /// The mesh the user runs. One accepted value today; anything else is
+    /// refused with a remedy rather than tried, because a client Meltemi cannot
+    /// read is a client whose output it would guess at.
+    pub mesh: String,
+    /// The login server the linking gesture names, when the user runs their own.
+    pub login_server: Option<String>,
+    /// The client binary, by name or by path. `None` means the mesh's usual
+    /// name, resolved on the PATH like any other tool.
+    pub command: Option<String>,
+}
+
+/// The only mesh this build knows how to read.
+///
+/// A list of one, and a refusal for anything else. Accepting an unknown name
+/// would mean running an unknown binary and parsing whatever it printed, which
+/// is the failure the whole change is built to avoid.
+pub const KNOWN_MESHES: &[&str] = &["tailscale"];
+
+#[derive(Debug, Default, Deserialize)]
+struct RawIdentity {
+    #[serde(default)]
+    mesh: Option<String>,
+    #[serde(default, rename = "login-server")]
+    login_server: Option<String>,
+    #[serde(default)]
+    command: Option<String>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct RawConfig {
     #[serde(default)]
@@ -206,6 +248,27 @@ struct RawConfig {
     permissions: RawPermissions,
     #[serde(default)]
     sessions: RawSessions,
+    #[serde(default)]
+    identity: RawIdentity,
+}
+
+impl RawConfig {
+    /// The `[identity]` values, borrowed, so the caller reads them without
+    /// consuming the rest of the file.
+    fn identity_ref(&self) -> (&Option<String>, &Option<String>, &Option<String>) {
+        (
+            &self.identity.mesh,
+            &self.identity.login_server,
+            &self.identity.command,
+        )
+    }
+
+    /// Whether this file says anything at all about identity.
+    fn declares_identity(&self) -> bool {
+        self.identity.mesh.is_some()
+            || self.identity.login_server.is_some()
+            || self.identity.command.is_some()
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -408,15 +471,80 @@ impl Config {
             config.apply(raw);
         }
         if let Some(raw) = read_config_file(&config_dir.join("config.toml")) {
+            config.apply_identity(raw.identity_ref());
             config.apply(raw);
         }
         if let Some(root) = project_root
             && let Some(raw) = read_config_file(&root.join(".meltemi").join("config.toml"))
         {
+            // `[identity]` is NOT applied from a project. Said rather than
+            // silently dropped: a user who wrote it there deserves to know why
+            // nothing happened (design D5).
+            if raw.declares_identity() {
+                config.identity_diagnostics.push(
+                    "[identity] in a project's .meltemi/config.toml is ignored: identity \
+                     belongs to the person and the machine, and a login-server in a versioned \
+                     file would be committed — move the table to your user config.toml"
+                        .to_string(),
+                );
+            }
             config.apply(raw);
         }
         config.apply_env();
         config
+    }
+
+    /// Reads `[identity]` from a user-scope file.
+    ///
+    /// Every refusal keeps the default — identity off — and says why with a
+    /// remedy, which is the house discipline: a bad value must not stop the
+    /// daemon from starting.
+    fn apply_identity(&mut self, raw: (&Option<String>, &Option<String>, &Option<String>)) {
+        let (mesh, login_server, command) = raw;
+        let Some(mesh) = mesh else {
+            if login_server.is_some() || command.is_some() {
+                self.identity_diagnostics.push(
+                    "[identity] has no `mesh`, so identity stays off: name the mesh you run \
+                     (today: tailscale)"
+                        .to_string(),
+                );
+            }
+            return;
+        };
+        let mesh = mesh.trim().to_lowercase();
+        if !KNOWN_MESHES.contains(&mesh.as_str()) {
+            self.identity_diagnostics.push(format!(
+                "[identity] mesh `{mesh}` is not one this build can read, so identity stays \
+                 off: this build reads {} — a mesh it cannot read is a binary whose output it \
+                 would have to guess at",
+                KNOWN_MESHES.join(", ")
+            ));
+            return;
+        }
+        let login_server = match login_server {
+            Some(url) if !url.trim().is_empty() => {
+                let url = url.trim();
+                if !url.starts_with("https://") {
+                    self.identity_diagnostics.push(format!(
+                        "[identity] login-server `{url}` is not an https URL, so identity stays \
+                         off: a login sent over plain http is a login anyone on the way can read"
+                    ));
+                    return;
+                }
+                Some(url.to_string())
+            }
+            _ => None,
+        };
+        let command = command
+            .as_deref()
+            .map(str::trim)
+            .filter(|command| !command.is_empty())
+            .map(str::to_string);
+        self.identity = Some(IdentityConfig {
+            mesh,
+            login_server,
+            command,
+        });
     }
 
     fn apply(&mut self, raw: RawConfig) {
@@ -1086,5 +1214,126 @@ mod espera_humana_tests {
             "{:?}",
             zero.session_diagnostics
         );
+    }
+
+    /// A user config directory holding `content`, and a project root holding
+    /// `project` when given.
+    fn identity_dirs(tag: &str, user: &str, project: Option<&str>) -> (PathBuf, PathBuf) {
+        let base = std::env::temp_dir().join(format!(
+            "meltemi-identity-config-{}-{tag}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        let user_dir = base.join("user");
+        let root = base.join("repo");
+        std::fs::create_dir_all(&user_dir).expect("user dir");
+        std::fs::create_dir_all(root.join(".meltemi")).expect("project dir");
+        std::fs::write(user_dir.join("config.toml"), user).expect("user file");
+        if let Some(project) = project {
+            std::fs::write(root.join(".meltemi").join("config.toml"), project)
+                .expect("project file");
+        }
+        (user_dir, root)
+    }
+
+    #[test]
+    fn identity_is_off_by_default_and_read_only_from_the_user_scope() {
+        // Off is the default, and a file that says nothing about identity leaves
+        // it off without complaining.
+        let (user, root) = identity_dirs("default", "[agent]\n", None);
+        let config = Config::load(&user, Some(&root));
+        assert!(config.identity.is_none());
+        assert!(config.identity_diagnostics.is_empty());
+
+        // The user's own table is read.
+        let (user, root) = identity_dirs(
+            "user",
+            "[identity]\nmesh = \"tailscale\"\nlogin-server = \"https://headscale.example\"\n",
+            None,
+        );
+        let config = Config::load(&user, Some(&root));
+        let identity = config.identity.expect("the user's table is read");
+        assert_eq!(identity.mesh, "tailscale");
+        assert_eq!(
+            identity.login_server.as_deref(),
+            Some("https://headscale.example")
+        );
+        assert!(config.identity_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn a_projects_identity_table_is_ignored_and_says_why() {
+        // The boundary that matters: a versioned file must not decide this. And
+        // it is said rather than silently dropped, because somebody wrote it
+        // there on purpose and deserves to know why nothing happened.
+        let (user, root) = identity_dirs(
+            "project",
+            "[agent]\n",
+            Some(
+                "[identity]\nmesh = \"tailscale\"\nlogin-server = \"https://elsewhere.example\"\n",
+            ),
+        );
+        let config = Config::load(&user, Some(&root));
+        assert!(
+            config.identity.is_none(),
+            "a project does not turn identity on"
+        );
+        let said = config.identity_diagnostics.join(" ");
+        assert!(said.contains("is ignored"), "{said}");
+        assert!(
+            said.contains("would be committed"),
+            "the reason travels with it: {said}"
+        );
+        assert!(said.contains("user config.toml"), "and the remedy: {said}");
+
+        // And it does not override a user table either.
+        let (user, root) = identity_dirs(
+            "both",
+            "[identity]\nmesh = \"tailscale\"\nlogin-server = \"https://mine.example\"\n",
+            Some("[identity]\nmesh = \"tailscale\"\nlogin-server = \"https://theirs.example\"\n"),
+        );
+        let config = Config::load(&user, Some(&root));
+        assert_eq!(
+            config
+                .identity
+                .expect("the user's table")
+                .login_server
+                .as_deref(),
+            Some("https://mine.example"),
+            "the project's value never wins here, whatever the usual precedence is"
+        );
+    }
+
+    #[test]
+    fn every_bad_identity_value_keeps_the_default_and_names_a_remedy() {
+        // The house discipline: a bad value must not stop the daemon, and the
+        // diagnostic must say what to do.
+        let cases = [
+            (
+                "unknown-mesh",
+                "[identity]\nmesh = \"zerotier\"\n",
+                "not one this build can read",
+            ),
+            (
+                "plain-http",
+                "[identity]\nmesh = \"tailscale\"\nlogin-server = \"http://headscale.example\"\n",
+                "not an https URL",
+            ),
+            (
+                "no-mesh",
+                "[identity]\nlogin-server = \"https://headscale.example\"\n",
+                "has no `mesh`",
+            ),
+        ];
+        for (tag, content, expected) in cases {
+            let (user, root) = identity_dirs(tag, content, None);
+            let config = Config::load(&user, Some(&root));
+            assert!(
+                config.identity.is_none(),
+                "{tag}: a refused value leaves identity off"
+            );
+            let said = config.identity_diagnostics.join(" ");
+            assert!(said.contains(expected), "{tag}: {said}");
+        }
     }
 }

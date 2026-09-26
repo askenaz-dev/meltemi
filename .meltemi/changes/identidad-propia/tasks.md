@@ -40,12 +40,24 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
 
 ## 2. El daemon
 
-- [ ] 2.1 `core/meltemid/src/config.rs`: tabla `[identity]` (`mesh`,
+- [x] 2.1 `core/meltemid/src/config.rs`: tabla `[identity]` (`mesh`,
   `login-server`, `command`) **de ámbito de usuario** —una tabla en el
   `.meltemi/config.toml` del proyecto se ignora con diagnóstico— con la
   disciplina de la casa: default ante valor inválido, diagnóstico con remedio,
   `login-server` como URL `https`, lint de secretos (design D5) — gates: suite
   del crate
+  <!-- 2026-09-26: hecha **sin el cliente de malla**, como la 1.1: leer la tabla
+  no es parsear la salida de nadie.
+  El ámbito no cabía en `apply`, que es uniforme para usuario y proyecto, así que
+  `[identity]` se lee **en `load`**, del archivo de usuario y solo de ese, y un
+  archivo de proyecto que la declare deja un diagnóstico. Dicho y no descartado en
+  silencio: alguien la escribió ahí a propósito y merece saber por qué no pasó
+  nada. El test comprueba además que un proyecto **no pisa** una tabla de usuario,
+  aunque la precedencia general vaya en ese sentido.
+  `KNOWN_MESHES` es una lista de uno, y rechazar lo demás es el punto: aceptar un
+  nombre desconocido sería ejecutar un binario desconocido y adivinar lo que
+  imprima, que es justo el fallo que esta change existe para evitar. Cada rechazo
+  deja identidad apagada y nombra su remedio, como manda la casa. -->
 - [ ] 2.2 `core/meltemid/src/identity.rs` + `core/mock-agent` bin
   `mock-mesh`: **primero** capturar una salida real redactada de `status
   --json` como fixture del simulado (la forma no es verificable desde el
