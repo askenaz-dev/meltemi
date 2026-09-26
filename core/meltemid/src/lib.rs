@@ -23,6 +23,7 @@ pub mod fleet;
 pub mod free_session;
 pub mod git;
 pub mod harness;
+pub mod identity;
 pub mod implement;
 pub mod levels;
 pub mod lever_options;

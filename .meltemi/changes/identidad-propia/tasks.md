@@ -83,11 +83,24 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   La rama queda con `main` traído. Las tareas 1.1 y 2.1 —contrato y
   configuración— no parsean la salida del cliente y podrían hacerse sin él; no se
   hacen ahora para no dejar media change aterrizada. -->
-- [ ] 2.3 `identity/link`: el gesto compuesto (POSIX y PowerShell) con el
+- [x] 2.3 `identity/link`: el gesto compuesto (POSIX y PowerShell) con el
   servidor de login y el nombre del equipo, la pista del navegador, sin
   secretos y sin lanzar nada (design D3) — escenarios «El gesto de vínculo se
   imprime, no se ejecuta» y «El gesto no lleva secretos» — gates: suite del
   crate
+  <!-- 2026-09-26: hecha **sin el cliente de malla**, como 1.1 y 2.1: componer el
+  gesto es leer la configuración, no la salida de nadie. Queda el módulo con su
+  mitad escrita y su mitad ausente declarada en la cabecera, para que el próximo
+  que lo abra sepa por qué falta `status`.
+  Las dos formas **no son la misma cadena mostrada dos veces**, y ese es el punto
+  de tener dos: un nombre con espacio pegado de POSIX a PowerShell se parte en dos
+  argumentos. Cada una cita como su shell quiere, y una comilla dentro del nombre
+  se escapa de forma distinta en cada una. El criterio de qué va sin comillas es
+  estrecho a propósito: unas comillas de más cuestan dos caracteres; unas de menos
+  cuestan un comando que hace otra cosa.
+  El test de secretos assertA **por ausencia** —ni `--authkey`, ni `tskey-`, ni
+  token ni contraseña—, que es la única forma de que siga siendo cierto cuando
+  alguien añada una opción mañana. -->
 
 ## 3. Las superficies
 
