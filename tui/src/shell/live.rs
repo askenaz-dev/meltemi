@@ -273,6 +273,13 @@ pub enum Update {
     },
     /// A persistent, labeled notice (e.g. a permission expiry).
     Notice(String),
+    /// Where one session stands, as the daemon affirmed it.
+    ///
+    /// The whole state of that session, not a difference, so applying it twice
+    /// or out of order converges — which is what lets the reconciling refresh
+    /// and this coexist without either having to win (estado-en-vivo design
+    /// D1).
+    SessionState(meltemi_proto::SessionStateParams),
 }
 
 /// The live snapshot the renderer reads. Mutated only by [`LiveData::apply`] and
@@ -380,6 +387,20 @@ impl LiveData {
                 self.sessions = rows;
                 if self.selected >= self.sessions.len() {
                     self.selected = self.sessions.len().saturating_sub(1);
+                }
+            }
+            Update::SessionState(affirmation) => {
+                // Patched by id, and nothing else touched: what arrived says
+                // where the session stands, not everything a row shows. A row
+                // this surface does not hold is left alone — the connection
+                // actor asks for the list when it sees one, because a row built
+                // out of five fields would show an agent with no name.
+                if let Some(row) = self
+                    .sessions
+                    .iter_mut()
+                    .find(|row| row.id == affirmation.session_id)
+                {
+                    row.state = affirmation.state;
                 }
             }
             Update::Fleet(snapshot) => self.fleet = Some(snapshot),
@@ -564,6 +585,68 @@ mod tests {
             profile: None,
             title: None,
         }
+    }
+
+    // Scenario: La fila cambia al llegar la transición
+    #[test]
+    fn an_affirmation_moves_the_row_it_names_and_leaves_the_rest_alone() {
+        let mut live = LiveData::default();
+        live.apply(Update::Sessions(vec![
+            SessionRow {
+                id: "s-1".into(),
+                agent: "mock".into(),
+                state: SessionState::Active,
+                project_root: "/repo".into(),
+                resumable: false,
+                agent_id: None,
+                profile: None,
+                title: None,
+                mode: None,
+                model: None,
+            },
+            SessionRow {
+                id: "s-2".into(),
+                agent: "mock".into(),
+                state: SessionState::Active,
+                project_root: "/repo".into(),
+                resumable: false,
+                agent_id: None,
+                profile: None,
+                title: None,
+                mode: None,
+                model: None,
+            },
+        ]));
+
+        live.apply(Update::SessionState(meltemi_proto::SessionStateParams {
+            session_id: "s-2".into(),
+            project_root: "/repo".into(),
+            state: SessionState::WaitingPermission,
+            since: "2026-09-26T12:00:00Z".into(),
+            pending_permissions: 1,
+        }));
+
+        assert_eq!(
+            live.sessions[0].state,
+            SessionState::Active,
+            "s-1 untouched"
+        );
+        assert_eq!(live.sessions[1].state, SessionState::WaitingPermission);
+        // Nothing else of the row moved: the affirmation says where the session
+        // stands, not what it is.
+        assert_eq!(live.sessions[1].agent, "mock");
+        assert_eq!(live.sessions[1].project_root, "/repo");
+
+        // A session this surface holds no row for is left alone rather than
+        // invented: the connection actor is what asks for the list.
+        live.apply(Update::SessionState(meltemi_proto::SessionStateParams {
+            session_id: "s-9".into(),
+            project_root: "/elsewhere".into(),
+            state: SessionState::Active,
+            since: "2026-09-26T12:00:01Z".into(),
+            pending_permissions: 0,
+        }));
+        assert_eq!(live.sessions.len(), 2, "no phantom row appeared");
     }
 
     #[test]

@@ -164,11 +164,24 @@ existe y ya está probado, en vez de contra una promesa.
   lista una vez y desde ahí las afirmaciones la mantienen al día.
   `svelte-check` limpio (150 archivos) y los 82 tests de la UI verdes; el taller
   necesitaba `npm ci` primero, que no toca el lockfile. -->
-- [ ] 3.2 TUI: un `Update` propio para la transición, que parchea la fila por su
+- [x] 3.2 TUI: un `Update` propio para la transición, que parchea la fila por su
   id; `refresh_sessions` deja de ser la fuente y pasa a reconciliar; el ticker
   de 2 s se queda para los relojes (design D7) — escenarios «La fila cambia al
   llegar la transición» y «El reloj sigue moviendo los relojes» — gates: suite
   de `meltemi`
+  <!-- 2026-09-26: el ticker **deja de pedir la lista** y se queda con los
+  relojes y las vitales del daemon, que es lo que el escenario exige; la lista
+  sigue pidiéndose al conectar, en un refresco explícito, y cuando una afirmación
+  nombra una sesión sin fila. Para distinguir ese caso el actor de conexión lleva
+  un conjunto de ids conocidas —local, como `watched`— y `refresh_sessions`
+  devuelve las que trajo para **sembrarlo**: sin eso, la foto de apertura del
+  daemon habría costado una consulta por sesión, que es peor que el sondeo que
+  acabamos de quitar.
+  La campana gana su caso: una sesión que termina es justo el momento para el
+  que existe, y ahora llega como afirmación propia en vez de notarse en el
+  siguiente sondeo. La regla vieja suena por un refresco entero que contenga una
+  sesión terminada; se deja como está, porque el sondeo que la alimentaba ya no
+  es quien encuentra los finales. -->
 - [ ] 3.3 CLI: `sessions --follow` con las convenciones de `follow` —un registro
   por línea en todo formato, un documento YAML por registro, error a medias
   cierra el flujo con su objeto—, empezando por la foto; `sessions` sin la
