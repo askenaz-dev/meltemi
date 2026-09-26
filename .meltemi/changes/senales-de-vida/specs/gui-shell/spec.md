@@ -3,7 +3,8 @@
 ### Requirement: Vocabulario de movimiento acotado
 La GUI SHALL animar solo con las clases del vocabulario de movimiento de
 `docs/ux/design-system.md`, cada una con su lugar, su token de duración
-(`--dur-1`, `--dur-2`, `--dur-pulse`, `--dur-ambient`, con `--ease-out`) y su
+(`--dur-1`, `--dur-2`, `--dur-pulse`, `--dur-ambient`, `--dur-mark`, con
+`--ease-out`) y su
 equivalente sin movimiento. Las animaciones con nombre SHALL ser exactamente las
 de una lista cerrada —`composer-wind`, `arrive`, `skeleton-pulse` y
 `mark-draw`— y SHALL animar solo opacidad o transform, con la única excepción

@@ -200,9 +200,9 @@ A lower-priority signal never occludes a higher one.
 ## Motion
 
 - Durations come from tokens, never from literals: `--dur-1` (120 ms,
-  arrival), `--dur-2` (160 ms, state change), `--dur-pulse` (1.2 s, skeleton)
-  and `--dur-ambient` (2.4 s, the ambient ring), all with `--ease-out` except
-  the ring's linear turn.
+  arrival), `--dur-2` (160 ms, state change), `--dur-pulse` (1.2 s, skeleton),
+  `--dur-ambient` (2.4 s, the ambient ring) and `--dur-mark` (600 ms, the
+  mark's outline, once), all with `--ease-out` except the ring's linear turn.
 - Opacity/transform only, with one named exception: the mark's outline
   (class H) is drawn with `stroke-dashoffset`, which is paint and not layout.
   Never height, position or background color.
@@ -230,7 +230,7 @@ branch fails the build (`senales-de-vida`, 2026-09-26).
 | E flow | streamed text arrives as it arrives, with no typing effect; a fixed, non-blinking cursor marks its edge | — | the same |
 | F tools | reserved for `herramientas-a-la-vista` | — | — |
 | G terminal | the TUI header spinner, braille with an ASCII twin of its own cycle, armed only while a session works | ~100 ms per frame | the ASCII twin |
-| H brand | the mark's outline, drawn once in the welcome | 600 ms, once | already drawn |
+| H brand | the mark's outline, drawn once in the welcome | `--dur-mark`, once | already drawn |
 | I window | hidden until the interface exists, capped at 500 ms | — | the same |
 
 Arrival does not apply to switching views: views mount by branch, several have

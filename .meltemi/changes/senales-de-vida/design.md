@@ -62,8 +62,8 @@ Leído el código antes de diseñar, estos hechos fijan el diseño:
 ### D1 — Un vocabulario de nueve clases, con tokens
 
 `docs/ux/design-system.md` gana la tabla y `app.css` los tokens: `--dur-1`
-(120 ms), `--dur-2` (160 ms), `--dur-pulse` (1,2 s), `--dur-ambient` (2,4 s) y
-`--ease-out`.
+(120 ms), `--dur-2` (160 ms), `--dur-pulse` (1,2 s), `--dur-ambient` (2,4 s),
+`--dur-mark` (600 ms, el trazo de la marca) y `--ease-out`.
 
 | Clase | Dónde vale | Duración | Sin movimiento |
 | --- | --- | --- | --- |
@@ -74,7 +74,7 @@ Leído el código antes de diseñar, estos hechos fijan el diseño:
 | E flujo | el texto llega como llega, sin efecto de tecleo; el borde lo marca un cursor fijo (D4) | — | igual |
 | F herramientas | reservada para `herramientas-a-la-vista` | — | — |
 | G TUI | el spinner de la cabecera (D5) | ~100 ms por frame | gemelo ASCII |
-| H marca | el trazo del mark en la bienvenida (D7) | 600 ms, una vez | dibujado |
+| H marca | el trazo del mark en la bienvenida (D7) | `--dur-mark`, una vez | dibujado |
 | I ventana | oculta hasta que la interfaz existe (D6) | tope 500 ms | igual |
 
 Reglas: solo opacidad o transform, con una excepción nombrada —la marca dibuja

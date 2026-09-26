@@ -35,6 +35,37 @@
     aria-modal="true"
     aria-labelledby="onboarding-title"
   >
+    <!-- The mark of brand/meltemi-mark-gradient.svg, its outline drawn once as
+         the welcome opens: the one movement the brand has, with no splash and
+         no glow. Its gradient carries an id of its own so it cannot collide
+         with the bar's, and the forced-colors rule for `.mark` covers it
+         (senales-de-vida D7). -->
+    <svg class="mark" viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient
+          id="melMarkWelcome"
+          x1="38"
+          y1="222"
+          x2="219"
+          y2="54"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0" stop-color="var(--mel-aegean)" />
+          <stop offset="1" stop-color="var(--mel-wind)" />
+        </linearGradient>
+      </defs>
+      <path
+        class="stroke"
+        pathLength="1"
+        d="M43 178C43 125 57 100 78 100C99 100 109 127 109 176C109 105 132 67 158 67C185 67 199 97 196 132C194 154 185 169 172 177C189 176 205 166 217 152C224 144 230 133 234 122"
+        fill="none"
+        stroke="url(#melMarkWelcome)"
+        stroke-width="25"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <path class="hull" d="M45 199C87 211 145 215 202 189C195 204 177 216 151 220C106 226 67 215 45 199Z" fill="url(#melMarkWelcome)" />
+    </svg>
     <h2 id="onboarding-title">{$t("onboarding.title")}</h2>
     <p class="intro">{$t("onboarding.intro")}</p>
     <ul>
@@ -83,6 +114,24 @@
     padding: var(--sp-6);
     display: grid;
     gap: var(--sp-3);
+  }
+  .mark {
+    width: 40px;
+    height: 40px;
+    display: block;
+  }
+  /* H brand: the outline drawn once, 600 ms, and already drawn under reduced
+     motion — the resting state IS the drawn mark, the animation only arrives
+     at it. */
+  .mark .stroke {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+    animation: mark-draw var(--dur-mark) var(--ease-out) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mark .stroke {
+      animation: none;
+    }
   }
   h2 {
     margin: 0;

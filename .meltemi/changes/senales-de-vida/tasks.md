@@ -82,7 +82,7 @@ Las tareas de la interfaz corren además los gates del frontend desde
   ventana», «Una interfaz muda no deja la ventana invisible» — gates: suite de
   `meltemi-desktop`
 
-- [ ] 5.2 El mark en la bienvenida con su contorno dibujado una vez en 600 ms
+- [x] 5.2 El mark en la bienvenida con su contorno dibujado una vez en 600 ms
   (`mark-draw`), dibujado desde el inicio bajo movimiento reducido, degradado
   con id propio y la regla de colores forzados heredada (design D7) — escenario
   «La marca se dibuja una vez en la bienvenida» — gates: `-p meltemi-desktop

@@ -2802,6 +2802,7 @@ const MOTION_TOKENS: &[&str] = &[
     "var(--dur-2)",
     "var(--dur-pulse)",
     "var(--dur-ambient)",
+    "var(--dur-mark)",
 ];
 
 /// The query under which motion is withdrawn.
@@ -3019,6 +3020,7 @@ fn every_animation_belongs_to_the_closed_vocabulary() {
         "--dur-2: 160ms",
         "--dur-pulse: 1.2s",
         "--dur-ambient: 2.4s",
+        "--dur-mark: 600ms",
     ] {
         assert!(app_css.contains(token), "app.css declares `{token}`");
     }
@@ -3456,6 +3458,54 @@ fn the_window_is_shown_once_the_interface_exists() {
         host.contains("fn first_frame(app: tauri::AppHandle)")
             && host.contains("            first_frame,\n"),
         "the host answers the signal"
+    );
+}
+
+// Scenario: La marca se dibuja una vez en la bienvenida
+#[test]
+fn the_mark_draws_itself_once_in_the_welcome() {
+    let welcome = read("desktop/ui/src/lib/components/Onboarding.svelte");
+    // The mark itself, with a gradient id of its own: two `melMark` ids in one
+    // document would leave one of the two marks painted by the wrong one.
+    assert!(
+        welcome.contains("<svg class=\"mark\"")
+            && welcome.contains("id=\"melMarkWelcome\"")
+            && welcome.contains("stroke=\"url(#melMarkWelcome)\""),
+        "the welcome carries the mark with its own gradient"
+    );
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        !sidebar.contains("melMarkWelcome"),
+        "and the bar keeps its own"
+    );
+    // The outline is measured as one, so the draw is the same whatever the
+    // path's real length.
+    assert!(
+        welcome.contains("class=\"stroke\"\n        pathLength=\"1\""),
+        "the outline is normalised to a length of one"
+    );
+
+    // Drawn once, in its token's 600 ms; the resting state is the drawn mark,
+    // so withdrawing the animation leaves it drawn.
+    let css = stylesheet(&repo_root().join("desktop/ui/src/lib/components/Onboarding.svelte"));
+    let stroke = block(&css[css.find(".mark .stroke {").expect("the outline is styled")..]);
+    assert!(
+        stroke.contains("animation: mark-draw var(--dur-mark) var(--ease-out) both;")
+            && !stroke.contains("infinite"),
+        "the outline draws once: {stroke}"
+    );
+    assert!(
+        stroke.contains("stroke-dasharray: 1;") && stroke.contains("stroke-dashoffset: 0;"),
+        "at rest the outline is whole: {stroke}"
+    );
+    let reduced = reduced_branches(&css).concat();
+    assert!(
+        reduced.contains(".mark .stroke") && reduced.contains("animation: none;"),
+        "under reduced motion it is simply drawn: {reduced}"
+    );
+    assert!(
+        read("desktop/ui/src/app.css").contains("--dur-mark: 600ms;"),
+        "the brand's one movement lasts 600 ms"
     );
 }
 

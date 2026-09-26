@@ -64,6 +64,7 @@
   --dur-2: 160ms;
   --dur-pulse: 1.2s;
   --dur-ambient: 2.4s;
+  --dur-mark: 600ms;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
 
   color-scheme: light dark;
