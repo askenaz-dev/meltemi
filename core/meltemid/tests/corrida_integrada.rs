@@ -170,3 +170,37 @@ fn the_published_run_declares_what_was_not_installed() {
     }
     assert!(report.contains("## Lo no medido"));
 }
+
+const ACCEPTANCE: &str = "docs/qa/2026-09-26-hito-v01-aceptacion.md";
+
+// Scenario: El informe de aceptación existe con su veredicto
+#[test]
+fn the_acceptance_report_records_date_agents_and_a_verdict_per_criterion() {
+    let report = read(ACCEPTANCE);
+    assert!(report.contains("**Fecha**: 2026-09-26"), "dated");
+    assert!(report.contains("`meltemi 0.1.1`"), "the product's version");
+    for agent in ["Claude Code 2.1.280", "OpenCode 1.18.32"] {
+        assert!(report.contains(agent), "{agent} with its version");
+    }
+    for criterion in ["| C1 |", "| C2 |", "| C3 |", "| C4 |", "| C5 |", "| C6 |"] {
+        let row = report
+            .lines()
+            .find(|line| line.starts_with(criterion))
+            .unwrap_or_else(|| panic!("a verdict row for {criterion}"));
+        assert!(row.contains("**pasa"), "{row}");
+    }
+    assert!(
+        report.contains("## Desviaciones"),
+        "the deviations are stated"
+    );
+}
+
+// Scenario: El hito enlaza su informe
+#[test]
+fn the_milestone_links_its_manual_run_report() {
+    let hito = read("docs/hito-v01.md");
+    assert!(
+        hito.contains("(qa/2026-09-26-hito-v01-aceptacion.md)"),
+        "docs/hito-v01.md links the manual run"
+    );
+}

@@ -24,7 +24,7 @@ corrida usa los binarios y los adaptadores de este checkout.
 
 ## 2. El hito y la conformidad
 
-- [ ] 2.1 El hito v0.1 con Claude Code y OpenCode sobre un fixture mínimo, con
+- [x] 2.1 El hito v0.1 con Claude Code y OpenCode sobre un fixture mínimo, con
   la revisión y las marcas de verificación por `meltemi bridge`:
   `docs/qa/2026-09-26-hito-v01-aceptacion.md` (fecha UTC) con veredicto por criterio y los
   presupuestos medidos, y `docs/hito-v01.md` enlazándolo; un test pinea ambos

@@ -56,7 +56,13 @@ different vendors**, and records the result in the acceptance report:
 
 ## Acceptance report
 
-The report that accompanies the `v0.1` tag records, per criterion (C1–C6):
+**The manual run with real agents is published**:
+[2026-09-26 — Claude Code 2.1.280 and OpenCode 1.18.32](qa/2026-09-26-hito-v01-aceptacion.md).
+All six criteria pass; the report states five deviations, two of them product
+defects with their own change. It was run after `v0.1.0` was published, which
+the report does not hide.
+
+The report records, per criterion (C1–C6):
 
 - the result (pass/fail) of the automated run (the CI job and commit SHA);
 - the result of the manual run (date, the two agents used, per-step outcome);
@@ -89,4 +95,6 @@ paralelo. Dos corridas: la automatizada (suite e2e en CI con dos perfiles de
 pasar. Los criterios C1–C6 (propose, review+reelaboración, implement paralelo,
 verify, archive, presupuestos §12) tienen cobertura observable. El informe
 acompaña al tag con veredicto por criterio y es reproducible desde el mismo
-commit.
+commit. La corrida manual con agentes reales está publicada en
+[`qa/2026-09-26-hito-v01-aceptacion.md`](qa/2026-09-26-hito-v01-aceptacion.md):
+los seis criterios pasan, con cinco desviaciones declaradas.
