@@ -311,7 +311,52 @@ Tres cosas que esta medición decide, y que no se podían decidir suponiendo:
    anuncia dos, una de ellas con 317 modelos. No es un error de aquella
    conclusión sino su fecha: lo que no anunciaba entonces, anuncia ahora.
 
-## Última corrida — 2026-09-25 (UTC)
+## Última corrida — 2026-09-26 (UTC)
+
+Windows 11 Pro (26200), x86_64, desde el taller de `corrida-integrada`. Dos
+fuentes, y se dice cuál es cuál: el arnés `conformance_real` para el dialecto de
+Claude Code, y la [corrida integrada](qa/2026-09-26-corrida-integrada.md) —la
+matriz de siete verbos de `scripts/smoke-agents.ps1`— para OpenCode, que es
+nativo y el arnés no cubre.
+
+### Dialecto de sesión headless — `claude 2.1.280`: **nivel verificado 2**
+
+`MELTEMI_CONFORMANCE_AGENT=claude-code`, a las 00:46Z. Las cuatro comprobaciones
+se ejercieron contra el binario real y las cuatro aprobaron: `streaming`,
+`session`, `permissions` y `cancellation`. El paro se respondió en **10,07 s**
+como `cancelled`, sin nada corriendo después: la ruta de abandono, la misma que
+la corrida del 2026-07-31 midió en 10,1 s. Reemplaza, para esta versión, el
+nivel verificado contra `2.1.167`.
+
+Lo que la conformidad no ve y la corrida integrada sí: las peticiones de este
+adaptador llegan sin `rawInput` ni `locations`, de modo que una regla de
+permisos acotada por ruta no puede concederlas (hallazgo 2 del informe;
+`adaptadores-con-rawinput`). El criterio `permissions` mide que la petición
+llegue y se decida, no que una regla la reconozca.
+
+### Nativo — `opencode 1.18.32`: observado, sin nivel verificado
+
+Desde la corrida integrada, no desde el arnés, y por eso no se persiste como
+resultado de conformidad:
+
+| Criterio | Lo observado |
+| --- | --- |
+| sesión | abre, anuncia sus opciones y cierra con `session_ended`; se reanuda con `direct` |
+| streaming | fragmentos del agente antes del cierre en todas las sesiones, y uso reportado por el protocolo (contexto y costo 0 USD) |
+| permisos | **no pide ninguno**: edita sin preguntar, con y sin regla (hallazgo 1 del informe). El proxy no lo gobierna en su configuración por omisión |
+| cancelación | `cancel` sobre una sesión viva la terminó en 9,3 s |
+
+Con un criterio que falla, el nivel 1 no queda verificado, y la página lo dice
+en vez de callar la fila.
+
+### No medidos
+
+Los nivel 1 del catálogo que no están instalados en esta máquina: Gemini CLI,
+GitHub Copilot CLI, Cursor CLI, Kiro CLI y Kilo Code. Tampoco Aider (nivel 3,
+que el daemon no lanza hoy) ni Antigravity (nivel 4). Ninguno se da por
+aprobado ni por fallido: no se midieron.
+
+## Corrida del 2026-09-25 (UTC)
 
 Windows 11 (26200), x86_64. Solo el dialecto de servidor
 (`MELTEMI_CONFORMANCE_AGENT=codex-cli`): es la corrida que exige el re-anclaje

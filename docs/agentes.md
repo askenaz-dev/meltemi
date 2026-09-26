@@ -173,6 +173,29 @@ the surfaces show which of the two you are looking at.
   the agent reads it. Nothing is piloted.
 - Meltemi looks for: `agy`
 
+## Measured against the real CLIs
+
+What this guide says about an agent is what its registry entry declares. What
+an agent **did**, against its real CLI, is measured by the integrated run
+(`scripts/smoke-agents.ps1`, or `scripts/smoke-agents.sh` on macOS and Linux):
+the same seven verbs for every ready agent, isolated from your daemon, and a
+dated report in `docs/qa/`. The last one:
+
+| Agent | Version | Run | Result |
+| --- | --- | --- | --- |
+| `claude-code` | 2.1.280 | 2026-09-26 | all seven verbs complete; verified level 2 by the conformance run; a path-scoped permission rule cannot match its requests (they carry no path) |
+| `opencode` | 1.18.32 | 2026-09-26 | all seven verbs complete; **it edits without asking for permission**, so the proxy does not govern it in its default configuration |
+| `codex-cli` | 0.156.1 | 2026-09-26 | six of seven: it cannot be resumed with `direct`; a path-scoped rule cannot match its requests either |
+
+The report: [`qa/2026-09-26-corrida-integrada.md`](qa/2026-09-26-corrida-integrada.md).
+Agents of the catalog that are not installed on the machine that ran it are
+listed there as not measured, never as passing.
+
+**The rule**: the run is repeated whenever the version of a pinned CLI or of
+one of Meltemi's own adapters changes, and its date is part of what this table
+says. A result older than the version you have is not a result about your
+version.
+
 ## Model and effort per session
 
 A session can ask for a model and an effort: `--model` and `--effort` on
