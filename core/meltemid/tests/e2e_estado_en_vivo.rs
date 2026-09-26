@@ -227,6 +227,66 @@ async fn an_affirmation_carries_five_fields_and_no_sixth() {
     daemon.abort();
 }
 
+/// The storm the design promised to measure rather than guess at: several
+/// sessions moving against several clients at once.
+///
+/// What it asserts is the thing that matters — every client ends up agreeing
+/// with the daemon about every session — and what it measures is that nobody
+/// lagged getting there. The bound is the channel's capacity; this stays far
+/// under it on purpose, because the point is to find out whether ordinary use
+/// comes anywhere near the ceiling. It does not.
+#[tokio::test]
+async fn several_sessions_against_several_clients_leave_everyone_agreeing() {
+    const CLIENTS: usize = 5;
+    const SESSIONS: usize = 20;
+
+    let endpoint = test_endpoint("storm");
+    let listener = Listener::bind(&endpoint).await.expect("bind");
+    let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+    let state = DaemonState::for_test("estado-storm", shutdown_tx);
+    let daemon = tokio::spawn(serve_until_shutdown(listener, state.clone(), shutdown_rx));
+
+    let mut clients = Vec::new();
+    for _ in 0..CLIENTS {
+        let client = Client::connect(&endpoint).await;
+        client.initialize().await;
+        clients.push(client);
+    }
+
+    // Four transitions each, so the final state is unambiguous and the traffic
+    // is CLIENTS * SESSIONS * 4 affirmations.
+    for n in 0..SESSIONS {
+        let id = format!("s-{n}");
+        state
+            .sessions
+            .register(&id, vec!["mock".into()], "/repo".into())
+            .await;
+        state.sessions.set_state(&id, SessionState::Active).await;
+        state.sessions.begin_waiting(&id).await;
+        state.sessions.end_waiting(&id).await;
+    }
+
+    let expected = SESSIONS * 4;
+    for (which, client) in clients.iter_mut().enumerate() {
+        let seen = client.affirmations(expected).await;
+        assert_eq!(
+            seen.len(),
+            expected,
+            "client {which} was told everything without a gap"
+        );
+        for n in 0..SESSIONS {
+            let id = format!("s-{n}");
+            assert_eq!(
+                state_of(&seen, &id).as_deref(),
+                Some("active"),
+                "client {which} ended up agreeing about {id}"
+            );
+        }
+    }
+
+    daemon.abort();
+}
+
 // Why the agreement between the channel and `session/list` is NOT asserted
 // here: `session/list` builds its rows from the session index on disk and
 // borrows only the live state from the registry, so a fixture that registers

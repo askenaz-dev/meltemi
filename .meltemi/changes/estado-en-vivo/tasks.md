@@ -119,13 +119,29 @@ existe y ya está probado, en vez de contra una promesa.
   §3 llegando también aquí; y la afirmación lleva cinco campos y ningún sexto,
   comprobado leyendo las claves del objeto en el cable y verificando que la línea
   de comandos del agente no viaja. -->
-- [ ] 2.5 e2e con `mock-agent`: un cliente abre una sesión y **otro** cliente
+- [x] 2.5 e2e con `mock-agent`: un cliente abre una sesión y **otro** cliente
   conectado al mismo daemon recibe sus transiciones sin pedirlas, y el estado
   que recibe coincide con `session/list` en ese instante. Y la medición que el
   design promete: varias sesiones contra varios clientes, comprobando que en
   uso normal nadie se rezaga y que quien se rezaga queda con estado válido
   (design D5) — escenario «Una transición llega a un cliente que no inició la
   sesión» — gates: suite de `meltemid`
+  <!-- 2026-09-26: **este test encontró un agujero real y esa es su
+  justificación entera.** Los flujos de un solo turno (`propose`, la rama de
+  reanudación) no terminan con `set_state(Ended)`: finalizan **quitando** la
+  sesión del registro (`session_finalize`). Sin anuncio en esa salida, el
+  segundo cliente quedaba con «esperando instrucción» y no volvía a saber nada
+  nunca — exactamente la mentira congelada que esta change viene a terminar, y
+  reintroducida por la puerta de atrás. `deregister` ahora afirma `ended` al
+  salir. Lo encontró el test diciendo «me dijeron que esperaba y después nada».
+  Dos suposiciones mías que el test también corrigió: completar el turno **no**
+  termina la sesión, la aparca con su agente intacto; y `session/cancel` es una
+  **notificación**, no una petición, así que pedirle respuesta devuelve «method
+  not found».
+  La medición de la tormenta: 5 clientes × 20 sesiones × 4 transiciones = 400
+  notificaciones, en 0,32 s, sin que nadie se rezague. El techo del canal es
+  1024 y el uso ordinario no se le acerca, así que D5 —sin coalescencia hasta
+  que algo la pida— se queda con una cifra detrás. -->
 
 ## 3. Las superficies
 

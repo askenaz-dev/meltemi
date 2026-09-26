@@ -612,9 +612,31 @@ impl SessionRegistry {
         self.announce(session_id).await;
     }
 
-    /// Removes a session from the registry (turn ended).
+    /// Removes a session from the registry (turn ended), affirming that it
+    /// ended on the way out.
+    ///
+    /// The affirmation is not decoration. Not every flow ends with
+    /// `set_state(Ended)`: the single-turn runners finalize by deregistering
+    /// (`session_finalize`), so without this a session that finished — or was
+    /// cancelled while parked — would leave the registry with its last live
+    /// state still standing in every surface, forever. That is the exact defect
+    /// this change exists to close, and the end-to-end test with two clients is
+    /// what found it: the second client was told the session was waiting and
+    /// then never told anything again.
     pub async fn deregister(&self, session_id: &str) {
-        self.inner.lock().await.remove(session_id);
+        let affirmation = {
+            let mut guard = self.inner.lock().await;
+            guard.remove(session_id).map(|mut entry| {
+                // A session leaving the registry is a session that is over. The
+                // turn's own verdict — completed, refused, failed — travels in
+                // the log; the state says only that it is no longer running.
+                entry.enter(SessionState::Ended);
+                entry.affirmation(session_id)
+            })
+        };
+        if let Some(affirmation) = affirmation {
+            self.events.publish_state(affirmation);
+        }
     }
 
     /// Whether a session id is currently registered.
@@ -914,6 +936,31 @@ mod tests {
         // Nothing else was published: an affirmation per transition, not per
         // call.
         assert!(feed.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn leaving_the_registry_is_announced_as_having_ended() {
+        // Not every flow ends with an explicit `Ended`: the single-turn runners
+        // finalize by deregistering. A silent exit would leave every surface
+        // showing the last live state of a session that is over.
+        let hub = crate::events::EventHub::default();
+        let mut feed = hub.subscribe_state();
+        let registry = SessionRegistry::with_hub(hub);
+
+        registry
+            .register("s-1", vec!["mock".into()], "/repo".into())
+            .await;
+        registry.begin_idle("s-1", 8).await;
+        while feed.try_recv().is_ok() {}
+
+        registry.deregister("s-1").await;
+        let last = feed.try_recv().expect("leaving is announced");
+        assert_eq!(last.state, SessionState::Ended);
+        assert_eq!(last.session_id, "s-1");
+        assert_eq!(last.project_root, "/repo");
+
+        // And it really is gone: nothing more to affirm about it.
+        assert!(registry.affirmation("s-1").await.is_none());
     }
 
     #[tokio::test]
