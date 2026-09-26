@@ -460,6 +460,7 @@ const es = {
   "conv.thought": "pensamiento",
   "conv.pendingTurn": "encolada, aún no enviada",
   "conv.noOutput": "sin salida en este turno",
+  "conv.working": "trabajando…",
   "conv.emptyTurn": "turno vacío",
   "conv.emptyTurn.remedy":
     "el agente terminó sin decir ni hacer nada; si no lo esperabas, pruébalo por su cuenta y revisa su proveedor y sus credenciales",
@@ -1170,6 +1171,7 @@ const en: Record<MessageKey, string> = {
   "conv.thought": "thinking",
   "conv.pendingTurn": "queued, not sent yet",
   "conv.noOutput": "no output in this turn",
+  "conv.working": "working…",
   "conv.emptyTurn": "empty turn",
   "conv.emptyTurn.remedy":
     "the agent ended without saying or doing anything; if you did not expect that, try it on its own and check its provider and credentials",

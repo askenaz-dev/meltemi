@@ -43,10 +43,14 @@ export function clockTime(iso: string): string {
   return date.toTimeString().slice(0, 8);
 }
 
-/** A compact duration between two instants (or until now). */
-export function durationLabel(startedAt: string, endedAt?: string): string {
+/**
+ * A compact duration between two instants, or until `now` while it has not
+ * ended. `now` is explicit so a caller that ticks can make it run
+ * (senales-de-vida D4).
+ */
+export function durationLabel(startedAt: string, endedAt?: string, now = Date.now()): string {
   const start = Date.parse(startedAt);
-  const end = endedAt ? Date.parse(endedAt) : Date.now();
+  const end = endedAt ? Date.parse(endedAt) : now;
   if (Number.isNaN(start) || Number.isNaN(end)) return "";
   const seconds = Math.max(0, Math.round((end - start) / 1000));
   if (seconds < 60) return `${seconds}s`;

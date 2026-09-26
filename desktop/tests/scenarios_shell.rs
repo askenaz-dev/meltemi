@@ -3290,6 +3290,107 @@ fn no_view_waits_with_a_bare_word() {
     );
 }
 
+// Scenario: Antes del primer fragmento se dice que trabaja
+// Scenario: El cursor sigue al último fragmento sin parpadear
+// Scenario: Esperar una decisión no es trabajar
+// Scenario: El tiempo de la sesión corre mientras vive
+#[test]
+fn a_turn_in_flight_says_it_is_working() {
+    // Decided by a pure module over the same fold the transcript draws, and
+    // EXECUTED (`node --test`): this pins the cases and the wiring.
+    let executed = read("desktop/ui/tests/turn-signal.test.ts");
+    for case in [
+        "before the first fragment the turn is waiting, timed from its instruction",
+        "an open turn with fragments is where the cursor goes, and a closed one has none",
+        "waiting on a decision or an instruction is not working",
+        "the clock reads m:ss past the instruction, and a session's time runs until it ends",
+    ] {
+        assert!(
+            executed.contains(case),
+            "the executed case is missing: {case}"
+        );
+    }
+
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    // The signal answers to the SAME `working` that lights the ring: a session
+    // waiting on its user is not working, and says nothing of the kind.
+    assert!(
+        detail.contains("const signal = $derived(lifeSignal(conversation, working));"),
+        "the transcript takes its signal from the tested module"
+    );
+
+    // Waiting: a glyph, a word, and a clock the live region does not read out.
+    let waiting = detail
+        .split("{#if signal.kind === \"waiting\"}")
+        .nth(1)
+        .expect("the transcript says the agent is working")
+        .split("{#if conversation.length === 0")
+        .next()
+        .expect("the waiting line closes");
+    assert!(
+        waiting.contains("$t(\"conv.working\")")
+            && waiting.contains("<span class=\"clock\" aria-hidden=\"true\"")
+            && waiting.contains("elapsedClock(now - Date.parse(signal.since))"),
+        "the waiting line says the word and counts from the instruction: {waiting}"
+    );
+    // "No output" is a verdict on a turn that ended, never on one in flight.
+    assert!(
+        detail.contains("{#if item.parts.length === 0 && item.closed}"),
+        "an open turn is not called empty"
+    );
+
+    // The cursor follows the turn where the words arrive, and does not blink.
+    assert!(
+        detail.contains(
+            "{@const flowing = signal.kind === \"streaming\" && signal.itemId === item.id}"
+        ),
+        "the cursor belongs to the one turn in flight"
+    );
+    assert_eq!(
+        detail.matches("class=\"cursor\"").count(),
+        2,
+        "after the last words, or after the last part when it is not words"
+    );
+    let css = stylesheet(&repo_root().join("desktop/ui/src/lib/views/SessionDetail.svelte"));
+    let cursor = block(&css[css.find(".cursor {").expect("the cursor is styled")..]);
+    assert!(
+        !cursor.contains("animation"),
+        "the cursor stays still: a blink would be a second ambient loop: {cursor}"
+    );
+
+    // The session's time runs: one clock for header and transcript, ticking
+    // while the session lives and its tab is in front, in tabular figures.
+    assert!(
+        detail.contains("durationLabel(session.startedAt, session.endedAt, now)"),
+        "the header's time is measured against the ticking clock"
+    );
+    let clock = detail
+        .split("let now = $state(Date.now());")
+        .nth(1)
+        .expect("the view keeps one clock")
+        .split("});")
+        .next()
+        .expect("its effect closes");
+    assert!(
+        clock.contains("if (!active || !session || !LIVE.includes(session.state)) return;")
+            && clock.contains("setInterval(() => (now = Date.now()), 1000)")
+            && clock.contains("return () => clearInterval(tick);"),
+        "one tick a second, only while it has something to count: {clock}"
+    );
+    let figures = block(&css[css.find(".clock {").expect("the clocks are styled")..]);
+    assert!(
+        figures.contains("font-variant-numeric: tabular-nums;"),
+        "a ticking second never shifts what follows it"
+    );
+
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    assert_eq!(
+        messages.matches("\"conv.working\":").count(),
+        2,
+        "the word is written in both languages"
+    );
+}
+
 /// The classes of the vocabulary are worn where the design system says: the
 /// palette fades in as it opens, and a status badge fades its glyph when the
 /// state changes rather than every time a list mounts (senales-de-vida D1).

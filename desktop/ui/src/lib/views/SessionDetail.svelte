@@ -20,6 +20,7 @@
   } from "../stores";
   import { agentLabelOf } from "../tree";
   import { fold, type LeverRefused } from "../conversation";
+  import { elapsedClock, lifeSignal } from "../turn-signal";
   import Avatar from "../components/Avatar.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Icon from "../components/Icon.svelte";
@@ -594,6 +595,21 @@
     session?.state === "active" || session?.state === "starting",
   );
 
+  // What the transcript says of the turn in flight: waiting for the agent's
+  // first words, or where they are arriving (senales-de-vida D4).
+  const signal = $derived(lifeSignal(conversation, working));
+
+  // One clock for the header and the transcript. It ticks each second while
+  // the session lives and its tab is in front, and not otherwise: a hidden
+  // panel or an ended session has nothing to count.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!active || !session || !LIVE.includes(session.state)) return;
+    now = Date.now();
+    const tick = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(tick);
+  });
+
   // Arriving at a conversation puts the caret where the next instruction goes —
   // once per session, so a state change mid-read never steals the focus back.
   let focusedFor: string | null = null;
@@ -802,7 +818,7 @@
           <span class="pill" title={$t("sessions.subscription")}>{session.profile}</span>
         {/if}
         <StatusBadge state={session.state} />
-        <span class="faint">{durationLabel(session.startedAt, session.endedAt)}</span>
+        <span class="faint clock">{durationLabel(session.startedAt, session.endedAt, now)}</span>
         <span
           class="faint"
           title={absoluteTime(session.startedAt, $locale)}>{clockTime(session.startedAt)}</span
@@ -921,12 +937,21 @@
             </div>
           </div>
         {:else if item.kind === "agent"}
+          {@const flowing = signal.kind === "streaming" && signal.itemId === item.id}
           <div class="turn agent arrive">
             <span class="who">{session ? agentLabelOf(session) : $t("conv.agent")}</span>
             <div class="bubble">
               {#each item.parts as part, index (index)}
                 {#if part.kind === "text"}
-                  <p class="prose">{part.text}</p>
+                  <!-- The edge of the words arriving: a fixed cursor, never a
+                       blinking one, which would be a second ambient loop in
+                       the view (senales-de-vida D4). -->
+                  <p class="prose">
+                    {part.text}{#if flowing && index === item.parts.length - 1}<span
+                        class="cursor"
+                        aria-hidden="true">▍</span
+                      >{/if}
+                  </p>
                 {:else if part.kind === "thought"}
                   <!-- Open while the turn is in flight: the thinking is worth
                        seeing as it happens, not one click per turn. Svelte only
@@ -950,7 +975,12 @@
                   </ul>
                 {/if}
               {/each}
-              {#if item.parts.length === 0}
+              {#if flowing && item.parts[item.parts.length - 1]?.kind !== "text"}
+                <span class="cursor" aria-hidden="true">▍</span>
+              {/if}
+              <!-- "No output" is a verdict on a turn that ENDED: while it is
+                   open, the signal below says it is working instead. -->
+              {#if item.parts.length === 0 && item.closed}
                 <p class="prose faint">{$t("conv.noOutput")}</p>
               {/if}
             </div>
@@ -1036,7 +1066,22 @@
           </div>
         {/if}
       {/each}
-      {#if conversation.length === 0}
+      {#if signal.kind === "waiting"}
+        <!-- The agent works and has not said anything yet: a glyph, a word,
+             and the time since the instruction. The time is hidden from the
+             live region, which would otherwise read it out every second
+             (senales-de-vida D4). -->
+        <p class="working arrive">
+          <span aria-hidden="true">◔</span>
+          {$t("conv.working")}
+          {#if signal.since}
+            <span class="clock" aria-hidden="true"
+              >{elapsedClock(now - Date.parse(signal.since))}</span
+            >
+          {/if}
+        </p>
+      {/if}
+      {#if conversation.length === 0 && signal.kind === "none"}
         <p class="faint empty">{$t("transcript.empty")}</p>
       {/if}
     {:else}
@@ -1713,6 +1758,24 @@
     to {
       transform: translate(-50%, -50%) rotate(1turn);
     }
+  }
+  /* E flow: the words arrive as they arrive; the cursor marks their edge
+     and stays still (senales-de-vida D4). */
+  .cursor {
+    color: var(--text-faint);
+    margin-left: 1px;
+  }
+  .working {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-1);
+    color: var(--text-faint);
+    font-size: var(--fs-dense);
+  }
+  /* Clocks count in tabular figures, so a ticking second never shifts what
+     follows it. */
+  .clock {
+    font-variant-numeric: tabular-nums;
   }
   /* B arrival: a new item of the conversation fades in and nothing moves.
      The permission card is not one of them: it is where a decision is made,

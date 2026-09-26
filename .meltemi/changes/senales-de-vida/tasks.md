@@ -43,7 +43,7 @@ Las tareas de la interfaz corren además los gates del frontend desde
 
 ## 3. La señal de vida del turno
 
-- [ ] 3.1 `lib/turn-signal.ts` (nada, esperando desde la instrucción o
+- [x] 3.1 `lib/turn-signal.ts` (nada, esperando desde la instrucción o
   fluyendo en un turno; el reloj `m:ss`) con su prueba ejecutada en
   `desktop/ui/tests/turn-signal.test.ts`; en `SessionDetail.svelte` la línea
   «◔ trabajando… m:ss» con el tiempo `aria-hidden`, el cursor ▍ fijo tras el
