@@ -207,8 +207,18 @@ existe y ya está probado, en vez de contra una promesa.
 
 ## 4. Cierre
 
-- [ ] 4.1 `meltemi validate estado-en-vivo` limpio; `meltemi verify` con los
+- [x] 4.1 `meltemi validate estado-en-vivo` limpio; `meltemi verify` con los
   doce escenarios enlazados; suite completa con `--no-fail-fast`, clippy y fmt
   verdes en este equipo; `cargo deny check` verde; entrada en
   `docs/plan-de-cambios.md` con lo que la medición de la tormenta encontró; y la
   rama aterriza en `main` con `meltemi land estado-en-vivo confirm`
+  <!-- 2026-09-26: `validate` limpio; `verify` **12/12**; `fmt --check`,
+  `clippy --workspace --all-targets -D warnings`, `cargo deny check` y
+  `cargo test --workspace --no-fail-fast` verdes en este equipo (116 binarios de
+  test, cero fallos).
+  El escenario del reloj llegó al final y por eso: la primera corrida de `verify`
+  dio 11/12 y lo nombró. Se cubre observando al actor de conexión contra un
+  daemon real durante dos tics: si el tic siguiera sondeando, empujaría una lista
+  nueva cada dos segundos. Comprobado que muerde —devolviendo el sondeo al tic,
+  el test falla con esas palabras— y que el tic **sigue vivo**, porque un test que
+  solo comprobara el silencio pasaría igual si el reloj hubiera desaparecido. -->
