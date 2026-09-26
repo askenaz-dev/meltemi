@@ -145,13 +145,25 @@ existe y ya está probado, en vez de contra una promesa.
 
 ## 3. Las superficies
 
-- [ ] 3.1 GUI: un caso `session/state` en el `switch` que ya despacha los
+- [x] 3.1 GUI: un caso `session/state` en el `switch` que ya despacha los
   empujones del daemon (`stores.ts`), que parchea `allSessions` por
   `sessionId` y vuelve a estrechar `sessions`; el sondeo queda como
   reconciliación al conectar y al cambiar de proyecto. **Ningún componente se
   toca** y las guardias de `scenarios_shell.rs` siguen intactas (design D7) —
   escenarios «El contador de la barra cuenta una sesión de otro cliente» y «El
   sondeo solo reconcilia» — gates: suite de `meltemi-desktop`, tests de la UI
+  <!-- 2026-09-26: se cumplió lo que D7 prometía —**ningún componente tocado**—
+  y el escenario lo pinea por los dos lados: que la tienda toma la afirmación, y
+  que los cuatro indicadores siguen derivando de ese único array. Si mañana uno
+  de ellos se buscara su propia fuente, parchear la tienda dejaría de ser el
+  arreglo entero y este test lo diría.
+  Un caso que el design no había previsto: una sesión que **otro cliente acaba
+  de abrir** no tiene fila en la tienda, y la afirmación es delgada a propósito
+  —lleva dónde está la sesión, no todo lo que una fila muestra—. Inventarla con
+  cinco campos habría puesto una fila a medias en la barra lateral; se pide la
+  lista una vez y desde ahí las afirmaciones la mantienen al día.
+  `svelte-check` limpio (150 archivos) y los 82 tests de la UI verdes; el taller
+  necesitaba `npm ci` primero, que no toca el lockfile. -->
 - [ ] 3.2 TUI: un `Update` propio para la transición, que parchea la fila por su
   id; `refresh_sessions` deja de ser la fuente y pasa a reconciliar; el ticker
   de 2 s se queda para los relojes (design D7) — escenarios «La fila cambia al

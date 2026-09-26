@@ -892,6 +892,46 @@ fn theme_and_locale_survive_a_restart_and_the_override_wins() {
     );
 }
 
+// Scenario: El contador de la barra cuenta una sesión de otro cliente
+// Scenario: El sondeo solo reconcilia
+#[test]
+fn the_indicators_are_fed_by_the_live_state_and_not_by_polling() {
+    let stores = read("desktop/ui/src/lib/stores.ts");
+    assert!(
+        stores.contains("case \"session/state\""),
+        "the surface takes the daemon's affirmation where it takes its other pushes"
+    );
+    // Patched into the array every indicator derives from, which is why no
+    // component needed touching (estado-en-vivo design D7).
+    assert!(
+        stores.contains("allSessions.set(patched)"),
+        "the affirmation patches the session store rather than a private flag"
+    );
+    assert!(
+        stores.contains("void refreshSessions().catch(() => {})")
+            && stores.contains("at === -1"),
+        "a session another client just opened is fetched once, not invented from a thin payload"
+    );
+
+    // And the four indicators still derive from that one array: if any of them
+    // grew its own source, patching the store would stop being the whole fix.
+    let bar = read("desktop/ui/src/lib/components/StatusBar.svelte");
+    assert!(
+        bar.contains("$sessions.filter((s) => s.state === \"active\" || s.state === \"starting\")"),
+        "the bar's counter reads the store"
+    );
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        sidebar.contains("$sessions.filter((session) => isLive(session.state))"),
+        "the sidebar bucket reads the store"
+    );
+    let tree = read("desktop/ui/src/lib/tree.ts");
+    assert!(
+        tree.contains("if (isLive(session.state)) group.live += 1"),
+        "the tree buckets read the sessions they are given"
+    );
+}
+
 // Scenario: El atajo de la paleta es visible
 #[test]
 fn the_palette_shortcut_is_visible_in_the_chrome() {
