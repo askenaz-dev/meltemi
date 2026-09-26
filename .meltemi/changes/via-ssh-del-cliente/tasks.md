@@ -116,7 +116,14 @@ aterriza en `main` con `meltemi land` al cerrar.**
 
 ## 3. Cierre
 
-- [ ] 3.1 `meltemi validate via-ssh-del-cliente` limpio; `meltemi verify` con
+- [x] 3.1 `meltemi validate via-ssh-del-cliente` limpio; `meltemi verify` con
   los nueve escenarios enlazados; suite completa con `--no-fail-fast`, clippy y
   fmt verdes; `cargo deny check` verde; entrada en `docs/plan-de-cambios.md`; y
   la rama aterriza en `main` con `meltemi land via-ssh-del-cliente confirm`
+  <!-- 2026-09-26: `validate` limpio; `verify` **9/9**; `fmt --check`,
+  `clippy --workspace --all-targets -D warnings`, `cargo deny check` y
+  `cargo test --workspace --no-fail-fast` verdes (117 binarios, 1.347 tests, cero
+  fallos). Nota para el próximo taller nuevo: `cargo test --workspace` **no**
+  construye los binarios que los e2e lanzan; hay que correr
+  `cargo build --workspace --bins` antes, o 33 suites fallan por «mock-agent
+  binary not found» y no por el código. -->
