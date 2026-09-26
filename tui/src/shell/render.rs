@@ -61,6 +61,13 @@ pub struct ShellCtx {
     pub present: Presentation,
     pub lang: Lang,
     pub project: bool,
+    /// How this shell reaches the daemon, when it is not this machine's own
+    /// socket: the abbreviated command, for example `ssh my-pc`.
+    ///
+    /// Shown in the header because a surface that stayed quiet about talking to
+    /// another machine would make an action on the wrong one look like an action
+    /// on your own (via-ssh-del-cliente design D8).
+    pub via: Option<String>,
 }
 
 impl ShellCtx {
@@ -197,7 +204,12 @@ fn render_header(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx)
             sessions,
         } => (
             glyphs::OK,
-            format!("daemon {version} | {uptime_s}s | {sessions} ses."),
+            match &ctx.via {
+                Some(via) => {
+                    format!("daemon {version} | {uptime_s}s | {sessions} ses. | vía {via}")
+                }
+                None => format!("daemon {version} | {uptime_s}s | {sessions} ses."),
+            },
         ),
         ConnState::Unreachable { .. } => (glyphs::ERROR, ctx.msg(Msg::Unreachable).to_string()),
     };
@@ -1770,7 +1782,44 @@ mod tests {
             present,
             lang: Lang::Es,
             project: false,
+            via: None,
         }
+    }
+
+    // Scenario: El cromo de la TUI nombra la vía
+    #[test]
+    fn the_header_names_the_via_when_the_daemon_is_on_another_machine() {
+        let mut live = LiveData::new();
+        live.apply(Update::Conn(ConnState::Connected {
+            version: "0.1.1".into(),
+            uptime_s: 12,
+            sessions: 2,
+        }));
+        let state = ShellState::new();
+
+        // Talking to this machine: no via, because "here" is not worth a
+        // segment.
+        let here = draw(
+            &state,
+            &live,
+            &ctx(Presentation::resolve(&PresentationEnv::default())),
+            120,
+            24,
+        );
+        assert!(here.contains("daemon 0.1.1"), "{here}");
+        assert!(!here.contains("vía"), "nothing invented for a local socket");
+
+        // Talking to another: the via is named.
+        let mut elsewhere = ctx(Presentation::resolve(&PresentationEnv::default()));
+        elsewhere.via = meltemi_client::exec::shown("exec:ssh my-pc meltemi bridge");
+        let shown = draw(&state, &live, &elsewhere, 120, 24);
+        assert!(
+            shown.contains("vía ssh my-pc"),
+            "the header says which machine's fleet this is: {shown}"
+        );
+        // And the daemon's own facts are still there: the via is added, not
+        // substituted.
+        assert!(shown.contains("daemon 0.1.1"), "{shown}");
     }
 
     fn draw(state: &ShellState, live: &LiveData, ctx: &ShellCtx, w: u16, h: u16) -> String {

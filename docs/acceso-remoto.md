@@ -182,6 +182,81 @@ Si no hay daemon escuchando, el puente rehúsa de inmediato con su remedio en
 lugar de esperar: al otro lado de un `ssh` no hay nadie mirando un indicador de
 progreso.
 
+## La GUI y la TUI contra tu PC
+
+El puente de arriba es un canal completo, pero hasta ahora solo lo hablaba un
+`ssh` abierto a mano. Ahora lo habla **cualquier cliente de Meltemi**: un
+endpoint que empieza por `exec:` nombra un comando en vez de un socket, y el
+cliente lo lanza y habla el protocolo por su entrada y salida.
+
+```
+MELTEMI_ENDPOINT="exec:ssh mi-pc meltemi bridge" meltemi status
+```
+
+Para la GUI, que se abre desde un icono y nunca vio una variable exportada en un
+shell, lo mismo va en tu configuración **de usuario**:
+
+```toml
+# <config>/meltemi/config.toml
+[client]
+endpoint = "exec:ssh mi-pc meltemi bridge"
+```
+
+El cromo de las dos superficies dice **vía `ssh mi-pc`** mientras esté hablando
+por ahí. No es decoración: si la flota en pantalla es de otra máquina, revertir
+un archivo en la equivocada no debe parecer revertirlo en la propia.
+
+### El `~/.ssh/config` mínimo
+
+Nada de esto configura `ssh` por ti, y eso es deliberado. Un alias y un latido
+bastan:
+
+```
+Host mi-pc
+    HostName 203.0.113.10
+    User guillermo
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+```
+
+`IdentityFile` no es obligatorio: si tu clave está en el agente, `ssh` la
+encuentra.
+
+### Lo que Meltemi no hace, y no va a hacer
+
+- **No añade opciones a tu comando.** Ni `BatchMode`, ni `-o` de ningún tipo. El
+  comando es tuyo, entero.
+- **No gestiona claves, passphrases ni hosts conocidos.** Los decide tu `ssh`,
+  con tu agente y tu `known_hosts`. Meltemi no lee ni transporta nada de eso.
+- **No te da un terminal para escribir una passphrase.** La entrada y la salida
+  del comando **son** el canal del protocolo; no pueden ser también un diálogo.
+
+De lo último se sigue lo único incómodo: **la primera conexión a un host nuevo
+va a fallar**, porque nadie puede aceptar la huella. El rehúse lo dice y trae lo
+que `ssh` escribió en su salida de error, que es donde explica de verdad lo que
+pasó. El remedio es una vez y en un terminal:
+
+```
+ssh mi-pc true        # acepta la huella
+ssh-add ~/.ssh/id_ed25519   # carga la clave en el agente
+```
+
+Después, el cliente entra sin preguntar nada.
+
+### Dos garantías que conviene saber
+
+- **Un endpoint `exec:` nunca arranca un daemon local.** Ni con
+  `MELTEMI_START_HERE=1`. Si el comando falla, arrancar uno aquí serviría esta
+  máquina en el nombre de la otra, y respondería en su lugar.
+- **El endpoint no se lee del repositorio.** Solo de tu entorno o de tu
+  configuración de usuario. Un `.meltemi/config.toml` que pudiera fijarlo sería
+  un repositorio que ejecuta un comando en tu máquina por el hecho de abrirlo, y
+  clonar no debería ser una decisión de seguridad.
+
+Sin tuberías ni redirecciones en la cadena, porque no hay shell en medio: si las
+necesitas, nombra un script. Un `.cmd` en Windows funciona, y el proceso que
+lance muere con el cliente igual que el resto.
+
 ## Windows como PC servido
 
 Un PC con Windows se sirve con el servidor OpenSSH que Windows trae como

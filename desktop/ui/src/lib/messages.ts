@@ -21,6 +21,7 @@ const es = {
   "conn.sessions": "{n} sesión(es)",
   "conn.unreachable": "daemon inalcanzable",
   "conn.endpoint": "endpoint",
+  "conn.via": "vía",
   "conn.willDeny":
     "sin cliente conectado, los permisos pendientes se denegarán al vencer",
   "conn.sshHint":
@@ -731,6 +732,7 @@ const en: Record<MessageKey, string> = {
   "conn.sessions": "{n} session(s)",
   "conn.unreachable": "daemon unreachable",
   "conn.endpoint": "endpoint",
+  "conn.via": "via",
   "conn.willDeny":
     "with no client connected, pending permissions are denied on expiry",
   "conn.sshHint":

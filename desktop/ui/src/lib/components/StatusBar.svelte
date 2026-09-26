@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import { conn } from "../daemon";
+  import { via } from "../via";
   import { t } from "../i18n";
   import {
     activeProject,
@@ -49,7 +50,15 @@
   {#if $conn.state === "connected"}
     <span class="ok"><span aria-hidden="true">▸</span> {$t("conn.connected")}</span>
     <span class="muted version">v{$conn.version}</span>
-    <span class="mono endpoint" title={$t("conn.endpoint")}>{$conn.endpoint ?? ""}</span>
+    {#if via($conn.endpoint)}
+      <!-- Another machine's fleet is on screen, and the chrome says so: an
+           action on the wrong machine must not look like one on your own. -->
+      <span class="seg via" title={$conn.endpoint ?? ""}
+        >{$t("conn.via")} {via($conn.endpoint)}</span
+      >
+    {:else}
+      <span class="mono endpoint" title={$t("conn.endpoint")}>{$conn.endpoint ?? ""}</span>
+    {/if}
   {:else if $conn.state === "connecting"}
     <span class="info"><span aria-hidden="true">◌</span> {$t("conn.connecting")}</span>
   {:else}

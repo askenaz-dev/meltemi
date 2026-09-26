@@ -12,10 +12,34 @@ publish = false
 [dependencies]
 meltemi-proto.workspace = true
 directories.workspace = true
+# The user-scope endpoint, for a GUI launched from a desktop icon that never
+# saw a shell's exported variable (via-ssh-del-cliente design D3). Already in
+# the closure -- the daemon parses its configuration with it -- and pinned in
+# the workspace, so nothing new enters the audit.
+toml.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tokio = { workspace = true, features = ["net", "io-util", "sync", "time"] }
+# `process` for the `exec:` transport: a client that speaks the protocol
+# through a command the user named (via-ssh-del-cliente design D1). `macros`
+# for the stderr collector's task.
+# `macros` and `rt` are what this crate already uses -- `select!` in the peer,
+# and now a task for the error collector. They were reaching it only through
+# another crate's features, so `cargo build -p meltemi-client` alone never
+# worked; declaring them is honesty about what the code calls, not a new
+# dependency (the crate is the same version, already pinned).
+tokio = { workspace = true, features = [
+    "net",
+    "io-util",
+    "sync",
+    "time",
+    "process",
+    "rt",
+    "macros",
+] }
+# The process scope, so a client that closes -- or dies outright -- leaves no
+# `ssh` behind holding a remote session (design D7).
+meltemi-process.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
