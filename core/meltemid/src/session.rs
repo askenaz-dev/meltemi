@@ -304,7 +304,22 @@ struct Direction {
 /// Handle the registry keeps for one live session.
 struct Entry {
     agent_command: Vec<String>,
+    /// The repository root this session runs in.
+    ///
+    /// The registry did not hold it before: `session/list` reads the root from
+    /// the session index on disk and only borrows the live state from here. The
+    /// live-state notification has to carry it, and looking it up on disk on
+    /// every transition would read a file to answer a question the registry
+    /// already had in its hand at registration (estado-en-vivo 2.1).
+    project_root: String,
     state: SessionState,
+    /// When this session entered `state` (RFC 3339, UTC).
+    ///
+    /// Set on entry and only on entry: a mutation that sets the state it
+    /// already had leaves this alone, because a clock that restarted every time
+    /// something re-asserted the same state would show "working for 0 s" on a
+    /// session that has been working for a minute (design D6).
+    state_since: String,
     /// Fired to ask the owning ACP task to cancel and terminate the agent.
     cancel: Arc<Notify>,
     /// When this session started waiting for its next instruction, so the
@@ -335,6 +350,34 @@ struct Entry {
     config: Option<LiveConfig>,
 }
 
+impl Entry {
+    /// Moves the session into `state`, stamping when it got there.
+    ///
+    /// A no-op when it is already in that state, and that is the whole reason
+    /// this is a method instead of two assignments at five call sites: several
+    /// of those sites re-assert `Active` on a session that is already active,
+    /// and a `since` that restarted on each of them would reset every clock a
+    /// surface shows (design D6).
+    fn enter(&mut self, state: SessionState) {
+        if self.state == state {
+            return;
+        }
+        self.state = state;
+        self.state_since = crate::clock::now_rfc3339();
+    }
+
+    /// What this session's standing is, as the contract states it.
+    fn affirmation(&self, session_id: &str) -> meltemi_proto::SessionStateParams {
+        meltemi_proto::SessionStateParams {
+            session_id: session_id.to_string(),
+            project_root: self.project_root.clone(),
+            state: self.state,
+            since: self.state_since.clone(),
+            pending_permissions: self.waiting,
+        }
+    }
+}
+
 /// What [`SessionRegistry::register`] hands back to the ACP task that runs the
 /// session: the cancel signal it awaits and the cancellation flag it checks at
 /// each turn boundary.
@@ -358,7 +401,12 @@ impl SessionRegistry {
     /// Registers a new session in the `Starting` state, returning the cancel
     /// signal the ACP task should await and the cancellation flag it checks at
     /// each turn boundary.
-    pub async fn register(&self, session_id: &str, agent_command: Vec<String>) -> Registration {
+    pub async fn register(
+        &self,
+        session_id: &str,
+        agent_command: Vec<String>,
+        project_root: String,
+    ) -> Registration {
         let cancel = Arc::new(Notify::new());
         let cancelled = Arc::new(AtomicBool::new(false));
         let in_flight = Arc::new(AtomicBool::new(false));
@@ -366,7 +414,9 @@ impl SessionRegistry {
             session_id.to_string(),
             Entry {
                 agent_command,
+                project_root,
                 state: SessionState::Starting,
+                state_since: crate::clock::now_rfc3339(),
                 cancel: Arc::clone(&cancel),
                 cancelled: Arc::clone(&cancelled),
                 idle_since: None,
@@ -489,9 +539,13 @@ impl SessionRegistry {
     }
 
     /// Updates the lifecycle state of a session, if still present.
+    ///
+    /// Re-asserting the state a session already has leaves its instant alone:
+    /// `since` means "entered this state", and several call sites set `Active`
+    /// on a session that is already active (design D6).
     pub async fn set_state(&self, session_id: &str, state: SessionState) {
         if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
-            entry.state = state;
+            entry.enter(state);
         }
     }
 
@@ -502,7 +556,7 @@ impl SessionRegistry {
         if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
             entry.waiting += 1;
             if entry.waiting == 1 {
-                entry.state = SessionState::WaitingPermission;
+                entry.enter(SessionState::WaitingPermission);
             }
         }
     }
@@ -514,7 +568,7 @@ impl SessionRegistry {
         if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
             entry.waiting = entry.waiting.saturating_sub(1);
             if entry.waiting == 0 {
-                entry.state = SessionState::Active;
+                entry.enter(SessionState::Active);
             }
         }
     }
@@ -589,7 +643,7 @@ impl SessionRegistry {
         match guard.get_mut(session_id) {
             Some(entry) => {
                 entry.idle_since = Some(now);
-                entry.state = SessionState::WaitingInstruction;
+                entry.enter(SessionState::WaitingInstruction);
             }
             None => return None,
         }
@@ -666,6 +720,32 @@ impl SessionRegistry {
         self.inner.lock().await.is_empty()
     }
 
+    /// How one session stands, as the contract states it.
+    ///
+    /// `None` for a session the registry does not hold: there is nothing to
+    /// affirm about a session that ended and left.
+    pub async fn affirmation(&self, session_id: &str) -> Option<meltemi_proto::SessionStateParams> {
+        self.inner
+            .lock()
+            .await
+            .get(session_id)
+            .map(|entry| entry.affirmation(session_id))
+    }
+
+    /// How every session the registry holds stands right now.
+    ///
+    /// This is the snapshot a connection receives when it initializes, and the
+    /// one it receives again if it ever falls behind the channel (design D3,
+    /// D4).
+    pub async fn affirmations(&self) -> Vec<meltemi_proto::SessionStateParams> {
+        self.inner
+            .lock()
+            .await
+            .iter()
+            .map(|(session_id, entry)| entry.affirmation(session_id))
+            .collect()
+    }
+
     /// Snapshot of active sessions for the `status` method.
     pub async fn summaries(&self) -> Vec<SessionSummary> {
         self.inner
@@ -685,12 +765,109 @@ impl SessionRegistry {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn the_instant_marks_entering_a_state_and_survives_re_asserting_it() {
+        // The whole point of `since`: a surface subtracts it to say how long a
+        // session has been working. Several call sites set `Active` on a session
+        // that is already active, so an instant that moved on every assignment
+        // would show a clock that keeps restarting.
+        //
+        // This test sleeps past a second because the stamp has second
+        // resolution: without crossing that boundary, "unchanged" and "rewritten
+        // to the same value" are indistinguishable, and the test would pass
+        // either way.
+        let registry = SessionRegistry::default();
+        registry
+            .register("s-1", vec!["mock".into()], "/repo".into())
+            .await;
+
+        let first = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(first.state, SessionState::Starting);
+        assert_eq!(first.project_root, "/repo");
+        assert!(!first.since.is_empty(), "registering stamps the instant");
+
+        tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
+
+        registry.set_state("s-1", SessionState::Starting).await;
+        let same = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(
+            same.since, first.since,
+            "re-asserting the state it already had must not move the instant"
+        );
+
+        registry.set_state("s-1", SessionState::Active).await;
+        let moved = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(moved.state, SessionState::Active);
+        assert_ne!(
+            moved.since, first.since,
+            "entering a different state stamps a new instant"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_affirmation_carries_the_waiting_count_and_the_wait_moves_the_state() {
+        let registry = SessionRegistry::default();
+        registry
+            .register("s-1", vec!["mock".into()], "/repo".into())
+            .await;
+        registry.set_state("s-1", SessionState::Active).await;
+
+        registry.begin_waiting("s-1").await;
+        registry.begin_waiting("s-1").await;
+        let waiting = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(waiting.state, SessionState::WaitingPermission);
+        assert_eq!(
+            waiting.pending_permissions, 2,
+            "counted, not toggled: two requests wait"
+        );
+
+        // Resolving one leaves the session waiting, which is the rule the
+        // counter exists for.
+        registry.end_waiting("s-1").await;
+        let still = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(still.state, SessionState::WaitingPermission);
+        assert_eq!(still.pending_permissions, 1);
+
+        registry.end_waiting("s-1").await;
+        let free = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(free.state, SessionState::Active);
+        assert_eq!(free.pending_permissions, 0);
+    }
+
+    #[tokio::test]
+    async fn affirmations_cover_every_session_and_nothing_that_left() {
+        let registry = SessionRegistry::default();
+        registry
+            .register("s-1", vec!["mock".into()], "/repo-a".into())
+            .await;
+        registry
+            .register("s-2", vec!["mock".into()], "/repo-b".into())
+            .await;
+
+        let mut roots: Vec<String> = registry
+            .affirmations()
+            .await
+            .into_iter()
+            .map(|a| a.project_root)
+            .collect();
+        roots.sort();
+        assert_eq!(roots, ["/repo-a", "/repo-b"]);
+
+        // A session that left has nothing to affirm, and saying so is not an
+        // error: the snapshot is of what the registry holds.
+        registry.deregister("s-1").await;
+        assert!(registry.affirmation("s-1").await.is_none());
+        assert_eq!(registry.affirmations().await.len(), 1);
+    }
+
     // Scenario: El tope de esperas cierra la más antigua
     #[tokio::test]
     async fn the_idle_cap_closes_the_oldest_wait_and_never_refuses_a_new_one() {
         let registry = SessionRegistry::default();
         for id in ["first", "second", "third"] {
-            registry.register(id, vec!["mock".into()]).await;
+            registry
+                .register(id, vec!["mock".into()], "/repo".into())
+                .await;
         }
 
         // Entered in order, so "oldest" is unambiguous. A cap of two.
@@ -742,7 +919,9 @@ mod tests {
         // would be evicted for having started waiting earliest.
         let registry = SessionRegistry::default();
         for id in ["a", "b"] {
-            registry.register(id, vec!["mock".into()]).await;
+            registry
+                .register(id, vec!["mock".into()], "/repo".into())
+                .await;
         }
         registry.begin_idle("a", 1).await;
         registry.end_idle("a").await;
@@ -758,7 +937,9 @@ mod tests {
         let registry = SessionRegistry::default();
         assert!(registry.is_empty().await);
 
-        let _reg = registry.register("s1", vec!["mock-agent".into()]).await;
+        let _reg = registry
+            .register("s1", vec!["mock-agent".into()], "/repo".into())
+            .await;
         registry.set_state("s1", SessionState::Active).await;
 
         let summaries = registry.summaries().await;
@@ -777,7 +958,9 @@ mod tests {
         // Scenario: Resuelta la petición, la sesión vuelve a activa
         // Scenario: Varias esperas simultáneas
         let registry = SessionRegistry::default();
-        let _reg = registry.register("s1", vec!["mock-agent".into()]).await;
+        let _reg = registry
+            .register("s1", vec!["mock-agent".into()], "/repo".into())
+            .await;
         registry.set_state("s1", SessionState::Active).await;
 
         registry.begin_waiting("s1").await;
@@ -814,7 +997,10 @@ mod tests {
     #[tokio::test]
     async fn cancel_signals_the_waiter() {
         let registry = SessionRegistry::default();
-        let cancel = registry.register("s1", vec!["a".into()]).await.cancel;
+        let cancel = registry
+            .register("s1", vec!["a".into()], "/repo".into())
+            .await
+            .cancel;
 
         let waiter = tokio::spawn(async move {
             cancel.notified().await;
@@ -1070,8 +1256,14 @@ mod tests {
     #[tokio::test]
     async fn cancel_all_notifies_every_session() {
         let registry = SessionRegistry::default();
-        let c1 = registry.register("s1", vec!["a".into()]).await.cancel;
-        let c2 = registry.register("s2", vec!["b".into()]).await.cancel;
+        let c1 = registry
+            .register("s1", vec!["a".into()], "/repo".into())
+            .await
+            .cancel;
+        let c2 = registry
+            .register("s2", vec!["b".into()], "/repo".into())
+            .await
+            .cancel;
 
         let w1 = tokio::spawn(async move { c1.notified().await });
         let w2 = tokio::spawn(async move { c2.notified().await });

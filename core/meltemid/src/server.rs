@@ -836,7 +836,11 @@ async fn handle_worktree_dispatch(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            root.display().to_string(),
+        )
         .await;
     let project_key = crate::paths::project_key(&root);
     // The project registry is fed by real use only (multiproyecto D3).
@@ -1809,7 +1813,11 @@ async fn handle_sdd_implement(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            root.display().to_string(),
+        )
         .await;
     let project_key = crate::paths::project_key(&root);
     // The project registry is fed by real use only (multiproyecto D3).
@@ -2439,7 +2447,11 @@ async fn resume_with_instruction(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            project_root.display().to_string(),
+        )
         .await;
     let mut log =
         crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)

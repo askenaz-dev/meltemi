@@ -44,11 +44,26 @@ existe y ya está probado, en vez de contra una promesa.
 
 ## 2. El daemon
 
-- [ ] 2.1 `session.rs`: el registro gana `state_since` por sesión, en RFC 3339
+- [x] 2.1 `session.rs`: el registro gana `state_since` por sesión, en RFC 3339
   UTC, fijado en **cada** una de las cinco mutaciones de estado (`register`,
   `set_state`, `begin_waiting`, `end_waiting`, `begin_idle`); `summaries()` lo
   expone junto al conteo de permisos en espera que ya lleva. `idle_since` no se
   toca: es monótono y mide otra cosa (design D6) — gates: suite de `meltemid`
+  <!-- 2026-09-26: **dos correcciones a lo que esta tarea creía.** (1) El
+  registro no guardaba la raíz del proyecto: `session/list` la lee del índice en
+  disco y solo le pide el estado vivo al registro. La notificación tiene que
+  llevarla, así que `register` gana un tercer argumento y la raíz viaja desde
+  los seis sitios de registro, con la misma expresión con la que el índice la
+  escribe (`display().to_string()`) para que las dos grafías no se separen —si
+  se separaran, el estrechamiento por proyecto de la GUI dejaría de casar.
+  (2) `summaries()` **no** lleva el conteo de permisos ni lo lleva
+  `SessionInfo`; ambos salen de la entrada del registro, así que la afirmación
+  se construye ahí y `SessionInfo` no se toca. Un archivo de esquema menos que
+  mover.
+  El instante se sella **al entrar** y no en cada asignación: varios sitios
+  fijan `Active` sobre una sesión ya activa, y un `since` que se moviera en cada
+  uno reiniciaría el cronómetro que la superficie muestra. Comprobado que el
+  test muerde: sin la guarda, falla con un segundo de diferencia. -->
 - [ ] 2.2 `events.rs`: el hub gana un **segundo canal** `broadcast` para el
   estado, con su propio sobre y sin la regla de `delivers` —toda conexión
   iniciada recibe toda transición, sin origen y sin vigilancia—, y un test que

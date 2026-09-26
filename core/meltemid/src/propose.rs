@@ -129,7 +129,11 @@ pub async fn handle_propose(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            project_root.display().to_string(),
+        )
         .await;
     let project_key = paths::project_key(&project_root);
     // The project registry is fed by real use only (multiproyecto D3).
