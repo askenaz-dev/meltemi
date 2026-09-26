@@ -49,11 +49,18 @@ aterriza en `main` con `meltemi land` al cerrar.**
   unificación de otro crate (`macros`, y `rt` para el recolector): antes
   `cargo build -p meltemi-client` a solas no compilaba, y ahora sí. No entra
   ninguna dependencia nueva a la clausura; `cargo deny check bans` verde. -->
-- [ ] 1.4 `bootstrap.rs`: un endpoint `exec:` **jamás** arranca un daemon,
+- [x] 1.4 `bootstrap.rs`: un endpoint `exec:` **jamás** arranca un daemon,
   escrito explícitamente y con su test, en vez de depender de que la
   comparación con el endpoint propio no coincida por accidente (design D4) —
   escenario «El comando falla y no se arranca nada» — gates: suite de
   `meltemi-client`
+  <!-- 2026-09-26: **no era un accidente inofensivo, era un agujero.** La regla
+  vieja es «el endpoint propio, o donde `MELTEMI_START_HERE` lo pida», y con esa
+  variable puesta un endpoint `exec:` **sí** habría arrancado un daemon local.
+  El test lo pinea con las tres formas de pedirlo. Y el rehúse gana su propia
+  redacción, porque las dos salidas que ofrece el otro no sirven aquí: no hay
+  túnel que revisar y el opt-in acaba de cerrarse, así que ofrecerlo habría sido
+  peor que no ofrecer nada. -->
 
 ## 2. Ámbito y superficies
 
