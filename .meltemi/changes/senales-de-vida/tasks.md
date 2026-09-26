@@ -88,6 +88,14 @@ Las tareas de la interfaz corren además los gates del frontend desde
   «La marca se dibuja una vez en la bienvenida» — gates: `-p meltemi-desktop
   --test scenarios_shell`, `npm run check`
 
+- [x] 5.3 (Hallazgo del smoke) Medido sobre el binario release, la ventana se
+  mostraba con el cuerpo en blanco: el tope dispara antes de que la interfaz
+  monte en un arranque en frío, y el primer pintado llega ~250 ms después del
+  montaje. La ventana lleva desde el `setup` el fondo del tema —el elegido o
+  el del sistema— con los dos `--bg` de `app.css` pineados por un test (design
+  D6, revisión propia) — escenario «La ventana nunca enseña un fondo ajeno al
+  tema» — gates: suite de `meltemi-desktop`, re-medición en el smoke
+
 ## 6. Smoke y cierre
 
 - [ ] 6.1 Smoke visual sobre el binario release por CDP y del pulso de la TUI

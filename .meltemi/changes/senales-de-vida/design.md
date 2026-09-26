@@ -167,6 +167,13 @@ vez (una compuerta atómica). No se espera a un `requestAnimationFrame`: un
 webview oculto puede no pintar, y esperar un frame que la ventana oculta nunca
 produce terminaría siempre en el tope.
 
+Y desde el `setup`, antes de que nada pueda mostrarla, la ventana lleva el
+fondo de la interfaz: el `--bg` del tema elegido en el estado persistido o, sin
+elección, el del sistema. Lo que un webview enseña antes de su primer pintado
+es su color de fondo; sin esto, blanco, que en el tema oscuro es exactamente el
+destello que la decisión existe para evitar. Los dos colores viven también en
+Rust y un test los pinea contra `app.css` (añadido tras medir: revisión propia).
+
 ### D7 — La marca, una vez
 
 El mark en la cabecera de la bienvenida, con su contorno dibujado una sola vez

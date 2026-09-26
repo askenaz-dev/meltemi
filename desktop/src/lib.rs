@@ -263,6 +263,15 @@ pub fn run() {
             // (senales-de-vida D6).
             let stored = uistate::UiState::load();
             restore_window(app.handle(), &stored);
+            // The interface's own background, before anything can show the
+            // window: the cap can fire before the interface has painted, and
+            // what a webview shows until then is this color — not a white the
+            // theme never had.
+            if let Some(window) = app.get_webview_window("main") {
+                let system_dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
+                let (r, g, b) = reveal::background(stored.theme.as_deref(), system_dark);
+                let _ = window.set_background_color(Some(tauri::window::Color(r, g, b, 255)));
+            }
             app.manage(reveal::Reveal::default());
             let capped = app.handle().clone();
             std::thread::spawn(move || {

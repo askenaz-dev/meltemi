@@ -95,6 +95,9 @@ duración final cuando termina.
 La ventana principal SHALL crearse oculta, recibir la geometría restaurada
 mientras está oculta y mostrarse cuando la interfaz montó su primer árbol, o a
 los 500 ms si la interfaz no lo señala, lo que ocurra antes, y una sola vez.
+Desde antes de mostrarse SHALL llevar el fondo del tema de la interfaz —el
+elegido o, sin elección, el del sistema—, de modo que ningún instante enseñe
+el fondo propio del webview.
 
 #### Scenario: La ventana nace oculta y con su geometría
 - **WHEN** arranca la aplicación
@@ -109,3 +112,7 @@ los 500 ms si la interfaz no lo señala, lo que ocurra antes, y una sola vez.
 - **WHEN** la interfaz no lo señala en 500 ms
 - **THEN** el anfitrión SHALL mostrar la ventana igualmente
 - **AND** una señal tardía SHALL NOT volver a mostrarla
+
+#### Scenario: La ventana nunca enseña un fondo ajeno al tema
+- **WHEN** la ventana se muestra antes de que la interfaz haya pintado
+- **THEN** lo visible SHALL ser el fondo del tema de la interfaz, claro u oscuro según la elección o el sistema
