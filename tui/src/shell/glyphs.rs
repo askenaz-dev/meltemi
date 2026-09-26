@@ -4,7 +4,9 @@
 //!
 //! The invariant "ningún glifo Unicode sin gemelo ASCII" is enforced by the
 //! `every_glyph_has_an_ascii_twin` test: adding a symbol without a twin fails
-//! the build.
+//! the build. The spinner is the one symbol that is a cycle rather than a
+//! form: it lives in `pulse.rs` with an ASCII twin cycle of its own, pinned by
+//! `the_ascii_spinner_turns_its_own_cycle` (senales-de-vida D5).
 
 use crate::shell::present::Presentation;
 

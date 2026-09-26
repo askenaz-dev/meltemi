@@ -9,6 +9,7 @@ use meltemi_proto::{
     PermissionRuleScope, SessionInfo, SessionState,
 };
 
+use crate::shell::pulse::Pulse;
 use crate::shell::render::ConnState;
 
 /// One session row materialized from `session/list` (active or historical).
@@ -36,6 +37,11 @@ pub struct SessionRow {
     /// absent: a session without a declared model has none, and inventing one
     /// would be the shell answering a question the daemon did not.
     pub model: Option<String>,
+    /// When the session started (RFC 3339, UTC), for the time its detail
+    /// shows (senales-de-vida D5).
+    pub started_at: String,
+    /// When it ended, once it did.
+    pub ended_at: Option<String>,
 }
 
 impl SessionRow {
@@ -98,6 +104,8 @@ impl From<SessionInfo> for SessionRow {
             title: s.title,
             mode: s.mode,
             model: s.model,
+            started_at: s.started_at,
+            ended_at: s.ended_at,
         }
     }
 }
@@ -316,6 +324,9 @@ pub struct LiveData {
     /// set, transcript lines of any other session are dropped instead of
     /// interleaving two transcripts in one buffer.
     pub observed_live: Option<String>,
+    /// The spinner's frame and the instant the clocks count against, fixed by
+    /// the event loop before each draw (senales-de-vida D5).
+    pub pulse: Pulse,
 }
 
 impl Default for LiveData {
@@ -347,6 +358,7 @@ impl LiveData {
             session_log: Vec::new(),
             session_log_for: None,
             observed_live: None,
+            pulse: Pulse::default(),
         }
     }
 
@@ -553,6 +565,8 @@ mod tests {
 
     fn row(id: &str, state: SessionState) -> SessionRow {
         SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: id.into(),

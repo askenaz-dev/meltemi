@@ -59,7 +59,7 @@ Las tareas de la interfaz corren además los gates del frontend desde
 
 ## 4. El pulso de la TUI
 
-- [ ] 4.1 `tui/src/shell/pulse.rs`: los dos ciclos del spinner, el reloj
+- [x] 4.1 `tui/src/shell/pulse.rs`: los dos ciclos del spinner, el reloj
   `mm:ss`, la lectura de instantes RFC 3339 y la decisión de armar el tic;
   `SessionRow` gana `started_at` y `ended_at`; `LiveData` gana el pulso que el
   bucle fija antes de cada dibujo; la cabecera muestra el spinner con el número

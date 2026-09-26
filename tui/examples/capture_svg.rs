@@ -52,6 +52,8 @@ fn main() {
     ]));
     live.apply(Update::Sessions(vec![
         SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: "3f9c1a20".into(),
@@ -64,6 +66,8 @@ fn main() {
             title: None,
         },
         SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: "7b21e4d8".into(),
@@ -76,6 +80,8 @@ fn main() {
             title: None,
         },
         SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: "c04ab7f1".into(),
