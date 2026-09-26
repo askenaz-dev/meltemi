@@ -28,11 +28,19 @@ existe y ya está probado, en vez de contra una promesa.
   los dos que ya existían. Los tres rechazos del test son los que muerden solos:
   una afirmación sin `since`, una con `since` que no es fecha, y un estado que
   nadie declaró. -->
-- [ ] 1.2 Paridad: `session/state` en `DAEMON_INITIATED` de
+- [x] 1.2 Paridad: `session/state` en `DAEMON_INITIATED` de
   `tui/tests/parity.rs` y su fila en la tabla de tráfico iniciado por el daemon
   de `docs/paridad-nucleo.md`, con las cinco columnas. **No** entra en la
   paleta de la TUI ni en el registro de la GUI, y el test de la dirección
   contraria es la razón (design D9) — gates: `cargo test -p meltemi --test parity`
+  <!-- 2026-09-26: el gate estaba en rojo antes de tocarlo, con las tres
+  aserciones nombrando `session/state` —sin casa en la paleta, sin casa en el
+  registro de la GUI, y ausente de la matriz—, así que muerde sin necesidad de
+  neutralizar nada. La columna CLI de la fila nueva nombra `sessions --follow`,
+  que llega en la tarea 3.3 de esta misma change: la matriz describe el estado
+  final, y la change aterriza de una pieza. La prosa de la sección gana la razón
+  por la que estas dos notificaciones llegan a todos y las otras no: su carga
+  afirma un estado entero, no un cambio. -->
 
 ## 2. El daemon
 

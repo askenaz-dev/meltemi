@@ -18,6 +18,7 @@ const INFRASTRUCTURE: &[&str] = &["initialize"];
 /// Daemon → client traffic: delivered to surfaces, never invoked by them.
 const DAEMON_INITIATED: &[&str] = &[
     "session/event",
+    "session/state",
     "permission/request",
     "permission/timeout",
     "permission/changed",
