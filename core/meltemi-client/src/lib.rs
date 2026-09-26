@@ -19,6 +19,7 @@
 //! The daemon never opens a network port; neither does this crate.
 
 pub mod bootstrap;
+pub mod exec;
 pub mod paths;
 pub mod rpc;
 pub mod transport;

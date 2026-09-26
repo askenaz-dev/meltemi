@@ -9,11 +9,17 @@ aterriza en `main` con `meltemi land` al cerrar.**
 
 ## 1. El transporte
 
-- [ ] 1.1 `core/meltemi-client`: el partidor de comandos —programa y
+- [x] 1.1 `core/meltemi-client`: el partidor de comandos —programa y
   argumentos, comillas dobles agrupan, sin shell— con sus tests de mesa
   (comando simple, argumento entrecomillado, comillas sin cerrar, cadena
   vacía) (design D2) — escenario «El comando se lanza sin intérprete
   intermedio» — gates: suite de `meltemi-client`
+  <!-- 2026-09-26: un caso que la tarea no listaba y que el partidor tiene que
+  acertar: **un par de comillas vacío es un argumento vacío de verdad**. Quien
+  escribe `-o ""` quiere pasar una cadena vacía, y descartarla habría cambiado el
+  comando del usuario en silencio. También se añade el nombre abreviado para el
+  cromo, que es de la tarea 2.2 pero pertenece a este módulo: muestra el programa
+  sin su ruta y el primer argumento, que para el caso que existe es el host. -->
 - [ ] 1.2 `transport.rs`: la forma `exec:` del endpoint; lanza el proceso
   dentro de un `Scope` de `meltemi-process`, une su stdin y su stdout en un
   `Stream`, recoge las últimas líneas de su `stderr` en un buffer acotado, y
