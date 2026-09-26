@@ -14,6 +14,17 @@
 //! sixth.
 
 use std::path::Path;
+use std::process::Stdio;
+use std::time::Duration;
+
+/// How long a notice command is given before it is ended.
+///
+/// Not a magic number: more than any `curl` to a service that is alive takes,
+/// and less than a person tolerates without noticing something is wrong. A
+/// notice that blocked the interface would be worse than no notice at all — the
+/// user would lose control of their client to a request that never came back
+/// (design D4).
+pub const BUDGET: Duration = Duration::from_secs(10);
 
 /// What is waiting for a person.
 ///
@@ -142,6 +153,74 @@ pub fn machine_name() -> String {
     "unknown".to_string()
 }
 
+/// Sends `notice` by running the user's command, if they configured one.
+///
+/// Launched and let go: the command gets none of the client's input or output,
+/// nothing waits for it, and a watcher ends it when the budget runs out. The
+/// worst case is "the notice did not arrive", which is recoverable and visible,
+/// rather than "the client stopped answering" (design D4).
+///
+/// Answers whether a command was launched. `false` means none is configured,
+/// which is the default and not a failure.
+pub fn send(config_dir: &Path, notice: &Notice) -> bool {
+    let Some(command) = configured(config_dir) else {
+        return false;
+    };
+    let Ok((program, args)) = crate::exec::split(&command) else {
+        // A command nobody can parse is a command nobody can run. Off is the
+        // safe reading, and the test notice is where a person finds this out.
+        return false;
+    };
+
+    // The scope is opened before the launch, so there is no window in which the
+    // process exists outside it: a notice command that starts others must not
+    // leave them behind either.
+    let Ok(scope) = meltemi_process::Scope::new() else {
+        return false;
+    };
+    let mut child = match std::process::Command::new(&program)
+        .args(&args)
+        .envs(
+            notice
+                .env()
+                .into_iter()
+                .map(|(name, value)| (name.to_string(), value)),
+        )
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+    let _ = scope.adopt_pid(child.id());
+
+    // The watcher owns the scope, so the process is bounded whether it finishes
+    // on its own or has to be ended. A detached thread rather than a task,
+    // because this is called from surfaces that do not all have a runtime.
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + BUDGET;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {}
+                Err(_) => break,
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // Dropping the scope ends anything the command started and did not wait
+        // for.
+        drop(scope);
+    });
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +240,229 @@ mod tests {
             machine: "mi-pc".into(),
             at: "2026-09-26T18:04:00Z".into(),
             count: 2,
+        }
+    }
+
+    /// Writes a script that records the notice's variables, and answers its
+    /// path.
+    ///
+    /// Two functions rather than one with `cfg!`, because `cfg!` is a value and
+    /// both branches would still have to compile — which is how this test first
+    /// asked a Windows build for Unix file permissions.
+    #[cfg(windows)]
+    fn write_notifier(dir: &std::path::Path, seen: &std::path::Path) -> std::path::PathBuf {
+        let path = dir.join("notify.cmd");
+        std::fs::write(
+            &path,
+            format!(
+                "@echo off
+echo %MELTEMI_WAITING% %MELTEMI_SESSION% %MELTEMI_COUNT% %MELTEMI_MACHINE% > \"{}\"
+",
+                seen.display()
+            ),
+        )
+        .expect("write the script");
+        path
+    }
+
+    #[cfg(unix)]
+    fn write_notifier(dir: &std::path::Path, seen: &std::path::Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join("notify.sh");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh
+echo \"$MELTEMI_WAITING $MELTEMI_SESSION $MELTEMI_COUNT $MELTEMI_MACHINE\" > '{}'
+",
+                seen.display()
+            ),
+        )
+        .expect("write the script");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("make it executable");
+        path
+    }
+
+    /// Whether a process id belongs to something still running.
+    fn alive(pid: u32) -> bool {
+        #[cfg(windows)]
+        {
+            let out = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!(
+                        "Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\" | \
+                         ForEach-Object {{ $_.ProcessId }}"
+                    ),
+                ])
+                .output()
+                .expect("powershell ships with Windows");
+            String::from_utf8_lossy(&out.stdout).trim() == pid.to_string()
+        }
+        #[cfg(unix)]
+        {
+            std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .status()
+                .is_ok_and(|status| status.success())
+        }
+    }
+
+    // Scenario: Sin configurar, no se emite nada
+    #[test]
+    fn with_nothing_configured_nothing_runs() {
+        let dir = temp_dir("unconfigured");
+        assert!(
+            !send(&dir, &a_notice()),
+            "off is the default, and off means nothing is executed"
+        );
+        // A file that exists but says nothing about notices is still off.
+        std::fs::write(dir.join("config.toml"), "[other]\nthing = 1\n").expect("write");
+        assert!(!send(&dir, &a_notice()));
+        // And a command nobody can parse is off too, rather than half-run.
+        std::fs::write(
+            dir.join("config.toml"),
+            "[notices]\non-waiting = \"curl \\\"unclosed\"\n",
+        )
+        .expect("write");
+        assert!(!send(&dir, &a_notice()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_command_receives_the_notice_and_nothing_of_the_client() {
+        // Observed the only honest way: the command writes its own view of the
+        // variables to a file, and the test reads what arrived. A script rather
+        // than a one-liner, because nesting quotes inside TOML inside a shell is
+        // a fixture that tests the fixture -- and on Windows a `.cmd` puts
+        // `cmd.exe` in between, so the scope is exercised too.
+        let dir = temp_dir("delivered");
+        let seen = dir.join("seen.txt");
+        let script = write_notifier(&dir, &seen);
+        std::fs::write(
+            dir.join("config.toml"),
+            format!(
+                "[notices]
+on-waiting = \"{}\"
+",
+                script.display().to_string().replace('\\', "/")
+            ),
+        )
+        .expect("write the config");
+
+        assert!(send(&dir, &a_notice()), "a configured command is launched");
+        let mut written = String::new();
+        for _ in 0..200 {
+            if let Ok(text) = std::fs::read_to_string(&seen)
+                && !text.trim().is_empty()
+            {
+                written = text;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            written.contains("permission"),
+            "the class of wait arrived: {written:?}"
+        );
+        assert!(
+            written.contains("8f14e45f"),
+            "and the session with it: {written:?}"
+        );
+        assert!(written.contains('2'), "and the count: {written:?}");
+        assert!(
+            written.contains("mi-pc"),
+            "and the machine, which is the whole point: {written:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Scenario: Un comando que no responde no bloquea al cliente
+    #[test]
+    fn a_command_that_never_ends_returns_at_once_and_is_ended_on_the_budget() {
+        let dir = temp_dir("hangs");
+        let command = if cfg!(windows) {
+            "ping -n 600 127.0.0.1"
+        } else {
+            "sleep 600"
+        };
+        std::fs::write(
+            dir.join("config.toml"),
+            format!("[notices]\non-waiting = \"{command}\"\n"),
+        )
+        .expect("write");
+
+        // The call itself must not wait for the command.
+        let before = std::time::Instant::now();
+        assert!(send(&dir, &a_notice()));
+        assert!(
+            before.elapsed() < Duration::from_secs(2),
+            "sending returned in {:?}: a notice must not hold the interface",
+            before.elapsed()
+        );
+
+        // And the process is ended when the budget runs out, rather than living
+        // as long as the client does. Found by the unique command line, because
+        // these tests run in parallel.
+        let pid = {
+            let mut found = None;
+            for _ in 0..100 {
+                found = running_pid(command);
+                if found.is_some() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            found.expect("the command is running")
+        };
+        let deadline = std::time::Instant::now() + BUDGET + Duration::from_secs(10);
+        let mut gone = false;
+        while std::time::Instant::now() < deadline {
+            if !alive(pid) {
+                gone = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        assert!(
+            gone,
+            "process {pid} outlived the budget: a notice command must be bounded"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The process running a given command line, if any.
+    fn running_pid(needle: &str) -> Option<u32> {
+        #[cfg(windows)]
+        {
+            let out = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!(
+                        "Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -and \
+                         $_.CommandLine.Contains('{needle}') }} | ForEach-Object {{ $_.ProcessId }}"
+                    ),
+                ])
+                .output()
+                .ok()?;
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .find_map(|line| line.trim().parse().ok())
+        }
+        #[cfg(unix)]
+        {
+            let out = std::process::Command::new("pgrep")
+                .args(["-f", needle])
+                .output()
+                .ok()?;
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .find_map(|line| line.trim().parse().ok())
         }
     }
 

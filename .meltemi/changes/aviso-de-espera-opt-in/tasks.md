@@ -27,12 +27,23 @@ dependencia**; el daemon no se toca y no hay RPC nuevo.
   macOS, y si ninguno responde el aviso dice `unknown` en vez de inventar: un
   nombre de máquina equivocado es peor que uno admitido, porque el trabajo entero
   del aviso es decir qué máquina te quiere. -->
-- [ ] 1.2 El lanzamiento: sin esperar, sin heredar stdio, dentro de un ámbito de
+- [x] 1.2 El lanzamiento: sin esperar, sin heredar stdio, dentro de un ámbito de
   proceso y con tope de diez segundos; sin comando configurado no se ejecuta
   nada; test con un comando que no termina que comprueba que el emisor vuelve de
   inmediato y que el proceso muere al agotarse el tope (design D4) — escenarios
   «Sin configurar, no se emite nada» y «Un comando que no responde no bloquea al
   cliente» — gates: suite de `meltemi-client`
+  <!-- 2026-09-26: el vigilante del tope corre en un **hilo**, no en una tarea:
+  esto se llama desde superficies que no todas tienen runtime, y el hilo posee el
+  ámbito, así que el proceso queda acotado tanto si termina solo como si hay que
+  terminarlo. Un comando que no se puede partir cuenta como apagado, no como
+  medio ejecutado; la prueba manual es donde una persona se entera de eso.
+  Dos trampas del fixture, medidas: anidar comillas en TOML dentro de un shell es
+  un fixture que prueba al fixture, así que el comando es un **script** —y en
+  Windows un `.cmd`, que pone `cmd.exe` en medio y de paso ejercita el ámbito—; y
+  `cfg!(windows)` es un valor, no un atributo, así que las dos ramas compilan y la
+  de Unix le pidió permisos de archivo a un build de Windows. Se parte con
+  `#[cfg]` de verdad. -->
 - [ ] 1.3 La coalescencia: un aviso por evento de espera con su cuenta, un piso
   de treinta segundos entre avisos, y nada al resolverse la espera; el registro
   de cuándo disparó vive en el emisor (design D5, D7) — escenarios «Una ráfaga de
