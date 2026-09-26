@@ -106,7 +106,17 @@ dependencia**; el daemon no se toca y no hay RPC nuevo.
 
 ## 3. Cierre
 
-- [ ] 3.1 `meltemi validate aviso-de-espera-opt-in` limpio; `meltemi verify` con
-  los nueve escenarios enlazados; suite completa con `--no-fail-fast`, clippy y
+- [x] 3.1 `meltemi validate aviso-de-espera-opt-in` limpio; `meltemi verify` con
+  los ocho escenarios enlazados (la tarea decía nueve; son seis de `remote-access` y uno por superficie); suite completa con `--no-fail-fast`, clippy y
   fmt verdes; `cargo deny check` verde; entrada en `docs/plan-de-cambios.md`; y
   la rama aterriza en `main` con `meltemi land aviso-de-espera-opt-in confirm`
+  <!-- 2026-09-26: `validate` limpio; `verify` **8/8**; `fmt --check`, `clippy
+  --workspace --all-targets -D warnings` y `cargo deny check` verdes.
+  **La suite completa falló la primera vez y pasó la segunda**, y conviene decir
+  cuál era: tres tests de `core/meltemid/tests/e2e_agente_por_sesion.rs`
+  —`a_free_session_runs_the_agent_it_was_told_to` y dos más— vieron dos sesiones
+  donde esperan una. En aislamiento los doce de ese binario pasan, y la segunda
+  corrida completa dio 117 binarios y cero fallos. Esta change no toca el daemon
+  ni esos tests, así que es fragilidad bajo carga y **no** una regresión; queda
+  anotada en el backlog en vez de arreglada aquí, porque un test que llora al
+  lobo es su propio problema y merece su propia change. -->
