@@ -908,8 +908,7 @@ fn the_indicators_are_fed_by_the_live_state_and_not_by_polling() {
         "the affirmation patches the session store rather than a private flag"
     );
     assert!(
-        stores.contains("void refreshSessions().catch(() => {})")
-            && stores.contains("at === -1"),
+        stores.contains("void refreshSessions().catch(() => {})") && stores.contains("at === -1"),
         "a session another client just opened is fetched once, not invented from a thin payload"
     );
 
