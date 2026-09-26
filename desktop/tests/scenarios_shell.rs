@@ -971,6 +971,65 @@ fn the_status_bar_says_when_the_fleet_belongs_to_another_machine() {
     );
 }
 
+// Scenario: La prueba usa el mismo camino que el aviso real
+#[test]
+fn the_notice_is_run_by_the_native_process_and_rehearsed_from_settings() {
+    // The command runs in the native process, never in the webview: a view that
+    // could run commands is a surface nobody needs to open
+    // (aviso-de-espera-opt-in design D2).
+    let bridge = read("desktop/src/bridge.rs");
+    assert!(
+        bridge.contains("notice_for(notices, &method, &params)"),
+        "the bridge decides the notice where it reads the daemon's pushes"
+    );
+    assert!(
+        bridge.contains("notices.resolved()"),
+        "and an emptied queue says nothing, rather than spending the floor"
+    );
+    // The emitter lives outside the reconnection loop, or a daemon that drops and
+    // comes back would reset the floor and let a burst through.
+    let outside = bridge
+        .split("let mut backoff = MIN_BACKOFF;")
+        .nth(1)
+        .expect("the actor's loop")
+        .split("loop {")
+        .next()
+        .expect("before the loop");
+    assert!(
+        outside.contains("notices::Emitter::new"),
+        "the emitter survives a reconnection"
+    );
+
+    let host = read("desktop/src/lib.rs");
+    assert!(
+        host.contains("fn notice_test()") && host.contains("emitter.test("),
+        "the rehearsal goes through the same emitter as the real notice"
+    );
+    assert!(
+        host.contains("notice_test,") && host.contains("notice_state,"),
+        "and both are reachable from the surface"
+    );
+
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    assert!(
+        settings.contains("notice_test"),
+        "settings rehearses it where a person is already configuring things"
+    );
+    // The command itself is NOT editable here: it is user-scope, and a field in
+    // this view would suggest a project could carry it.
+    assert!(
+        !settings.contains("on-waiting"),
+        "the command is edited in the user's own file, not in this view"
+    );
+
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    assert_eq!(
+        messages.matches("\"settings.notices.hint\"").count(),
+        2,
+        "both catalogues explain where it is configured and what travels"
+    );
+}
+
 // Scenario: El atajo de la paleta es visible
 #[test]
 fn the_palette_shortcut_is_visible_in_the_chrome() {

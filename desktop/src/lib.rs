@@ -43,6 +43,36 @@ async fn daemon_request(
         .map_err(|_| BridgeError::unreachable("bridge stopped"))?
 }
 
+/// What the surface can say about the waiting notice: whether one is configured,
+/// and the result of rehearsing it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NoticeState {
+    /// Whether the user configured a command at all.
+    configured: bool,
+}
+
+/// Whether a waiting notice is configured for this user.
+#[tauri::command]
+fn notice_state() -> NoticeState {
+    NoticeState {
+        configured: meltemi_client::notices::configured(&meltemi_client::paths::config_dir())
+            .is_some(),
+    }
+}
+
+/// Runs the configured command with the test class of wait.
+///
+/// Exactly the same path as a real notice, because a rehearsal that took a
+/// shortcut would prove nothing about the thing it rehearses. Answers whether a
+/// command was launched, which is the only moment a misconfiguration is visible
+/// (aviso-de-espera-opt-in design D6).
+#[tauri::command]
+fn notice_test() -> bool {
+    let mut emitter = meltemi_client::notices::Emitter::new(meltemi_client::paths::config_dir());
+    emitter.test("test")
+}
+
 /// Fire-and-forget notification passthrough (e.g. `session/cancel`).
 #[tauri::command]
 fn daemon_notify(
@@ -262,6 +292,8 @@ pub fn run() {
             onboarding_seen,
             onboarding_mark_seen,
             request_attention,
+            notice_state,
+            notice_test,
             window_state_store,
             close_confirmed,
             uistate::ui_state_load,

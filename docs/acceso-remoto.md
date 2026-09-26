@@ -372,6 +372,107 @@ change `companero-movil`, no capacidades presentes.
 - **Aviso de espera**: ya especificado arriba (opt-in, mínimo, jamás emitido por
   el daemon). La infraestructura del usuario es su casa natural.
 
+## El aviso de espera (opt-in)
+
+«Empecé algo y me fui a hacer la compra; qué bien recibir la notificación en el
+teléfono.» Eso se puede, sin relé y sin puerto, y así:
+
+```toml
+# <config>/meltemi/config.toml
+[notices]
+on-waiting = "curl -d 'Meltemi te espera' https://ntfy.mi-casa/meltemi"
+```
+
+Lo ejecuta **el cliente conectado** —la GUI o la TUI— cuando algo empieza a
+esperarte. El daemon no lo lee, no lo valida y no lo ejecuta jamás. Está
+**apagado por defecto** y solo se lee de tu configuración de usuario: nunca del
+`.meltemi/` de un repositorio, porque abrir un proyecto no debe ejecutar nada en
+tu máquina.
+
+### Qué recibe el comando, exactamente
+
+Esto es un contrato, no una descripción: la constitución exige que el contenido
+de cualquier aviso esté especificado antes de existir, y ampliarlo requiere una
+enmienda.
+
+| Variable | Contenido |
+| --- | --- |
+| `MELTEMI_WAITING` | `permission`, `instruction`, `gate` o `test` |
+| `MELTEMI_SESSION` | El identificador de sesión, opaco |
+| `MELTEMI_MACHINE` | El nombre de la máquina del cliente |
+| `MELTEMI_AT` | El instante, RFC 3339 en UTC |
+| `MELTEMI_COUNT` | Cuántas cosas esperan ahora |
+
+Y **nada más**. No viaja la ruta del proyecto, ni su nombre, ni el texto de la
+petición, ni el nombre de la herramienta, ni el título de la sesión.
+
+La razón no es timidez. El destino es un servicio que tú operas pero que no
+siempre operas solo: un topic de ntfy es una URL que otra persona puede llegar a
+conocer. Lo que viaja tiene que ser inútil para cualquiera que no seas tú, y
+suficiente para que decidas si vale la pena volver. «Algo espera en esta
+máquina» es justo eso.
+
+### Cuántos avisos, y cuándo no
+
+- **Uno por espera, no uno por cosa en cola.** Si llegan tres permisos juntos,
+  hay un aviso con `MELTEMI_COUNT=3`.
+- **Piso de treinta segundos** entre avisos. Seis notificaciones seguidas es cómo
+  uno aprende a silenciar un canal.
+- **Al resolverse no se avisa.** Decirte que ya no hace falta es ruido que llega
+  cuando ya vienes en camino.
+
+### Pruébalo antes de confiar en él
+
+En Ajustes de la GUI, y en la paleta de la TUI con `notice-test` (o
+`aviso-prueba`). Usa el mismo camino que el aviso real, con
+`MELTEMI_WAITING=test`, e ignora el piso: pulsarlo dos veces manda dos.
+
+Es el único momento en que una mala configuración se ve. Un fallo del aviso real
+no se grita: el cliente sigue funcionando y tú te quedas sin notificación, que es
+recuperable y visible.
+
+### Recetas, todas con tu propia infraestructura
+
+Cada una de estas es **tuya**, como tu `ssh`. Meltemi no opera ninguna, no
+gestiona sus claves y no sabe si funcionan.
+
+**ntfy autohospedado** — el caso más simple:
+
+```toml
+on-waiting = "curl -s -d Meltemi https://ntfy.mi-casa/mi-topic-largo-y-privado"
+```
+
+Un topic corto es una dirección que alguien adivina. Usa uno largo, o pon
+autenticación en tu servidor.
+
+**Gotify**:
+
+```toml
+on-waiting = "curl -s -F title=Meltemi -F message=espera https://gotify.mi-casa/message?token=TU_TOKEN"
+```
+
+El token queda en tu archivo de configuración, que es tuyo; Meltemi no lo lee
+más que para pasárselo al comando que tú escribiste.
+
+**Apprise**, si ya lo usas para todo lo demás:
+
+```toml
+on-waiting = "apprise -t Meltemi -b espera"
+```
+
+**Sin servidor: la campana del terminal.** Si trabajas por `ssh -t` desde el
+teléfono, `MELTEMI_BELL=1` hace que la TUI suene, y las apps de terminal
+convierten esa campana en notificación local. Es el push más barato que existe y
+no necesita nada más.
+
+### Lo que este aviso no es
+
+- **No es push del daemon.** El daemon no abre puertos ni habla con nadie fuera
+  de su socket, y esto no lo cambia.
+- **No es telemetría.** Nada sale hacia Meltemi ni hacia nadie que no sea el
+  servicio que tú pusiste en esa línea.
+- **No lleva tu trabajo.** Las cinco variables de arriba son el contrato entero.
+
 ## Sin push sin túnel — y por qué
 
 No existe notificación push sin conexión, ni la habrá sin una enmienda

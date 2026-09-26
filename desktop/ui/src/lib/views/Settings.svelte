@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
   import { get } from "svelte/store";
   import { conn, request } from "../daemon";
   import { locale, setLocale, t } from "../i18n";
@@ -15,6 +16,36 @@
 
   let { onEditFile }: { onEditFile: (file: string) => void } = $props();
 
+  /**
+   * The waiting notice. The command itself is not editable here on purpose: it
+   * is user-scope configuration, edited in the user's own file like every other
+   * user-scope setting, and a field in this view would suggest the project could
+   * carry it (aviso-de-espera-opt-in design D3). What this view does is say
+   * whether one is configured and let a person rehearse it, which is the only
+   * moment a misconfiguration is visible.
+   */
+  let noticeConfigured = $state(false);
+  let noticeResult: "sent" | "none" | null = $state(null);
+
+  const loadNoticeState = async () => {
+    try {
+      const state = await invoke<{ configured: boolean }>("notice_state");
+      noticeConfigured = state.configured;
+    } catch {
+      noticeConfigured = false;
+    }
+  };
+
+  const testNotice = async () => {
+    noticeResult = null;
+    try {
+      noticeResult = (await invoke<boolean>("notice_test")) ? "sent" : "none";
+    } catch {
+      noticeResult = "none";
+    }
+    await loadNoticeState();
+  };
+
   const THEMES: ThemeChoice[] = ["system", "light", "dark"];
 
   let template = $state("");
@@ -23,6 +54,10 @@
 
   $effect(() => {
     template = $uiState.openWithTemplate ?? "";
+  });
+
+  $effect(() => {
+    void loadNoticeState();
   });
 
   // The project's effective configuration, read-only, with a jump to edit it
@@ -116,6 +151,27 @@
       </div>
     </div>
     <p class="hint">{$t("settings.openWith.hint")}</p>
+  </section>
+
+  <section aria-labelledby="notices">
+    <h2 id="notices">{$t("settings.notices")}</h2>
+    <div class="row">
+      <span class="label">{$t("settings.notices.onWaiting")}</span>
+      <div class="inline">
+        <span class="mono">
+          {noticeConfigured ? $t("settings.notices.on") : $t("settings.notices.off")}
+        </span>
+        <button onclick={testNotice} disabled={!noticeConfigured}>
+          {$t("settings.notices.test")}
+        </button>
+      </div>
+    </div>
+    {#if noticeResult === "sent"}
+      <p class="hint">{$t("settings.notices.sent")}</p>
+    {:else if noticeResult === "none"}
+      <p class="hint warn">{$t("settings.notices.failed")}</p>
+    {/if}
+    <p class="hint">{$t("settings.notices.hint")}</p>
   </section>
 
   <section aria-labelledby="project">

@@ -38,6 +38,10 @@ pub enum Command {
     CancelSession(String),
     /// Shut the daemon down (`shutdown`).
     Shutdown,
+    /// Rehearse the waiting notice. Not a daemon method: the notice is the
+    /// client's own doing, and the daemon takes no part in it
+    /// (aviso-de-espera-opt-in design D2).
+    TestNotice,
     /// Force a status refresh.
     Refresh,
     /// Query the fleet catalog (`fleet/list`).
@@ -172,6 +176,11 @@ async fn serve_connection(
     // it is already known.
     let mut known_sessions: std::collections::HashSet<String> = seeded.into_iter().collect();
 
+    // One emitter for the actor's life, so the record of when the last notice went
+    // out survives a reconnection: a daemon that drops and comes back must not
+    // reset the floor (aviso-de-espera-opt-in design D5).
+    let mut notices = meltemi_client::notices::Emitter::new(meltemi_client::paths::config_dir());
+
     let mut ticker = interval(REFRESH_EVERY);
     ticker.tick().await; // consume the immediate first tick
 
@@ -199,6 +208,22 @@ async fn serve_connection(
                 }
                 Some(Incoming::Notification { method, params }) if method == methods::PERMISSION_CHANGED => {
                     if let Ok(changed) = serde_json::from_value::<PermissionChangedParams>(params) {
+                        if changed.pending.is_empty() {
+                            // Somebody decided. Saying so would be noise arriving
+                            // while the person is already on their way.
+                            notices.resolved();
+                        } else {
+                            let session = changed
+                                .pending
+                                .first()
+                                .map(|p| p.session_id.clone())
+                                .unwrap_or_default();
+                            notices.waiting(
+                                meltemi_client::notices::Waiting::Permission,
+                                &session,
+                                u32::try_from(changed.pending.len()).unwrap_or(u32::MAX),
+                            );
+                        }
                         let _ = updates.send(Update::PermissionQueue(changed.pending));
                     }
                 }
@@ -226,6 +251,15 @@ async fn serve_connection(
                         if known_sessions.insert(affirmation.session_id.clone()) {
                             known_sessions.extend(refresh_sessions(&peer, updates).await);
                         }
+                        // A session parked between turns is waiting for a person
+                        // to type, which is exactly what the notice is for.
+                        if affirmation.state == meltemi_proto::SessionState::WaitingInstruction {
+                            notices.waiting(
+                                meltemi_client::notices::Waiting::Instruction,
+                                &affirmation.session_id,
+                                1,
+                            );
+                        }
                         let _ = updates.send(Update::SessionState(affirmation));
                     }
                 }
@@ -238,6 +272,20 @@ async fn serve_connection(
                 }
                 Some(Command::CancelSession(session_id)) => {
                     peer.notify(methods::SESSION_CANCEL, &SessionCancelParams { session_id });
+                }
+                Some(Command::TestNotice) => {
+                    // The same emitter and the same command as a real notice: a
+                    // rehearsal that took a shortcut would prove nothing about
+                    // the thing it rehearses.
+                    let sent = notices.test("test");
+                    let _ = updates.send(Update::Notice(
+                        if sent {
+                            "aviso de prueba lanzado; si no llegó, revisa el comando o tu servicio"
+                        } else {
+                            "no hay aviso configurado: [notices] on-waiting en tu config.toml de usuario"
+                        }
+                        .into(),
+                    ));
                 }
                 Some(Command::Shutdown) => {
                     let _ = peer.request(methods::SHUTDOWN, &json!({})).await;
