@@ -215,3 +215,25 @@ Visual; sin cambios de contrato ni de daemon. Quien tenga el movimiento
 reducido activado no ve animación alguna: los esqueletos quedan quietos con su
 texto, el cursor ya era fijo y los relojes siguen contando (una cifra que
 cambia no es movimiento).
+
+## Revisión propia (2026-09-26)
+
+Lo que el smoke sobre el binario release enseñó, antes del cierre
+(`docs/qa/2026-09-26-senales-de-vida-smoke.md`):
+
+- **La ventana se veía en blanco.** Nacía oculta como decía D6, pero el tope de
+  500 ms gana en esta máquina —en frío y en tibio— antes de que la interfaz
+  monte, y lo visible era el fondo propio del webview. Corregido en la tarea
+  5.3: la ventana lleva el fondo del tema desde el `setup`, y D6 lo dice.
+- **Montar no es pintar.** El primer pintado llega ~250 ms después de la señal.
+  La señal se queda —en una máquina más rápida gana al tope—, pero lo que evita
+  el destello es el fondo, no el instante; el informe lo declara así en vez de
+  prometer que el primer frame visible sea ya la interfaz.
+- **El cursor no se ve con el agente simulado**, que emite su fragmento y cierra
+  el turno en el mismo instante. Lo sostienen el caso ejecutado y la guardia de
+  fuente; queda declarado hasta mirarlo con un agente que transmita.
+- **Tres hallazgos ajenos a esta change**, cada uno con su tarea: la entrada
+  «Nueva sesión» de la barra lateral abre Ajustes, `agent_process.binary`
+  registra el último argumento, y una sesión libre espera ~6 s antes de su
+  punto de restauración.
+

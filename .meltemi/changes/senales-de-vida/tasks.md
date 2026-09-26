@@ -98,7 +98,7 @@ Las tareas de la interfaz corren además los gates del frontend desde
 
 ## 6. Smoke y cierre
 
-- [ ] 6.1 Smoke visual sobre el binario release por CDP y del pulso de la TUI
+- [x] 6.1 Smoke visual sobre el binario release por CDP y del pulso de la TUI
   en la consola de esta máquina, en `docs/qa/<fecha>-senales-de-vida-smoke.md`:
   lo medido, lo capturado y lo declarado (parpadeo en conhost, WebKitGTK y
   WKWebView, maximizar oculto en Windows) — gates: el informe
