@@ -14,7 +14,7 @@ existe y ya está probado, en vez de contra una promesa.
 
 ## 1. El contrato
 
-- [ ] 1.1 `proto/`: constante `SESSION_STATE` en el módulo `methods` (una sola
+- [x] 1.1 `proto/`: constante `SESSION_STATE` en el módulo `methods` (una sola
   línea con `= "session/state"`, porque el gate de paridad parsea texto);
   `SessionStateParams` con `sessionId`, `projectRoot`, `state`, `since` y
   `pendingPermissions`; esquema `proto/schemas/v1/session-state.schema.json`
@@ -22,6 +22,12 @@ existe y ya está probado, en vez de contra una promesa.
   `proto/meltemi-proto/tests/conformance.rs`. Sin campo de contenido alguno
   (design D1, D9) — escenario «La notificación no lleva contenido del
   proyecto» — gates: suite de `meltemi-proto`
+  <!-- 2026-09-26: el esquema nuevo entra además a la comparación del enum de
+  estados, que hasta hoy recorría dos archivos y ahora recorre tres: la
+  notificación lleva el enum, así que debe quedar sujeta a la misma regla que
+  los dos que ya existían. Los tres rechazos del test son los que muerden solos:
+  una afirmación sin `since`, una con `since` que no es fecha, y un estado que
+  nadie declaró. -->
 - [ ] 1.2 Paridad: `session/state` en `DAEMON_INITIATED` de
   `tui/tests/parity.rs` y su fila en la tabla de tráfico iniciado por el daemon
   de `docs/paridad-nucleo.md`, con las cinco columnas. **No** entra en la
