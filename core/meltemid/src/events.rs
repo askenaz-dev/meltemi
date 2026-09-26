@@ -245,6 +245,41 @@ mod tests {
         );
     }
 
+    // Scenario: Un rezago se repara reafirmando el estado, no con un hueco
+    #[tokio::test]
+    async fn a_subscriber_that_falls_behind_is_told_so_rather_than_left_short() {
+        // The trigger for the repair, measured here because it is a property of
+        // the channel: past its capacity a slow receiver is handed `Lagged`
+        // with the count it missed, and not a quietly shorter stream. What the
+        // connection does with that — re-affirm every session, the same call it
+        // makes on `initialize` — is asserted where that call lives.
+        use tokio::sync::broadcast::error::RecvError;
+
+        let hub = EventHub::default();
+        let mut slow = hub.subscribe_state();
+        for n in 0..(CAPACITY + 5) {
+            hub.publish_state(SessionStateParams {
+                session_id: format!("sess-{n}"),
+                project_root: "/repo".into(),
+                state: meltemi_proto::SessionState::Active,
+                since: "2026-09-26T12:00:00Z".into(),
+                pending_permissions: 0,
+            });
+        }
+
+        let missed = match slow.recv().await {
+            Err(RecvError::Lagged(missed)) => missed,
+            other => panic!("expected the channel to report the lag, got {other:?}"),
+        };
+        assert!(
+            missed >= 5,
+            "the count says how much was missed, so it can be logged: {missed}"
+        );
+        // And the receiver is usable afterwards: the repair happens on a live
+        // subscription, not on a broken one.
+        assert!(slow.recv().await.is_ok());
+    }
+
     #[tokio::test]
     async fn publishing_state_with_no_subscriber_is_harmless() {
         let hub = EventHub::default();

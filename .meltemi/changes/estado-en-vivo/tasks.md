@@ -94,13 +94,31 @@ existe y ya está probado, en vez de contra una promesa.
   el tope, porque esa sesión ya está esperando sea lo que sea que el tope decida
   de otra. Comprobado que muerde: sin el anuncio de `set_state`, el test falla en
   la primera transición que no llega. -->
-- [ ] 2.4 `server.rs`: la conexión se suscribe al abrirse, empuja la **foto**
+- [x] 2.4 `server.rs`: la conexión se suscribe al abrirse, empuja la **foto**
   —una afirmación por sesión conocida— al completarse `initialize`, y al recibir
   `RecvError::Lagged` la vuelve a empujar entera en vez de dejar el hueco
   registrado solo del lado del servidor; el orden suscribir→fotografiar es
   deliberado y el comentario lo dice (design D3, D4) — escenarios «Una conexión
   nueva recibe el estado actual antes de cualquier transición» y «Un rezago se
   repara reafirmando el estado, no con un hueco» — gates: suite de `meltemid`
+  <!-- 2026-09-26: la foto y la reparación son **la misma función**, y eso no es
+  economía sino la consecuencia de D1: una afirmación entera sirve igual para
+  abrir que para reparar. El brazo del rezago la llama con el mismo argumento que
+  `initialize`.
+  Los tests de este tramo registran sesiones **directamente en el registro**, sin
+  agente: lo que se prueba es quién recibe qué, y un agente añadiría subproceso,
+  apretón de manos y turno a una pregunta que no los necesita. Eso destapó algo
+  que conviene dejar escrito: `session/list` arma sus filas desde el índice en
+  disco y solo le pide el estado vivo al registro, así que una sesión registrada
+  a mano **no aparece en la lista** —medido, no supuesto: la aserción falló en
+  «la sesión está listada», no en un desacuerdo—. El acuerdo entre canal y lista
+  se afirma donde de verdad pueden discrepar (el estado del registro contra la
+  afirmación que publica) y de punta a punta en 2.5.
+  Un test más de los que no estaban pedidos y hacen falta: una conexión que no
+  completó el apretón de manos **no recibe nada**, que es el deny-by-default de
+  §3 llegando también aquí; y la afirmación lleva cinco campos y ningún sexto,
+  comprobado leyendo las claves del objeto en el cable y verificando que la línea
+  de comandos del agente no viaja. -->
 - [ ] 2.5 e2e con `mock-agent`: un cliente abre una sesión y **otro** cliente
   conectado al mismo daemon recibe sus transiciones sin pedirlas, y el estado
   que recibe coincide con `session/list` en ese instante. Y la medición que el
