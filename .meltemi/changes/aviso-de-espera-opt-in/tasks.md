@@ -8,7 +8,7 @@ dependencia**; el daemon no se toca y no hay RPC nuevo.
 
 ## 1. El emisor
 
-- [ ] 1.1 `core/meltemi-client/src/notices.rs`: el contrato del contenido como
+- [x] 1.1 `core/meltemi-client/src/notices.rs`: el contrato del contenido como
   un tipo —clase de espera, sesión, máquina, instante, cuenta— y su traducción a
   las cinco variables de entorno; el lector de ámbito usuario de
   `[notices] on-waiting` con el mismo lector que `via-ssh-del-cliente` añadió,
@@ -16,6 +16,17 @@ dependencia**; el daemon no se toca y no hay RPC nuevo.
   ninguna variable lleva ruta ni proyecto (design D1, D3) — escenarios «El aviso
   lleva el hecho y nada del proyecto» y «Un repositorio no configura tu aviso» —
   gates: suite de `meltemi-client`
+  <!-- 2026-09-26: el test del contenido asserta **por ausencia**, que es lo
+  único que sirve aquí: lo interesante no es que los cinco campos estén, es que
+  un sexto no se cuele mañana. Así que comprueba que ni una ruta, ni un nombre de
+  proyecto, ni un texto de instrucción aparecen en ningún valor.
+  El nombre de la máquina no tenía de dónde salir sin dependencia —ningún crate
+  del workspace lo computaba— así que es una cascada con sus razones:
+  `COMPUTERNAME` siempre está en Windows, `HOSTNAME` se prueba y no se confía
+  porque suele no exportarse, `/etc/hostname` es fiable en Linux y no existe en
+  macOS, y si ninguno responde el aviso dice `unknown` en vez de inventar: un
+  nombre de máquina equivocado es peor que uno admitido, porque el trabajo entero
+  del aviso es decir qué máquina te quiere. -->
 - [ ] 1.2 El lanzamiento: sin esperar, sin heredar stdio, dentro de un ámbito de
   proceso y con tope de diez segundos; sin comando configurado no se ejecuta
   nada; test con un comando que no termina que comprueba que el emisor vuelve de

@@ -20,6 +20,7 @@
 
 pub mod bootstrap;
 pub mod exec;
+pub mod notices;
 pub mod paths;
 pub mod rpc;
 pub mod transport;
