@@ -90,11 +90,19 @@ dependencia**; el daemon no se toca y no hay RPC nuevo.
   compara. Los cinco tests de paridad siguen verdes sin tocarlos.
   El ensayo dice la verdad cuando no hay nada configurado —«no hay aviso
   configurado», con la tabla y la clave— en vez de fingir que mandó algo. -->
-- [ ] 2.3 `docs/acceso-remoto.md`: el contrato del contenido **publicado con la
+- [x] 2.3 `docs/acceso-remoto.md`: el contrato del contenido **publicado con la
   change** (§9), las recetas con infraestructura del usuario (ntfy
   autohospedado, Gotify, Apprise) y la campana de la TUI como el caso sin
   servidor, cada una con la advertencia de que es del usuario — gates:
   `cargo test -p meltemi --test docs`
+  <!-- 2026-09-26: la sección dice el contrato **como tabla** y añade la razón de
+  que sea tan poco, que es la parte que un lector necesita para no pedir más: el
+  destino es un servicio que el usuario opera pero no siempre solo, y un topic de
+  ntfy es una URL que otro puede llegar a conocer. Se añade también el aviso sobre
+  topics cortos, que es el error real que alguien cometerá.
+  Y las tres cosas que este aviso **no** es —push del daemon, telemetría, y
+  contenido de tu trabajo—, porque es exactamente lo que alguien va a suponer al
+  leer que Meltemi manda notificaciones. -->
 
 ## 3. Cierre
 
