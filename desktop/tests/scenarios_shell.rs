@@ -2791,6 +2791,334 @@ fn the_composer_says_an_agent_is_working_and_stops_saying_it_when_it_is_not() {
     );
 }
 
+// ---- motion vocabulary (senales-de-vida) ------------------------------------
+
+/// The named animations the motion vocabulary allows (senales-de-vida D2).
+const MOTION_NAMES: &[&str] = &["composer-wind", "arrive", "skeleton-pulse", "mark-draw"];
+
+/// The tokens an animation takes its duration from, one per class.
+const MOTION_TOKENS: &[&str] = &[
+    "var(--dur-1)",
+    "var(--dur-2)",
+    "var(--dur-pulse)",
+    "var(--dur-ambient)",
+];
+
+/// The query under which motion is withdrawn.
+const REDUCED: &str = "@media (prefers-reduced-motion: reduce)";
+
+/// The stylesheet of a UI source — a component's `<style>`, or the whole of a
+/// `.css` — without its `/* */` comments: a comment that names an animation is
+/// not one.
+fn stylesheet(path: &std::path::Path) -> String {
+    let source = std::fs::read_to_string(path).expect("read a UI source");
+    let css = if path.extension().is_some_and(|e| e == "css") {
+        source.as_str()
+    } else {
+        source
+            .split("<style>")
+            .nth(1)
+            .and_then(|rest| rest.split("</style>").next())
+            .unwrap_or("")
+    };
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(at) = rest.find("/*") {
+        out.push_str(&rest[..at]);
+        rest = rest[at..]
+            .find("*/")
+            .map_or("", |end| &rest[at + end + 2..]);
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The body of the first `{ … }` block of `text`, braces balanced.
+fn block(text: &str) -> &str {
+    let open = text.find('{').expect("a block opens");
+    let mut depth = 0usize;
+    for (at, ch) in text[open..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &text[open + 1..open + at];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("an unbalanced block: {text}");
+}
+
+/// Every reduced-motion branch of a stylesheet, by body.
+fn reduced_branches(css: &str) -> Vec<&str> {
+    css.match_indices(REDUCED)
+        .map(|(at, _)| block(&css[at..]))
+        .collect()
+}
+
+/// A stylesheet without its reduced-motion branches: that is where motion is
+/// withdrawn, not where it is declared.
+fn outside_reduced(css: &str) -> String {
+    let mut out = String::new();
+    let mut rest = css;
+    while let Some(at) = rest.find(REDUCED) {
+        out.push_str(&rest[..at]);
+        let open = rest[at..].find('{').expect("the branch opens");
+        let body = block(&rest[at..]);
+        rest = &rest[at + open + body.len() + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The `property: value` declarations of a stylesheet. A selector such as
+/// `.row:hover` also carries a colon; it never parses as a property, which is
+/// one lowercase word with dashes.
+fn declarations(css: &str) -> Vec<(String, String)> {
+    css.split(['{', '}', ';'])
+        .filter_map(|piece| {
+            let (property, value) = piece.split_once(':')?;
+            let property = property.trim();
+            if property.is_empty() || !property.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+            {
+                return None;
+            }
+            Some((property.to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+/// A duration written as a number rather than taken from a token.
+fn is_literal_duration(word: &str) -> bool {
+    word.starts_with(|c: char| c.is_ascii_digit() || c == '.')
+        && (word.ends_with("ms") || word.ends_with('s'))
+}
+
+// Scenario: Una animación fuera de la lista rompe la suite
+// Scenario: Toda animación se retira con movimiento reducido
+// Scenario: Las duraciones salen de los tokens
+#[test]
+fn every_animation_belongs_to_the_closed_vocabulary() {
+    let mut declared = std::collections::BTreeSet::new();
+    for path in walk_ui_sources() {
+        let file = path.display().to_string();
+        let css = stylesheet(&path);
+
+        // Only the listed names, and each body animates only what its class
+        // may: opacity or transform — and the mark, its outline.
+        for (at, _) in css.match_indices("@keyframes ") {
+            let after = &css[at + "@keyframes ".len()..];
+            let name = after
+                .split(|c: char| c.is_whitespace() || c == '{')
+                .next()
+                .unwrap_or("");
+            assert!(
+                MOTION_NAMES.contains(&name),
+                "{file} declares the animation `{name}`, which is not in the motion vocabulary"
+            );
+            declared.insert(name.to_string());
+            let allowed: &[&str] = if name == "mark-draw" {
+                &["stroke-dashoffset"]
+            } else {
+                &["opacity", "transform"]
+            };
+            for (property, _) in declarations(block(after)) {
+                assert!(
+                    allowed.contains(&property.as_str()),
+                    "{file}: `{name}` animates `{property}`, which its class may not"
+                );
+            }
+        }
+
+        // Every animation outside a reduced-motion branch names a listed
+        // animation and takes its duration from a token; a transition is
+        // motion no class declares.
+        let mut animates = false;
+        for (property, value) in declarations(&outside_reduced(&css)) {
+            match property.as_str() {
+                "animation" | "animation-name" | "animation-duration" => {
+                    if value.starts_with("none") {
+                        continue;
+                    }
+                    animates = true;
+                    if property != "animation-duration" {
+                        let name = value.split_whitespace().next().unwrap_or("");
+                        assert!(
+                            MOTION_NAMES.contains(&name),
+                            "{file} runs `{name}`, which is not in the motion vocabulary"
+                        );
+                    }
+                    if property != "animation-name" {
+                        assert!(
+                            MOTION_TOKENS.iter().any(|token| value.contains(token)),
+                            "{file}: `{property}: {value}` takes no duration token"
+                        );
+                        assert!(
+                            !value.split_whitespace().any(is_literal_duration),
+                            "{file}: `{property}: {value}` writes its duration as a literal"
+                        );
+                    }
+                }
+                "transition" | "transition-property" | "transition-duration" => {
+                    assert!(
+                        value.starts_with("none"),
+                        "{file}: `{property}: {value}` is motion outside the vocabulary"
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        // And a file that animates withdraws what it runs in its own branch.
+        if animates {
+            let branches = reduced_branches(&css);
+            assert!(
+                branches
+                    .iter()
+                    .any(|body| body.contains("animation: none") || body.contains("display: none")),
+                "{file} animates without withdrawing it under reduced motion"
+            );
+        }
+    }
+
+    // Nothing drives motion from script, where no stylesheet guard can see it.
+    let mut stack = vec![repo_root().join("desktop/ui/src")];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read src").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if !path.extension().is_some_and(|e| e == "ts" || e == "svelte") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("read a UI source");
+            for scripted in [
+                "svelte/transition",
+                "svelte/animate",
+                "svelte/motion",
+                ".animate(",
+            ] {
+                assert!(
+                    !source.contains(scripted),
+                    "{} drives motion from script: `{scripted}`",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    // The shared animations live where every component can use them.
+    let app_css = stylesheet(&repo_root().join("desktop/ui/src/app.css"));
+    for token in [
+        "--dur-1: 120ms",
+        "--dur-2: 160ms",
+        "--dur-pulse: 1.2s",
+        "--dur-ambient: 2.4s",
+    ] {
+        assert!(app_css.contains(token), "app.css declares `{token}`");
+    }
+    for shared in [
+        "@keyframes arrive",
+        "@keyframes skeleton-pulse",
+        "@keyframes mark-draw",
+    ] {
+        assert!(app_css.contains(shared), "app.css declares `{shared}`");
+    }
+    assert!(
+        declared.contains("composer-wind"),
+        "the ambient ring is still the one loop"
+    );
+
+    // The vocabulary this guard enforces is the one the design system writes.
+    let system = read("docs/ux/design-system.md");
+    assert!(
+        system.contains("### Motion vocabulary"),
+        "the design system carries the vocabulary"
+    );
+    for name in MOTION_NAMES {
+        assert!(
+            system.contains(&format!("`{name}`")),
+            "the design system names `{name}`"
+        );
+    }
+}
+
+/// The class names a Svelte source puts on its elements, from `class="…"` and
+/// `class:name` — what the markup wears, not what its comments say.
+fn classes(source: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for (at, _) in source.match_indices("class=\"") {
+        let value = &source[at + "class=\"".len()..];
+        let value = value.split('"').next().unwrap_or("");
+        found.extend(value.split_whitespace().map(str::to_string));
+    }
+    for (at, _) in source.match_indices("class:") {
+        let name = source[at + "class:".len()..]
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+            .next()
+            .unwrap_or("");
+        found.push(name.to_string());
+    }
+    found
+}
+
+// Scenario: Las superficies de decisión no se mueven
+#[test]
+fn the_surfaces_of_a_decision_arrive_still() {
+    // The tray and its indicator, the notices, the bar, and the banners of the
+    // shell: nothing on them moves, because they are where a decision is made
+    // or claimed.
+    for still in [
+        "desktop/ui/src/lib/views/Permissions.svelte",
+        "desktop/ui/src/lib/components/TopBar.svelte",
+        "desktop/ui/src/lib/components/Notices.svelte",
+        "desktop/ui/src/lib/components/Sidebar.svelte",
+        "desktop/ui/src/App.svelte",
+    ] {
+        let css = stylesheet(&repo_root().join(still));
+        assert!(!css.contains("@keyframes"), "{still} declares an animation");
+        for (property, value) in declarations(&css) {
+            if property.starts_with("animation") || property.starts_with("transition") {
+                assert!(
+                    value.starts_with("none"),
+                    "{still} moves: `{property}: {value}`"
+                );
+            }
+        }
+        let source = read(still);
+        for class in classes(&source) {
+            assert!(
+                class != "arrive",
+                "{still} wears the arrival class, and it arrives still"
+            );
+        }
+        assert!(
+            !source.contains("<Skeleton"),
+            "{still} pulses while a decision is in front of the user"
+        );
+    }
+
+    // The permission card of the transcript is the one item that does not
+    // arrive: it is where the user decides.
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    let card = detail
+        .split("{:else if item.kind === \"permission\"}")
+        .nth(1)
+        .expect("the transcript draws a permission card")
+        .split("{:else")
+        .next()
+        .expect("the card's branch closes");
+    assert!(
+        !classes(card).iter().any(|class| class == "arrive"),
+        "the permission card arrives still: {card}"
+    );
+}
+
 // Scenario: La pestaña dice de qué trata la sesión
 // Scenario: Una sesión sin título se nombra como antes
 // Scenario: El proyecto se antepone ante ambigüedad

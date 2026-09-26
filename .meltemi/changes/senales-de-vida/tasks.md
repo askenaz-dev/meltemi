@@ -6,7 +6,7 @@ Las tareas de la interfaz corren además los gates del frontend desde
 
 ## 1. El vocabulario y su guardia
 
-- [ ] 1.1 `docs/ux/design-system.md`: la sección «Motion» gana la tabla de
+- [x] 1.1 `docs/ux/design-system.md`: la sección «Motion» gana la tabla de
   las nueve clases (dónde vale, duración, equivalente sin movimiento), los
   tokens, la excepción nombrada de la marca y la lista de superficies que no
   se mueven; `app.css` gana `--dur-1`, `--dur-2`, `--dur-pulse`,

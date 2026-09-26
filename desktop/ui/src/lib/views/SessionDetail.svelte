@@ -1702,7 +1702,7 @@
       var(--mel-wind) 110deg,
       transparent 170deg
     );
-    animation: composer-wind 2.4s linear infinite;
+    animation: composer-wind var(--dur-ambient) linear infinite;
   }
   @keyframes composer-wind {
     from {
