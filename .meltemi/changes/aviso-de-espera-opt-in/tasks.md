@@ -64,10 +64,22 @@ dependencia**; el daemon no se toca y no hay RPC nuevo.
 
 ## 2. Las superficies
 
-- [ ] 2.1 GUI: el emisor se invoca desde el proceso nativo y no desde la vista
+- [x] 2.1 GUI: el emisor se invoca desde el proceso nativo y no desde la vista
   web; los ajustes dicen si está configurado y ofrecen «enviar aviso de prueba»
   con su resultado a la vista (design D2, D6) — escenario «La prueba usa el mismo
   camino que el aviso real» — gates: suite de `meltemi-desktop`, tests de la UI
+  <!-- 2026-09-26: el emisor vive **fuera del bucle de reconexión**, y esa es la
+  decisión que el design no había atado: dentro, un daemon que cae y vuelve
+  reiniciaría el piso y dejaría pasar la ráfaga entera. El test lo pinea leyendo
+  el tramo anterior al `loop`.
+  El comando **no se edita en Ajustes**, y es a propósito: es configuración de
+  ámbito usuario, y un campo en esta vista insinuaría que un proyecto podría
+  llevarlo. Lo que la vista hace es decir si está configurado y dejar ensayarlo,
+  que es el único momento en que una mala configuración se ve. El test lo asserta
+  por ausencia: `on-waiting` no aparece en la vista.
+  Qué cuenta como espera, leído de lo que el daemon ya empuja: la cola de permisos
+  con su tamaño, y `waiting_instruction` del estado en vivo. Una cola que se vacía
+  llama a `resolved`, que no manda nada. -->
 - [ ] 2.2 TUI: emite al empezar una espera y ofrece el aviso de prueba en su
   paleta, diciendo la verdad cuando no hay comando configurado (design D6) —
   escenario «La paleta de la TUI envía un aviso de prueba» — gates: suite de
