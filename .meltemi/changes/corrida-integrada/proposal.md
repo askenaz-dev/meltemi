@@ -33,13 +33,14 @@ pasó.
 ## What Changes
 
 - **`scripts/smoke-agents.ps1` y `scripts/smoke-agents.sh`**: levantan un
-  daemon **aislado** (las cuatro variables `MELTEMI_ENDPOINT`,
-  `MELTEMI_DATA_DIR`, `MELTEMI_CONFIG_DIR`, `MELTEMI_DAEMON_BIN`; jamás el
-  daemon ni los datos del usuario), crean un repo fixture temporal, detectan
-  la flota instalada y corren la matriz sobre cada agente `ready`: sesión de
-  solo lectura, sesión de escritura sin aprobador (debe denegar), `propose`
-  con aprobación (devclient o el aprobador del CLI cuando exista),
-  `dispatch` en worktree, `direct`, `cancel`. Miden duración, permisos
+  daemon **aislado** (las cinco variables `MELTEMI_ENDPOINT`,
+  `MELTEMI_DATA_DIR`, `MELTEMI_CONFIG_DIR`, `MELTEMI_DAEMON_BIN` y, desde
+  `acceso-remoto-afinado`, `MELTEMI_START_HERE=1`; jamás el daemon ni los datos
+  del usuario), crean un repo fixture temporal, detectan la flota instalada y
+  corren la matriz sobre cada agente `ready`: sesión de solo lectura, sesión de
+  escritura sin regla (debe denegar), sesión de escritura con regla, `propose`
+  con la regla de lectura y edición acotada al fixture, `dispatch` en
+  worktree, `direct`, `cancel`. Miden duración, permisos
   pedidos/aprobados/denegados, turnos vacíos y uso reportado, y escriben el
   esqueleto de `docs/qa/<fecha>-corrida-integrada.md` con los números. Todo
   con las trampas ya aprendidas escritas en el script (pipe retenido,
@@ -65,12 +66,13 @@ pasó.
 
 ### Modified Capabilities
 
-- `v01-acceptance`: + escenario «El informe de aceptación existe, con fecha,
-  versiones y veredicto por criterio».
-- `integration-levels`: + requisito «Corrida integrada reproducible por
-  matriz agente × verbo, aislada del daemon del usuario, publicada en
-  `docs/qa/`».
-- `initial-docs`: + `docs/hito-v01.md` con el informe real.
+- `v01-acceptance`: + requisito «El informe de la corrida manual está
+  publicado», con fecha, versiones y veredicto por criterio, y
+  `docs/hito-v01.md` enlazándolo (absorbe lo que la propuesta ponía en
+  `initial-docs`).
+- `integration-levels`: + requisito «Corrida integrada reproducible contra los
+  CLIs reales»: matriz agente × verbo, aislada del daemon del usuario,
+  publicada en `docs/qa/`.
 
 ## Impact
 
