@@ -76,11 +76,24 @@ existe y ya está probado, en vez de contra una promesa.
   él mañana. Se añade además un test de que los dos canales no se cruzan: un
   evento que apareciera en el canal de estado habría pasado de contrabando por
   delante de `delivers`. -->
-- [ ] 2.3 `session.rs` + los cinco puntos de mutación: publicar la afirmación
+- [x] 2.3 `session.rs` + los cinco puntos de mutación: publicar la afirmación
   al canal en cada transición, con el estado entero y no un delta; un test por
   transición que compruebe que lo publicado coincide con lo que `session/list`
   devolvería en ese instante (design D1) — escenario «La notificación afirma el
   estado entero y es idempotente» — gates: suite de `meltemid`
+  <!-- 2026-09-26: **anuncia el registro, no los sitios de llamada.** Hay una
+  docena de sitios que mueven una sesión, y pedirle a cada uno que se acuerde de
+  anunciar después es pedir el que se olvide — y un estado que se movió sin
+  anunciarse es exactamente la mentira silenciosa que esta change viene a
+  terminar. El registro guarda el hub y `DaemonState` le pasa **el mismo** que
+  escuchan las conexiones: dos hubs serían dos silencios.
+  Dos detalles que el test fija: `begin_waiting` anuncia **aunque el estado no
+  se mueva**, porque el conteo es parte de la afirmación y una segunda petición
+  esperando es noticia; y una sesión que el registro no tiene no anuncia nada, en
+  vez de afirmar una sesión que no existe. `begin_idle` anuncia antes de aplicar
+  el tope, porque esa sesión ya está esperando sea lo que sea que el tope decida
+  de otra. Comprobado que muerde: sin el anuncio de `set_state`, el test falla en
+  la primera transición que no llega. -->
 - [ ] 2.4 `server.rs`: la conexión se suscribe al abrirse, empuja la **foto**
   —una afirmación por sesión conocida— al completarse `initialize`, y al recibir
   `RecvError::Lagged` la vuelve a empujar entera en vez de dejar el hueco

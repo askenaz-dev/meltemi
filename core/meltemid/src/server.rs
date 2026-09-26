@@ -58,15 +58,19 @@ pub struct DaemonState {
 impl DaemonState {
     /// Builds shared state. `data_dir`/`config_dir` come from [`crate::paths`].
     pub fn new(data_dir: PathBuf, config_dir: PathBuf, shutdown: mpsc::Sender<()>) -> Arc<Self> {
+        let events = crate::events::EventHub::default();
         Arc::new(Self {
             version: env!("CARGO_PKG_VERSION"),
             started: Instant::now(),
             data_dir,
             config_dir,
-            sessions: SessionRegistry::default(),
+            // One hub, held by both: the registry announces on the very
+            // channel every connection listens to. Two hubs would be two
+            // silences (estado-en-vivo design D2).
+            sessions: SessionRegistry::with_hub(events.clone()),
             pending: PendingQueue::default(),
             clients: crate::clients::ClientRegistry::default(),
-            events: crate::events::EventHub::default(),
+            events,
             edits: Arc::default(),
             shutdown,
         })
