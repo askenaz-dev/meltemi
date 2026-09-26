@@ -43,6 +43,9 @@ pub async fn run(endpoint: &str) -> io::Result<()> {
         present: Presentation::from_env(),
         lang: Lang::from_locale(std::env::var("LANG").ok().as_deref()),
         project: std::path::Path::new(".meltemi").is_dir(),
+        // `None` for this machine's own socket: there is no via worth naming
+        // when the answer is "here".
+        via: meltemi_client::exec::shown(endpoint),
     };
     let mut state = ShellState::new();
     let mut live = LiveData::new();

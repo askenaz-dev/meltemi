@@ -82,15 +82,37 @@ aterriza en `main` con `meltemi land` al cerrar.**
   Trampa medida: parsear un documento como `toml::Value` **compila y devuelve
   nada**; hay que pedir `toml::Table`. Costó un test rojo antes de costarle a
   alguien una configuración ignorada en silencio. -->
-- [ ] 2.2 Las tres superficies: el CLI opera con el endpoint nuevo en cualquier
+- [x] 2.2 Las tres superficies: el CLI opera con el endpoint nuevo en cualquier
   verbo, y el cromo de la TUI y de la GUI muestra la vía con el comando
   abreviado (design D8) — escenarios «Un verbo cualquiera opera a través del
   comando», «El cromo nombra la vía» y «El cromo de la TUI nombra la vía» —
   gates: suite de `meltemi`, suite de `meltemi-desktop`
-- [ ] 2.3 `docs/acceso-remoto.md` gana «la GUI contra tu PC» con el
+  <!-- 2026-09-26: **el e2e del CLI encontró otro agujero, y este era del
+  proyecto entero, no de esta change.** El lector del peer hacía
+  `Ok(None) | Err(_) => break` y después fallaba toda petición en vuelo con
+  «connection closed», tirando el error del transporte. Con eso, todo el
+  diagnóstico que la tarea 1.3 construyó —lo que `ssh` dijo, el remedio— **no
+  llegaba al usuario**: el rehúse que veía era «connection closed» a secas. Ahora
+  el lector guarda la razón y la propaga, que sirve a cualquier transporte que
+  sepa explicarse; un socket que cierra sigue diciendo lo de siempre porque no
+  tiene nada que añadir.
+  El fixture del e2e es un **script** que fija el endpoint y corre
+  `meltemi bridge`, que es lo que hace `ssh mi-pc meltemi bridge` una vez hecha
+  la conexión. Probarlo con un `ssh` real necesitaría host, clave y red, y sería
+  probar OpenSSH. En Windows el script es un `.cmd`, así que de paso ejercita el
+  ámbito de proceso con `cmd.exe` en medio.
+  La regla del cromo vive **dos veces** —en Rust para la TUI y en un módulo hoja
+  de TypeScript para la GUI— porque el front no puede llamar al crate; las dos
+  parten el comando con la misma regla y las dos tienen test. -->
+- [x] 2.3 `docs/acceso-remoto.md` gana «la GUI contra tu PC» con el
   `~/.ssh/config` mínimo y la advertencia de que el `ssh` del usuario decide
   claves y hosts conocidos; `docs/plataformas.md` deja de contradecirlo —
   gates: `cargo test -p meltemi --test docs`
+  <!-- 2026-09-26: la sección dice en voz alta las tres cosas que Meltemi **no**
+  hace —no añade opciones, no gestiona claves, no da terminal para una
+  passphrase— y la consecuencia incómoda que se sigue de la tercera: la primera
+  conexión a un host nuevo va a fallar, con el remedio de una vez en un terminal.
+  Mejor decirlo que dejar que alguien lo descubra pensando que está roto. -->
 
 ## 3. Cierre
 

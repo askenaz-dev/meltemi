@@ -931,6 +931,46 @@ fn the_indicators_are_fed_by_the_live_state_and_not_by_polling() {
     );
 }
 
+// Scenario: El cromo nombra la vía
+#[test]
+fn the_status_bar_says_when_the_fleet_belongs_to_another_machine() {
+    let bar = read("desktop/ui/src/lib/components/StatusBar.svelte");
+    assert!(
+        bar.contains("via($conn.endpoint)"),
+        "the bar asks whether this endpoint names a command"
+    );
+    assert!(
+        bar.contains("conn.via"),
+        "and labels the segment from the catalog, not with prose of its own"
+    );
+    // The raw endpoint stays reachable, because the abbreviation is for reading
+    // and the whole command is what someone debugging needs.
+    assert!(
+        bar.contains("title={$conn.endpoint ?? \"\"}"),
+        "the whole command is still there, on hover"
+    );
+
+    // The rule lives in a leaf module both the surface and its tests can load.
+    let helper = read("desktop/ui/src/lib/via.ts");
+    assert!(
+        helper.contains("const PREFIX = \"exec:\""),
+        "the prefix is the one the client uses"
+    );
+    assert!(
+        helper.contains("if (!endpoint || !endpoint.startsWith(PREFIX)) return null"),
+        "a local socket has no via, and the surface invents none"
+    );
+
+    // Both languages carry the label: a segment that appeared only in one would
+    // be a segment missing in the other.
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    assert_eq!(
+        messages.matches("\"conn.via\"").count(),
+        2,
+        "the label is in both catalogs"
+    );
+}
+
 // Scenario: El atajo de la paleta es visible
 #[test]
 fn the_palette_shortcut_is_visible_in_the_chrome() {

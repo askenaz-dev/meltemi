@@ -96,6 +96,7 @@ fn main() {
         }),
         lang: Lang::En,
         project: true,
+        via: None,
     };
     let state = ShellState::new();
 
