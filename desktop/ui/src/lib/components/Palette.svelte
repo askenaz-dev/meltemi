@@ -302,6 +302,9 @@
     display: grid;
     gap: var(--sp-2);
     align-content: start;
+    /* B arrival: the palette fades in as it opens; nothing slides
+       (senales-de-vida D1). */
+    animation: arrive var(--dur-1) var(--ease-out);
   }
   .searchRow {
     display: flex;
@@ -445,5 +448,10 @@
     margin: 0;
     color: var(--info);
     font-size: var(--fs-dense);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .palette {
+      animation: none;
+    }
   }
 </style>

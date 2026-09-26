@@ -3117,6 +3117,49 @@ fn the_surfaces_of_a_decision_arrive_still() {
         !classes(card).iter().any(|class| class == "arrive"),
         "the permission card arrives still: {card}"
     );
+    // And its siblings do arrive, so the rule is about the card and not an
+    // accident of a transcript that never moves.
+    for sibling in [
+        "<div class=\"turn human arrive\">",
+        "<div class=\"turn agent arrive\">",
+        "<div class=\"sysLine arrive tone-{style.tone}\">",
+    ] {
+        assert!(
+            detail.contains(sibling),
+            "a new item of the conversation arrives: {sibling}"
+        );
+    }
+}
+
+/// The classes of the vocabulary are worn where the design system says: the
+/// palette fades in as it opens, and a status badge fades its glyph when the
+/// state changes rather than every time a list mounts (senales-de-vida D1).
+#[test]
+fn arrival_and_state_change_are_worn_where_the_vocabulary_says() {
+    let palette = stylesheet(&repo_root().join("desktop/ui/src/lib/components/Palette.svelte"));
+    let rule = block(&palette[palette.find(".palette {").expect("the panel's rule")..]);
+    assert!(
+        rule.contains("animation: arrive var(--dur-1) var(--ease-out)"),
+        "the palette arrives: {rule}"
+    );
+
+    let badge = read("desktop/ui/src/lib/components/StatusBadge.svelte");
+    assert_eq!(
+        badge
+            .matches("{#key state}<span class:changed={$changed} aria-hidden=\"true\">")
+            .count(),
+        2,
+        "both forms of the badge redraw their glyph on a change"
+    );
+    assert!(
+        badge.contains("if (seen !== null && seen !== state) changed.set(true);"),
+        "the fade is earned by a change, not by mounting"
+    );
+    let css = stylesheet(&repo_root().join("desktop/ui/src/lib/components/StatusBadge.svelte"));
+    assert!(
+        css.contains("animation: arrive var(--dur-2) var(--ease-out)"),
+        "a state change takes the state-change duration"
+    );
 }
 
 // Scenario: La pestaña dice de qué trata la sesión

@@ -20,7 +20,7 @@ Las tareas de la interfaz corren además los gates del frontend desde
   reducido», «Las duraciones salen de los tokens», «Las superficies de
   decisión no se mueven» — gates: `-p meltemi-desktop --test scenarios_shell`
 
-- [ ] 1.2 La llegada y el cambio de estado: `arrive` en los ítems nuevos del
+- [x] 1.2 La llegada y el cambio de estado: `arrive` en los ítems nuevos del
   transcript (turnos, líneas del sistema, turno vacío; nunca la tarjeta de
   permiso) y en la paleta al abrirse, y el fundido del glifo de `StatusBadge`
   al cambiar de estado, cada uno con su retiro bajo movimiento reducido

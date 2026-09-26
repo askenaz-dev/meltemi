@@ -911,7 +911,7 @@
     {#if reading === "conversation"}
       {#each conversation as item (item.id)}
         {#if item.kind === "human"}
-          <div class="turn human">
+          <div class="turn human arrive">
             <span class="who">{$t("conv.you")}</span>
             <div class="bubble" class:pending={item.pending}>
               <p class="prose">{item.text}</p>
@@ -921,7 +921,7 @@
             </div>
           </div>
         {:else if item.kind === "agent"}
-          <div class="turn agent">
+          <div class="turn agent arrive">
             <span class="who">{session ? agentLabelOf(session) : $t("conv.agent")}</span>
             <div class="bubble">
               {#each item.parts as part, index (index)}
@@ -965,7 +965,7 @@
                of the turn, told with a glyph and a word, never colour alone,
                and with a remedy that stays conditional (turno-vacio-es-error
                design D5). -->
-          <div class="emptyTurn" role="note">
+          <div class="emptyTurn arrive" role="note">
             <span class="glyph" aria-hidden="true">∅</span>
             <div>
               <p class="emptyHead">{$t("conv.emptyTurn")}</p>
@@ -977,7 +977,7 @@
                own item, said in words — the lever, what was asked, why, and
                what the agent announced — never the contract's identifiers
                (modelo-por-opcion-anunciada design D4). -->
-          <div class="emptyTurn" role="note">
+          <div class="emptyTurn arrive" role="note">
             <span class="glyph" aria-hidden="true">⊘</span>
             <div>
               <p class="emptyHead">
@@ -1029,7 +1029,7 @@
           </div>
         {:else}
           {@const style = EVENT_STYLE[item.type] ?? { glyph: "·", tone: "faint" }}
-          <div class="sysLine tone-{style.tone}">
+          <div class="sysLine arrive tone-{style.tone}">
             <span class="glyph" aria-hidden="true">{style.glyph}</span>
             <span class="kind">{item.type}</span>
             <span class="text">{systemText(item.type, item.text)}</span>
@@ -1712,6 +1712,12 @@
       transform: translate(-50%, -50%) rotate(1turn);
     }
   }
+  /* B arrival: a new item of the conversation fades in and nothing moves.
+     The permission card is not one of them: it is where a decision is made,
+     and it arrives still (senales-de-vida D1). */
+  .arrive {
+    animation: arrive var(--dur-1) var(--ease-out);
+  }
   /* Removed, not frozen (design D3). */
   @media (prefers-reduced-motion: reduce) {
     .wind {
@@ -1719,6 +1725,9 @@
     }
     .composer.busy {
       border-color: var(--accent);
+    }
+    .arrive {
+      animation: none;
     }
   }
   .composer textarea {
