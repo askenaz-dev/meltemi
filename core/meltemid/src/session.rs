@@ -38,6 +38,16 @@ pub struct LiveConfig {
     /// Exactly what the agent announced. Empty means it announced nothing, and
     /// no surface may offer a live change (modelo-y-esfuerzo design D2).
     pub options: Vec<SessionConfigOption>,
+    /// Whether the mode option in `options` was synthesised from the
+    /// protocol's older modes field rather than announced as a configuration
+    /// option (apagado-entero-y-modos design D6).
+    ///
+    /// It decides which verb sets it, and nothing else. It cannot be read off
+    /// the option: an agent is free to announce its own option with the same
+    /// id and category, and that one is set through the verb it was announced
+    /// with. So the derivation's answer is remembered here, per session,
+    /// internal, and never travels in the contract.
+    pub mode_is_inherited: bool,
     /// The session's append-only log, so a change lands where the session's
     /// history is read. Without it `agent_resolved` would name one model while
     /// the session finished under another, and nothing would say when it
@@ -294,7 +304,22 @@ struct Direction {
 /// Handle the registry keeps for one live session.
 struct Entry {
     agent_command: Vec<String>,
+    /// The repository root this session runs in.
+    ///
+    /// The registry did not hold it before: `session/list` reads the root from
+    /// the session index on disk and only borrows the live state from here. The
+    /// live-state notification has to carry it, and looking it up on disk on
+    /// every transition would read a file to answer a question the registry
+    /// already had in its hand at registration (estado-en-vivo 2.1).
+    project_root: String,
     state: SessionState,
+    /// When this session entered `state` (RFC 3339, UTC).
+    ///
+    /// Set on entry and only on entry: a mutation that sets the state it
+    /// already had leaves this alone, because a clock that restarted every time
+    /// something re-asserted the same state would show "working for 0 s" on a
+    /// session that has been working for a minute (design D6).
+    state_since: String,
     /// Fired to ask the owning ACP task to cancel and terminate the agent.
     cancel: Arc<Notify>,
     /// When this session started waiting for its next instruction, so the
@@ -325,6 +350,34 @@ struct Entry {
     config: Option<LiveConfig>,
 }
 
+impl Entry {
+    /// Moves the session into `state`, stamping when it got there.
+    ///
+    /// A no-op when it is already in that state, and that is the whole reason
+    /// this is a method instead of two assignments at five call sites: several
+    /// of those sites re-assert `Active` on a session that is already active,
+    /// and a `since` that restarted on each of them would reset every clock a
+    /// surface shows (design D6).
+    fn enter(&mut self, state: SessionState) {
+        if self.state == state {
+            return;
+        }
+        self.state = state;
+        self.state_since = crate::clock::now_rfc3339();
+    }
+
+    /// What this session's standing is, as the contract states it.
+    fn affirmation(&self, session_id: &str) -> meltemi_proto::SessionStateParams {
+        meltemi_proto::SessionStateParams {
+            session_id: session_id.to_string(),
+            project_root: self.project_root.clone(),
+            state: self.state,
+            since: self.state_since.clone(),
+            pending_permissions: self.waiting,
+        }
+    }
+}
+
 /// What [`SessionRegistry::register`] hands back to the ACP task that runs the
 /// session: the cancel signal it awaits and the cancellation flag it checks at
 /// each turn boundary.
@@ -342,13 +395,39 @@ pub struct Registration {
 #[derive(Clone, Default)]
 pub struct SessionRegistry {
     inner: Arc<Mutex<HashMap<String, Entry>>>,
+    /// Where a state change is announced.
+    ///
+    /// The registry announces because the registry is where state changes.
+    /// There are a dozen call sites that move a session, and asking each of
+    /// them to remember to announce afterwards is asking for the one that
+    /// forgets — and a state that moved without being announced is exactly the
+    /// silent lie this change exists to end (estado-en-vivo design D2).
+    ///
+    /// Defaulted for tests, which publish into a hub nobody listens to and are
+    /// right not to care. The daemon wires the shared one at construction.
+    events: crate::events::EventHub,
 }
 
 impl SessionRegistry {
+    /// The registry the daemon runs, announcing on the hub every connection
+    /// listens to.
+    #[must_use]
+    pub fn with_hub(events: crate::events::EventHub) -> Self {
+        Self {
+            inner: Arc::default(),
+            events,
+        }
+    }
+
     /// Registers a new session in the `Starting` state, returning the cancel
     /// signal the ACP task should await and the cancellation flag it checks at
     /// each turn boundary.
-    pub async fn register(&self, session_id: &str, agent_command: Vec<String>) -> Registration {
+    pub async fn register(
+        &self,
+        session_id: &str,
+        agent_command: Vec<String>,
+        project_root: String,
+    ) -> Registration {
         let cancel = Arc::new(Notify::new());
         let cancelled = Arc::new(AtomicBool::new(false));
         let in_flight = Arc::new(AtomicBool::new(false));
@@ -356,7 +435,9 @@ impl SessionRegistry {
             session_id.to_string(),
             Entry {
                 agent_command,
+                project_root,
                 state: SessionState::Starting,
+                state_since: crate::clock::now_rfc3339(),
                 cancel: Arc::clone(&cancel),
                 cancelled: Arc::clone(&cancelled),
                 idle_since: None,
@@ -366,6 +447,7 @@ impl SessionRegistry {
                 config: None,
             },
         );
+        self.announce(session_id).await;
         Registration {
             cancel,
             cancelled,
@@ -416,14 +498,15 @@ impl SessionRegistry {
         session_id: &str,
         acp_session_id: String,
         connection: ConnectionTo<Agent>,
-        options: Vec<SessionConfigOption>,
+        announced: crate::session_config::Announced,
         log: Arc<Mutex<SessionLog>>,
     ) {
         if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
             entry.config = Some(LiveConfig {
                 acp_session_id,
                 connection,
-                options,
+                options: announced.options,
+                mode_is_inherited: announced.mode_is_inherited,
                 log,
             });
         }
@@ -443,43 +526,117 @@ impl SessionRegistry {
             && let Some(config) = entry.config.as_mut()
         {
             config.options = options;
+            // A list that replaces the announcement replaces where the mode
+            // came from too: whatever mode option the new list carries is one
+            // the agent announced as a configuration option, and is set with
+            // the verb it was announced with. A list with none leaves the flag
+            // with nothing to describe (apagado-entero-y-modos design D7).
+            //
+            // The consequence, said rather than hidden: an agent that
+            // announces its modes by the older field AND configuration options
+            // by the newer one loses its mode selector when any other option
+            // is changed, because the replacing list has no mode in it. It is
+            // what "replace whole, never merge" costs, and re-deriving the
+            // synthesised option here would be the merge that rule forbids.
+            config.mode_is_inherited = false;
         }
     }
 
+    /// Moves the session's mode option to `mode_id` and hands back the
+    /// announcement as it now stands.
+    ///
+    /// `None` when this session has no live configuration or no mode option to
+    /// move — an agent may have replaced its announcement with one that has
+    /// none, and a notification about something nobody announces changes
+    /// nothing.
+    pub async fn set_current_mode(
+        &self,
+        session_id: &str,
+        mode_id: &str,
+    ) -> Option<Vec<SessionConfigOption>> {
+        let mut inner = self.inner.lock().await;
+        let config = inner.get_mut(session_id)?.config.as_mut()?;
+        crate::session_config::set_current_mode(&mut config.options, mode_id)
+            .then(|| config.options.clone())
+    }
+
     /// Updates the lifecycle state of a session, if still present.
+    ///
+    /// Re-asserting the state a session already has leaves its instant alone:
+    /// `since` means "entered this state", and several call sites set `Active`
+    /// on a session that is already active (design D6).
     pub async fn set_state(&self, session_id: &str, state: SessionState) {
-        if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
-            entry.state = state;
+        {
+            let mut guard = self.inner.lock().await;
+            let Some(entry) = guard.get_mut(session_id) else {
+                return;
+            };
+            entry.enter(state);
         }
+        self.announce(session_id).await;
     }
 
     /// A permission request of this session began waiting for a human: the
     /// first one blocks the session (`waiting_permission`); further concurrent
     /// ones only deepen the count (sesion-esperando D1).
     pub async fn begin_waiting(&self, session_id: &str) {
-        if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
+        {
+            let mut guard = self.inner.lock().await;
+            let Some(entry) = guard.get_mut(session_id) else {
+                return;
+            };
             entry.waiting += 1;
             if entry.waiting == 1 {
-                entry.state = SessionState::WaitingPermission;
+                entry.enter(SessionState::WaitingPermission);
             }
         }
+        // Announced even when the state did not move: the count is part of the
+        // affirmation, and a second request waiting is news a surface shows.
+        self.announce(session_id).await;
     }
 
     /// A waiting request resolved (any way). The session goes back to `active`
     /// only when none is left waiting; a session already deregistered is left
     /// alone, so a turn that ended mid-wait never resurfaces as active (D2).
     pub async fn end_waiting(&self, session_id: &str) {
-        if let Some(entry) = self.inner.lock().await.get_mut(session_id) {
+        {
+            let mut guard = self.inner.lock().await;
+            let Some(entry) = guard.get_mut(session_id) else {
+                return;
+            };
             entry.waiting = entry.waiting.saturating_sub(1);
             if entry.waiting == 0 {
-                entry.state = SessionState::Active;
+                entry.enter(SessionState::Active);
             }
         }
+        self.announce(session_id).await;
     }
 
-    /// Removes a session from the registry (turn ended).
+    /// Removes a session from the registry (turn ended), affirming that it
+    /// ended on the way out.
+    ///
+    /// The affirmation is not decoration. Not every flow ends with
+    /// `set_state(Ended)`: the single-turn runners finalize by deregistering
+    /// (`session_finalize`), so without this a session that finished — or was
+    /// cancelled while parked — would leave the registry with its last live
+    /// state still standing in every surface, forever. That is the exact defect
+    /// this change exists to close, and the end-to-end test with two clients is
+    /// what found it: the second client was told the session was waiting and
+    /// then never told anything again.
     pub async fn deregister(&self, session_id: &str) {
-        self.inner.lock().await.remove(session_id);
+        let affirmation = {
+            let mut guard = self.inner.lock().await;
+            guard.remove(session_id).map(|mut entry| {
+                // A session leaving the registry is a session that is over. The
+                // turn's own verdict — completed, refused, failed — travels in
+                // the log; the state says only that it is no longer running.
+                entry.enter(SessionState::Ended);
+                entry.affirmation(session_id)
+            })
+        };
+        if let Some(affirmation) = affirmation {
+            self.events.publish_state(affirmation);
+        }
     }
 
     /// Whether a session id is currently registered.
@@ -542,15 +699,19 @@ impl SessionRegistry {
     /// A cap of zero means no session waits at all, which is the behaviour
     /// before this change.
     pub async fn begin_idle(&self, session_id: &str, max: usize) -> Option<String> {
-        let mut guard = self.inner.lock().await;
-        let now = std::time::Instant::now();
-        match guard.get_mut(session_id) {
-            Some(entry) => {
-                entry.idle_since = Some(now);
-                entry.state = SessionState::WaitingInstruction;
-            }
-            None => return None,
+        {
+            let mut guard = self.inner.lock().await;
+            let now = std::time::Instant::now();
+            let entry = guard.get_mut(session_id)?;
+            entry.idle_since = Some(now);
+            entry.enter(SessionState::WaitingInstruction);
         }
+        // Announced before the cap is enforced: this session is waiting now,
+        // whatever the cap goes on to decide about an older one. The eviction
+        // announces itself through the cancellation it causes.
+        self.announce(session_id).await;
+
+        let guard = self.inner.lock().await;
         let mut idle: Vec<(std::time::Instant, String)> = guard
             .iter()
             .filter_map(|(id, entry)| entry.idle_since.map(|since| (since, id.clone())))
@@ -624,6 +785,45 @@ impl SessionRegistry {
         self.inner.lock().await.is_empty()
     }
 
+    /// Announces where one session stands to every connection.
+    ///
+    /// Reads under the lock and publishes after releasing it: the send never
+    /// blocks, but holding a mutex across a fan-out is a habit worth not
+    /// forming. A session that is no longer registered announces nothing —
+    /// there is nothing to affirm about a session that left.
+    async fn announce(&self, session_id: &str) {
+        let affirmation = self.affirmation(session_id).await;
+        if let Some(affirmation) = affirmation {
+            self.events.publish_state(affirmation);
+        }
+    }
+
+    /// How one session stands, as the contract states it.
+    ///
+    /// `None` for a session the registry does not hold: there is nothing to
+    /// affirm about a session that ended and left.
+    pub async fn affirmation(&self, session_id: &str) -> Option<meltemi_proto::SessionStateParams> {
+        self.inner
+            .lock()
+            .await
+            .get(session_id)
+            .map(|entry| entry.affirmation(session_id))
+    }
+
+    /// How every session the registry holds stands right now.
+    ///
+    /// This is the snapshot a connection receives when it initializes, and the
+    /// one it receives again if it ever falls behind the channel (design D3,
+    /// D4).
+    pub async fn affirmations(&self) -> Vec<meltemi_proto::SessionStateParams> {
+        self.inner
+            .lock()
+            .await
+            .iter()
+            .map(|(session_id, entry)| entry.affirmation(session_id))
+            .collect()
+    }
+
     /// Snapshot of active sessions for the `status` method.
     pub async fn summaries(&self) -> Vec<SessionSummary> {
         self.inner
@@ -643,12 +843,249 @@ impl SessionRegistry {
 mod tests {
     use super::*;
 
+    /// The state the registry reports to `session/list`, for the one session.
+    async fn listed(registry: &SessionRegistry, session_id: &str) -> Option<SessionState> {
+        registry
+            .summaries()
+            .await
+            .into_iter()
+            .find(|s| s.session_id == session_id)
+            .map(|s| s.state)
+    }
+
+    // Scenario: La notificación afirma el estado entero y es idempotente
+    #[tokio::test]
+    async fn every_transition_is_announced_and_says_what_the_list_would_say() {
+        // One affirmation per transition, and each one agreeing with the answer
+        // `session/list` would give in that instant. If the two could disagree,
+        // a surface fed by the channel and a surface fed by the list would show
+        // different things about the same session — which is the whole class of
+        // bug this change closes.
+        let hub = crate::events::EventHub::default();
+        let mut feed = hub.subscribe_state();
+        let registry = SessionRegistry::with_hub(hub);
+
+        let mut seen = Vec::new();
+        let take = |feed: &mut tokio::sync::broadcast::Receiver<
+            std::sync::Arc<meltemi_proto::SessionStateParams>,
+        >| { feed.try_recv().expect("a transition was announced") };
+
+        registry
+            .register("s-1", vec!["mock".into()], "/repo".into())
+            .await;
+        let a = take(&mut feed);
+        assert_eq!(a.state, SessionState::Starting);
+        assert_eq!(a.project_root, "/repo");
+        assert_eq!(listed(&registry, "s-1").await, Some(a.state));
+        seen.push(a.state);
+
+        registry.set_state("s-1", SessionState::Active).await;
+        let b = take(&mut feed);
+        assert_eq!(b.state, SessionState::Active);
+        assert_eq!(listed(&registry, "s-1").await, Some(b.state));
+        seen.push(b.state);
+
+        registry.begin_waiting("s-1").await;
+        let c = take(&mut feed);
+        assert_eq!(c.state, SessionState::WaitingPermission);
+        assert_eq!(c.pending_permissions, 1);
+        assert_eq!(listed(&registry, "s-1").await, Some(c.state));
+        seen.push(c.state);
+
+        // A second request waiting does not move the state, and is announced
+        // anyway: the count is part of what the affirmation states.
+        registry.begin_waiting("s-1").await;
+        let d = take(&mut feed);
+        assert_eq!(d.state, SessionState::WaitingPermission);
+        assert_eq!(d.pending_permissions, 2);
+
+        registry.end_waiting("s-1").await;
+        let _ = take(&mut feed);
+        registry.end_waiting("s-1").await;
+        let e = take(&mut feed);
+        assert_eq!(e.state, SessionState::Active);
+        assert_eq!(e.pending_permissions, 0);
+        assert_eq!(listed(&registry, "s-1").await, Some(e.state));
+        seen.push(e.state);
+
+        registry.begin_idle("s-1", 8).await;
+        let f = take(&mut feed);
+        assert_eq!(f.state, SessionState::WaitingInstruction);
+        assert_eq!(listed(&registry, "s-1").await, Some(f.state));
+        seen.push(f.state);
+
+        registry.set_state("s-1", SessionState::Ended).await;
+        let g = take(&mut feed);
+        assert_eq!(g.state, SessionState::Ended);
+        assert_eq!(listed(&registry, "s-1").await, Some(g.state));
+        seen.push(g.state);
+
+        assert_eq!(
+            seen,
+            [
+                SessionState::Starting,
+                SessionState::Active,
+                SessionState::WaitingPermission,
+                SessionState::Active,
+                SessionState::WaitingInstruction,
+                SessionState::Ended,
+            ],
+            "the whole lifecycle was announced, in order"
+        );
+
+        // Nothing else was published: an affirmation per transition, not per
+        // call.
+        assert!(feed.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn leaving_the_registry_is_announced_as_having_ended() {
+        // Not every flow ends with an explicit `Ended`: the single-turn runners
+        // finalize by deregistering. A silent exit would leave every surface
+        // showing the last live state of a session that is over.
+        let hub = crate::events::EventHub::default();
+        let mut feed = hub.subscribe_state();
+        let registry = SessionRegistry::with_hub(hub);
+
+        registry
+            .register("s-1", vec!["mock".into()], "/repo".into())
+            .await;
+        registry.begin_idle("s-1", 8).await;
+        while feed.try_recv().is_ok() {}
+
+        registry.deregister("s-1").await;
+        let last = feed.try_recv().expect("leaving is announced");
+        assert_eq!(last.state, SessionState::Ended);
+        assert_eq!(last.session_id, "s-1");
+        assert_eq!(last.project_root, "/repo");
+
+        // And it really is gone: nothing more to affirm about it.
+        assert!(registry.affirmation("s-1").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_session_that_is_not_registered_announces_nothing() {
+        // Every mutator takes an id that may name nothing — a session that
+        // ended and left. Announcing there would affirm a session that does not
+        // exist.
+        let hub = crate::events::EventHub::default();
+        let mut feed = hub.subscribe_state();
+        let registry = SessionRegistry::with_hub(hub);
+
+        registry.set_state("ghost", SessionState::Active).await;
+        registry.begin_waiting("ghost").await;
+        registry.end_waiting("ghost").await;
+        assert_eq!(registry.begin_idle("ghost", 8).await, None);
+
+        assert!(
+            feed.try_recv().is_err(),
+            "nothing was affirmed about a session the registry does not hold"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_instant_marks_entering_a_state_and_survives_re_asserting_it() {
+        // The whole point of `since`: a surface subtracts it to say how long a
+        // session has been working. Several call sites set `Active` on a session
+        // that is already active, so an instant that moved on every assignment
+        // would show a clock that keeps restarting.
+        //
+        // This test sleeps past a second because the stamp has second
+        // resolution: without crossing that boundary, "unchanged" and "rewritten
+        // to the same value" are indistinguishable, and the test would pass
+        // either way.
+        let registry = SessionRegistry::default();
+        registry
+            .register("s-1", vec!["mock".into()], "/repo".into())
+            .await;
+
+        let first = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(first.state, SessionState::Starting);
+        assert_eq!(first.project_root, "/repo");
+        assert!(!first.since.is_empty(), "registering stamps the instant");
+
+        tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
+
+        registry.set_state("s-1", SessionState::Starting).await;
+        let same = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(
+            same.since, first.since,
+            "re-asserting the state it already had must not move the instant"
+        );
+
+        registry.set_state("s-1", SessionState::Active).await;
+        let moved = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(moved.state, SessionState::Active);
+        assert_ne!(
+            moved.since, first.since,
+            "entering a different state stamps a new instant"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_affirmation_carries_the_waiting_count_and_the_wait_moves_the_state() {
+        let registry = SessionRegistry::default();
+        registry
+            .register("s-1", vec!["mock".into()], "/repo".into())
+            .await;
+        registry.set_state("s-1", SessionState::Active).await;
+
+        registry.begin_waiting("s-1").await;
+        registry.begin_waiting("s-1").await;
+        let waiting = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(waiting.state, SessionState::WaitingPermission);
+        assert_eq!(
+            waiting.pending_permissions, 2,
+            "counted, not toggled: two requests wait"
+        );
+
+        // Resolving one leaves the session waiting, which is the rule the
+        // counter exists for.
+        registry.end_waiting("s-1").await;
+        let still = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(still.state, SessionState::WaitingPermission);
+        assert_eq!(still.pending_permissions, 1);
+
+        registry.end_waiting("s-1").await;
+        let free = registry.affirmation("s-1").await.expect("registered");
+        assert_eq!(free.state, SessionState::Active);
+        assert_eq!(free.pending_permissions, 0);
+    }
+
+    #[tokio::test]
+    async fn affirmations_cover_every_session_and_nothing_that_left() {
+        let registry = SessionRegistry::default();
+        registry
+            .register("s-1", vec!["mock".into()], "/repo-a".into())
+            .await;
+        registry
+            .register("s-2", vec!["mock".into()], "/repo-b".into())
+            .await;
+
+        let mut roots: Vec<String> = registry
+            .affirmations()
+            .await
+            .into_iter()
+            .map(|a| a.project_root)
+            .collect();
+        roots.sort();
+        assert_eq!(roots, ["/repo-a", "/repo-b"]);
+
+        // A session that left has nothing to affirm, and saying so is not an
+        // error: the snapshot is of what the registry holds.
+        registry.deregister("s-1").await;
+        assert!(registry.affirmation("s-1").await.is_none());
+        assert_eq!(registry.affirmations().await.len(), 1);
+    }
+
     // Scenario: El tope de esperas cierra la más antigua
     #[tokio::test]
     async fn the_idle_cap_closes_the_oldest_wait_and_never_refuses_a_new_one() {
         let registry = SessionRegistry::default();
         for id in ["first", "second", "third"] {
-            registry.register(id, vec!["mock".into()]).await;
+            registry
+                .register(id, vec!["mock".into()], "/repo".into())
+                .await;
         }
 
         // Entered in order, so "oldest" is unambiguous. A cap of two.
@@ -700,7 +1137,9 @@ mod tests {
         // would be evicted for having started waiting earliest.
         let registry = SessionRegistry::default();
         for id in ["a", "b"] {
-            registry.register(id, vec!["mock".into()]).await;
+            registry
+                .register(id, vec!["mock".into()], "/repo".into())
+                .await;
         }
         registry.begin_idle("a", 1).await;
         registry.end_idle("a").await;
@@ -716,7 +1155,9 @@ mod tests {
         let registry = SessionRegistry::default();
         assert!(registry.is_empty().await);
 
-        let _reg = registry.register("s1", vec!["mock-agent".into()]).await;
+        let _reg = registry
+            .register("s1", vec!["mock-agent".into()], "/repo".into())
+            .await;
         registry.set_state("s1", SessionState::Active).await;
 
         let summaries = registry.summaries().await;
@@ -735,7 +1176,9 @@ mod tests {
         // Scenario: Resuelta la petición, la sesión vuelve a activa
         // Scenario: Varias esperas simultáneas
         let registry = SessionRegistry::default();
-        let _reg = registry.register("s1", vec!["mock-agent".into()]).await;
+        let _reg = registry
+            .register("s1", vec!["mock-agent".into()], "/repo".into())
+            .await;
         registry.set_state("s1", SessionState::Active).await;
 
         registry.begin_waiting("s1").await;
@@ -772,7 +1215,10 @@ mod tests {
     #[tokio::test]
     async fn cancel_signals_the_waiter() {
         let registry = SessionRegistry::default();
-        let cancel = registry.register("s1", vec!["a".into()]).await.cancel;
+        let cancel = registry
+            .register("s1", vec!["a".into()], "/repo".into())
+            .await
+            .cancel;
 
         let waiter = tokio::spawn(async move {
             cancel.notified().await;
@@ -1028,8 +1474,14 @@ mod tests {
     #[tokio::test]
     async fn cancel_all_notifies_every_session() {
         let registry = SessionRegistry::default();
-        let c1 = registry.register("s1", vec!["a".into()]).await.cancel;
-        let c2 = registry.register("s2", vec!["b".into()]).await.cancel;
+        let c1 = registry
+            .register("s1", vec!["a".into()], "/repo".into())
+            .await
+            .cancel;
+        let c2 = registry
+            .register("s2", vec!["b".into()], "/repo".into())
+            .await
+            .cancel;
 
         let w1 = tokio::spawn(async move { c1.notified().await });
         let w2 = tokio::spawn(async move { c2.notified().await });

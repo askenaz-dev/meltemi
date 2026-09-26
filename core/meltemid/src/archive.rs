@@ -274,7 +274,12 @@ fn regenerate_projection(repo_root: &Path) -> bool {
     if !constitution.is_file() {
         return false;
     }
-    crate::context::project_and_write(repo_root)
+    // The catalog ids the per-agent axis of the harness accepts. Archiving is
+    // the one projection that does not come from a client request, so the
+    // config is loaded here rather than threaded through.
+    let config = crate::config::Config::load(Path::new(""), Some(repo_root));
+    let known = crate::harness::known_agent_ids(&config);
+    crate::context::project_and_write(repo_root, &known)
         .map(|targets| targets.iter().any(|t| t.wrote))
         .unwrap_or(false)
 }

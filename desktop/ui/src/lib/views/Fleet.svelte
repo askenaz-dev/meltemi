@@ -3,8 +3,14 @@
   import { t } from "../i18n";
   import { request } from "../daemon";
   import { binaryName } from "../agents";
-  import { fleet, pushNotice, refreshFleet, type FleetAgent } from "../stores";
-  import { groupFleet } from "../fleet-groups";
+  import {
+    activeProject,
+    fleet,
+    pushNotice,
+    refreshFleet,
+    type FleetAgent,
+  } from "../stores";
+  import { groupFleet, levelState } from "../fleet-groups";
   import Avatar from "../components/Avatar.svelte";
   import Drawer from "../components/Drawer.svelte";
   import EmptyState from "../components/EmptyState.svelte";
@@ -12,6 +18,57 @@
 
   let selectedId: string | null = $state(null);
   let refreshing = $state(false);
+
+  /** One front-matter entry of a harness piece, verbatim. */
+  interface HarnessField {
+    key: string;
+    value: string | string[];
+  }
+  /** Where a piece came from. */
+  interface HarnessOrigin {
+    layer: "user" | "user_agent" | "project" | "project_agent";
+    agent?: string;
+    path: string;
+  }
+  /** One rule of the effective harness, as the daemon resolved it. */
+  interface HarnessRule {
+    name: string;
+    origin: HarnessOrigin;
+    frontMatter: HarnessField[];
+    problems?: string[];
+    shadowed?: HarnessOrigin[];
+  }
+  interface HarnessAnswer {
+    rules: HarnessRule[];
+    unknownAgents?: { id: string; path: string }[];
+  }
+
+  /**
+   * The harness of the selected agent. Read-only: the pieces live in files and
+   * their authoring belongs to whoever writes them, not to this panel.
+   */
+  let harness: HarnessAnswer | null = $state(null);
+  let harnessError: string | null = $state(null);
+
+  $effect(() => {
+    const agent = selectedId;
+    harness = null;
+    harnessError = null;
+    if (!agent) return;
+    const params: Record<string, unknown> = { agent };
+    // Without a project only the user's own scopes are read, which is exactly
+    // what this panel should say when no project is open.
+    const root = $activeProject;
+    if (root) params.projectRoot = root;
+    void request<HarnessAnswer>("harness/effective", params)
+      .then((answer) => {
+        if (selectedId === agent) harness = answer;
+      })
+      .catch((raw) => {
+        const e = raw as { message?: string };
+        if (selectedId === agent) harnessError = e?.message ?? String(raw);
+      });
+  });
 
   const selected = $derived($fleet.find((agent) => agent.id === selectedId) ?? null);
   const detected = $derived($fleet.filter((agent) => agent.detected).length);
@@ -112,17 +169,6 @@
     return `N${level}`;
   }
 
-  /**
-   * The word, not just the glyph: `integration-levels` requires the surface to
-   * show the declared/verified distinction "con etiqueta textual", and a bare
-   * check mark is exactly what that forbids. The glyph stays beside the word so
-   * whoever already read it keeps their shortcut.
-   */
-  function levelState(agent: FleetAgent): string {
-    return agent.verifiedLevel !== undefined
-      ? $t("fleet.level.verified")
-      : $t("fleet.level.declared");
-  }
 </script>
 
 <div class="wrap">
@@ -188,7 +234,7 @@
               </td>
               <td>
                 <span class="pill" class:ok={agent.verifiedLevel !== undefined}>
-                  {levelLabel(agent)} · {levelState(agent)}{agent.verifiedLevel !== undefined
+                  {levelLabel(agent)} · {levelState(agent, $t)}{agent.verifiedLevel !== undefined
                     ? " ✓"
                     : ""}
                 </span>
@@ -233,11 +279,7 @@
         <dt>{$t("fleet.col.level")}</dt>
         <dd>
           {selected.verifiedLevel ?? selected.integrationLevel}
-          <span class="faint">
-            ({selected.verifiedLevel !== undefined
-              ? $t("fleet.level.verified")
-              : $t("fleet.level.declared")})
-          </span>
+          <span class="faint">({levelState(selected, $t)})</span>
         </dd>
         <dt>{$t("fleet.mcp")}</dt>
         <dd>{selected.mcpSupport ? $t("common.yes") : $t("common.no")}</dd>
@@ -366,6 +408,53 @@
         <p class="hint">{$t("fleet.link.manualHint")}</p>
       {/if}
 
+      <!-- The harness this agent runs under, read only, with the layer each
+           piece comes from and what does NOT apply and why. A panel that only
+           listed what governs would leave "why is mine not applying"
+           unanswered (harness-global-y-por-agente design D5/D8). -->
+      <h3 class="harnessTitle">{$t("harness.title")}</h3>
+      {#if harnessError}
+        <p class="hint">{$t("common.error")}: {harnessError}</p>
+      {:else if !harness}
+        <p class="hint">{$t("common.loading")}</p>
+      {:else if harness.rules.length === 0 && (harness.unknownAgents?.length ?? 0) === 0}
+        <p class="hint">{$t("harness.none")}</p>
+      {:else}
+        {#if !$activeProject}
+          <p class="hint">{$t("harness.globalOnly")}</p>
+        {/if}
+        <ul class="harness">
+          {#each harness.rules as rule (rule.name)}
+            <li class:unusable={(rule.problems?.length ?? 0) > 0}>
+              <span class="rname mono">{rule.name}</span>
+              <span class="layer">
+                {$t(("harness.layer." + rule.origin.layer) as never)}{rule.origin
+                  .agent
+                  ? ` · ${rule.origin.agent}`
+                  : ""}
+              </span>
+              {#each rule.problems ?? [] as problem}
+                <span class="problem">{problem}</span>
+              {/each}
+              {#each rule.shadowed ?? [] as covered}
+                <span class="covered">
+                  {$t("harness.covered", {
+                    layer: $t(("harness.layer." + covered.layer) as never),
+                  })}
+                </span>
+              {/each}
+            </li>
+          {/each}
+          {#each harness.unknownAgents ?? [] as unknown (unknown.id)}
+            <li class="unusable">
+              <span class="rname mono">{unknown.id}</span>
+              <span class="problem">{$t("harness.unknownAgent")}</span>
+            </li>
+          {/each}
+        </ul>
+        <p class="hint">{$t("harness.readOnly")}</p>
+      {/if}
+
       <button disabled={refreshing} onclick={() => void refresh()}>
         <Icon name="refresh" size={14} />
         {$t("fleet.refresh")}
@@ -375,6 +464,36 @@
 </div>
 
 <style>
+  .harnessTitle {
+    margin: var(--sp-4) 0 var(--sp-2);
+    font-size: var(--fs-body);
+  }
+  .harness {
+    display: grid;
+    gap: var(--sp-2);
+    margin: 0 0 var(--sp-2);
+    padding: 0;
+    list-style: none;
+  }
+  .harness li {
+    display: grid;
+    gap: 2px;
+  }
+  .harness .rname {
+    font-size: var(--fs-body);
+  }
+  .harness .layer,
+  .harness .covered,
+  .harness .problem {
+    font-size: var(--fs-caption);
+    color: var(--text-faint);
+  }
+  .harness .problem {
+    color: var(--warn);
+  }
+  .harness li.unusable .rname {
+    text-decoration: line-through;
+  }
   .wrap {
     display: flex;
     height: 100%;

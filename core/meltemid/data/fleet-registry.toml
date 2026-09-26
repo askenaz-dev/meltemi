@@ -26,6 +26,15 @@
 #                   (`~/.local/bin/claude`, never `~/.local/bin`): a directory
 #                   here detects nothing, silently. `~/` expands to the user's
 #                   home directory.
+#   levers          the per-session levers the agent takes as LAUNCH FLAGS,
+#                   read from the environment Meltemi composes for it:
+#                   "model", "effort". Declared is the complete set — a lever
+#                   not listed is refused before anything launches. Only an
+#                   adapter Meltemi builds can honestly declare this; an entry
+#                   without it takes whatever the agent announces as session
+#                   configuration options when a session opens
+#                   (modelo-por-opcion-anunciada D2). Nothing is decided by the
+#                   binary's name.
 #   bundled         the entry's PILOT layer travels in Meltemi's own installers,
 #                   so detection probes the directory beside the running daemon
 #                   as well — after PATH and the candidate paths, never before
@@ -116,6 +125,9 @@ bin = "meltemi-claude-acp"
 adapter = "meltemi-claude-acp"
 adapter-args = []
 bundled = true
+# `--model` is the CLI's documented launch flag, passed by the adapter. Effort
+# is not verified against the pinned CLI, so it is not declared.
+levers = ["model"]
 mcp = true
 candidate-paths = []
 cli-bin = "claude"
@@ -139,6 +151,9 @@ bin = "meltemi-codex-acp"
 adapter = "meltemi-codex-acp"
 adapter-args = []
 bundled = true
+# Its schema puts the model on the thread and the effort on the turn; the
+# adapter wires both.
+levers = ["model", "effort"]
 candidate-paths = []
 cli-bin = "codex"
 cli-candidate-paths = []

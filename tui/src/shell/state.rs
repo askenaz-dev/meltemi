@@ -119,6 +119,11 @@ pub enum Effect {
     CreateRuleForPermission,
     /// Re-query the known-project registry (`project/list`).
     RefreshProjects,
+    /// Read the harness that effectively applies (`harness/effective`),
+    /// optionally narrowed to one catalog agent.
+    RefreshHarness {
+        agent: Option<String>,
+    },
     /// Steer the selected session with this instruction (`session/direct`),
     /// carried exactly as it was typed.
     DirectSession {
@@ -496,6 +501,29 @@ impl ShellState {
                         self.view = View::Fleet;
                         self.drill = None;
                         Some(Effect::RefreshFleet)
+                    }
+                    // The harness reads BELOW the catalog, in the Fleet view,
+                    // because "what governs this agent" is a fact about the
+                    // fleet and not a fifth place to navigate to (design D8).
+                    // A bare verb reads every agent's pieces; `harness <id>`
+                    // narrows to one, and catalog ids survive the palette's
+                    // lowercasing because they are lowercase by rule.
+                    "harness" => {
+                        self.view = View::Fleet;
+                        self.drill = None;
+                        Some(Effect::RefreshHarness { agent: None })
+                    }
+                    _ if command.starts_with("harness ") => {
+                        let agent = command.split_once(' ').map(|(_, r)| r.trim()).unwrap_or("");
+                        if agent.is_empty() {
+                            None
+                        } else {
+                            self.view = View::Fleet;
+                            self.drill = None;
+                            Some(Effect::RefreshHarness {
+                                agent: Some(agent.to_string()),
+                            })
+                        }
                     }
                     // `race <change> <task>` opens the board of that task's
                     // competitors. Both arguments survive the palette's
@@ -942,6 +970,89 @@ mod tests {
         assert_eq!(press(&mut s, Key::Enter), Some(Effect::RefreshFleet));
         assert_eq!(s.view(), View::Fleet);
         assert!(s.top_overlay().is_none());
+    }
+
+    // Scenario: Enviar y encolar con las teclas del terminal
+    #[test]
+    fn the_terminal_queues_with_enter_and_relays_with_tab_then_enter() {
+        // The terminal's twin of the desktop's two chords. It is not the same
+        // keys and does not try to be: the living spec forbids depending on
+        // Ctrl combinations the TTY captures, so the gesture is `Tab` to arm
+        // the relay and `Enter` to send (sesiones-en-la-barra design D6).
+        let mut s = ShellState::new();
+        palette(&mut s, "direct");
+        for c in "sigue".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        // Enter alone QUEUES: the turn in flight is left to finish.
+        assert_eq!(
+            press(&mut s, Key::Enter),
+            Some(Effect::DirectSession {
+                instruction: "sigue".into(),
+                interrupt: false
+            }),
+            "Enter queues behind the turn in flight"
+        );
+
+        // Tab arms the relay; the same Enter then interrupts and sends.
+        let mut s = ShellState::new();
+        palette(&mut s, "direct");
+        for c in "no".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert!(
+            press(&mut s, Key::Tab).is_none(),
+            "arming is a statement of intent, not a send"
+        );
+        assert_eq!(
+            press(&mut s, Key::Enter),
+            Some(Effect::DirectSession {
+                instruction: "no".into(),
+                interrupt: true
+            }),
+            "Tab then Enter relays"
+        );
+
+        // And the field says which key does which BEFORE anything is pressed.
+        let hint = crate::shell::messages::text(
+            crate::shell::messages::Msg::DirectHint,
+            crate::shell::messages::Lang::Es,
+        );
+        assert!(
+            hint.contains("Tab") && hint.contains("Enter"),
+            "the footer names both keys: {hint}"
+        );
+    }
+
+    #[test]
+    fn palette_harness_command_reads_in_the_fleet_view() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "harness".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(
+            press(&mut s, Key::Enter),
+            Some(Effect::RefreshHarness { agent: None })
+        );
+        assert_eq!(s.view(), View::Fleet);
+        assert!(s.top_overlay().is_none());
+    }
+
+    #[test]
+    fn palette_harness_command_narrows_to_one_agent() {
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "harness claude".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(
+            press(&mut s, Key::Enter),
+            Some(Effect::RefreshHarness {
+                agent: Some("claude".into())
+            })
+        );
+        assert_eq!(s.view(), View::Fleet);
     }
 
     #[test]

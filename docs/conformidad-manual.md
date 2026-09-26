@@ -144,6 +144,115 @@ el puente.
 verificado junto al declarado. Declarado ≠ verificado es información, no
 vergüenza.
 
+## Apagado entero contra un CLI instalado por npm (Windows, opt-in)
+
+Esta comprobación no es un test: es un procedimiento de cinco minutos que
+alguien corre a mano, en Windows, contra un CLI real. Existe porque lo que la
+suite puede probar y lo que hay que creer no coinciden aquí. Los tests lanzan
+un `.cmd` que ellos mismos escriben; lo que un instalador de npm genera es un
+script que Meltemi no controla y que puede cambiar con la versión del CLI, del
+gestor de paquetes o de Node. Un ensayo contra el shim real es el único que
+responde por el shim real.
+
+**Se corre**: cuando se toca el lanzamiento o el apagado de agentes, y cuando
+se sube la versión de un CLI de nivel 1 que instale por npm.
+
+**Qué hace falta**: Windows, un CLI de nivel 1 instalado con `npm i -g`, y una
+sesión abierta en él.
+
+1. Confirme que la ruta que Meltemi va a lanzar es un shim y no un ejecutable.
+   Un `.cmd` o un `.bat` es un shim; un `.exe` no, y entonces esta comprobación
+   no tiene nada que medir en ese agente.
+
+   ```powershell
+   (Get-Command claude).Source
+   ```
+
+2. Abra una sesión con ese agente, desde cualquier superficie, y deje que
+   empiece a trabajar.
+
+3. Con la sesión en vuelo, mire el árbol. Anote los identificadores: el del
+   shim y el del proceso que cuelga de él.
+
+   ```powershell
+   Get-CimInstance Win32_Process | Where-Object { $_.Name -in 'cmd.exe','node.exe' } | Select-Object ProcessId, ParentProcessId, CommandLine | Format-List
+   ```
+
+4. Cancele la sesión.
+
+5. Repita el paso 3. **Ninguno de los identificadores anotados debe seguir
+   ahí.** Que desaparezca el shim y sobreviva el proceso de debajo es
+   exactamente el defecto que el ámbito de proceso previene, y verlo aquí
+   significa que el ámbito no se aplicó a esa ruta de lanzamiento.
+
+6. La otra mitad, la que un apagado ordenado no ejercita: repita del 2 al 3, y
+   en lugar de cancelar, **mate el daemon sin darle ocasión de limpiar**.
+
+   ```powershell
+   Stop-Process -Name meltemid -Force
+   ```
+
+   Vuelva al paso 3. Tampoco debe quedar nada: el sistema cierra los handles
+   del proceso muerto, y el ámbito se lleva consigo lo que tenía dentro. Si
+   sobrevive algo, el ámbito no se abrió o el agente no llegó a entrar en él.
+
+**Qué se registra**: el resultado va abajo, en la corrida del día, con el CLI,
+su versión, la fecha y qué se observó — nunca «verificado» a secas. Un
+resultado negativo es un hallazgo, no un fallo del procedimiento.
+
+## Qué campo pobló cada agente para sus modos
+
+El protocolo deja anunciar los modos de sesión de dos maneras: por el campo de
+modos, que llegó primero, y como una opción de configuración de categoría modo,
+que llegó después. Meltemi lee las dos y da precedencia a la segunda, pero
+**cuál usa cada CLI real es una medición, no una suposición** — y de eso
+depende que la síntesis del campo viejo siga haciendo falta o sea código muerto
+esperando a que alguien lo note.
+
+Para cada agente de nivel 1 instalado: abra una sesión ACP y anote cuál de los
+dos campos vino poblado en la respuesta de apertura — modos, opciones de
+configuración, las dos, o ninguno — con la versión del CLI y la fecha. El log
+de la sesión lo dice sin herramientas extra: el evento `config_options_announced`
+lleva lo anunciado ya traducido, y una opción de id `mode` y categoría `mode`
+que el agente no anunció como tal es la señal de que vino del campo viejo.
+
+El resultado se anota abajo, en la corrida del día.
+
+## Pierna de proveedor local — OpenCode contra un modelo de la propia máquina
+
+**Estado: pendiente.** Verificada en forma el 2026-09-25 con OpenCode 1.18.32:
+con la receta 1 de [`docs/local-models.md`](local-models.md), `opencode models
+ollama` lista `ollama/qwen2.5-coder:7b`, y a través de Meltemi, con su perfil,
+OpenCode anuncia ese modelo como vigente, `--model ollama/qwen2.5-coder:7b` se
+fija y se confirma antes del primer prompt y un modelo no anunciado se rehúsa
+sin prompt. Sin servidor de modelos el turno falla a los ~70 s con el «Cannot
+connect to API» de OpenCode. Nunca corrida en vivo: la máquina que la escribió
+no tiene servidor de modelos. Quien la corra reemplaza este párrafo por su
+resultado; hasta entonces la pierna no está aprobada.
+
+Es una pierna de **nivel 1**, a mano y por opt-in como todo lo de esta página:
+el arnés automatizado (`conformance_real`) cubre los dos adaptadores propios, y
+automatizar un agente nativo es de `corrida-integrada`. No gasta la cuenta de
+nadie: el modelo corre en la máquina.
+
+**Requisitos**: el servidor de modelos instalado y sirviendo, con el modelo
+bajado (`winget install Ollama.Ollama`; `ollama pull qwen2.5-coder:7b`);
+OpenCode 1.18.32 o posterior; y la receta 1 como el perfil `opencode-ollama` de
+un repositorio fixture — nunca este.
+
+| Criterio | Cómo se ejerce | Pasa si |
+| --- | --- | --- |
+| sesión | `meltemi session "resume el README" --agent opencode-ollama` en el fixture | la sesión abre, el log trae `agent_resolved` y `config_options_announced`, y cierra con `session_ended` |
+| streaming | el mismo turno | llegan fragmentos del agente (`agent_update` con `agent_message_chunk`) antes del cierre, y el turno no se declara vacío |
+| permisos | `meltemi session "crea NOTAS.md con una línea" --agent opencode-ollama`, en un terminal | el aprobador pregunta con las opciones del agente y la decisión queda en el log (`permission_decided`) |
+| cancelación | otra sesión que pida escribir; **Ctrl+C** en la pregunta del aprobador | la sesión se cancela antes que nada, el turno cierra `cancelled` y el comando sale con `13` |
+
+**Qué se registra**, en lugar del estado de arriba: la fecha, `opencode
+--version`, la versión del servidor de modelos, el modelo, el sistema, el
+resultado por criterio y los tiempos medidos —hasta el primer fragmento y el
+turno completo—. Un criterio que no se pudo ejercer no se escribe, y no se
+escribe como aprobado.
+
 ## Cómo se registra en el método
 
 Los escenarios que **solo** un CLI real ejerce se marcan con nota, fuente y
@@ -162,7 +271,159 @@ cargo run -q -p meltemi --example rpc -- sdd/verify-mark '{
 La nota es el registro. Debe decir contra qué binario, en qué versión, en qué
 fecha y qué se observó — nunca «verificado» a secas, y nunca de memoria.
 
-## Última corrida — 2026-07-31
+## Formas de anuncio de modo — corrida del 2026-09-18
+
+Windows 11 (26200), x86_64. Corrida de apertura de sesión únicamente: se envía
+`initialize` y `session/new`, se lee la respuesta y se cierra la entrada.
+**No se envía prompt**, así que no gasta turno de proveedor.
+
+**Inventario del equipo**: de las seis entradas de nivel 1 del catálogo, solo
+una está instalada — `opencode`. `gemini`, `copilot`, `agent` (Cursor),
+`kiro-cli` y `kilo` no se encuentran en este equipo, así que no se midieron y
+esta página no dice nada sobre ellas. `claude 2.1.261` y `codex-cli 0.77.0`
+están instalados pero son de **nivel 2**: no responden ACP por sí mismos, sino
+a través de nuestros adaptadores, y quedan fuera del alcance de esta
+comprobación (design D8 acota a nivel 1).
+
+### `opencode 1.14.33`: **las dos formas, pobladas**
+
+| Campo | Poblado | Contenido |
+| --- | --- | --- |
+| `modes` | **sí** | `build` (actual) y `plan`, con descripción |
+| `configOptions` | **sí** | `model` (categoría `model`, 317 valores) y `mode` (categoría `mode`, 2 valores, actual `build`) |
+
+Tres cosas que esta medición decide, y que no se podían decidir suponiendo:
+
+1. **La precedencia de D6 no es teórica: es el caso real.** El único agente de
+   nivel 1 instalado puebla las dos formas a la vez, con los mismos dos modos
+   en ambas. Fusionarlas habría producido dos selectores de modo, o uno con
+   valores duplicados. La regla «gana la opción de configuración, entera» deja
+   exactamente un selector, que es lo que el agente ofrece.
+2. **La síntesis del campo viejo no se ejercita contra este agente**, y sigue
+   haciendo falta igual: es la rama para el agente que puebla `modes` y **no**
+   `configOptions`, que es el agente nacido antes de que las opciones de
+   configuración existieran. Ninguno de los instalados aquí lo es. Queda
+   cubierta por los tests unitarios y por el agente simulado bajo `--modes`,
+   y esta página dice explícitamente que ningún binario real la ha ejercido
+   todavía.
+3. **`modelo-y-esfuerzo-por-sesion` D9 quedó desactualizada.** Concluyó que
+   «ningún proveedor pineado anuncia opciones de sesión»; `opencode 1.14.33`
+   anuncia dos, una de ellas con 317 modelos. No es un error de aquella
+   conclusión sino su fecha: lo que no anunciaba entonces, anuncia ahora.
+
+## Última corrida — 2026-09-26 (UTC)
+
+Windows 11 Pro (26200), x86_64, desde el taller de `corrida-integrada`. Dos
+fuentes, y se dice cuál es cuál: el arnés `conformance_real` para el dialecto de
+Claude Code, y la [corrida integrada](qa/2026-09-26-corrida-integrada.md) —la
+matriz de siete verbos de `scripts/smoke-agents.ps1`— para OpenCode, que es
+nativo y el arnés no cubre.
+
+### Dialecto de sesión headless — `claude 2.1.280`: **nivel verificado 2**
+
+`MELTEMI_CONFORMANCE_AGENT=claude-code`, a las 00:46Z. Las cuatro comprobaciones
+se ejercieron contra el binario real y las cuatro aprobaron: `streaming`,
+`session`, `permissions` y `cancellation`. El paro se respondió en **10,07 s**
+como `cancelled`, sin nada corriendo después: la ruta de abandono, la misma que
+la corrida del 2026-07-31 midió en 10,1 s. Reemplaza, para esta versión, el
+nivel verificado contra `2.1.167`.
+
+Lo que la conformidad no ve y la corrida integrada sí: las peticiones de este
+adaptador llegan sin `rawInput` ni `locations`, de modo que una regla de
+permisos acotada por ruta no puede concederlas (hallazgo 2 del informe;
+`adaptadores-con-rawinput`). El criterio `permissions` mide que la petición
+llegue y se decida, no que una regla la reconozca.
+
+### Nativo — `opencode 1.18.32`: observado, sin nivel verificado
+
+Desde la corrida integrada, no desde el arnés, y por eso no se persiste como
+resultado de conformidad:
+
+| Criterio | Lo observado |
+| --- | --- |
+| sesión | abre, anuncia sus opciones y cierra con `session_ended`; se reanuda con `direct` |
+| streaming | fragmentos del agente antes del cierre en todas las sesiones, y uso reportado por el protocolo (contexto y costo 0 USD) |
+| permisos | **no pide ninguno**: edita sin preguntar, con y sin regla (hallazgo 1 del informe). El proxy no lo gobierna en su configuración por omisión |
+| cancelación | `cancel` sobre una sesión viva la terminó en 9,3 s |
+
+Con un criterio que falla, el nivel 1 no queda verificado, y la página lo dice
+en vez de callar la fila.
+
+### No medidos
+
+Los nivel 1 del catálogo que no están instalados en esta máquina: Gemini CLI,
+GitHub Copilot CLI, Cursor CLI, Kiro CLI y Kilo Code. Tampoco Aider (nivel 3,
+que el daemon no lanza hoy) ni Antigravity (nivel 4). Ninguno se da por
+aprobado ni por fallido: no se midieron.
+
+## Corrida del 2026-09-25 (UTC)
+
+Windows 11 (26200), x86_64. Solo el dialecto de servidor
+(`MELTEMI_CONFORMANCE_AGENT=codex-cli`): es la corrida que exige el re-anclaje
+de `codex-al-dia` al volcado de 0.156.1 (escenario «El re-anclaje exige la
+corrida real»). CLI con sesión iniciada en una cuenta ChatGPT, y la
+configuración del mantenedor, que arranca tres servidores MCP propios.
+
+### Dialecto de servidor JSON-RPC — `codex-cli 0.156.1`: **nivel verificado 2**
+
+Las cuatro comprobaciones del nivel se ejercieron contra el binario real, y las
+cuatro aprobaron.
+
+| Comprobación | Resultado | Lo observado |
+| --- | --- | --- |
+| `session` | aprueba | El handshake leyó 0.156.1 del primer token del user agent, `meltemi-codex-acp/0.156.1 (Windows 10.0.26200; x86_64) xterm-256color (meltemi-codex-acp; 0.1.1)`. La procedencia registra `providerVersion` y `providerVerifiedVersion` iguales, así que no hubo fila de distancia. |
+| `streaming` | aprueba | El turno completo corrió hasta su fin y el mensaje del agente llegó en fragmentos. |
+| `permissions` | aprueba | Seis aprobaciones llegaron al proxy: cinco comandos y una escritura. El decisor de la corrida concedió cada una «una vez», como lo haría un humano en la bandeja. |
+| `cancellation` | aprueba | El paro se respondió en 56 ms como `cancelled`, y no quedó sesión activa. |
+
+- **Compuerta efectiva observada**, tal como la registró la procedencia de las
+  dos sesiones: `approvalPolicy` `untrusted`, `approvalsReviewer` `user` y
+  `sandbox` `{"type":"readOnly","networkAccess":false}`. Es exactamente la
+  compuerta pedida.
+- **La escritura aprobada.** La propuesta se escribió bajo el sandbox de solo
+  lectura, en `.meltemi/changes/<change>/proposal.md` del proyecto de prueba,
+  tras una aprobación de cambio de archivo que el proxy concedió. Confirma, en
+  una sesión pilotada por Meltemi, lo que el riesgo R5 midió el 2026-09-24 con
+  un cliente mínimo.
+- **Todos los comandos pidieron permiso, lecturas incluidas.** En Windows el CLI
+  envuelve cada comando en `pwsh.exe -Command …`, y ninguno cayó en la lista de
+  lecturas de confianza de la política `untrusted`. La fila «Codex runs some
+  things without asking the permission proxy» sigue siendo cierta como cota
+  superior; en esta plataforma y en esta corrida, ningún comando corrió sin
+  decisión del proxy.
+- Un comando leyó fuera del proyecto, en el directorio de skills del usuario
+  (`~/.agents/skills/`). Lo hizo con aprobación: el sandbox de solo lectura no
+  impide leer, y el proxy lo vio y decidió.
+- **Consecuencia de la configuración MCP.** Las dos sesiones declararon, antes
+  del prompt, la fila de lo que la compuerta no cubre y una fila por cada
+  servidor MCP que la configuración del mantenedor arranca: `codex_apps`,
+  `cua_repl` y `node_repl`. Ninguna llamada a esos servidores apareció en el
+  turno. De haber ocurrido sin aprobación, habría corrido fuera del proxy, que
+  es justo lo que esas filas declaran.
+- **Tiempos**, con el reloj del log de sesión (resolución de un segundo):
+
+  | Tramo | Duración |
+  | --- | ---: |
+  | Apertura: lanzamiento, handshake, hilo y compuerta | 3 s |
+  | Turno completo, del prompt al cierre | 54 s |
+  | Pierna del paro, del prompt a `cancelled` | 7 s |
+  | Del paro a su respuesta | 56 ms |
+
+- **El nivel se otorga con esta corrida.** `fleet/list` reporta `codex-cli`
+  con nivel verificado 2 y `verifiedVersion` `0.156.1`.
+
+### La corrida fallida de `codex-cli 0.77.0`, que esta reemplaza
+
+La corrida del 2026-07-31, abajo, queda como la evidencia de por qué se
+re-ancló. Con 0.77.0 el proveedor rechazaba cada turno con sus propias
+palabras: *«The 'gpt-5.6-sol' model requires a newer version of Codex. Please
+upgrade to the latest app or CLI and try again.»* `streaming` falló citando
+ese motivo, y el nivel quedó en 0 (escenario «Una comprobación fallida se
+registra con las palabras del proveedor»). Desde `codex-al-dia` el piso del
+adaptador es 0.156.1: un CLI 0.77.0 ya no llega al turno, porque el handshake
+lo rehúsa con el remedio de actualizarlo.
+
+## Corrida del 2026-07-31
 
 Windows 11 (26200), x86_64. Ambos CLIs presentes y con sesión iniciada. Primera
 corrida con las dos piernas.

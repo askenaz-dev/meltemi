@@ -87,6 +87,13 @@ Three persistent zones (gui-clase-mundial; reference mockup
 A detail **drawer** (268 px, `--panel`) opens from a selected row without
 losing the list; Esc closes the drawer before acting on the view.
 
+Inside each project node of the sidebar, sessions are grouped into four buckets
+in signal order — waiting on your decision, ready for your instruction, working,
+stopped — each with glyph, word and count, and an empty one is not drawn
+(`sesiones-en-la-barra`, 2026-09-15). The bar also lists the open session tabs
+in a section of its own: the same set, the same order and the same close as the
+strip, which remains the way to every tab when the bar is folded to its rail.
+
 ## Elevation and density
 
 Density is the feature — this is a control plane, not a landing page.
@@ -129,14 +136,18 @@ visible or accessible label.
 
 Shared with the TUI so both surfaces speak one language. Each status renders
 glyph + label (localized); the glyph has an ASCII twin (TUI rule) and the
-desktop uses the same shapes in its iconography.
+desktop uses the same shapes in its iconography. The last two rows were added by
+`sesiones-en-la-barra` (2026-09-15), when the bar started heading a bucket for
+each of them.
 
 | Status | Glyph | ASCII twin | Color token |
 |---|---|---|---|
 | starting / connecting | `◌` | `~` | `--info` |
 | active / streaming | `▸` | `>` | `--ok` |
 | waiting_permission | `●` + count + word | `!` | `--warn` |
+| waiting_instruction | `❯` | `>` | `--text-muted` |
 | ended / done | `■` | `x` | `--text-muted` |
+| interrupted (stopped) | `■` | `x` | `--text-muted` |
 | error / unreachable | `▲` | `!` | `--danger` |
 
 ## Signal priority
@@ -181,6 +192,10 @@ A lower-priority signal never occludes a higher one.
   affordances (hover menus without keyboard path) are forbidden.
 - High contrast: honor `prefers-contrast` / forced-colors mode — in
   forced-colors, rely on system colors and the symbol+word rule.
+- In a composer, `Ctrl/Cmd+Enter` dispatches now and `Ctrl/Cmd+Shift+Enter`
+  queues behind the turn in flight; each control carries its chord in a `kbd`
+  beside its label, and with a turn in flight no control is named "Send"
+  (`sesiones-en-la-barra`, 2026-09-15).
 
 ## Motion
 

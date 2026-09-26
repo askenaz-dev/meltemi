@@ -34,7 +34,7 @@ capacidad aterriza en un solo sitio.
 Habla estándares abiertos: el Agent Client Protocol para pilotar agentes, MCP
 para herramientas, LSP para inteligencia de código y JSON-RPC sobre un **socket
 local únicamente** (sin puerto de red, jamás). Trae tu agente, tu clave y tu
-modelo.
+modelo ([modelos locales y autohospedados](docs/local-models.md)).
 
 El flujo es spec-first: se propone un cambio, se revisan sus escenarios y solo
 entonces se implementa —tarea a tarea, en worktrees de git aislados, con
@@ -182,7 +182,8 @@ en cada release. Ver [`docs/plan-de-cambios.md`](docs/plan-de-cambios.md).
 
 - [Quickstart](docs/quickstart.md), [Arquitectura](docs/arquitectura.md),
   [Método SDD](docs/metodo-sdd.md), [Referencia CLI](docs/referencia-cli.md),
-  [Agentes](docs/agentes.md), [Paridad de núcleo](docs/paridad-nucleo.md),
+  [Agentes](docs/agentes.md), [Harness](docs/harness.md),
+  [Paridad de núcleo](docs/paridad-nucleo.md),
   [Accesibilidad](docs/accesibilidad.md), [Plataformas](docs/plataformas.md),
   [Releases](docs/release.md).
 - [Contribuir](CONTRIBUTING.md) · [Gobernanza](GOVERNANCE.md) · [Seguridad](SECURITY.md)

@@ -105,6 +105,9 @@ the surfaces show which of the two you are looking at.
 
 - Level 1 (native ACP), launched as `opencode acp`.
 - Meltemi looks for: `opencode`
+- Your own model — on your machine, behind one endpoint for many providers, or
+  through an aggregator — goes through OpenCode's own configuration: the
+  verified recipes and their profiles are in [the local-models guide](local-models.md).
 
 ### claude-code — Claude Code
 
@@ -119,6 +122,9 @@ the surfaces show which of the two you are looking at.
   SDK. It stays grey because the provider has published no position on
   third-party orchestration of that CLI; if one appears, the note will cite it.
   Meltemi shows this note in the Fleet view instead of hiding it.
+- Per-session levers by launch flag: `model`. The adapter has no verified place
+  for an effort, so asking for one is refused before the session opens (see
+  [model and effort per session](#model-and-effort-per-session)).
 
 ### codex-cli — Codex CLI
 
@@ -131,6 +137,30 @@ the surfaces show which of the two you are looking at.
 - Legal status: tolerated — the adapter drives the CLI's own documented
   app-server mode, published by the provider for third-party clients, and the
   CLI authenticates itself.
+- Minimum CLI version: **0.156.1**, the version the adapter was verified
+  against. An older CLI is refused with the remedy to update it to 0.156.1 or
+  newer (`npm i -g @openai/codex`). A newer one below 1.0.0 opens, and the
+  session says before its first turn that it runs on a version newer than the
+  verified one; the Fleet shows the version the verified level was measured
+  against. From 1.0.0 on, the session is refused until Meltemi is updated.
+- The gate Meltemi asks for: on every thread, approval policy `untrusted`, a
+  `read-only` sandbox without network, and every approval sent to Meltemi's
+  permission proxy. If Codex answers with anything else — because its own
+  `config.toml`, a profile or a managed requirements file overrides it — the
+  session is refused and the remedy names those settings. A Codex whose remote
+  control is on is refused too: another client could answer its approvals.
+- What that gate does not cover, and the session says so as it opens: commands
+  Codex trusts as read-only, which run inside its read-only sandbox; the
+  provider's own web search; and calls to MCP servers from Codex's own
+  configuration that Codex does not submit for approval. Each of those servers
+  is named in the session when Codex starts it.
+- The name Meltemi uses: the adapter introduces itself to the CLI as
+  `meltemi-codex-acp`, and the CLI reports that name to the provider's backend
+  as the `originator` of its requests. Meltemi never presents itself as one of
+  the provider's own clients. The CLI labels the threads it opens with a
+  `source` of its own choosing; Meltemi does not set it.
+- Per-session levers by launch flag: `model`, `effort` (see
+  [model and effort per session](#model-and-effort-per-session)).
 
 ### aider — Aider
 
@@ -142,6 +172,76 @@ the surfaces show which of the two you are looking at.
 - Level 4 (artifacts only): Meltemi projects your context into `AGENTS.md` and
   the agent reads it. Nothing is piloted.
 - Meltemi looks for: `agy`
+
+## Measured against the real CLIs
+
+What this guide says about an agent is what its registry entry declares. What
+an agent **did**, against its real CLI, is measured by the integrated run
+(`scripts/smoke-agents.ps1`, or `scripts/smoke-agents.sh` on macOS and Linux):
+the same seven verbs for every ready agent, isolated from your daemon, and a
+dated report in `docs/qa/`. The last one:
+
+| Agent | Version | Run | Result |
+| --- | --- | --- | --- |
+| `claude-code` | 2.1.280 | 2026-09-26 | all seven verbs complete; verified level 2 by the conformance run; a path-scoped permission rule cannot match its requests (they carry no path) |
+| `opencode` | 1.18.32 | 2026-09-26 | all seven verbs complete; **it edits without asking for permission**, so the proxy does not govern it in its default configuration |
+| `codex-cli` | 0.156.1 | 2026-09-26 | six of seven: it cannot be resumed with `direct`; a path-scoped rule cannot match its requests either |
+
+The report: [`qa/2026-09-26-corrida-integrada.md`](qa/2026-09-26-corrida-integrada.md).
+Agents of the catalog that are not installed on the machine that ran it are
+listed there as not measured, never as passing.
+
+**The rule**: the run is repeated whenever the version of a pinned CLI or of
+one of Meltemi's own adapters changes, and its date is part of what this table
+says. A result older than the version you have is not a result about your
+version.
+
+## Model and effort per session
+
+A session can ask for a model and an effort: `--model` and `--effort` on
+`meltemi session`, the model and effort chips in the desktop composer, or the
+`model` and `effort` of a launch profile. Meltemi keeps no catalog of models
+(constitution §5): the words are the provider's, and each one reaches the agent
+by the way that agent actually has.
+
+1. **A launch flag its entry declares.** The registry's `levers` field lists what
+   an entry's adapter reads from the environment Meltemi composes for it:
+   `meltemi-codex-acp` takes `model` and `effort`, `meltemi-claude-acp` takes
+   `model`. The value travels untouched and is not validated here — the agent
+   accepts or rejects it. A lever the entry does not declare is refused before
+   anything is created (error 2006), naming the agent and the lever.
+2. **The option the agent announces.** An entry that declares no levers — every
+   native ACP agent, and any literal `agent.command`, whatever its binary is
+   called — takes them through the options the agent announces when the session
+   opens: the one option of category `model` for the model, the one of category
+   `thought_level` for the effort. Meltemi sets the model first, then the effort
+   against what the model left on offer, all **before the first prompt**, and
+   sends the prompt only if the agent's last answer holds exactly what was asked
+   and its mode did not move.
+3. **Otherwise it is refused, and no prompt is sent.** No option of the
+   category, or more than one; a value the agent did not announce (a toggle takes
+   only `true` or `false`, the agent's own words); an answer that keeps another
+   value or moves the mode; no answer within `[sessions] lever-wait` seconds (30
+   by default). The session ends as `lever_refused`, the verb answers error 2007
+   with the lever, what was asked, the reason and what the agent announced or
+   left — twenty values at most, and how many more — and every surface says it
+   in words. A prompt carries your repository, so it goes only to the model you
+   chose.
+
+Cancelling while a lever is being set ends the session without a prompt. The
+history lists what governed, and a refused lever is never listed as the model a
+session ran with. `propose`, `explore`, `plan`, `constitution`, `dispatch` and
+`implement` apply a profile's levers the same way, before they create anything.
+
+The category is the key, deliberately: ACP presents it as interface data, but
+nothing else tells "the model" apart without guessing by id or by value. An
+agent that announces its selector without a category, or under two, is refused
+with the options it did announce; set the one you mean by its id in a live
+session with `meltemi set-option <session> <option-id> <value>`.
+
+How long the agent may take to answer each lever is `lever-wait`, in seconds,
+under `[sessions]` in the project's `.meltemi/config.toml` or your user config;
+one second is the least it accepts.
 
 ## Where detection looks
 
@@ -171,6 +271,47 @@ as `.ps1`, which **cannot** be launched directly by the OS: Meltemi reports a
 
 If your agent shows `not_launchable`, reinstall it so its executable shim is
 present (a global npm install normally drops both).
+
+#### What a shim means for ending an agent
+
+A `.cmd` shim is not the agent. Windows runs it with `cmd.exe`, and the script
+then starts the process that actually speaks the protocol — usually `node`. So
+the thing Meltemi launches and the thing doing the work are two different
+processes, one under the other:
+
+```text
+meltemid ──launch──> cmd.exe (agent.cmd) ──launch──> node (the agent) ──ACP──> meltemid
+```
+
+Ending a process on Windows ends that process and nothing below it. Ending the
+shim alone therefore used to leave the agent running: holding its worktree,
+holding its files, and invisible to anything that thought the session was over.
+Measured on Windows 11 with a shim whose body was `node -e
+"setTimeout(()=>{},60000)"` — after the shim was terminated, the `node` was
+still alive.
+
+This no longer happens, and not because Meltemi hunts for children. Every agent
+is launched inside a **process scope** (a Job Object), which owns the whole tree
+underneath it. Two consequences, and the second is the one that matters:
+
+- Ending the agent ends the shim and everything it started, at any depth.
+  Meltemi does not need to know what the shim runs, which is good, because the
+  shim's contents belong to whoever generated it.
+- **If the daemon dies without running any shutdown** — a crash, a kill from
+  Task Manager, signing out — the system closes its handles, and the agents go
+  with them. A destructor cannot promise that. The kernel can.
+
+Nothing here reads, signals or inspects another vendor's process: the scope is
+opened before the launch and the agent is placed in it, which is the whole
+mechanism.
+
+If a scope cannot be opened, Meltemi **refuses the launch** and says so, rather
+than starting an agent it would not be able to fully end. That is deliberate: a
+loud failure at the start is worth more than a quiet orphan an hour later.
+
+On macOS and Linux there is no equivalent step, and none is needed: the shims
+there are scripts with a shebang, so the process Meltemi launches *is* the
+interpreter doing the work, and ending it ends the work.
 
 ### macOS and Linux
 

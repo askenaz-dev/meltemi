@@ -81,6 +81,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "Permission requests denied during the resumed turn (0 when merely queued); greater than zero means the result may be incomplete."
+        },
+        "emptyTurn": {
+          "type": "boolean",
+          "const": true,
+          "description": "Present, and true, only when the turn whose status this reports ended having said and done nothing. The status stays what the agent reported."
         }
       }
     }

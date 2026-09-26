@@ -19,7 +19,7 @@
     type SessionState,
   } from "../stores";
   import { agentLabelOf } from "../tree";
-  import { fold } from "../conversation";
+  import { fold, type LeverRefused } from "../conversation";
   import Avatar from "../components/Avatar.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Icon from "../components/Icon.svelte";
@@ -87,11 +87,15 @@
     mcp_injected: { glyph: "·", tone: "faint" },
     mcp_not_delivered: { glyph: "▲", tone: "warn" },
     config_options_announced: { glyph: "◎", tone: "faint" },
+    levers_applied: { glyph: "◎", tone: "info" },
+    lever_refused: { glyph: "⊘", tone: "warn" },
     turn_completed: { glyph: "■", tone: "ok" },
     turn_interrupted: { glyph: "⤳", tone: "accent" },
+    turn_empty: { glyph: "∅", tone: "warn" },
     checkpoint_created: { glyph: "·", tone: "info" },
     checkpoint_restored: { glyph: "·", tone: "info" },
     agent_resolved: { glyph: "·", tone: "faint" },
+    agent_process: { glyph: "·", tone: "faint" },
     task_started: { glyph: "▸", tone: "accent" },
     task_committed: { glyph: "■", tone: "ok" },
     instruction_queued: { glyph: "▸", tone: "info" },
@@ -153,6 +157,21 @@
    * verbatim: an untranslated fact beats a swallowed one.
    */
   function systemText(type: string, text: string): string {
+    // What the agent confirmed on its announcement, in the surface's words
+    // (modelo-por-opcion-anunciada design D6). The line's text is its payload
+    // flattened, which for this event is the payload itself.
+    if (type === "levers_applied" && text) {
+      try {
+        const set = JSON.parse(text) as { model?: string; effort?: string };
+        const said = [
+          set.model ? `${$t("model.label")}: ${set.model}` : null,
+          set.effort ? `${$t("effort.label")}: ${set.effort}` : null,
+        ].filter((part) => part !== null);
+        return said.length > 0 ? said.join(" · ") : text;
+      } catch {
+        return text;
+      }
+    }
     if (type !== "session_ended" || !text) return text;
     const key = `end.${text}` as MessageKey;
     const translated = $t(key);
@@ -177,6 +196,40 @@
     }
     return [];
   });
+
+  /**
+   * What governed this session: what the agent confirmed on its announcement
+   * before the first prompt — read off the log, because the session's record
+   * learns it only when the session closes — else what the record says went by
+   * flag (modelo-por-opcion-anunciada design D6).
+   */
+  const governed: { model: string | null; effort: string | null } = $derived.by(() => {
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      if (lines[index].kind !== "levers_applied") continue;
+      const payload = lines[index].payload as { model?: string; effort?: string } | undefined;
+      return {
+        model: payload?.model ?? session?.model ?? null,
+        effort: payload?.effort ?? session?.effort ?? null,
+      };
+    }
+    return { model: session?.model ?? null, effort: session?.effort ?? null };
+  });
+
+  /**
+   * A refused lever's reason in words. What the agent left, when it left
+   * something, is the more useful half of the sentence.
+   */
+  function leverReason(item: LeverRefused): string {
+    if (item.reason === "not_confirmed" && item.left) {
+      return $t("conv.lever.kept", { left: item.left });
+    }
+    if (item.reason === "mode_changed" && item.left) {
+      return $t("conv.lever.movedMode", { left: item.left });
+    }
+    const key = `conv.lever.reason.${item.reason}` as MessageKey;
+    const said = $t(key);
+    return said === key ? item.reason : said;
+  }
 
   /** Whether any announced option is about the model, which is what the cache
    *  and cost warning is actually about. */
@@ -554,6 +607,15 @@
     field.focus();
   });
 
+  /**
+   * Whether `Ctrl+Enter` would relay rather than simply send: a turn is in
+   * flight and there is something to relay with. The same condition the pair of
+   * buttons is drawn under, so the keys and the labels cannot disagree.
+   */
+  const relays = $derived(
+    Boolean(canSend && session && WORKING.includes(session.state) && draft.trim() !== ""),
+  );
+
   async function direct(interrupt = false) {
     const instruction = draft.trim();
     if (!instruction || sending || !canSend || !session) return;
@@ -656,18 +718,41 @@
     }
   }
 
+  /**
+   * The two chords (design D5).
+   *
+   * `Ctrl+Shift+Enter` QUEUES, always and without exception: it never carries
+   * `interrupt`, so a turn in flight finishes. It is checked first, because a
+   * chord that is a superset of another has to be.
+   *
+   * `Ctrl+Enter` dispatches NOW. With a turn in flight and something written it
+   * relays — interrupts and sends — which is the only way "now" can differ from
+   * "queued". With the box empty it offers nothing, which is the standing rule
+   * of `redirigir-turno`: there is nothing to relay with.
+   *
+   * The normative text never calls the relaying chord "send", and with a turn
+   * in flight no control is labelled "Send": "sending does not interrupt" stays
+   * true word for word.
+   */
   function onDraftKeydown(event: KeyboardEvent) {
     event.stopPropagation();
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      // While a question is open, the box answers the question rather than
-      // queueing a turn — that is what the user was told it would do.
-      if (waitingOn && freeText) {
-        void answerFreely();
+    if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    // While a question is open, the box answers the question rather than
+    // queueing a turn — that is what the user was told it would do.
+    if (waitingOn && freeText) {
+      if (event.shiftKey) {
+        void direct();
         return;
       }
-      void direct();
+      void answerFreely();
+      return;
     }
+    if (event.shiftKey) {
+      void direct();
+      return;
+    }
+    void direct(relays);
   }
 
   /**
@@ -875,6 +960,42 @@
               </span>
             {/if}
           </div>
+        {:else if item.kind === "empty"}
+          <!-- The agent closed its turn having said and done nothing: a state
+               of the turn, told with a glyph and a word, never colour alone,
+               and with a remedy that stays conditional (turno-vacio-es-error
+               design D5). -->
+          <div class="emptyTurn" role="note">
+            <span class="glyph" aria-hidden="true">∅</span>
+            <div>
+              <p class="emptyHead">{$t("conv.emptyTurn")}</p>
+              <p class="cardMeta">{$t("conv.emptyTurn.remedy")}</p>
+            </div>
+          </div>
+        {:else if item.kind === "lever"}
+          <!-- A lever refused as the session opened, before any prompt: its
+               own item, said in words — the lever, what was asked, why, and
+               what the agent announced — never the contract's identifiers
+               (modelo-por-opcion-anunciada design D4). -->
+          <div class="emptyTurn" role="note">
+            <span class="glyph" aria-hidden="true">⊘</span>
+            <div>
+              <p class="emptyHead">
+                {$t("conv.lever.refused", {
+                  lever: $t(item.lever === "effort" ? "conv.lever.effort" : "conv.lever.model"),
+                  requested: item.requested,
+                })}
+              </p>
+              <p class="cardMeta">{leverReason(item)}</p>
+              {#if item.announced.length > 0}
+                <p class="cardMeta">
+                  {$t("conv.lever.announced", { list: item.announced.join(", ") })}{item.more > 0
+                    ? ` ${$t("conv.lever.more", { count: item.more })}`
+                    : ""}
+                </p>
+              {/if}
+            </div>
+          </div>
         {:else if item.kind === "permission"}
           {@const live = item.id === liveCard}
           <div class="card" class:resolved={item.decided !== null || !live}>
@@ -1040,9 +1161,9 @@
       <!-- What actually governed this session, beside what it was allowed to
            decide. Absent means none was declared: shown as absent rather than
            as a guess (modelo-y-esfuerzo-por-sesion design D5). -->
-      {#if session?.model}
+      {#if governed.model || governed.effort}
         <span class="modeChip" title={$t("model.label")}>
-          {session.model}{session.effort ? ` · ${session.effort}` : ""}
+          {[governed.model, governed.effort].filter(Boolean).join(" · ")}
         </span>
       {/if}
 
@@ -1137,18 +1258,30 @@
            confirmation on purpose: what it costs is the turn in flight, the
            session survives, and the label says so
            (redirigir-turno design D2). -->
-      {#if canSend && session && WORKING.includes(session.state) && draft.trim() !== ""}
+      {#if relays}
+        <!-- A turn is in flight and there is something to relay with. The pair
+             the requirement names, each labelled by what it does and each
+             carrying its chord: nobody interrupts out of habit without having
+             read the word first (design D5). No control here is called "Send",
+             which is what keeps "sending does not interrupt" literally true. -->
         <button
-          class="ghost relay"
+          class="ghost"
+          disabled={sending}
+          title={$t("conv.queueHint")}
+          onclick={() => void direct()}
+        >
+          {$t("conv.queue")} <kbd>{$t("conv.chord.queue")}</kbd>
+        </button>
+        <button
+          class="primary relay"
           disabled={sending}
           title={$t("conv.relayHint")}
           onclick={() => void direct(true)}
         >
-          ⤳ {$t("conv.relay")}
+          ⤳ {sending ? $t("common.loading") : $t("conv.relay")}
+          <kbd>{$t("conv.chord.dispatch")}</kbd>
         </button>
-      {/if}
-
-      {#if canSend}
+      {:else if canSend}
         <button
           class="primary"
           disabled={sending || draft.trim() === ""}
@@ -1160,6 +1293,7 @@
             : resumes
               ? $t("sessions.resume")
               : $t("home.send")}
+          <kbd>{$t("conv.chord.dispatch")}</kbd>
         </button>
       {/if}
     </div>
@@ -1324,6 +1458,24 @@
   }
   .card.resolved {
     border-color: var(--hair);
+  }
+  .emptyTurn {
+    margin: var(--sp-1) var(--sp-3);
+    display: flex;
+    gap: var(--sp-2);
+    align-items: baseline;
+    border: 1px dashed var(--warn);
+    border-radius: var(--radius-panel);
+    padding: var(--sp-2) var(--sp-3);
+  }
+  .emptyTurn .glyph {
+    color: var(--warn);
+  }
+  .emptyHead {
+    margin: 0;
+    font-size: var(--fs-caption);
+    font-weight: 600;
+    color: var(--warn);
   }
   .cardHead {
     display: flex;

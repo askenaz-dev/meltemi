@@ -25,8 +25,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use meltemi_proto::{
-    FleetAgent, FleetAgentSource, FleetInstallState, FleetLayer, FleetLayerKind, FleetLayerSource,
-    FleetLegalStatus, FleetListParams, FleetListResult, error_codes,
+    ConformanceResult, FleetAgent, FleetAgentSource, FleetInstallState, FleetLayer, FleetLayerKind,
+    FleetLayerSource, FleetLegalStatus, FleetListParams, FleetListResult, SessionLever,
+    error_codes,
 };
 
 use crate::config::Config;
@@ -93,6 +94,9 @@ pub struct RegistryAgent {
     pub auth_context_var: Option<String>,
     /// The provider's documented login gesture, as snapshot data.
     pub login_hint: Option<String>,
+    /// The levers this entry's agent takes as launch flags — the complete set
+    /// — when the entry declares them (modelo-por-opcion-anunciada D2).
+    pub levers: Option<Vec<SessionLever>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +156,12 @@ struct RawRegistryAgent {
     legal_status: Option<String>,
     #[serde(default)]
     legal_note: Option<String>,
+    /// The levers the agent takes as launch flags, as data: what used to be
+    /// decided by the binary's name (modelo-por-opcion-anunciada D2). A name
+    /// outside the known levers makes the document invalid, like a level
+    /// outside the scale.
+    #[serde(default)]
+    levers: Option<Vec<SessionLever>>,
 }
 
 /// The binary name of an entry: one for every OS, or a per-OS table.
@@ -213,6 +223,17 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
         if !seen.insert(agent.id.clone()) {
             return Err(format!("duplicate registry id `{}`", agent.id));
         }
+        if let Some(levers) = &agent.levers
+            && levers
+                .iter()
+                .enumerate()
+                .any(|(index, lever)| levers[..index].contains(lever))
+        {
+            return Err(format!(
+                "registry entry `{}` declares the same lever twice",
+                agent.id
+            ));
+        }
         // An entry piloted through an adapter must declare the provider's own
         // official CLI, or the fleet cannot say which layer is missing
         // (flota-deteccion-guia design D1).
@@ -265,6 +286,7 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
             bundled: agent.bundled,
             legal_status: agent.legal_status,
             legal_note: agent.legal_note,
+            levers: agent.levers,
         });
     }
     Ok(Registry {
@@ -493,6 +515,9 @@ pub struct CatalogEntry {
     pub auth_context_var: Option<String>,
     /// The provider's documented login gesture, as snapshot data.
     pub login_hint: Option<String>,
+    /// The levers taken as launch flags, when the registry declares them. A
+    /// custom entry declares none: its levers are whatever it announces.
+    pub levers: Option<Vec<SessionLever>>,
 }
 
 impl Default for CatalogEntry {
@@ -521,6 +546,7 @@ impl Default for CatalogEntry {
             bundled: false,
             legal_status: None,
             legal_note: None,
+            levers: None,
         }
     }
 }
@@ -566,6 +592,7 @@ pub fn build_catalog(config: &Config) -> Catalog {
             bundled: agent.bundled,
             legal_status: agent.legal_status,
             legal_note: agent.legal_note,
+            levers: agent.levers,
         })
         .collect();
     for custom in &config.fleet_custom {
@@ -903,6 +930,7 @@ pub fn list(
                 // Enriched from persisted conformance in `handle_fleet_list`.
                 verified_level: None,
                 verified_at: None,
+                verified_version: None,
                 mcp_support: entry.mcp,
                 detected: binary.is_some(),
                 binary_path: binary.map(|p| p.display().to_string()),
@@ -942,6 +970,7 @@ pub fn list(
             integration_level: underlying.map_or(1, |e| e.level),
             verified_level: None,
             verified_at: None,
+            verified_version: None,
             mcp_support: underlying.is_some_and(|e| e.mcp),
             detected: binary.is_some(),
             binary_path: binary.map(|p| p.display().to_string()),
@@ -1036,16 +1065,28 @@ pub fn handle_fleet_list(params: Value, state: &Arc<DaemonState>) -> Result<Valu
         &path_var,
         bundled.as_deref(),
     );
-    // Enrich with the verified level from the last persisted conformance run
-    // (design D4): declared vs verified is visible in the surfaces.
-    let verified = crate::conformance::latest_by_agent(&state.data_dir);
+    fold_verified(
+        &mut result,
+        &crate::conformance::latest_by_agent(&state.data_dir),
+    );
+    Ok(serde_json::to_value(result).expect("FleetListResult serializes"))
+}
+
+/// Folds each agent's last persisted conformance run into its row (design
+/// D4): declared vs verified is visible in the surfaces — the level verified,
+/// when, and against which version of the agent (integration-levels, «El
+/// nivel verificado dice contra qué versión se midió»).
+fn fold_verified(
+    result: &mut FleetListResult,
+    runs: &std::collections::HashMap<String, ConformanceResult>,
+) {
     for agent in &mut result.agents {
-        if let Some(run) = verified.get(&agent.id) {
+        if let Some(run) = runs.get(&agent.id) {
             agent.verified_level = Some(run.verified_level);
             agent.verified_at = Some(run.run_at.clone());
+            agent.verified_version = run.agent_version.clone();
         }
     }
-    Ok(serde_json::to_value(result).expect("FleetListResult serializes"))
 }
 
 /// Resolves the agent argv for a new session, honoring the precedence
@@ -1141,6 +1182,39 @@ mod tests {
     /// Windows shims: `.cmd` is a launch target, `.ps1` is evidence only
     /// (flota-deteccion-guia design D4).
     #[cfg(windows)]
+    #[test]
+    fn the_catalog_names_the_version_a_level_was_verified_against() {
+        // Scenario: El catálogo nombra la versión medida
+        let mut result = list(&Config::default(), None, OsStr::new(""), None);
+        let runs = std::collections::HashMap::from([(
+            "codex-cli".to_string(),
+            ConformanceResult {
+                agent_id: "codex-cli".into(),
+                verified_level: 2,
+                agent_version: Some("0.156.1".into()),
+                run_at: "2026-09-24T12:00:00Z".into(),
+                criteria: Vec::new(),
+            },
+        )]);
+        fold_verified(&mut result, &runs);
+        let codex = result
+            .agents
+            .iter()
+            .find(|agent| agent.id == "codex-cli")
+            .expect("the catalog lists Codex");
+        assert_eq!(codex.verified_level, Some(2));
+        assert_eq!(codex.verified_at.as_deref(), Some("2026-09-24T12:00:00Z"));
+        assert_eq!(codex.verified_version.as_deref(), Some("0.156.1"));
+        assert!(
+            result
+                .agents
+                .iter()
+                .filter(|agent| agent.id != "codex-cli")
+                .all(|agent| agent.verified_version.is_none()),
+            "an agent without a run names no version"
+        );
+    }
+
     #[test]
     fn windows_script_shims_are_evidence_not_launch_targets() {
         let dir = std::env::temp_dir().join(format!("mel-shims-{}", std::process::id()));
@@ -1562,6 +1636,42 @@ login-hint = \"other login\"
             .is_err(),
             "duplicate id"
         );
+        // A lever outside the known ones, or the same one twice, invalidates
+        // the document like a level outside the scale.
+        assert!(
+            parse_registry(
+                "version=\"v\"\n[[agents]]\nid=\"a\"\nname=\"A\"\nlevel=1\nlevers=[\"temperature\"]\n"
+            )
+            .is_err(),
+            "unknown lever"
+        );
+        assert!(
+            parse_registry(
+                "version=\"v\"\n[[agents]]\nid=\"a\"\nname=\"A\"\nlevel=1\nlevers=[\"model\",\"model\"]\n"
+            )
+            .is_err(),
+            "the same lever twice"
+        );
+    }
+
+    #[test]
+    fn the_embedded_registry_declares_the_levers_of_its_own_adapters() {
+        use meltemi_proto::SessionLever::{Effort, Model};
+        // Only the two adapters Meltemi builds read the levers from the
+        // environment it composes, so only they can honestly declare them —
+        // and dropping one here would silently turn a working lever into a
+        // refusal, which is why this is pinned (modelo-por-opcion-anunciada D2).
+        let catalog = build_catalog(&Config::default());
+        for entry in &catalog.entries {
+            let expected = match entry.id.as_str() {
+                "codex-cli" => Some(vec![Model, Effort]),
+                "claude-code" => Some(vec![Model]),
+                _ => None,
+            };
+            assert_eq!(entry.levers, expected, "`{}` declares its levers", entry.id);
+        }
+        assert!(catalog.entries.iter().any(|e| e.id == "codex-cli"));
+        assert!(catalog.entries.iter().any(|e| e.id == "claude-code"));
     }
 
     #[test]

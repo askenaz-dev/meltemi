@@ -18,14 +18,21 @@
 //! 2. **Measured and unreported never share a figure.** Each cell declares its
 //!    coverage: how many sessions backed the number and why the others have no
 //!    data, with a stable reason.
+//! 3. **What an agent reports is the agent's figure.** The context and the cost
+//!    an agent sends over ACP (`usage_update`) travel apart from the tokens, in
+//!    `agentReport`: the context is occupancy, not consumption, and the cost is
+//!    the agent's own cumulative figure — counted once per conversation, summed
+//!    per currency, never converted (usage-desde-acp).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use agent_client_protocol::schema::v1::SessionUpdate;
 use meltemi_proto::{
-    AnalyticsUsageParams, AnalyticsUsageResult, SessionEvent, SessionEventKind, UsageActivity,
-    UsageCell, UsageCoverage, UsageDisclosure, UsageGranularity, UsageTokens, UsageTotals,
-    UsageUnattributed, UsageUnreportedKind, UsageUnreportedReason, error_codes,
+    AgentReport, AgentReportCost, AgentReportTotals, AnalyticsUsageParams, AnalyticsUsageResult,
+    SessionEvent, SessionEventKind, UsageActivity, UsageCell, UsageCoverage, UsageDisclosure,
+    UsageGranularity, UsageTokens, UsageTotals, UsageUnattributed, UsageUnreportedKind,
+    UsageUnreportedReason, error_codes,
 };
 
 use crate::rpc::RpcError;
@@ -39,6 +46,7 @@ pub const DISCLOSURE: &[UsageDisclosure] = &[
     UsageDisclosure::NoQuotaBalanceOrBilling,
     UsageDisclosure::NothingIsEstimated,
     UsageDisclosure::NothingLeavesThisMachine,
+    UsageDisclosure::AgentReportedContextAndCost,
 ];
 
 /// The dimension key of a cell: project × agent × profile × period (design D2).
@@ -60,6 +68,53 @@ struct Bucket {
     level: Option<u8>,
     measured_sessions: u32,
     unreported: BTreeMap<UsageUnreportedKind, u32>,
+    /// Sessions whose agent reported over the protocol (usage-desde-acp).
+    report_sessions: u32,
+    /// The fullest context report among them: `(used, size)`.
+    fullest: Option<(u64, u64)>,
+    /// The cost per currency: the amount and how many sessions gave it.
+    cost: BTreeMap<String, (f64, u32)>,
+}
+
+/// One conversation of the agent inside a session log — one agent process, one
+/// ACP session — and what it reported over the protocol (usage-desde-acp design
+/// D2).
+#[derive(Debug, Default, Clone, PartialEq)]
+struct Conversation {
+    /// Whether the agent reported usage at all.
+    reported: bool,
+    /// The fullest context report: `(used, size)`, the largest share of the
+    /// window, a window of zero never counting.
+    fullest: Option<(u64, u64)>,
+    /// The last cost the agent declared — it is cumulative — as `(currency,
+    /// amount)`. A later report without a cost does not erase it: the last
+    /// thing the agent said it cost is still that.
+    cost: Option<(String, f64)>,
+}
+
+impl Conversation {
+    /// Folds one report in.
+    fn take(&mut self, used: u64, size: u64, cost: Option<(String, f64)>) {
+        self.reported = true;
+        if size > 0 && fuller((used, size), self.fullest) {
+            self.fullest = Some((used, size));
+        }
+        if cost.is_some() {
+            self.cost = cost;
+        }
+    }
+}
+
+/// Whether `candidate` is a fuller context report than `current`: a larger
+/// share of its window, compared without dividing (cross products in `u128`,
+/// which cannot overflow for `u64` operands), and on a tie the larger `used`.
+fn fuller(candidate: (u64, u64), current: Option<(u64, u64)>) -> bool {
+    let Some((used, size)) = current else {
+        return true;
+    };
+    let left = u128::from(candidate.0) * u128::from(size);
+    let right = u128::from(used) * u128::from(candidate.1);
+    left > right || (left == right && candidate.0 > used)
 }
 
 /// The facts one session log contributes.
@@ -75,12 +130,54 @@ struct SessionFacts {
     commits: u32,
     checkpoints: u32,
     errors: u32,
+    /// Turns declared empty (turno-vacio-es-error design D7).
+    empty_turns: u32,
     /// The effective binary, when the log recorded a resolution.
     binary: Option<String>,
     level: Option<u8>,
     /// Counters the official output reported, summed over the session's events.
     tokens: UsageTokens,
     measured: bool,
+    /// The agent's conversations in this log, split at each `agent_process`,
+    /// with what each reported over the protocol (usage-desde-acp design D2).
+    conversations: Vec<Conversation>,
+}
+
+impl SessionFacts {
+    /// Whether any conversation of the session reported over the protocol.
+    fn reported(&self) -> bool {
+        self.conversations
+            .iter()
+            .any(|conversation| conversation.reported)
+    }
+
+    /// The fullest context report of the session.
+    fn fullest(&self) -> Option<(u64, u64)> {
+        self.conversations
+            .iter()
+            .filter_map(|conversation| conversation.fullest)
+            .fold(None, |best, report| {
+                if fuller(report, best) {
+                    Some(report)
+                } else {
+                    best
+                }
+            })
+    }
+
+    /// The session's cost per currency: each conversation's last cumulative
+    /// figure, summed — a task of `implement` is a conversation of its own.
+    fn cost(&self) -> BTreeMap<String, f64> {
+        let mut cost = BTreeMap::new();
+        for (currency, amount) in self
+            .conversations
+            .iter()
+            .filter_map(|conversation| conversation.cost.as_ref())
+        {
+            *cost.entry(currency.clone()).or_insert(0.0) += amount;
+        }
+        cost
+    }
 }
 
 /// Adds `add` into `slot`, keeping absence absent: a counter nobody reported
@@ -116,6 +213,7 @@ fn merge_activity(into: &mut UsageActivity, from: &UsageActivity) {
     into.commits += from.commits;
     into.checkpoints += from.checkpoints;
     into.errors += from.errors;
+    into.empty_turns += from.empty_turns;
 }
 
 /// The period label of a timestamp at the requested grain. RFC 3339 timestamps
@@ -235,6 +333,7 @@ fn facts_of_log(path: &Path) -> SessionFacts {
                     .unwrap_or_else(|| "unknown".into());
                 *facts.turns.entry(key).or_default() += 1;
             }
+            SessionEventKind::TurnEmpty { .. } => facts.empty_turns += 1,
             SessionEventKind::PermissionRequested { .. } => facts.permissions_requested += 1,
             SessionEventKind::PermissionDecided {
                 mode: None,
@@ -267,15 +366,43 @@ fn facts_of_log(path: &Path) -> SessionFacts {
             SessionEventKind::TaskCommitted { .. } => facts.commits += 1,
             SessionEventKind::CheckpointCreated { .. } => facts.checkpoints += 1,
             SessionEventKind::Error { .. } => facts.errors += 1,
-            SessionEventKind::AgentResolved {
-                model: None,
-                effort: None,
-                binary,
-                level,
-                ..
-            } => {
+            // Whatever the session declared about its model and effort: a
+            // resolution is a resolution (usage-desde-acp design D8).
+            SessionEventKind::AgentResolved { binary, level, .. } => {
                 facts.binary = Some(binary_label(&binary));
                 facts.level = Some(level);
+            }
+            // Every agent process is one conversation of the agent.
+            SessionEventKind::AgentProcess { .. } => {
+                facts.conversations.push(Conversation::default());
+            }
+            SessionEventKind::AgentUpdate { update } => {
+                // Read only the one update this is about, typed by the pinned
+                // protocol: what the agent reported, as it reported it.
+                if update.get("sessionUpdate").and_then(|kind| kind.as_str())
+                    != Some("usage_update")
+                {
+                    continue;
+                }
+                let Ok(SessionUpdate::UsageUpdate(report)) =
+                    serde_json::from_value::<SessionUpdate>(update)
+                else {
+                    continue;
+                };
+                // A log written before `agent_process` existed is one
+                // conversation.
+                if facts.conversations.is_empty() {
+                    facts.conversations.push(Conversation::default());
+                }
+                let conversation = facts
+                    .conversations
+                    .last_mut()
+                    .expect("a conversation was just ensured");
+                conversation.take(
+                    report.used,
+                    report.size,
+                    report.cost.map(|cost| (cost.currency, cost.amount)),
+                );
             }
             SessionEventKind::UsageReported {
                 input_tokens,
@@ -306,13 +433,15 @@ fn facts_of_log(path: &Path) -> SessionFacts {
 }
 
 /// Why a session with no `usage_reported` event has no tokens (design D4).
-fn unreported_kind(level: u8) -> UsageUnreportedKind {
+fn unreported_kind(level: u8, reported_over_protocol: bool) -> UsageUnreportedKind {
     match level {
         // Level 4 produces artifacts; no process runs, so nothing can report.
         4 => UsageUnreportedKind::LevelRunsNoProcess,
         // Level 3 runs a process whose structured output declared no counters.
         3 => UsageUnreportedKind::StreamDeclaredNoCounters,
-        // Levels 1 and 2 are piloted over ACP, which does not carry usage.
+        // Levels 1 and 2 are piloted over ACP, which carries the context and
+        // the cost an agent reports — not consumption (usage-desde-acp D5).
+        _ if reported_over_protocol => UsageUnreportedKind::ProtocolCarriesContextNotConsumption,
         _ => UsageUnreportedKind::ProtocolCarriesNoUsage,
     }
 }
@@ -426,6 +555,14 @@ pub fn aggregate(
         // Any project root the records mention (they all share the tree, but a
         // worktree session records its own root).
         let mut project_root = params.project_root.clone().unwrap_or_default();
+        // A session another session of the range resumed carries no cost of
+        // its own: its spending is inside the cumulative figure of the
+        // conversation that resumed it (usage-desde-acp design D3).
+        let resumed: BTreeSet<&str> = records
+            .iter()
+            .filter(|record| in_range(&record.started_at, since, until))
+            .filter_map(|record| record.resumed_from.as_deref())
+            .collect();
 
         for record in &records {
             // The index is the prefilter: a session outside the range never
@@ -459,7 +596,8 @@ pub fn aggregate(
                 period: period_of(&record.started_at, grain),
             };
             let bucket = buckets.entry(cell_key).or_default();
-            accumulate(bucket, record, &facts);
+            let costed = !resumed.contains(record.session_id.as_str());
+            accumulate(bucket, record, &facts, costed);
         }
 
         // The unattributable bucket, per project and period.
@@ -483,6 +621,12 @@ pub fn aggregate(
             period: key.period,
             activity: bucket.activity,
             tokens: (!bucket.tokens.is_empty()).then_some(bucket.tokens),
+            agent_report: (bucket.report_sessions > 0).then(|| AgentReport {
+                sessions: bucket.report_sessions,
+                context_used: bucket.fullest.map(|(used, _)| used),
+                context_size: bucket.fullest.map(|(_, size)| size),
+                cost: costs(bucket.cost),
+            }),
             coverage: UsageCoverage {
                 measured_sessions: bucket.measured_sessions,
                 unreported_sessions: bucket.unreported.values().sum(),
@@ -517,7 +661,19 @@ pub fn aggregate(
     };
     let mut reasons: BTreeMap<UsageUnreportedKind, u32> = BTreeMap::new();
     let mut measured_tokens = UsageTokens::default();
+    // What the agents reported, summed over the returned cells: sessions and
+    // cost per currency. The context is a maximum, and a maximum is not a sum.
+    let mut report_sessions = 0u32;
+    let mut report_cost: BTreeMap<String, (f64, u32)> = BTreeMap::new();
     for cell in &cells {
+        if let Some(report) = &cell.agent_report {
+            report_sessions += report.sessions;
+            for cost in &report.cost {
+                let entry = report_cost.entry(cost.currency.clone()).or_insert((0.0, 0));
+                entry.0 += cost.amount;
+                entry.1 += cost.sessions;
+            }
+        }
         merge_activity(&mut totals.activity, &cell.activity);
         if let Some(tokens) = &cell.tokens {
             merge_tokens(&mut measured_tokens, tokens);
@@ -533,6 +689,10 @@ pub fn aggregate(
         .map(|(kind, sessions)| UsageUnreportedReason { kind, sessions })
         .collect();
     totals.tokens = (!measured_tokens.is_empty()).then_some(measured_tokens);
+    totals.agent_report = (report_sessions > 0).then(|| AgentReportTotals {
+        sessions: report_sessions,
+        cost: costs(report_cost),
+    });
 
     Ok(AnalyticsUsageResult {
         cells,
@@ -554,7 +714,20 @@ pub fn aggregate(
 }
 
 /// Folds one session's record and facts into its cell.
-fn accumulate(bucket: &mut Bucket, record: &SessionRecord, facts: &SessionFacts) {
+/// The cost per currency, sorted by currency, as the contract carries it.
+fn costs(cost: BTreeMap<String, (f64, u32)>) -> Vec<AgentReportCost> {
+    cost.into_iter()
+        .map(|(currency, (amount, sessions))| AgentReportCost {
+            currency,
+            amount,
+            sessions,
+        })
+        .collect()
+}
+
+/// `costed` is false for a session another session of the range resumed: its
+/// cost is inside the resuming conversation's cumulative figure (design D3).
+fn accumulate(bucket: &mut Bucket, record: &SessionRecord, facts: &SessionFacts, costed: bool) {
     let activity = &mut bucket.activity;
     activity.sessions += 1;
     match &record.ended_at {
@@ -580,6 +753,7 @@ fn accumulate(bucket: &mut Bucket, record: &SessionRecord, facts: &SessionFacts)
     activity.commits += facts.commits;
     activity.checkpoints += facts.checkpoints;
     activity.errors += facts.errors;
+    activity.empty_turns += facts.empty_turns;
 
     if bucket.agent_id.is_none() {
         bucket.agent_id = record.agent_id.clone();
@@ -588,12 +762,35 @@ fn accumulate(bucket: &mut Bucket, record: &SessionRecord, facts: &SessionFacts)
         bucket.level = facts.level.or(Some(record.level));
     }
 
+    let reported = facts.reported();
     if facts.measured {
         bucket.measured_sessions += 1;
         merge_tokens(&mut bucket.tokens, &facts.tokens);
     } else {
         let level = facts.level.unwrap_or(record.level);
-        *bucket.unreported.entry(unreported_kind(level)).or_default() += 1;
+        *bucket
+            .unreported
+            .entry(unreported_kind(level, reported))
+            .or_default() += 1;
+    }
+
+    // What the agent reported over the protocol (usage-desde-acp design D2,
+    // D3): the fullest context of every session, the cost only of those whose
+    // conversation no later session of the range carries.
+    if reported {
+        bucket.report_sessions += 1;
+        if let Some(report) = facts.fullest()
+            && fuller(report, bucket.fullest)
+        {
+            bucket.fullest = Some(report);
+        }
+        if costed {
+            for (currency, amount) in facts.cost() {
+                let entry = bucket.cost.entry(currency).or_insert((0.0, 0));
+                entry.0 += amount;
+                entry.1 += 1;
+            }
+        }
     }
 }
 
@@ -865,6 +1062,90 @@ mod tests {
     }
 
     #[test]
+    fn empty_turns_are_counted_per_cell_and_in_the_totals() {
+        // Scenario: La actividad cuenta los turnos vacíos
+        let data = temp("empty-turns");
+        write(
+            &data,
+            "k",
+            &[
+                record(
+                    "silent",
+                    "2026-09-24T10:00:00Z",
+                    Some("2026-09-24T10:01:00Z"),
+                    Some("work"),
+                ),
+                record(
+                    "worked",
+                    "2026-09-24T11:00:00Z",
+                    Some("2026-09-24T11:01:00Z"),
+                    Some("personal"),
+                ),
+            ],
+        );
+        let dir = session_index::sessions_dir(&data, "k");
+        log(
+            &dir,
+            "silent",
+            &[
+                (
+                    "prompt_sent",
+                    "2026-09-24T10:00:01Z",
+                    r#"{"text":"fix it"}"#,
+                ),
+                (
+                    "turn_empty",
+                    "2026-09-24T10:00:02Z",
+                    r#"{"stopReason":"completed"}"#,
+                ),
+                ("prompt_sent", "2026-09-24T10:00:03Z", r#"{"text":"again"}"#),
+                (
+                    "turn_empty",
+                    "2026-09-24T10:00:04Z",
+                    r#"{"stopReason":"completed"}"#,
+                ),
+                (
+                    "turn_completed",
+                    "2026-09-24T10:00:05Z",
+                    r#"{"stopReason":"completed"}"#,
+                ),
+            ],
+        );
+        log(
+            &dir,
+            "worked",
+            &[
+                (
+                    "prompt_sent",
+                    "2026-09-24T11:00:01Z",
+                    r#"{"text":"fix it"}"#,
+                ),
+                (
+                    "turn_completed",
+                    "2026-09-24T11:00:05Z",
+                    r#"{"stopReason":"completed"}"#,
+                ),
+            ],
+        );
+        let result = aggregate(&data, &AnalyticsUsageParams::default()).expect("aggregate");
+        let cell = |profile: &str| {
+            result
+                .cells
+                .iter()
+                .find(|cell| cell.profile.as_deref() == Some(profile))
+                .unwrap_or_else(|| panic!("a cell for {profile}: {result:#?}"))
+        };
+        assert_eq!(cell("work").activity.empty_turns, 2);
+        assert_eq!(
+            cell("personal").activity.empty_turns,
+            0,
+            "a cell without empty turns reports zero"
+        );
+        assert_eq!(result.totals.activity.empty_turns, 2);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[test]
     fn a_human_edit_without_a_session_lands_in_the_unattributed_bucket() {
         // Scenario: Hecho sin atribución en cubeta explícita
         let data = temp("unattributed");
@@ -1083,8 +1364,336 @@ mod tests {
                 "tokens-only-when-official-output-reports",
                 "no-quota-balance-or-billing",
                 "nothing-is-estimated",
-                "nothing-leaves-this-machine"
+                "nothing-leaves-this-machine",
+                "agent-reported-context-and-cost"
             ])
         );
+    }
+
+    /// A `usage_update` as the daemon logs it: the ACP update, verbatim.
+    fn usage(used: u64, size: u64, cost: Option<(f64, &str)>) -> String {
+        let cost = cost.map_or(String::new(), |(amount, currency)| {
+            format!(r#","cost":{{"amount":{amount},"currency":"{currency}"}}"#)
+        });
+        format!(
+            r#"{{"update":{{"sessionUpdate":"usage_update","used":{used},"size":{size}{cost}}}}}"#
+        )
+    }
+
+    const PROCESS: &str = r#"{"pid":1,"binary":"opencode"}"#;
+
+    fn month() -> AnalyticsUsageParams {
+        AnalyticsUsageParams {
+            granularity: Some(UsageGranularity::Month),
+            ..Default::default()
+        }
+    }
+
+    // Scenario: El costo acumulado de una conversación cuenta una vez
+    // Scenario: Un reporte sin costo no borra el costo anterior
+    // Scenario: Sesión ACP con uso reportado no se declara sin uso
+    #[test]
+    fn a_conversation_counts_its_last_cumulative_cost_once() {
+        let data = temp("report-once");
+        let key = "k";
+        write(
+            &data,
+            key,
+            &[record(
+                "s1",
+                "2026-09-25T10:00:00Z",
+                Some("2026-09-25T10:10:00Z"),
+                None,
+            )],
+        );
+        let dir = session_index::sessions_dir(&data, key);
+        let (first, second, third) = (
+            usage(1_000, 200_000, Some((0.125, "USD"))),
+            usage(3_000, 200_000, Some((0.375, "USD"))),
+            // A later report without a cost does not erase the last one.
+            usage(2_000, 200_000, None),
+        );
+        log(
+            &dir,
+            "s1",
+            &[
+                ("agent_process", "2026-09-25T10:00:01Z", PROCESS),
+                ("agent_update", "2026-09-25T10:01:00Z", &first),
+                ("agent_update", "2026-09-25T10:02:00Z", &second),
+                ("agent_update", "2026-09-25T10:03:00Z", &third),
+            ],
+        );
+
+        let result = aggregate(&data, &month()).expect("aggregate");
+        let cell = &result.cells[0];
+        let report = cell.agent_report.as_ref().expect("the agent reported");
+        assert_eq!(report.sessions, 1);
+        // The cumulative figure is the last, never the sum of the reports.
+        assert_eq!(
+            report.cost,
+            vec![AgentReportCost {
+                currency: "USD".into(),
+                amount: 0.375,
+                sessions: 1,
+            }]
+        );
+        // The fullest report, not the last one: a maximum, labelled as such.
+        assert_eq!(
+            (report.context_used, report.context_size),
+            (Some(3_000), Some(200_000))
+        );
+        // The tokens stay absent, with the reason that says what the protocol
+        // did carry.
+        assert!(cell.tokens.is_none());
+        assert_eq!(
+            cell.coverage.reasons,
+            vec![UsageUnreportedReason {
+                kind: UsageUnreportedKind::ProtocolCarriesContextNotConsumption,
+                sessions: 1,
+            }]
+        );
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    // Scenario: Cada conversación de una sesión aporta su costo
+    // Scenario: Monedas distintas no se mezclan
+    #[test]
+    fn every_conversation_adds_its_cost_and_currencies_never_mix() {
+        let data = temp("report-conversations");
+        let key = "k";
+        write(
+            &data,
+            key,
+            &[
+                record(
+                    "impl",
+                    "2026-09-25T10:00:00Z",
+                    Some("2026-09-25T10:10:00Z"),
+                    None,
+                ),
+                record(
+                    "eur",
+                    "2026-09-25T11:00:00Z",
+                    Some("2026-09-25T11:10:00Z"),
+                    None,
+                ),
+            ],
+        );
+        let dir = session_index::sessions_dir(&data, key);
+        // Two tasks, two agent processes, two conversations: each cumulative
+        // figure restarts, and the session adds them.
+        let (task1, task2) = (
+            usage(1_000, 200_000, Some((0.25, "USD"))),
+            usage(4_000, 100_000, Some((0.125, "USD"))),
+        );
+        log(
+            &dir,
+            "impl",
+            &[
+                ("agent_process", "2026-09-25T10:00:01Z", PROCESS),
+                ("agent_update", "2026-09-25T10:01:00Z", &task1),
+                ("agent_process", "2026-09-25T10:05:00Z", PROCESS),
+                ("agent_update", "2026-09-25T10:06:00Z", &task2),
+            ],
+        );
+        let euros = usage(500, 200_000, Some((0.5, "EUR")));
+        log(
+            &dir,
+            "eur",
+            &[
+                ("agent_process", "2026-09-25T11:00:01Z", PROCESS),
+                ("agent_update", "2026-09-25T11:01:00Z", &euros),
+            ],
+        );
+
+        let result = aggregate(&data, &month()).expect("aggregate");
+        let report = result.cells[0].agent_report.as_ref().expect("reported");
+        assert_eq!(report.sessions, 2);
+        assert_eq!(
+            report.cost,
+            vec![
+                AgentReportCost {
+                    currency: "EUR".into(),
+                    amount: 0.5,
+                    sessions: 1,
+                },
+                AgentReportCost {
+                    currency: "USD".into(),
+                    amount: 0.375,
+                    sessions: 1,
+                },
+            ],
+            "one sum per currency, each with its sessions, never converted"
+        );
+        // The fullest by share of the window: 4000 of 100000 beats 1000 and
+        // 500 of 200000.
+        assert_eq!(
+            (report.context_used, report.context_size),
+            (Some(4_000), Some(100_000))
+        );
+        // The totals are sums of the returned cells, and carry no context.
+        let totals = result.totals.agent_report.expect("summed");
+        assert_eq!(totals.sessions, 2);
+        assert_eq!(totals.cost, report.cost);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    // Scenario: Una conversación reanudada no se cuenta dos veces
+    #[test]
+    fn a_resumed_conversation_counts_its_cost_once_in_the_session_that_resumed_it() {
+        let data = temp("report-resumed");
+        let key = "k";
+        let mut resumed = record(
+            "b",
+            "2026-09-25T12:00:00Z",
+            Some("2026-09-25T12:10:00Z"),
+            None,
+        );
+        resumed.resumed_from = Some("a".into());
+        write(
+            &data,
+            key,
+            &[
+                record(
+                    "a",
+                    "2026-09-25T10:00:00Z",
+                    Some("2026-09-25T10:10:00Z"),
+                    None,
+                ),
+                resumed,
+            ],
+        );
+        let dir = session_index::sessions_dir(&data, key);
+        // The same ACP conversation, loaded again: its cost goes on
+        // accumulating, so the second figure already holds the first.
+        let (before, after) = (
+            usage(1_000, 200_000, Some((0.25, "USD"))),
+            usage(2_000, 200_000, Some((0.625, "USD"))),
+        );
+        log(
+            &dir,
+            "a",
+            &[
+                ("agent_process", "2026-09-25T10:00:01Z", PROCESS),
+                ("agent_update", "2026-09-25T10:01:00Z", &before),
+            ],
+        );
+        log(
+            &dir,
+            "b",
+            &[
+                ("agent_process", "2026-09-25T12:00:01Z", PROCESS),
+                ("agent_update", "2026-09-25T12:01:00Z", &after),
+            ],
+        );
+
+        let result = aggregate(&data, &month()).expect("aggregate");
+        let report = result.cells[0].agent_report.as_ref().expect("reported");
+        assert_eq!(report.sessions, 2, "both sessions reported");
+        assert_eq!(
+            report.cost,
+            vec![AgentReportCost {
+                currency: "USD".into(),
+                amount: 0.625,
+                sessions: 1,
+            }],
+            "the conversation's cost, once — never 0.25 + 0.625"
+        );
+
+        // Seen alone, the first session keeps its own figure.
+        let early = aggregate(
+            &data,
+            &AnalyticsUsageParams {
+                until: Some("2026-09-25T11:00:00Z".into()),
+                ..month()
+            },
+        )
+        .expect("aggregate");
+        let report = early.cells[0].agent_report.as_ref().expect("reported");
+        assert_eq!(report.cost[0].amount, 0.25);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    // Scenario: Contexto sin costo deja el costo ausente
+    #[test]
+    fn context_without_cost_leaves_the_cost_absent_and_a_zero_window_never_counts() {
+        let data = temp("report-no-cost");
+        let key = "k";
+        write(
+            &data,
+            key,
+            &[record(
+                "s1",
+                "2026-09-25T10:00:00Z",
+                Some("2026-09-25T10:10:00Z"),
+                None,
+            )],
+        );
+        let dir = session_index::sessions_dir(&data, key);
+        let (bare, zero) = (usage(1_500, 200_000, None), usage(9_000, 0, None));
+        log(
+            &dir,
+            "s1",
+            &[
+                ("agent_process", "2026-09-25T10:00:01Z", PROCESS),
+                ("agent_update", "2026-09-25T10:01:00Z", &bare),
+                ("agent_update", "2026-09-25T10:02:00Z", &zero),
+            ],
+        );
+        let result = aggregate(&data, &month()).expect("aggregate");
+        let report = result.cells[0].agent_report.as_ref().expect("reported");
+        assert!(report.cost.is_empty(), "absent, never zero: {report:?}");
+        assert_eq!(
+            (report.context_used, report.context_size),
+            (Some(1_500), Some(200_000))
+        );
+        assert!(
+            result
+                .totals
+                .agent_report
+                .as_ref()
+                .is_some_and(|totals| totals.cost.is_empty())
+        );
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    // Scenario: Celdas por proyecto, agente, perfil y período
+    #[test]
+    fn a_session_with_a_declared_model_keeps_its_binary_and_level() {
+        // The resolution names the binary that ran and its level whatever the
+        // session declared about its model (usage-desde-acp design D8).
+        let facts = {
+            let dir = temp("resolved-model");
+            log(
+                &dir,
+                "s",
+                &[(
+                    "agent_resolved",
+                    "2026-09-25T10:00:00Z",
+                    r#"{"model":"slow","binary":"/usr/local/bin/opencode.exe","source":"configured","level":2}"#,
+                )],
+            );
+            let facts = facts_of_log(&dir.join("s.jsonl"));
+            let _ = std::fs::remove_dir_all(&dir);
+            facts
+        };
+        assert_eq!(facts.binary.as_deref(), Some("opencode"));
+        assert_eq!(facts.level, Some(2));
+    }
+
+    #[test]
+    fn the_fullest_report_is_the_largest_share_of_its_window() {
+        assert!(fuller((10, 100), None));
+        assert!(fuller((50, 100), Some((10, 20))), "a half beats less");
+        assert!(
+            !fuller((10, 100), Some((1, 2))),
+            "a tenth does not beat a half"
+        );
+        assert!(
+            fuller((20, 200), Some((10, 100))),
+            "a tie goes to the larger"
+        );
+        // No overflow at the edges of u64.
+        assert!(fuller((u64::MAX, u64::MAX), Some((u64::MAX - 1, u64::MAX))));
     }
 }

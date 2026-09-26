@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/session-state.schema.json",
+  "title": "session/state",
+  "description": "Notification `session/state` (daemon -> client): where one session stands, sent to EVERY initialized connection on every transition, including sessions that connection did not open. It affirms the state rather than expressing a difference, so applying it twice or applying two of them out of order converges on the last one that arrived — that is what removes the need for a sequence number and what makes the snapshot a connection receives on initialize safe to race against the first transition. A connection that falls behind is re-sent the snapshot by the daemon; a client never has to notice a gap. Nothing of the project travels here: no instruction, no title, no turn text.",
+  "$defs": {
+    "sessionState": {
+      "type": "string",
+      "enum": [
+        "starting",
+        "active",
+        "waiting_permission",
+        "waiting_instruction",
+        "ended",
+        "interrupted"
+      ],
+      "description": "Lifecycle state of an agent session. `waiting_instruction` is alive and between turns, with its agent subprocess intact. `interrupted` marks a session with no recorded end (the daemon stopped mid-session)."
+    },
+    "notificationParams": {
+      "type": "object",
+      "description": "Params of the `session/state` notification (daemon -> client).",
+      "required": [
+        "sessionId",
+        "projectRoot",
+        "state",
+        "since",
+        "pendingPermissions"
+      ],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute repository root, in the same spelling `session/list` reports, so a client narrows by project without asking again."
+        },
+        "state": { "$ref": "#/$defs/sessionState" },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the session entered this state (RFC 3339, UTC). A wall clock, because a surface subtracts it to show how long the session has been working."
+        },
+        "pendingPermissions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many of this session's permission requests are waiting on a human."
+        }
+      }
+    }
+  }
+}

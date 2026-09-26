@@ -32,17 +32,20 @@ use agent_client_protocol::schema::v1::{
     CancelNotification, ContentBlock, InitializeRequest, LoadSessionRequest, NewSessionRequest,
     PermissionOption as AcpPermissionOption, PermissionOptionKind as AcpPermissionOptionKind,
     PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionId, SessionNotification, StopReason, TextContent,
+    SelectedPermissionOutcome, SessionConfigId, SessionId, SessionNotification, SessionUpdate,
+    SetSessionConfigOptionRequest, StopReason, TextContent,
 };
-use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo};
+use agent_client_protocol::{AcpAgent, Agent, ByteStreams, Client, ConnectionTo};
+use meltemi_process::Scope;
 
 use meltemi_proto::{
-    PermissionDecidedBy, PermissionOption, PermissionOptionKind, PermissionOutcome,
-    PermissionRequestParams, PermissionRequestResult, PermissionTimeoutParams, SessionEventKind,
-    SessionState, TurnStatus, methods,
+    LeverRefusal, LeverRefusalReason, PermissionDecidedBy, PermissionOption, PermissionOptionKind,
+    PermissionOutcome, PermissionRequestParams, PermissionRequestResult, PermissionTimeoutParams,
+    SessionEventKind, SessionState, TurnStatus, methods,
 };
 
 use crate::config::WaitPolicy;
+use crate::lever_options::{self, AnnouncedLevers, Asked};
 use crate::pending::{NewRequest, PendingQueue, Resolution};
 use crate::permissions::{RequestFacts, RuleDecision, RuleSet};
 use crate::rpc::Peer;
@@ -113,6 +116,14 @@ pub struct SessionParams {
     /// marks turns in flight and drains the human-edit notes into the next
     /// turn's prompt (gui-tauri-paridad design D4).
     pub edit_scope: Option<crate::edits::EditScopeHandle>,
+    /// The levers asked of the agent's own announcement: the model and the
+    /// effort its registry entry does not take as a flag. They are set on the
+    /// options the agent announces and confirmed by its answer before the first
+    /// prompt, or the session ends without one (modelo-por-opcion-anunciada
+    /// design D3). Empty sets nothing, exactly as before.
+    pub announced_levers: AnnouncedLevers,
+    /// How long the agent may take to answer each of those levers.
+    pub lever_wait: Duration,
 }
 
 /// The result of one ACP turn: the mapped stop reason, how many permission
@@ -133,11 +144,35 @@ pub struct SessionOutcome {
     /// `Some` carries a stable English identifier the surfaces translate, never
     /// a sentence (sesion-que-espera design D5).
     pub ended_reason: Option<String>,
+    /// Whether the turn whose status this reports was declared empty
+    /// (turno-vacio-es-error design D2, D3).
+    pub last_turn_empty: bool,
+    /// How many turns of the session were declared empty.
+    pub empty_turns: u32,
+    /// What the agent confirmed through the options it announced, before the
+    /// first prompt: what governed, for the levers that went that way — the
+    /// same values `levers_applied` records (modelo-por-opcion-anunciada design
+    /// D6). Empty when none did.
+    pub levers_applied: AnnouncedLevers,
+}
+
+/// How a session run ended (modelo-por-opcion-anunciada design D4): it ran, or
+/// a lever was refused when it opened. The second is not a failure of the
+/// agent and not a turn — no prompt went out — so it cannot be read as either:
+/// every caller has to say what it does with it.
+#[derive(Debug, Clone)]
+pub enum SessionRun {
+    /// The session opened, the agent confirmed what it was asked, and it ran —
+    /// or it was cancelled before its first prompt.
+    Ran(SessionOutcome),
+    /// A lever was refused when the session opened, before any prompt. The
+    /// refusal is already in the session log.
+    LeverRefused(LeverRefusal),
 }
 
 /// Runs one ACP turn end to end and returns the mapped stop reason and the
-/// count of denied permissions.
-pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome> {
+/// count of denied permissions — or the lever refused before any turn.
+pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionRun> {
     let SessionParams {
         agent_command,
         project_root,
@@ -162,6 +197,8 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         idle_timeout,
         max_idle_sessions,
         edit_scope,
+        announced_levers,
+        lever_wait,
     } = params;
 
     // The env overlay rides as leading `NAME=value` tokens: the ACP crate parses
@@ -178,7 +215,64 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
     let agent = AcpAgent::from_args(&launch_argv)
         .map_err(|e| anyhow::anyhow!("invalid agent command: {e:?}"))?;
 
+    // The launch happens **here**, not inside the protocol crate, and the only
+    // reason is the scope (apagado-entero-y-modos design D3). What the platform
+    // runs for an agent installed by a package manager is frequently not the
+    // agent: on Windows it is a `.cmd` shim, and the process doing the work is
+    // underneath it. Ending the shim leaves that process holding the worktree,
+    // and the crate's own wiring — which ends the child it launched and nothing
+    // else — cannot reach it. So the crate still parses the command and still
+    // spawns it (`spawn_process` is public, and is what its `connect_to` calls),
+    // and the wiring is replicated below so the child can be adopted into a
+    // scope before a byte travels.
+    let (agent_stdin, agent_stdout, agent_stderr, mut child) = agent
+        .spawn_process()
+        .map_err(|e| anyhow::anyhow!("failed to launch the agent: {e:?}"))?;
+    let scope = Scope::new().map_err(|e| anyhow::anyhow!("no process scope for the agent: {e}"))?;
+    let agent_pid = child.id();
+    scope
+        .adopt_pid(agent_pid)
+        .map_err(|e| anyhow::anyhow!("the agent could not be scoped: {e}"))?;
+    {
+        // Which process this session's agent actually is. `AgentResolved` says
+        // which binary will run and is written before anything is launched, so
+        // it cannot carry an identifier that does not exist yet; this is the
+        // line a session log needs when somebody is looking at a process that
+        // outlived something it should not have.
+        let mut log = log.lock().await;
+        let _ = log.append(SessionEventKind::AgentProcess {
+            pid: agent_pid,
+            binary: launch_argv
+                .last()
+                .cloned()
+                .unwrap_or_else(|| "?".to_string()),
+        });
+    }
+
+    // The agent's diagnostics have to be drained: a pipe nobody reads fills,
+    // and an agent blocked writing to it is an agent that has stopped speaking
+    // the protocol. The crate collected them into a string it used only for a
+    // non-zero exit; each line reaches the daemon's own log here as it arrives,
+    // which is the same draining and strictly more than it used to say.
+    let stderr_session = meltemi_session_id.clone();
+    let stderr_drain = tokio::spawn(async move {
+        use futures::{AsyncBufReadExt, StreamExt};
+        let mut lines = futures::io::BufReader::new(agent_stderr).lines();
+        while let Some(line) = lines.next().await {
+            match line {
+                Ok(line) if !line.trim().is_empty() => {
+                    tracing::debug!(session = %stderr_session, "agent stderr: {line}");
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+    });
+
     let denials = Arc::new(AtomicU32::new(0));
+    // What the turn in flight carried: reset at every prompt, read when the
+    // answer arrives (turno-vacio-es-error design D1).
+    let carried = Arc::new(AtomicU32::new(0));
 
     // Handler state (the connect_with closure keeps the originals).
     let notif = HandlerState {
@@ -189,6 +283,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         pending: pending.clone(),
         project_root: project_root.clone(),
         denials: denials.clone(),
+        carried: carried.clone(),
         wait,
         no_client_grace,
         clients: clients.clone(),
@@ -205,6 +300,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         pending: pending.clone(),
         project_root: project_root.clone(),
         denials: denials.clone(),
+        carried: carried.clone(),
         wait,
         no_client_grace,
         clients: clients.clone(),
@@ -214,7 +310,7 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
         cancel: Arc::clone(&cancel),
     };
 
-    let result = Client
+    let connecting = Client
         .builder()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
@@ -230,251 +326,624 @@ pub async fn run_session(params: SessionParams) -> anyhow::Result<SessionOutcome
             },
             agent_client_protocol::on_receive_request!(),
         )
-        .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
-            // Handshake: capture whether the agent supports session load, so
-            // resume is only offered honestly (sesiones-reanudables D3).
-            let init = connection
-                .send_request(InitializeRequest::new(ProtocolVersion::V1))
-                .block_task()
-                .await?;
-            let supports_load = init.agent_capabilities.load_session;
+        .connect_with(
+            ByteStreams::new(agent_stdin, agent_stdout),
+            async move |connection: ConnectionTo<Agent>| {
+                // Handshake: capture whether the agent supports session load, so
+                // resume is only offered honestly (sesiones-reanudables D3).
+                let init = connection
+                    .send_request(InitializeRequest::new(ProtocolVersion::V1))
+                    .block_task()
+                    .await?;
+                let supports_load = init.agent_capabilities.load_session;
 
-            // Open the session: resume by loading the prior agent session when
-            // asked (and possible), otherwise create a new one.
-            // What the agent announces about itself when the session opens. A
-            // loaded session announces its own set; a new one announces with
-            // the response to `session/new`. Either way the list is the
-            // AGENT's, and an agent that announces nothing leaves this empty —
-            // which is the answer that stops any surface from offering a live
-            // change (modelo-y-esfuerzo design D2).
-            let (acp_session_id, announced_options) = match &load_session_id {
-                Some(prev) if supports_load => {
-                    let loaded = connection
-                        .send_request(LoadSessionRequest::new(prev.clone(), project_root.clone()))
-                        .block_task()
-                        .await?;
-                    let announced = crate::session_config::from_acp(
-                        loaded.config_options.as_deref().unwrap_or_default(),
-                    );
-                    (SessionId::new(prev.clone()), announced)
-                }
-                _ => {
-                    // Inject declared MCP servers only when the agent announced
-                    // support; otherwise open the session without them and
-                    // record the omission (mcp-passthrough D2/D3).
-                    let mut request = NewSessionRequest::new(project_root.clone());
-                    if !mcp_servers.is_empty() {
-                        if crate::mcp::announces_mcp(&init.agent_capabilities.mcp_capabilities) {
-                            request = request
-                                .mcp_servers(mcp_servers.iter().map(crate::mcp::to_acp).collect());
-                            let mut log = log.lock().await;
-                            let _ = log.append(SessionEventKind::McpInjected {
-                                servers: crate::mcp::names(&mcp_servers),
-                            });
-                        } else {
-                            let mut log = log.lock().await;
-                            let _ = log.append(SessionEventKind::McpNotDelivered {
-                                reason: "the agent does not announce MCP support".into(),
-                            });
-                        }
+                // Open the session: resume by loading the prior agent session when
+                // asked (and possible), otherwise create a new one.
+                // What the agent announces about itself when the session opens. A
+                // loaded session announces its own set; a new one announces with
+                // the response to `session/new`. Either way the list is the
+                // AGENT's, and an agent that announces nothing leaves this empty —
+                // which is the answer that stops any surface from offering a live
+                // change (modelo-y-esfuerzo design D2).
+                //
+                // Both of the protocol's ways of announcing a mode are read
+                // here, because an agent born before configuration options
+                // announces its modes by the older field and would otherwise
+                // look like an agent with nothing to offer
+                // (apagado-entero-y-modos design D6).
+                let (acp_session_id, announced_options) = match &load_session_id {
+                    Some(prev) if supports_load => {
+                        let loaded = connection
+                            .send_request(LoadSessionRequest::new(
+                                prev.clone(),
+                                project_root.clone(),
+                            ))
+                            .block_task()
+                            .await?;
+                        let announced = crate::session_config::announced(
+                            loaded.config_options.as_deref().unwrap_or_default(),
+                            loaded.modes.as_ref(),
+                        );
+                        (SessionId::new(prev.clone()), announced)
                     }
-                    let opened = connection.send_request(request).block_task().await?;
-                    let announced = crate::session_config::from_acp(
-                        opened.config_options.as_deref().unwrap_or_default(),
-                    );
-                    (opened.session_id, announced)
-                }
-            };
-            let agent_session_id = session_id_string(&acp_session_id);
+                    _ => {
+                        // Inject declared MCP servers only when the agent announced
+                        // support; otherwise open the session without them and
+                        // record the omission (mcp-passthrough D2/D3).
+                        let mut request = NewSessionRequest::new(project_root.clone());
+                        if !mcp_servers.is_empty() {
+                            if crate::mcp::announces_mcp(&init.agent_capabilities.mcp_capabilities)
+                            {
+                                request = request.mcp_servers(
+                                    mcp_servers.iter().map(crate::mcp::to_acp).collect(),
+                                );
+                                let mut log = log.lock().await;
+                                let _ = log.append(SessionEventKind::McpInjected {
+                                    servers: crate::mcp::names(&mcp_servers),
+                                });
+                            } else {
+                                let mut log = log.lock().await;
+                                let _ = log.append(SessionEventKind::McpNotDelivered {
+                                    reason: "the agent does not announce MCP support".into(),
+                                });
+                            }
+                        }
+                        let opened = connection.send_request(request).block_task().await?;
+                        let announced = crate::session_config::announced(
+                            opened.config_options.as_deref().unwrap_or_default(),
+                            opened.modes.as_ref(),
+                        );
+                        (opened.session_id, announced)
+                    }
+                };
+                let agent_session_id = session_id_string(&acp_session_id);
 
-            // The connection is kept so a configuration change can travel over
-            // it without relaunching the agent, and the announcement is
-            // recorded even when empty: "connected and announced nothing" and
-            // "not connected yet" are different refusals and must not read the
-            // same.
-            sessions
-                .set_live_config(
-                    &meltemi_session_id,
-                    acp_session_id.0.to_string(),
-                    connection.clone(),
-                    announced_options.clone(),
-                    log.clone(),
-                )
-                .await;
-            if !announced_options.is_empty() {
-                let mut log = log.lock().await;
-                let _ = log.append(SessionEventKind::ConfigOptionsAnnounced {
-                    options: announced_options,
-                });
-            }
-
-            // Turns while the queue has work. The first turn runs the initial
-            // prompt; each subsequent turn runs the next directed instruction on
-            // the SAME live agent session (control-remoto-asistido). A session
-            // that does not accept direction (no queue) runs exactly one turn —
-            // identical to the prior single-turn behavior.
-            let mut current_prompt = prompt;
-            let mut idle_reason: Option<&'static str> = None;
-            let final_status = loop {
-                // Human edits since the agent's last turn ride in the prompt
-                // itself (never a push outside ACP — design D4); the drain is
-                // announce-exactly-once.
-                if let Some(scope) = &edit_scope
-                    && let Some(note) = scope.note_prefix()
-                {
-                    current_prompt = format!("{note}\n\n{current_prompt}");
-                }
-                {
+                // The connection is kept so a configuration change can travel over
+                // it without relaunching the agent, and the announcement is
+                // recorded even when empty: "connected and announced nothing" and
+                // "not connected yet" are different refusals and must not read the
+                // same.
+                sessions
+                    .set_live_config(
+                        &meltemi_session_id,
+                        acp_session_id.0.to_string(),
+                        connection.clone(),
+                        announced_options.clone(),
+                        log.clone(),
+                    )
+                    .await;
+                if !announced_options.options.is_empty() {
                     let mut log = log.lock().await;
-                    let _ = log.append(SessionEventKind::PromptSent {
-                        text: current_prompt.clone(),
+                    let _ = log.append(SessionEventKind::ConfigOptionsAnnounced {
+                        options: announced_options.options.clone(),
                     });
                 }
 
-                // Send the prompt, racing the client's cancellation. On cancel we
-                // forward an ACP session/cancel and let the agent drain the turn
-                // to its Cancelled stop reason.
-                let prompt_request = PromptRequest::new(
-                    acp_session_id.clone(),
-                    vec![ContentBlock::Text(TextContent::new(current_prompt.clone()))],
-                );
-                let prompt_future = connection.send_request(prompt_request).block_task();
-                tokio::pin!(prompt_future);
-                in_flight.store(true, Ordering::SeqCst);
-                if let Some(scope) = &edit_scope {
-                    scope.begin_turn();
-                }
-                let response = tokio::select! {
-                    r = &mut prompt_future => r,
-                    _ = cancel.notified() => {
-                        let _ = connection
-                            .send_notification(CancelNotification::new(acp_session_id.clone()));
-                        (&mut prompt_future).await
-                    }
-                };
-                if let Some(scope) = &edit_scope {
-                    scope.end_turn();
-                }
-                in_flight.store(false, Ordering::SeqCst);
-                let response = response?;
-                let status = map_stop_reason(response.stop_reason);
-
-                // Turn boundary. A cancellation request stops further dispatch
-                // even if the agent reported a non-cancelled stop reason, and so
-                // does a cancelled turn: a directed instruction that arrives late
-                // must take the resume path, never queue into a turn that will
-                // not run. Otherwise dispatch the next queued instruction.
-                // A stopped turn means two different things, and the queue is
-                // what knows which (redirigir-turno design D2): the user
-                // cancelled the SESSION, or interrupted the TURN and left a
-                // relay behind. A `Cancelled` the agent reported on its own —
-                // with no interruption asked for — still ends the session, and
-                // that prudence is untouched: an agent that cancels itself is
-                // not an invitation to keep sending it work.
-                // Consumed unconditionally: a flag raised against a turn that
-                // ended on its own before the signal landed must not survive to
-                // govern a later one.
-                let relayed = match &instruction_queue {
-                    Some(queue) => queue.take_interrupted().await,
-                    None => false,
-                };
-                if cancelled.load(Ordering::SeqCst) || matches!(status, TurnStatus::Cancelled) {
-                    if !relayed {
-                        if let Some(queue) = &instruction_queue {
-                            queue.close().await;
+                // The levers asked of the announcement are set now, before the
+                // first prompt, and the agent's answer confirms them — or the
+                // session ends here without one: a prompt carries the
+                // repository, and it goes only to the model that was chosen
+                // (modelo-por-opcion-anunciada design D3, D4).
+                let mut levers_applied = AnnouncedLevers::default();
+                if !announced_levers.is_empty() {
+                    let setting = LeverSetting {
+                        connection: &connection,
+                        acp_session_id: &acp_session_id,
+                        sessions: &sessions,
+                        meltemi_session_id: &meltemi_session_id,
+                        log: &log,
+                        wait: lever_wait,
+                        cancel: &cancel,
+                        cancelled: &cancelled,
+                    };
+                    match setting.apply(&announced_options, &announced_levers).await? {
+                        LeverPhase::Applied(applied) => levers_applied = applied,
+                        LeverPhase::Refused(refusal) => {
+                            if let Some(queue) = &instruction_queue {
+                                queue.close().await;
+                            }
+                            return Ok(Closing::LeverRefused(refusal));
                         }
-                        break status;
+                        // Read from the flag just below, like any cancellation
+                        // that lands before the first prompt.
+                        LeverPhase::Cancelled => {}
                     }
-                    // Interrupted with a relay: the session continues. The flag
-                    // was consumed above, so it governs this turn and not the
-                    // next one.
-                    //
-                    // The history says so in its own event. `TurnCompleted
-                    // { cancelled }` reads identically whether the agent stopped
-                    // itself or a human stopped it, and a record that cannot tell
-                    // those apart misreports who decided (design D4). The
-                    // instruction that relayed it travels with it, because
-                    // "interrupted" without "in favour of what" is half a fact.
+                }
+
+                // Nothing wakes a prompt that has not been sent, so a
+                // cancellation that landed before the first one — while a lever
+                // was being set, or in the instant after — is read from the
+                // flag here, and ends the session without a prompt, as
+                // cancelled (modelo-por-opcion-anunciada design D3).
+                if cancelled.load(Ordering::SeqCst) {
                     if let Some(queue) = &instruction_queue {
-                        let next = queue.peek().await;
+                        queue.close().await;
+                    }
+                    return Ok(Closing::Ran(Turns {
+                        status: TurnStatus::Cancelled,
+                        supports_load,
+                        agent_session_id,
+                        idle_reason: None,
+                        last_turn_empty: false,
+                        empty_turns: 0,
+                        levers_applied,
+                    }));
+                }
+
+                // Turns while the queue has work. The first turn runs the initial
+                // prompt; each subsequent turn runs the next directed instruction on
+                // the SAME live agent session (control-remoto-asistido). A session
+                // that does not accept direction (no queue) runs exactly one turn —
+                // identical to the prior single-turn behavior.
+                let mut current_prompt = prompt;
+                let mut idle_reason: Option<&'static str> = None;
+                let mut empty_turns: u32 = 0;
+                let mut last_turn_empty: bool;
+                let final_status = loop {
+                    // Human edits since the agent's last turn ride in the prompt
+                    // itself (never a push outside ACP — design D4); the drain is
+                    // announce-exactly-once.
+                    if let Some(scope) = &edit_scope
+                        && let Some(note) = scope.note_prefix()
+                    {
+                        current_prompt = format!("{note}\n\n{current_prompt}");
+                    }
+                    {
                         let mut log = log.lock().await;
-                        let _ = log.append(SessionEventKind::TurnInterrupted {
-                            instruction: next.unwrap_or_default(),
+                        let _ = log.append(SessionEventKind::PromptSent {
+                            text: current_prompt.clone(),
                         });
                     }
-                }
-                // The boundary. An empty queue no longer ends the session: it
-                // parks here, inside `connect_with`, which is the only place the
-                // agent subprocess can survive — returning from this closure IS
-                // killing it (design D1).
-                //
-                // A session with no queue is single-turn by construction and
-                // must NOT gain a wait nobody asked for: the authoring flows
-                // pass `None` and expect exactly one turn.
-                let Some(queue) = &instruction_queue else {
-                    break status;
-                };
-                match queue.try_take().await {
-                    Some(next) => current_prompt = next,
-                    None => {
-                        // Declared AFTER any human wait has ended, never before:
-                        // `end_waiting` restores `Active` unconditionally and
-                        // would overwrite this (design D7).
-                        if let Some(evicted) = sessions
-                            .begin_idle(&meltemi_session_id, max_idle_sessions)
-                            .await
-                        {
-                            tracing::info!(
-                                evicted,
-                                max = max_idle_sessions,
-                                "idle cap reached: closing the oldest waiting session"
-                            );
+                    // A new turn has carried nothing yet. Reset after the prompt
+                    // is on the record and before it is sent, so nothing the
+                    // agent says in answer can land before the reset.
+                    carried.store(0, Ordering::SeqCst);
+                    // Whether anyone asked this turn to stop: a turn a human
+                    // stopped is never the provider's failure (design D2).
+                    let mut stop_requested = false;
+
+                    // Send the prompt, racing the client's cancellation. On cancel we
+                    // forward an ACP session/cancel and let the agent drain the turn
+                    // to its Cancelled stop reason.
+                    let prompt_request = PromptRequest::new(
+                        acp_session_id.clone(),
+                        vec![ContentBlock::Text(TextContent::new(current_prompt.clone()))],
+                    );
+                    let prompt_future = connection.send_request(prompt_request).block_task();
+                    tokio::pin!(prompt_future);
+                    in_flight.store(true, Ordering::SeqCst);
+                    if let Some(scope) = &edit_scope {
+                        scope.begin_turn();
+                    }
+                    let response = tokio::select! {
+                        r = &mut prompt_future => r,
+                        _ = cancel.notified() => {
+                            stop_requested = true;
+                            let _ = connection
+                                .send_notification(CancelNotification::new(acp_session_id.clone()));
+                            (&mut prompt_future).await
                         }
-                        match wait_for_instruction(
-                            queue,
-                            &cancel,
-                            &clients,
-                            no_client_grace,
-                            idle_timeout,
-                        )
-                        .await
-                        {
-                            Waking::Instruction(next) => {
-                                sessions.end_idle(&meltemi_session_id).await;
-                                sessions
-                                    .set_state(&meltemi_session_id, SessionState::Active)
-                                    .await;
-                                current_prompt = next;
-                            }
-                            Waking::Ended(reason) => {
-                                sessions.end_idle(&meltemi_session_id).await;
+                    };
+                    if let Some(scope) = &edit_scope {
+                        scope.end_turn();
+                    }
+                    in_flight.store(false, Ordering::SeqCst);
+                    let response = response?;
+                    let status = map_stop_reason(response.stop_reason);
+
+                    // Turn boundary. A cancellation request stops further dispatch
+                    // even if the agent reported a non-cancelled stop reason, and so
+                    // does a cancelled turn: a directed instruction that arrives late
+                    // must take the resume path, never queue into a turn that will
+                    // not run. Otherwise dispatch the next queued instruction.
+                    // A stopped turn means two different things, and the queue is
+                    // what knows which (redirigir-turno design D2): the user
+                    // cancelled the SESSION, or interrupted the TURN and left a
+                    // relay behind. A `Cancelled` the agent reported on its own —
+                    // with no interruption asked for — still ends the session, and
+                    // that prudence is untouched: an agent that cancels itself is
+                    // not an invitation to keep sending it work.
+                    // Consumed unconditionally: a flag raised against a turn that
+                    // ended on its own before the signal landed must not survive to
+                    // govern a later one.
+                    let relayed = match &instruction_queue {
+                        Some(queue) => queue.take_interrupted().await,
+                        None => false,
+                    };
+                    // The verdict of this turn, written before anything decides
+                    // what comes next, so every turn gets one: the last, the
+                    // intermediate ones, a dispatch, an implement task
+                    // (turno-vacio-es-error design D2). The dispatch loop of the
+                    // connection ran every update handler before this answer
+                    // resolved, so the count is complete.
+                    let stopped = stop_requested || relayed || cancelled.load(Ordering::SeqCst);
+                    last_turn_empty =
+                        turn_was_empty(status, carried.load(Ordering::SeqCst), stopped);
+                    if last_turn_empty {
+                        empty_turns += 1;
+                        let mut log = log.lock().await;
+                        let _ = log.append(SessionEventKind::TurnEmpty {
+                            stop_reason: status,
+                        });
+                    }
+                    if cancelled.load(Ordering::SeqCst) || matches!(status, TurnStatus::Cancelled) {
+                        if !relayed {
+                            if let Some(queue) = &instruction_queue {
                                 queue.close().await;
-                                idle_reason = Some(reason);
-                                break status;
+                            }
+                            break status;
+                        }
+                        // Interrupted with a relay: the session continues. The flag
+                        // was consumed above, so it governs this turn and not the
+                        // next one.
+                        //
+                        // The history says so in its own event. `TurnCompleted
+                        // { cancelled }` reads identically whether the agent stopped
+                        // itself or a human stopped it, and a record that cannot tell
+                        // those apart misreports who decided (design D4). The
+                        // instruction that relayed it travels with it, because
+                        // "interrupted" without "in favour of what" is half a fact.
+                        if let Some(queue) = &instruction_queue {
+                            let next = queue.peek().await;
+                            let mut log = log.lock().await;
+                            let _ = log.append(SessionEventKind::TurnInterrupted {
+                                instruction: next.unwrap_or_default(),
+                            });
+                        }
+                    }
+                    // The boundary. An empty queue no longer ends the session: it
+                    // parks here, inside `connect_with`, which is the only place the
+                    // agent subprocess can survive — returning from this closure IS
+                    // killing it (design D1).
+                    //
+                    // A session with no queue is single-turn by construction and
+                    // must NOT gain a wait nobody asked for: the authoring flows
+                    // pass `None` and expect exactly one turn.
+                    let Some(queue) = &instruction_queue else {
+                        break status;
+                    };
+                    match queue.try_take().await {
+                        Some(next) => current_prompt = next,
+                        None => {
+                            // Declared AFTER any human wait has ended, never before:
+                            // `end_waiting` restores `Active` unconditionally and
+                            // would overwrite this (design D7).
+                            if let Some(evicted) = sessions
+                                .begin_idle(&meltemi_session_id, max_idle_sessions)
+                                .await
+                            {
+                                tracing::info!(
+                                    evicted,
+                                    max = max_idle_sessions,
+                                    "idle cap reached: closing the oldest waiting session"
+                                );
+                            }
+                            match wait_for_instruction(
+                                queue,
+                                &cancel,
+                                &clients,
+                                no_client_grace,
+                                idle_timeout,
+                            )
+                            .await
+                            {
+                                Waking::Instruction(next) => {
+                                    sessions.end_idle(&meltemi_session_id).await;
+                                    sessions
+                                        .set_state(&meltemi_session_id, SessionState::Active)
+                                        .await;
+                                    current_prompt = next;
+                                }
+                                Waking::Ended(reason) => {
+                                    sessions.end_idle(&meltemi_session_id).await;
+                                    queue.close().await;
+                                    idle_reason = Some(reason);
+                                    break status;
+                                }
                             }
                         }
                     }
-                }
-            };
+                };
 
-            Ok((final_status, supports_load, agent_session_id, idle_reason))
-        })
-        .await;
+                Ok(Closing::Ran(Turns {
+                    status: final_status,
+                    supports_load,
+                    agent_session_id,
+                    idle_reason,
+                    last_turn_empty,
+                    empty_turns,
+                    levers_applied,
+                }))
+            },
+        );
 
-    let (status, supports_load, agent_session_id, idle_reason) =
-        result.map_err(|e| anyhow::anyhow!("acp session failed: {e:?}"))?;
-    Ok(SessionOutcome {
-        status,
+    // The protocol, raced against the process that speaks it. The streams
+    // closing would end the connection on its own, so this is not what makes an
+    // early exit visible — it is what makes it legible: an agent that died at
+    // launch says so, instead of arriving as a protocol error with no cause.
+    // `biased` prefers the protocol, so the ordinary ending — the agent exiting
+    // once the conversation is over — is never reported as an early exit.
+    tokio::pin!(connecting);
+    let result = tokio::select! {
+        biased;
+        outcome = &mut connecting => outcome,
+        status = child.status() => Err(agent_client_protocol::Error::internal_error().data(
+            serde_json::json!({
+                "reason": "the agent process ended before the session did",
+                "status": match &status {
+                    Ok(status) => status.to_string(),
+                    Err(error) => error.to_string(),
+                },
+            }),
+        )),
+    };
+
+    // Whatever happened, the agent goes — and with it everything it launched.
+    // Ending the scope is the half that reaches an intermediary's children;
+    // dropping it afterwards is the half that would have run even if this line
+    // never did.
+    if let Err(error) = scope.end() {
+        tracing::warn!(pid = agent_pid, "could not end the agent's scope: {error}");
+    }
+    let _ = child.try_status();
+    stderr_drain.abort();
+
+    let turns = match result.map_err(|e| anyhow::anyhow!("acp session failed: {e:?}"))? {
+        Closing::Ran(turns) => turns,
+        Closing::LeverRefused(refusal) => return Ok(SessionRun::LeverRefused(refusal)),
+    };
+    Ok(SessionRun::Ran(SessionOutcome {
+        status: turns.status,
         denied_permissions: denials.load(Ordering::Relaxed),
-        supports_load,
-        agent_session_id,
+        supports_load: turns.supports_load,
+        agent_session_id: turns.agent_session_id,
         // "cancelled" is not carried here: cancelling already has its own
         // recorded ending, and reporting it twice in two vocabularies is how a
         // log starts disagreeing with itself.
-        ended_reason: idle_reason
+        ended_reason: turns
+            .idle_reason
             .filter(|reason| *reason != "cancelled")
             .map(str::to_string),
-    })
+        last_turn_empty: turns.last_turn_empty,
+        empty_turns: turns.empty_turns,
+        levers_applied: turns.levers_applied,
+    }))
+}
+
+/// What the connection hands back when it closes.
+enum Closing {
+    /// Its turns ran, or it was cancelled before the first.
+    Ran(Turns),
+    /// A lever was refused before any prompt.
+    LeverRefused(LeverRefusal),
+}
+
+/// The facts of a session whose turns ran.
+struct Turns {
+    status: TurnStatus,
+    supports_load: bool,
+    agent_session_id: Option<String>,
+    idle_reason: Option<&'static str>,
+    last_turn_empty: bool,
+    empty_turns: u32,
+    levers_applied: AnnouncedLevers,
+}
+
+/// What setting the announced levers needs from its session
+/// (modelo-por-opcion-anunciada design D3).
+struct LeverSetting<'a> {
+    connection: &'a ConnectionTo<Agent>,
+    acp_session_id: &'a SessionId,
+    sessions: &'a crate::session::SessionRegistry,
+    meltemi_session_id: &'a str,
+    log: &'a Arc<Mutex<SessionLog>>,
+    /// How long each lever may wait for its answer.
+    wait: Duration,
+    cancel: &'a Notify,
+    cancelled: &'a AtomicBool,
+}
+
+/// How setting the announced levers ended.
+enum LeverPhase {
+    /// Every lever confirmed as asked: what governs from the first prompt on.
+    Applied(AnnouncedLevers),
+    /// One was refused, and no prompt goes out.
+    Refused(LeverRefusal),
+    /// The session was cancelled while a lever was being set.
+    Cancelled,
+}
+
+impl LeverSetting<'_> {
+    /// Sets the levers on the options the agent announced — the model first,
+    /// then the effort against what the model left on offer — and takes the
+    /// agent's last answer as the verdict: every lever as asked and the mode
+    /// where it was, or a refusal (design D3). Each answer is recorded as the
+    /// announcement it is, and the verdict as `levers_applied` or
+    /// `lever_refused`.
+    async fn apply(
+        &self,
+        announced: &crate::session_config::Announced,
+        asked: &AnnouncedLevers,
+    ) -> Result<LeverPhase, agent_client_protocol::Error> {
+        let mode_before = lever_options::mode_of(&announced.options);
+        let mut current = announced.options.clone();
+        let mut answered = false;
+        let mut set: Vec<Asked> = Vec::new();
+        let phase = 'levers: {
+            for (lever, requested) in asked.in_order() {
+                // The option and the value are read against the LAST answer:
+                // fixing the model can change what the effort offers.
+                let chosen =
+                    lever_options::option_for(&current, lever, requested).and_then(|option| {
+                        lever_options::value_for(option, lever, requested)
+                            .map(|value| (option.id.clone(), value))
+                    });
+                let (option_id, value) = match chosen {
+                    Ok(chosen) => chosen,
+                    Err(refusal) => break 'levers LeverPhase::Refused(refusal),
+                };
+                let request = self
+                    .connection
+                    .send_request(SetSessionConfigOptionRequest::new(
+                        self.acp_session_id.clone(),
+                        SessionConfigId::new(option_id.clone()),
+                        value,
+                    ))
+                    .block_task();
+                let answer =
+                    match answer_or_stop(request, self.wait, self.cancel, self.cancelled).await {
+                        Waited::Answer(answer) => answer?,
+                        Waited::Cancelled => break 'levers LeverPhase::Cancelled,
+                        Waited::Expired => {
+                            break 'levers LeverPhase::Refused(lever_options::refusal(
+                                lever,
+                                requested,
+                                LeverRefusalReason::NoAnswer,
+                                None,
+                            ));
+                        }
+                    };
+                // What the agent reports back is the record — the whole
+                // announcement as it now stands, not what was asked.
+                current = crate::session_config::from_acp(&answer.config_options);
+                answered = true;
+                self.record(SessionEventKind::ConfigOptionsAnnounced {
+                    options: current.clone(),
+                })
+                .await;
+                let mode_after = match lever_options::mode_of(&current) {
+                    Some(mode) => Some(mode),
+                    // A mode announced by the protocol's older field never
+                    // travels in this answer. The agent reports it moving by
+                    // notification, and the registry has already applied every
+                    // notification sent before the answer.
+                    None if announced.mode_is_inherited => self
+                        .sessions
+                        .live_config(self.meltemi_session_id)
+                        .await
+                        .and_then(|config| lever_options::mode_of(&config.options)),
+                    None => None,
+                };
+                if lever_options::mode_moved(mode_before.as_deref(), mode_after.as_deref()) {
+                    break 'levers LeverPhase::Refused(lever_options::refusal(
+                        lever,
+                        requested,
+                        LeverRefusalReason::ModeChanged,
+                        mode_after,
+                    ));
+                }
+                set.push(Asked {
+                    lever,
+                    option_id,
+                    requested: requested.to_string(),
+                });
+                if let Err(refusal) = lever_options::confirmed(&current, &set) {
+                    break 'levers LeverPhase::Refused(refusal);
+                }
+            }
+            LeverPhase::Applied(asked.clone())
+        };
+        if answered {
+            // Folded once, at the end, so a mode announced by the older field
+            // stays observable while the levers are set. From here on the
+            // agent's last answer is what a live change is validated against.
+            self.sessions
+                .update_config_options(self.meltemi_session_id, current)
+                .await;
+        }
+        match &phase {
+            LeverPhase::Applied(applied) => {
+                self.record(SessionEventKind::LeversApplied {
+                    model: applied.model.clone(),
+                    effort: applied.effort.clone(),
+                })
+                .await;
+            }
+            LeverPhase::Refused(refusal) => {
+                self.record(SessionEventKind::LeverRefused(refusal.clone()))
+                    .await;
+            }
+            LeverPhase::Cancelled => {}
+        }
+        Ok(phase)
+    }
+
+    async fn record(&self, kind: SessionEventKind) {
+        let mut log = self.log.lock().await;
+        let _ = log.append(kind);
+    }
+}
+
+/// How waiting for the agent's answer to a lever ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Waited<T> {
+    Answer(T),
+    Cancelled,
+    Expired,
+}
+
+/// Waits for an answer within `wait`, giving way to a cancellation of the
+/// session (modelo-por-opcion-anunciada design D3).
+///
+/// The notifier only wakes whoever is already waiting, so the wait is armed
+/// before the flag is read — the other order is the race. A wake with the flag
+/// down is an interruption of a turn, and there is no turn yet: the wait goes
+/// on.
+async fn answer_or_stop<T>(
+    answer: impl std::future::Future<Output = T>,
+    wait: Duration,
+    cancel: &Notify,
+    cancelled: &AtomicBool,
+) -> Waited<T> {
+    tokio::pin!(answer);
+    let expiry = tokio::time::sleep(wait);
+    tokio::pin!(expiry);
+    loop {
+        let stop = cancel.notified();
+        tokio::pin!(stop);
+        stop.as_mut().enable();
+        if cancelled.load(Ordering::SeqCst) {
+            return Waited::Cancelled;
+        }
+        tokio::select! {
+            biased;
+            () = &mut stop => {}
+            answer = &mut answer => return Waited::Answer(answer),
+            () = &mut expiry => return Waited::Expired,
+        }
+    }
+}
+
+/// Whether an update is the agent's work, as opposed to a description of the
+/// session (turno-vacio-es-error design D1).
+///
+/// A message or a thought counts when it has content: text that is not only
+/// whitespace, or anything that is not text at all. A tool call, its update
+/// and a plan always count. The echo of the prompt, the announcements and the
+/// usage report do not. Anything a later protocol adds counts as work, because
+/// the verdict must never blame the provider for a shape Meltemi cannot read.
+pub(crate) fn carries_work(update: &SessionUpdate) -> bool {
+    match update {
+        SessionUpdate::AgentMessageChunk(chunk) | SessionUpdate::AgentThoughtChunk(chunk) => {
+            match &chunk.content {
+                ContentBlock::Text(text) => !text.text.trim().is_empty(),
+                _ => true,
+            }
+        }
+        SessionUpdate::UserMessageChunk(_)
+        | SessionUpdate::AvailableCommandsUpdate(_)
+        | SessionUpdate::CurrentModeUpdate(_)
+        | SessionUpdate::ConfigOptionUpdate(_)
+        | SessionUpdate::SessionInfoUpdate(_)
+        | SessionUpdate::UsageUpdate(_) => false,
+        _ => true,
+    }
+}
+
+/// Whether a turn is declared empty (turno-vacio-es-error design D2): it ended
+/// `completed`, carried nothing, and nobody asked it to stop.
+pub(crate) fn turn_was_empty(status: TurnStatus, carried: u32, stopped: bool) -> bool {
+    status == TurnStatus::Completed && carried == 0 && !stopped
 }
 
 /// Renders an ACP session id as a plain string (it serializes as a string).
@@ -497,6 +966,9 @@ struct HandlerState {
     project_root: PathBuf,
     /// Count of denied permissions this turn.
     denials: Arc<AtomicU32>,
+    /// What the turn in flight carried: every update that is the agent's work,
+    /// and every permission request (turno-vacio-es-error design D1).
+    carried: Arc<AtomicU32>,
     /// The wait policy of this flow (espera-humana D2).
     wait: WaitPolicy,
     /// Reconnect grace before the constitutional no-client deny (D3).
@@ -600,9 +1072,50 @@ fn cancelled_resolution() -> Resolution {
 /// belongs to the log itself (lanzador-conversacional D3), so this appends and
 /// nothing more — publishing here as well would deliver every update twice.
 async fn forward_update(state: &HandlerState, notification: SessionNotification) {
+    if carries_work(&notification.update) {
+        state.carried.fetch_add(1, Ordering::SeqCst);
+    }
+    // Three of these updates are not only history. They say the session's
+    // announcement has changed, and a surface reading the old one offers a
+    // lever the agent no longer has — or hides one it just gained. So the
+    // state moves first, and the log records both facts in the order they
+    // happened (apagado-entero-y-modos design D7).
+    let reannounced = match &notification.update {
+        // The agent changed its own mode. Which of the two forms the option
+        // came from does not matter here: either way it is the session's mode
+        // option, and this is its new value.
+        SessionUpdate::CurrentModeUpdate(update) => {
+            state
+                .sessions
+                .set_current_mode(&state.session_id, &update.current_mode_id.0)
+                .await
+        }
+        // A new list replaces the old one WHOLE. It is what the agent says it
+        // has now, and merging would invent an announcement that is neither
+        // what it said before nor what it says now.
+        SessionUpdate::ConfigOptionUpdate(update) => {
+            let options = crate::session_config::from_acp(&update.config_options);
+            state
+                .sessions
+                .update_config_options(&state.session_id, options.clone())
+                .await;
+            Some(options)
+        }
+        // Seen, and deliberately not taken: commands are not options. They
+        // have no value to set and no announcement to validate a choice
+        // against, so folding them into this list would put something in front
+        // of the human that nothing here can honour. Giving them a place of
+        // their own is another change.
+        SessionUpdate::AvailableCommandsUpdate(_) => None,
+        _ => None,
+    };
+
     let update = serde_json::to_value(&notification.update).unwrap_or(Value::Null);
     let mut log = state.log.lock().await;
     let _ = log.append(SessionEventKind::AgentUpdate { update });
+    if let Some(options) = reannounced {
+        let _ = log.append(SessionEventKind::ConfigOptionsAnnounced { options });
+    }
 }
 
 /// Decides a permission request: consult the rules first (allow/deny without
@@ -613,6 +1126,8 @@ async fn passthrough_permission(
     state: &HandlerState,
     request: &RequestPermissionRequest,
 ) -> RequestPermissionOutcome {
+    // A question is the agent at work, whatever the answer turns out to be.
+    state.carried.fetch_add(1, Ordering::SeqCst);
     {
         let mut log = state.log.lock().await;
         let _ = log.append(SessionEventKind::PermissionRequested {
@@ -867,6 +1382,8 @@ fn spawn_live_push(
         session_id: state.session_id.clone(),
         tool_call: tool_call.clone(),
         options: options.to_vec(),
+        // The queue's own id travels with the push (aprobador-en-el-cli D4).
+        request_id: Some(request_id.clone()),
     };
     tokio::spawn(async move {
         let push = peer.request(methods::PERMISSION_REQUEST, &params);
@@ -991,13 +1508,106 @@ fn map_stop_reason(reason: StopReason) -> TurnStatus {
 mod tests {
     use super::*;
 
+    mod empty_turn {
+        use super::*;
+        use agent_client_protocol::schema::v1::{
+            AvailableCommandsUpdate, ConfigOptionUpdate, ContentChunk, CurrentModeUpdate,
+            ImageContent, Plan, SessionInfoUpdate, ToolCall, ToolCallUpdate, ToolCallUpdateFields,
+            UsageUpdate,
+        };
+
+        fn said(text: &str) -> SessionUpdate {
+            SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
+                TextContent::new(text),
+            )))
+        }
+
+        #[test]
+        fn any_word_or_action_is_work() {
+            // Scenario: Un turno con cualquier palabra o acción no es vacío
+            assert!(carries_work(&said("done")));
+            assert!(carries_work(&SessionUpdate::ToolCall(ToolCall::new(
+                "t-1",
+                "Read file"
+            ))));
+        }
+
+        #[test]
+        fn thinking_a_tool_update_a_plan_or_an_image_is_work() {
+            // Scenario: Un turno que solo piensa, actualiza una herramienta o su plan no es vacío
+            assert!(carries_work(&SessionUpdate::AgentThoughtChunk(
+                ContentChunk::new(ContentBlock::Text(TextContent::new("considering")))
+            )));
+            assert!(carries_work(&SessionUpdate::ToolCallUpdate(
+                ToolCallUpdate::new("t-1", ToolCallUpdateFields::new())
+            )));
+            assert!(carries_work(&SessionUpdate::Plan(Plan::new(Vec::new()))));
+            assert!(carries_work(&SessionUpdate::AgentMessageChunk(
+                ContentChunk::new(ContentBlock::Image(ImageContent::new("AAAA", "image/png")))
+            )));
+        }
+
+        #[test]
+        fn a_chunk_of_only_whitespace_is_not_work() {
+            // Scenario: Un fragmento de solo espacios no cuenta como trabajo
+            assert!(!carries_work(&said("")));
+            assert!(!carries_work(&said("  \n\t ")));
+            assert!(!carries_work(&SessionUpdate::AgentThoughtChunk(
+                ContentChunk::new(ContentBlock::Text(TextContent::new(" ")))
+            )));
+        }
+
+        #[test]
+        fn what_describes_the_session_is_not_work() {
+            // Scenario: Lo que describe la sesión no cuenta como trabajo
+            for update in [
+                SessionUpdate::UserMessageChunk(ContentChunk::new(ContentBlock::Text(
+                    TextContent::new("the prompt, echoed"),
+                ))),
+                SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(Vec::new())),
+                SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new("default")),
+                SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(Vec::new())),
+                SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()),
+                SessionUpdate::UsageUpdate(UsageUpdate::new(0, 200_000)),
+            ] {
+                assert!(!carries_work(&update), "{update:?}");
+            }
+        }
+
+        #[test]
+        fn only_a_completed_turn_that_carried_nothing_and_was_not_stopped_is_empty() {
+            assert!(turn_was_empty(TurnStatus::Completed, 0, false));
+            assert!(
+                !turn_was_empty(TurnStatus::Completed, 1, false),
+                "it carried something"
+            );
+            assert!(
+                !turn_was_empty(TurnStatus::Completed, 0, true),
+                "a human stopped it, whatever the agent answered"
+            );
+            for status in [
+                TurnStatus::Cancelled,
+                TurnStatus::Refused,
+                TurnStatus::MaxTokens,
+                TurnStatus::MaxTurnRequests,
+            ] {
+                assert!(
+                    !turn_was_empty(status, 0, false),
+                    "{status:?} did not finish"
+                );
+            }
+        }
+    }
+
     /// A queue with a log, for the waiting tests.
     async fn wait_fixture(tag: &str) -> (crate::session::InstructionQueue, std::path::PathBuf) {
         let dir =
             std::env::temp_dir().join(format!("meltemi-acp-wait-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let registry = crate::session::SessionRegistry::default();
-        registry.register("s-1", vec!["mock".into()]).await;
+        registry
+            .register("s-1", vec!["mock".into()], "/repo".into())
+            .await;
         let log = Arc::new(Mutex::new(
             SessionLog::create(&dir, "proj", "s-1").expect("a log to write to"),
         ));
@@ -1080,6 +1690,94 @@ mod tests {
             option_id: id.into(),
             name: id.into(),
             kind,
+        }
+    }
+
+    mod lever_wait {
+        use super::*;
+
+        #[tokio::test]
+        async fn an_answer_in_time_is_the_answer() {
+            let cancel = Notify::new();
+            let cancelled = AtomicBool::new(false);
+            let waited =
+                answer_or_stop(async { 7 }, Duration::from_secs(5), &cancel, &cancelled).await;
+            assert_eq!(waited, Waited::Answer(7));
+        }
+
+        #[tokio::test]
+        async fn no_answer_within_the_wait_expires() {
+            let cancel = Notify::new();
+            let cancelled = AtomicBool::new(false);
+            let waited = answer_or_stop(
+                std::future::pending::<()>(),
+                Duration::from_millis(30),
+                &cancel,
+                &cancelled,
+            )
+            .await;
+            assert_eq!(waited, Waited::Expired);
+        }
+
+        #[tokio::test]
+        async fn a_cancellation_already_raised_stops_before_waiting() {
+            let cancel = Notify::new();
+            let cancelled = AtomicBool::new(true);
+            let waited = answer_or_stop(
+                std::future::pending::<()>(),
+                Duration::from_secs(30),
+                &cancel,
+                &cancelled,
+            )
+            .await;
+            assert_eq!(waited, Waited::Cancelled);
+        }
+
+        #[tokio::test]
+        async fn a_cancellation_during_the_wait_stops_it_at_once() {
+            let cancel = Arc::new(Notify::new());
+            let cancelled = Arc::new(AtomicBool::new(false));
+            let (raise, lower) = (Arc::clone(&cancel), Arc::clone(&cancelled));
+            // The order `SessionRegistry::cancel` uses: the flag, then the wake.
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                lower.store(true, Ordering::SeqCst);
+                raise.notify_waiters();
+            });
+            let started = Instant::now();
+            let waited = answer_or_stop(
+                std::future::pending::<()>(),
+                Duration::from_secs(30),
+                &cancel,
+                &cancelled,
+            )
+            .await;
+            assert_eq!(waited, Waited::Cancelled);
+            assert!(started.elapsed() < Duration::from_secs(10));
+        }
+
+        #[tokio::test]
+        async fn a_wake_without_a_cancellation_keeps_waiting_for_the_answer() {
+            // An interruption wakes the same notifier without raising the
+            // flag; before the first prompt there is no turn to interrupt.
+            let cancel = Arc::new(Notify::new());
+            let cancelled = AtomicBool::new(false);
+            let (tx, rx) = tokio::sync::oneshot::channel::<u8>();
+            let wake = Arc::clone(&cancel);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                wake.notify_waiters();
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                let _ = tx.send(3);
+            });
+            let waited = answer_or_stop(
+                async { rx.await.expect("answered") },
+                Duration::from_secs(30),
+                &cancel,
+                &cancelled,
+            )
+            .await;
+            assert_eq!(waited, Waited::Answer(3));
         }
     }
 

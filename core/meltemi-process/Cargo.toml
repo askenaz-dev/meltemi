@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "meltemi-process"
+description = "Process scopes: ending a launched process ends everything it launched"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+# No dependency at all off Windows: there the scope is an inert type, and the
+# platform already delivers a signal to the process a launcher names
+# (apagado-entero-y-modos design D1).
+[target.'cfg(windows)'.dependencies]
+# Already a pinned workspace dependency (the daemon's named-pipe ACL and the
+# client's detached spawn use it). This crate adds the `Win32_System_JobObjects`
+# feature to that entry, which is a flag on a dependency the workspace already
+# carries and not a name entering it (design D2).
+windows-sys.workspace = true

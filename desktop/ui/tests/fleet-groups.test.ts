@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { groupFleet, type FleetRow } from "../src/lib/fleet-groups.ts";
+import { groupFleet, levelState, type FleetRow } from "../src/lib/fleet-groups.ts";
 
 type Agent = Parameters<typeof groupFleet>[0][number];
 
@@ -115,4 +115,20 @@ test("a subscription whose agent is not in the catalog is listed, marked, at the
 
 test("an empty fleet groups to nothing rather than throwing", () => {
   assert.deepEqual(groupFleet([]), []);
+});
+
+// Scenario: El catálogo nombra la versión medida
+test("a verified level says which version it was measured against", () => {
+  const said = (key: string, vars?: Record<string, string | number>) =>
+    vars ? `${key}:${JSON.stringify(vars)}` : key;
+  const t = said as Parameters<typeof levelState>[1];
+
+  const declared = agent("codex-cli", "Codex CLI");
+  assert.equal(levelState(declared, t), "fleet.level.declared");
+
+  const verified = { ...declared, verifiedLevel: 2 };
+  assert.equal(levelState(verified, t), "fleet.level.verified");
+
+  const measured = { ...verified, verifiedVersion: "0.156.1" };
+  assert.equal(levelState(measured, t), 'fleet.level.verifiedWith:{"version":"0.156.1"}');
 });

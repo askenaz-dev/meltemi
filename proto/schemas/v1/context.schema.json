@@ -12,6 +12,38 @@
           "type": "string",
           "minLength": 1,
           "description": "Absolute path to the root of the target repository."
+        },
+        "consentUserScope": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Fleet catalog ids whose USER-scope instruction file Meltemi may write into from now on. Someone else's configuration is not ours to start editing because the feature exists, so the first write to each agent's file is consented to here and the consent is recorded in the user's own configuration. Absent asks for nothing: destinations not yet consented to are reported as awaitingConsent and left untouched. Withdrawing consent is editing that file; nothing is ever deleted from the agent's own."
+        }
+      }
+    },
+    "userScopeTarget": {
+      "type": "object",
+      "description": "One destination of the USER's own harness — the instruction file an agent reads for every project — and what happened at it. Only destinations verified against the provider's documentation appear at all; an agent with no verified path is a declared absence, never a guess.",
+      "required": ["agent", "path", "state"],
+      "properties": {
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The fleet catalog id whose instruction file this is."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The resolved absolute path."
+        },
+        "state": {
+          "type": "string",
+          "enum": ["written", "unchanged", "awaiting_consent", "ignored_by_agent"],
+          "description": "written / unchanged: the managed block is current. awaiting_consent: this agent's file has never been consented to and nothing was written. ignored_by_agent: the agent's own documentation says it reads a different file while that one is present, so writing here would fill a file nobody reads."
+        },
+        "overriddenBy": {
+          "type": "string",
+          "minLength": 1,
+          "description": "For ignored_by_agent, the file the agent reads instead."
         }
       }
     },
@@ -43,6 +75,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/target" },
           "description": "Every declared target with its fingerprint and whether it changed."
+        },
+        "userTargets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/userScopeTarget" },
+          "description": "Every user-scope destination the user's own harness reaches, reported whether or not anything was written: a destination left alone for want of consent, or one the agent itself ignores, is exactly what a surface has to be able to say. Nothing of a repository ever reaches these files, and nothing of these files ever reaches a repository."
         }
       }
     }

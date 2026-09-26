@@ -8,12 +8,15 @@
 //! [`ExitCode::Contract`]. The endpoint is injected so the mapping is testable
 //! against an ephemeral in-process daemon.
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use serde_json::json;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use meltemi_client::bootstrap;
-use meltemi_client::rpc::{Incoming, Peer, RpcError};
+use meltemi_client::rpc::Peer;
 use meltemi_proto::{
     ChangeLandParams, ChangeLandResult, ChangeListParams, ChangeListResult, ChangeShowParams,
     ChangeShowResult, ChangeWorkspaceParams, ChangeWorkspaceResult, SddValidateParams,
@@ -26,17 +29,18 @@ use meltemi_proto::{
 };
 use meltemi_proto::{
     ContextProjectParams, ContextProjectResult, FleetListParams, FleetListResult, InitializeParams,
-    PROTOCOL_VERSION, PeerInfo, PermissionOutcome, PermissionRequestResult, ProposeParams,
-    ProposeResult, SessionListParams, SessionListResult, StatusResult, WorktreeAssignParams,
-    WorktreeAssignResult, WorktreeDiffParams, WorktreeDiffResult, WorktreeListParams,
-    WorktreeListResult, WorktreeTask, methods,
+    PROTOCOL_VERSION, PeerInfo, ProposeParams, ProposeResult, SessionListParams, SessionListResult,
+    StatusResult, WorktreeAssignParams, WorktreeAssignResult, WorktreeDiffParams,
+    WorktreeDiffResult, WorktreeListParams, WorktreeListResult, WorktreeTask, methods,
 };
 use meltemi_proto::{
     EditLogDestination, TreeEditState, WorktreeApplyEditParams, WorktreeApplyEditResult,
     WorktreeDispatchParams, WorktreeDispatchResult,
 };
 
+use crate::approver::Approver;
 use crate::cli::Command;
+use crate::decide::{NotWaiting, Verdict};
 use crate::format::{Paint, paint};
 use crate::output::{CliError, Outcome};
 
@@ -80,7 +84,12 @@ pub async fn execute(
         Command::Link { agent, name } => link(agent, name, endpoint).await,
         Command::Unlink { name } => unlink(name, endpoint).await,
         Command::Project { project_root } => project(project_root, endpoint).await,
-        Command::Sessions { project_root } => sessions(project_root, endpoint).await,
+        // `--follow` never reaches here: the dispatcher runs the streams where
+        // the process's own writer lives (see `Command::Watch`).
+        Command::Sessions {
+            project_root,
+            follow: _,
+        } => sessions(project_root, endpoint).await,
         Command::Explore { topic, agent } => {
             sdd_verb(endpoint, methods::SDD_EXPLORE, topic, None, agent).await
         }
@@ -175,6 +184,7 @@ pub async fn execute(
             option,
             value,
         } => set_option(session, option, value, endpoint).await,
+        Command::Harness { agent } => harness(agent, endpoint).await,
         // `tunnel` is a local formatter: it never touches the daemon.
         Command::Tunnel { target, exec } => tunnel(target, exec),
         // The bridge writes the daemon's bytes to the process's own locked
@@ -183,6 +193,17 @@ pub async fn execute(
             "`bridge` is dispatched with the process writer, not through `execute`",
         )),
         Command::Stop => stop(endpoint).await,
+        // The streams write each record to the process's own stdout as it
+        // arrives, so the dispatcher runs them where that writer lives.
+        Command::Watch { .. } | Command::Log { .. } => Err(CliError::internal(
+            "`watch` and `log` are dispatched with the process writer, not through `execute`",
+        )),
+        Command::Permissions => permissions(endpoint).await,
+        Command::Approve { request, option } => {
+            decide(Verdict::Approve, request, option, endpoint).await
+        }
+        Command::Deny { request, option } => decide(Verdict::Deny, request, option, endpoint).await,
+        Command::Cancel { session } => cancel(session, endpoint).await,
         // Reserved subcommands are handled by the dispatcher before reaching
         // here; this arm keeps `execute` total.
         Command::Reserved(name) => Err(CliError::internal(format!(
@@ -191,15 +212,112 @@ pub async fn execute(
     }
 }
 
-/// Connects (starting the daemon on demand), spawns the background handler for
-/// daemon-initiated traffic, and performs the mandatory `initialize`.
-async fn connect_and_init(endpoint: &str) -> Result<(Peer, JoinHandle<()>), CliError> {
+tokio::task_local! {
+    /// The approver of the command running, and the project its sessions work
+    /// in when a remembered rule may be written for it (aprobador-en-el-cli
+    /// design D5). Set by [`execute_with`]; absent, requests are refused.
+    static APPROVAL: (Approver, Option<String>);
+}
+
+/// Runs one command, answering the permission requests its sessions raise
+/// with `approver`. [`execute`] is this with the approver that refuses
+/// everything: nothing in the library waits for a key on its own.
+pub async fn execute_with(
+    command: Command,
+    endpoint: &str,
+    painting: bool,
+    approver: Approver,
+) -> Result<Outcome, CliError> {
+    let root = remembering_root(&command);
+    APPROVAL
+        .scope((approver, root), execute(command, endpoint, painting))
+        .await
+}
+
+/// The project a remembered rule is written for: only the verbs whose sessions
+/// work at the project root offer to remember, because in a task worktree the
+/// rule would land in the worktree, govern no next session and ride along in
+/// the task's commit (aprobador-en-el-cli design D5).
+fn remembering_root(command: &Command) -> Option<String> {
+    match command {
+        Command::Session { project_root, .. } | Command::Propose { project_root, .. } => {
+            cwd_or(project_root.clone()).ok()
+        }
+        _ => None,
+    }
+}
+
+/// The handler of what the daemon sends a command unasked — its permission
+/// requests above all — and the signal that tells it the command is ending.
+struct Background {
+    task: JoinHandle<()>,
+    closing: Arc<Notify>,
+}
+
+/// How long a command waits for its handler to finish what already arrived.
+const FINISH_GRACE: Duration = Duration::from_secs(3);
+
+impl Background {
+    /// Ends a command's connection without abandoning its approver: the
+    /// handler finishes what already arrived — retiring an open question with
+    /// its reason, leaving raw mode — and only then does the connection close
+    /// (aprobador-en-el-cli design D12). The wait is bounded; past it the
+    /// handler is aborted, and the dispatcher's settling restores the terminal.
+    async fn finish(self, peer: &Peer) {
+        self.closing.notify_one();
+        let abort = self.task.abort_handle();
+        if tokio::time::timeout(FINISH_GRACE, self.task).await.is_err() {
+            abort.abort();
+        }
+        peer.close();
+    }
+}
+
+/// Connects (starting the daemon on demand), spawns the handler for
+/// daemon-initiated traffic — the command's approver — and performs the
+/// mandatory `initialize`.
+async fn connect_and_init(endpoint: &str) -> Result<(Peer, Background), CliError> {
     let stream = bootstrap::connect_or_start(endpoint)
         .await
         .map_err(CliError::unreachable)?;
     let (peer, incoming) = Peer::start(stream);
-    let background = tokio::spawn(handle_incoming(peer.clone(), incoming));
+    let (approver, root) = APPROVAL
+        .try_with(|(approver, root)| (approver.clone(), root.clone()))
+        .unwrap_or_else(|_| (Approver::deny(), None));
+    let closing = Arc::new(Notify::new());
+    let task = tokio::spawn({
+        let peer = peer.clone();
+        let closing = Arc::clone(&closing);
+        async move { approver.serve(peer, incoming, closing, root).await }
+    });
+    let background = Background { task, closing };
+    initialize(&peer).await?;
+    Ok((peer, background))
+}
 
+/// Connects (starting the daemon on demand) and performs `initialize`, leaving
+/// everything the daemon sends unasked to the caller: a stream reads it itself
+/// (verbos-del-agent-boss). The receiver must be held while the connection is
+/// used — dropping it stops the connection's reader.
+pub(crate) async fn connect_reading(
+    endpoint: &str,
+) -> Result<
+    (
+        Peer,
+        tokio::sync::mpsc::UnboundedReceiver<meltemi_client::rpc::Incoming>,
+    ),
+    CliError,
+> {
+    let stream = bootstrap::connect_or_start(endpoint)
+        .await
+        .map_err(CliError::unreachable)?;
+    let (peer, incoming) = Peer::start(stream);
+    initialize(&peer).await?;
+    Ok((peer, incoming))
+}
+
+/// The mandatory first request of every connection.
+async fn initialize(peer: &Peer) -> Result<(), CliError> {
     peer.request(
         methods::INITIALIZE,
         &InitializeParams {
@@ -212,42 +330,13 @@ async fn connect_and_init(endpoint: &str) -> Result<(Peer, JoinHandle<()>), CliE
     )
     .await
     .map_err(CliError::contract)?;
-
-    Ok((peer, background))
-}
-
-/// Answers daemon-initiated requests. In scriptable mode there is no
-/// interactive approver yet (#6/#9), so permission requests are denied by
-/// default — the safe posture. Rich permission UX arrives in a later change.
-async fn handle_incoming(peer: Peer, mut incoming: UnboundedReceiver<Incoming>) {
-    while let Some(message) = incoming.recv().await {
-        match message {
-            Incoming::Request { id, method, .. } if method == methods::PERMISSION_REQUEST => {
-                eprintln!(
-                    "meltemi: agent requested a permission; denied by default \
-                     (interactive approval arrives in a later release)"
-                );
-                let result = PermissionRequestResult {
-                    outcome: PermissionOutcome::Cancelled,
-                };
-                peer.respond(
-                    id,
-                    Ok(serde_json::to_value(result).expect("decision serializes")),
-                );
-            }
-            Incoming::Request { id, method, .. } => {
-                peer.respond(id, Err(RpcError::method_not_found(&method)));
-            }
-            Incoming::Notification { .. } => {}
-        }
-    }
+    Ok(())
 }
 
 async fn status(endpoint: &str) -> Result<Outcome, CliError> {
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(methods::STATUS, &json!({})).await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let status: StatusResult = serde_json::from_value(value.clone()).map_err(CliError::internal)?;
@@ -282,10 +371,9 @@ async fn propose(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
-    let value = response.map_err(CliError::contract)?;
+    let value = response.map_err(CliError::from_rpc)?;
     let result: ProposeResult =
         serde_json::from_value(value.clone()).map_err(CliError::internal)?;
     Ok(Outcome {
@@ -328,10 +416,9 @@ async fn session(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
-    let value = response.map_err(CliError::contract)?;
+    let value = response.map_err(CliError::from_rpc)?;
     let result: meltemi_proto::SessionStartResult =
         serde_json::from_value(value.clone()).map_err(CliError::internal)?;
     Ok(Outcome {
@@ -357,6 +444,15 @@ fn render_session(result: &meltemi_proto::SessionStartResult) -> String {
             .map_or_else(|| "started".to_string(), status_word),
         result.agent_command.join(" ")
     );
+    // What governed, whichever way it reached the agent — and nothing when
+    // nothing was declared (modelo-por-opcion-anunciada D6).
+    if let Some(line) = crate::lever::governed_line(
+        result.model.as_deref(),
+        result.effort.as_deref(),
+        crate::shell::messages::Lang::En,
+    ) {
+        out.push_str(&format!("\n{line}"));
+    }
     match (&result.checkpoint_ref, result.checkpoint_unavailable) {
         (Some(git_ref), _) => out.push_str(&format!("\nrestore point: {git_ref}")),
         (None, cause) => {
@@ -390,8 +486,7 @@ async fn link(agent: String, name: String, endpoint: &str) -> Result<Outcome, Cl
             &json!({ "agent": agent, "name": name }),
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let gesture = &value["gesture"];
@@ -415,8 +510,7 @@ async fn unlink(name: String, endpoint: &str) -> Result<Outcome, CliError> {
     let response = peer
         .request(methods::SUBSCRIPTION_UNLINK, &json!({ "name": name }))
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let human = format!(
@@ -438,8 +532,7 @@ async fn fleet(endpoint: &str) -> Result<Outcome, CliError> {
     let response = peer
         .request(methods::FLEET_LIST, &FleetListParams { project_root })
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: FleetListResult =
@@ -463,11 +556,16 @@ async fn project(project_root: Option<String>, endpoint: &str) -> Result<Outcome
     let response = peer
         .request(
             methods::CONTEXT_PROJECT,
-            &ContextProjectParams { project_root },
+            &ContextProjectParams {
+                project_root,
+                // The scriptable surface consents to nothing implicitly: writing
+                // into an agent's own configuration is a decision, and a flag
+                // nobody typed is not one.
+                consent_user_scope: Vec::new(),
+            },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ContextProjectResult =
@@ -496,8 +594,7 @@ async fn sessions(project_root: Option<String>, endpoint: &str) -> Result<Outcom
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: SessionListResult =
@@ -533,10 +630,9 @@ async fn sdd_verb(
 
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(method, &params).await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
-    let value = response.map_err(CliError::contract)?;
+    let value = response.map_err(CliError::from_rpc)?;
     let phase = value["phase"].as_str().unwrap_or("done");
     let mut human = format!("sdd: {phase}");
     if let Some(artifact) = value["artifact"].as_str() {
@@ -569,8 +665,7 @@ async fn review(change: String, endpoint: &str) -> Result<Outcome, CliError> {
             &json!({ "projectRoot": project_root, "changeName": change }),
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     use std::fmt::Write;
@@ -614,8 +709,7 @@ async fn worktrees(project_root: Option<String>, endpoint: &str) -> Result<Outco
     let response = peer
         .request(methods::WORKTREE_LIST, &WorktreeListParams { project_root })
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: WorktreeListResult =
@@ -649,8 +743,7 @@ async fn assign(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: WorktreeAssignResult =
@@ -679,8 +772,7 @@ async fn race(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: WorktreeDiffResult =
@@ -703,8 +795,7 @@ async fn checkpoints(change: Option<String>, endpoint: &str) -> Result<Outcome, 
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: CheckpointListResult =
@@ -736,8 +827,7 @@ async fn revert(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     match response {
         Ok(value) => {
@@ -794,8 +884,7 @@ async fn commit(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: CommitTaskResult =
@@ -818,8 +907,7 @@ async fn verify(change: String, endpoint: &str) -> Result<Outcome, CliError> {
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: SddVerifyResult =
@@ -844,8 +932,7 @@ async fn archive(change: String, confirm: bool, endpoint: &str) -> Result<Outcom
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: SddArchiveResult =
@@ -876,10 +963,9 @@ async fn implement(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
-    let value = response.map_err(CliError::contract)?;
+    let value = response.map_err(CliError::from_rpc)?;
     let result: SddImplementResult =
         serde_json::from_value(value.clone()).map_err(CliError::internal)?;
     Ok(Outcome {
@@ -914,10 +1000,9 @@ async fn dispatch(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
-    let value = response.map_err(CliError::contract)?;
+    let value = response.map_err(CliError::from_rpc)?;
     let result: WorktreeDispatchResult =
         serde_json::from_value(value.clone()).map_err(CliError::internal)?;
     Ok(Outcome {
@@ -955,8 +1040,7 @@ async fn apply_edit(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: WorktreeApplyEditResult =
@@ -993,8 +1077,7 @@ async fn projects(endpoint: &str) -> Result<Outcome, CliError> {
             &meltemi_proto::ProjectListParams::default(),
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: meltemi_proto::ProjectListResult =
@@ -1017,8 +1100,7 @@ async fn project_register(path: String, endpoint: &str) -> Result<Outcome, CliEr
             &meltemi_proto::ProjectRegisterParams { root: path },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: meltemi_proto::ProjectRegisterResult =
@@ -1046,8 +1128,7 @@ async fn project_forget(path: String, endpoint: &str) -> Result<Outcome, CliErro
             &meltemi_proto::ProjectForgetParams { root: path.clone() },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: meltemi_proto::ProjectForgetResult =
@@ -1127,8 +1208,7 @@ async fn usage(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: meltemi_proto::AnalyticsUsageResult =
@@ -1153,6 +1233,43 @@ fn disclosure_line(key: meltemi_proto::UsageDisclosure) -> &'static str {
         }
         D::NothingIsEstimated => "nothing is estimated: a counter nobody reported stays absent",
         D::NothingLeavesThisMachine => "no data leaves this machine",
+        D::AgentReportedContextAndCost => {
+            "context and cost are what each agent reported over the protocol: Meltemi only \
+             sums the cost per currency — it estimates, converts and prices nothing — and a \
+             cumulative cost may include spending from before the range"
+        }
+    }
+}
+
+/// The cost the agents declared, one figure per currency with its sessions —
+/// never converted, never summed across currencies — or the absence marker.
+fn agent_cost(cost: &[meltemi_proto::AgentReportCost]) -> String {
+    if cost.is_empty() {
+        return "cost - not reported".to_string();
+    }
+    let figures: Vec<String> = cost
+        .iter()
+        .map(|entry| {
+            format!(
+                "{} {} ({} session(s))",
+                amount(entry.amount),
+                crate::approver::clean(&entry.currency),
+                entry.sessions
+            )
+        })
+        .collect();
+    format!("cost {}", figures.join(", "))
+}
+
+/// An amount as the agent reported it, to four decimals at most and without
+/// trailing zeros: `0.125`, `0.3`, `12`.
+fn amount(value: f64) -> String {
+    let fixed = format!("{value:.4}");
+    let trimmed = fixed.trim_end_matches('0').trim_end_matches('.');
+    if trimmed.is_empty() || trimmed == "-" {
+        "0".to_string()
+    } else {
+        trimmed.to_string()
     }
 }
 
@@ -1189,6 +1306,30 @@ fn render_usage(result: &meltemi_proto::AnalyticsUsageResult) -> String {
                 measured(cell.tokens.as_ref().and_then(|t| t.input)),
                 measured(cell.tokens.as_ref().and_then(|t| t.output)),
             );
+            // Only when there are any: a zero on every line would be noise
+            // (turno-vacio-es-error design D7).
+            if cell.activity.empty_turns > 0 {
+                let _ = write!(
+                    out,
+                    "\n             {} empty turn(s): the agent ended without saying or doing anything",
+                    cell.activity.empty_turns
+                );
+            }
+            // What the agents reported over the protocol, said as theirs:
+            // the fullest context and the cost per currency (usage-desde-acp
+            // design D7).
+            if let Some(report) = &cell.agent_report {
+                let _ = write!(
+                    out,
+                    "\n             reported by the agent ({} session(s)): {}; {}",
+                    report.sessions,
+                    match (report.context_used, report.context_size) {
+                        (Some(used), Some(size)) => format!("context max {used} of {size}"),
+                        _ => "context - not reported".to_string(),
+                    },
+                    agent_cost(&report.cost)
+                );
+            }
             if cell.coverage.unreported_sessions > 0 {
                 let reasons: Vec<String> = cell
                     .coverage
@@ -1221,6 +1362,16 @@ fn render_usage(result: &meltemi_proto::AnalyticsUsageResult) -> String {
             unattributed.period, unattributed.human_edits
         );
     }
+    // The totals sum the cells; a maximum context is not a sum, so only the
+    // sessions and the cost travel here.
+    if let Some(report) = &result.totals.agent_report {
+        let _ = write!(
+            out,
+            "\n  reported by the agents in total ({} session(s)): {}",
+            report.sessions,
+            agent_cost(&report.cost)
+        );
+    }
     // The disclosure travels with the numbers, never behind a flag (design D6).
     for key in &result.disclosure {
         let _ = write!(
@@ -1245,8 +1396,7 @@ async fn changes(endpoint: &str, painting: bool) -> Result<Outcome, CliError> {
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ChangeListResult =
@@ -1269,8 +1419,7 @@ async fn show(change: String, endpoint: &str) -> Result<Outcome, CliError> {
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ChangeShowResult =
@@ -1302,8 +1451,7 @@ async fn workspace(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ChangeWorkspaceResult =
@@ -1334,8 +1482,7 @@ async fn land(
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: ChangeLandResult =
@@ -1359,8 +1506,7 @@ async fn specs(
             let response = peer
                 .request(methods::SPEC_LIST, &SpecListParams { project_root })
                 .await;
-            peer.close();
-            background.abort();
+            background.finish(&peer).await;
             let value = response.map_err(CliError::contract)?;
             let result: SpecListResult =
                 serde_json::from_value(value.clone()).map_err(CliError::internal)?;
@@ -1376,8 +1522,7 @@ async fn specs(
                     },
                 )
                 .await;
-            peer.close();
-            background.abort();
+            background.finish(&peer).await;
             let value = response.map_err(CliError::contract)?;
             let result: SpecShowResult =
                 serde_json::from_value(value.clone()).map_err(CliError::internal)?;
@@ -1399,8 +1544,7 @@ async fn validate(change: Option<String>, endpoint: &str) -> Result<Outcome, Cli
             },
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     let result: SddValidateResult =
@@ -1414,8 +1558,7 @@ async fn validate(change: Option<String>, endpoint: &str) -> Result<Outcome, Cli
 async fn stop(endpoint: &str) -> Result<Outcome, CliError> {
     let (peer, background) = connect_and_init(endpoint).await?;
     let response = peer.request(methods::SHUTDOWN, &json!({})).await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     response.map_err(CliError::contract)?;
     Ok(Outcome {
@@ -1444,14 +1587,244 @@ async fn direct(
             }),
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     Ok(Outcome {
         human: render_direct(&value),
         json: value,
     })
+}
+
+/// `cancel`: the interactive `x`, from any shell (verbos-del-agent-boss D9).
+async fn cancel(session: String, endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let outcome = cancel_on(&peer, &session).await;
+    background.finish(&peer).await;
+    outcome
+}
+
+/// A session that is not running is not cancelled — and that is no error: what
+/// was wanted, that it not go on, already holds. A running one gets the
+/// notification, and then `status` on the same connection: the daemon's
+/// connection loop dispatches a notification before it reads the next request,
+/// so the answer sees the cancellation applied and says whether the session
+/// was still closing its turn.
+async fn cancel_on(peer: &Peer, session: &str) -> Result<Outcome, CliError> {
+    use crate::approver::clean;
+    use crate::follow::{find, running, state_word, unknown_session};
+
+    let shown = clean(session);
+    if !running(peer, session).await? {
+        let Some(info) = find(peer, session).await? else {
+            return Err(unknown_session(session));
+        };
+        let state = state_word(&info);
+        return Ok(Outcome {
+            human: format!("session {shown} is not running ({state}) — nothing to cancel"),
+            json: json!({ "sessionId": session, "cancel": "not_running", "state": state }),
+        });
+    }
+    peer.notify(
+        methods::SESSION_CANCEL,
+        &meltemi_proto::SessionCancelParams {
+            session_id: session.to_string(),
+        },
+    );
+    let still = running(peer, session).await?;
+    Ok(Outcome {
+        human: if still {
+            format!(
+                "cancel requested for session {shown} — the agent closes its turn and the \
+                 session ends; follow it with `meltemi watch {shown}`"
+            )
+        } else {
+            format!("cancelled: session {shown} has ended")
+        },
+        json: json!({ "sessionId": session, "cancel": "requested", "running": still }),
+    })
+}
+
+/// `permissions`: what waits for a decision (`permission/pending`), listed with
+/// the options each agent offered — what `approve` and `deny` choose from.
+async fn permissions(endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer.request(methods::PERMISSION_PENDING, &json!({})).await;
+    background.finish(&peer).await;
+
+    let value = response.map_err(CliError::contract)?;
+    let result: meltemi_proto::PermissionPendingResult =
+        serde_json::from_value(value.clone()).map_err(CliError::internal)?;
+    Ok(Outcome {
+        human: crate::decide::render_pending(&result.pending),
+        json: value,
+    })
+}
+
+/// `approve` and `deny`: ONE waiting request, decided with one of the options
+/// its agent offered for it (verbos-del-agent-boss design D2).
+async fn decide(
+    verdict: Verdict,
+    request: String,
+    option: Option<String>,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let outcome = decide_on(&peer, verdict, &request, option.as_deref()).await;
+    background.finish(&peer).await;
+    outcome
+}
+
+/// Reads the request in the queue, chooses among its agent's options, and
+/// decides. The queue is read first because the options are the request's, and
+/// because the daemon takes any id it is sent: holding a typed id to the
+/// agent's list is this verb's job, never the daemon's (design D2).
+async fn decide_on(
+    peer: &Peer,
+    verdict: Verdict,
+    request: &str,
+    option: Option<&str>,
+) -> Result<Outcome, CliError> {
+    use crate::decide::{choose, decided_line, decided_value, not_waiting_message};
+    use meltemi_proto::{
+        PermissionDecideParams, PermissionDecideResult, PermissionDecideStatus,
+        PermissionPendingResult,
+    };
+
+    let queue = peer
+        .request(methods::PERMISSION_PENDING, &json!({}))
+        .await
+        .map_err(CliError::contract)?;
+    let queue: PermissionPendingResult =
+        serde_json::from_value(queue).map_err(CliError::internal)?;
+    let Some(entry) = queue
+        .pending
+        .into_iter()
+        .find(|entry| entry.request_id == request)
+    else {
+        return Err(CliError::denied(
+            "not_waiting",
+            not_waiting_message(request, NotWaiting::Absent),
+        ));
+    };
+    if entry.expired {
+        return Err(CliError::denied(
+            "not_waiting",
+            not_waiting_message(request, NotWaiting::Expired),
+        ));
+    }
+    let choice = choose(verdict, &entry.options, option).map_err(|refusal| {
+        CliError::usage(crate::decide::refusal_message(
+            verdict,
+            request,
+            &entry.options,
+            &refusal,
+        ))
+    })?;
+
+    let answer = peer
+        .request(
+            methods::PERMISSION_DECIDE,
+            &PermissionDecideParams {
+                request_id: entry.request_id.clone(),
+                option_id: choice.option_id().map(str::to_string),
+                persist_rule: None,
+            },
+        )
+        .await
+        .map_err(CliError::contract)?;
+    let answer: PermissionDecideResult =
+        serde_json::from_value(answer).map_err(CliError::internal)?;
+    match answer.status {
+        PermissionDecideStatus::Applied => Ok(Outcome {
+            human: decided_line(verdict, &entry, &choice),
+            json: decided_value(verdict, &entry, &choice),
+        }),
+        // Waiting when read, resolved by another decision before this one
+        // arrived: the first decision wins, and this one says it lost.
+        PermissionDecideStatus::AlreadyResolved => Err(CliError::denied(
+            "not_waiting",
+            not_waiting_message(request, NotWaiting::LostRace),
+        )),
+    }
+}
+
+/// `harness`: what applies, and where each piece comes from.
+///
+/// Prints the covered and the unreadable too, because "why is mine not the one
+/// applying" is the question people arrive with, and a listing of only what
+/// governs leaves it unanswered.
+async fn harness(agent: Option<String>, endpoint: &str) -> Result<Outcome, CliError> {
+    let project_root = cwd_or(None)?;
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let mut params = json!({ "projectRoot": project_root });
+    if let Some(agent) = &agent {
+        params["agent"] = json!(agent);
+    }
+    let response = peer.request(methods::HARNESS_EFFECTIVE, &params).await;
+    background.finish(&peer).await;
+
+    let value = response.map_err(CliError::contract)?;
+    Ok(Outcome {
+        human: render_harness(&value),
+        json: value,
+    })
+}
+
+fn render_harness(value: &serde_json::Value) -> String {
+    let rules = value["rules"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let unknown = value["unknownAgents"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    if rules.is_empty() && unknown.is_empty() {
+        return "no harness is configured for this project or user".into();
+    }
+    let mut out: Vec<String> = Vec::new();
+    for rule in rules {
+        let name = rule["name"].as_str().unwrap_or("?");
+        let origin = &rule["origin"];
+        let layer = origin["layer"].as_str().unwrap_or("?");
+        let agent = origin["agent"]
+            .as_str()
+            .map(|a| format!(" · {a}"))
+            .unwrap_or_default();
+        let problems = rule["problems"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if problems.is_empty() {
+            out.push(format!("{name} [{layer}{agent}]"));
+        } else {
+            out.push(format!("{name} [{layer}{agent}] — not applied"));
+            for problem in problems {
+                out.push(format!("    {}", problem.as_str().unwrap_or("?")));
+            }
+        }
+        for covered in rule["shadowed"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+        {
+            let layer = covered["layer"].as_str().unwrap_or("?");
+            let agent = covered["agent"]
+                .as_str()
+                .map(|a| format!(" · {a}"))
+                .unwrap_or_default();
+            out.push(format!("    covered: [{layer}{agent}]"));
+        }
+    }
+    for entry in unknown {
+        out.push(format!(
+            "unknown agent `{}` — nothing was read from {}",
+            entry["id"].as_str().unwrap_or("?"),
+            entry["path"].as_str().unwrap_or("?")
+        ));
+    }
+    out.join(
+        "
+",
+    )
 }
 
 /// `set-option`: change an announced option on a live session.
@@ -1477,8 +1850,7 @@ async fn set_option(
             }),
         )
         .await;
-    peer.close();
-    background.abort();
+    background.finish(&peer).await;
 
     let value = response.map_err(CliError::contract)?;
     Ok(Outcome {
@@ -1610,25 +1982,32 @@ fn tunnel(target: Option<String>, exec: bool) -> Result<Outcome, CliError> {
     if exec {
         // `--exec` runs the user's OWN ssh, visible (inherited stdio), never a
         // silent background tunnel. A placeholder target cannot be dialed.
-        let Some(host) = target.as_deref() else {
+        if target.is_none() {
             return Err(CliError::usage(
                 "`tunnel --exec` needs a target: meltemi tunnel <user@host> --exec",
             ));
-        };
-        let forward = format!("{}:{}", plan.remote_endpoint, plan.local_endpoint);
+        }
+        // Exactly the arguments that were printed: one source for both.
         let status = std::process::Command::new("ssh")
-            .args(["-N", "-R", &forward, host])
+            .args(&plan.ssh_args)
             .status()
             .map_err(|e| CliError::internal(format!("could not launch ssh: {e}")))?;
-        let code = status.code().unwrap_or(-1);
-        return Ok(Outcome {
-            human: format!("ran `{}`; ssh exited with status {code}", plan.ssh_command),
-            json: json!({
-                "sshCommand": plan.ssh_command,
-                "executed": true,
-                "exitCode": code,
+        // How it ended is said either way, and a tunnel that died is never
+        // reported as a success (acceso-remoto-afinado D6).
+        return match crate::tunnel::ending(status.code()) {
+            Ok(ended) => Ok(Outcome {
+                human: format!("ran `{}`\n{ended}", plan.ssh_command),
+                json: json!({
+                    "sshCommand": plan.ssh_command,
+                    "executed": true,
+                    "exitCode": status.code(),
+                }),
             }),
-        });
+            Err(down) => Err(CliError::tunnel_down(format!(
+                "ran `{}`\n{down}",
+                plan.ssh_command
+            ))),
+        };
     }
 
     let human = format!(
@@ -1738,6 +2117,16 @@ fn pilot_is_bundled(layers: &[meltemi_proto::FleetLayer]) -> bool {
         .is_some_and(|layer| layer.source == Some(meltemi_proto::FleetLayerSource::Bundled))
 }
 
+/// The verified level in words, with the version it was measured against when
+/// the run recorded one (codex-al-dia design D11).
+fn verified_words(agent: &meltemi_proto::FleetAgent) -> String {
+    match (agent.verified_level, &agent.verified_version) {
+        (Some(level), Some(version)) => format!("verified L{level} with {version}"),
+        (Some(level), None) => format!("verified L{level}"),
+        (None, _) => "unverified".to_string(),
+    }
+}
+
 /// Human rendering of the fleet catalog: detection word, declared level,
 /// id, name, then the detected path and the configured marker.
 fn render_fleet(fleet: &FleetListResult) -> String {
@@ -1758,10 +2147,7 @@ fn render_fleet(fleet: &FleetListResult) -> String {
         } else {
             "not-detected"
         };
-        let verified = match agent.verified_level {
-            Some(v) => format!("verified L{v}"),
-            None => "unverified".to_string(),
-        };
+        let verified = verified_words(agent);
         let _ = write!(
             out,
             "\n  {word}  L{} ({verified})  {:<id_width$}  {}",
@@ -2416,6 +2802,173 @@ fn render_race(result: &WorktreeDiffResult) -> String {
 
 #[cfg(test)]
 mod tests {
+    // Scenario: Las superficies muestran lo reportado como cifra del agente
+    #[test]
+    fn the_agents_report_reads_as_the_agents_figures() {
+        let activity = serde_json::json!({
+            "sessions": 2, "sessionsClosed": 2, "sessionsOpen": 0,
+            "activeSeconds": 10, "prompts": 2, "permissionsRequested": 0,
+            "permissionsApproved": 0, "permissionsDenied": 0,
+            "permissionsExpired": 0, "humanEdits": 0, "commits": 0,
+            "checkpoints": 0, "errors": 0
+        });
+        let result: meltemi_proto::AnalyticsUsageResult =
+            serde_json::from_value(serde_json::json!({
+                "cells": [
+                    {
+                        "projectKey": "k", "projectRoot": "/repo", "agent": "opencode",
+                        "period": "total", "activity": activity,
+                        "coverage": {
+                            "measuredSessions": 0, "unreportedSessions": 2,
+                            "reasons": [{
+                                "kind": "protocol_carries_context_not_consumption",
+                                "sessions": 2
+                            }]
+                        },
+                        "agentReport": {
+                            "sessions": 2, "contextUsed": 3000, "contextSize": 200000,
+                            "cost": [
+                                { "currency": "EUR", "amount": 0.5, "sessions": 1 },
+                                { "currency": "USD", "amount": 0.30000000000000004, "sessions": 1 }
+                            ]
+                        }
+                    },
+                    {
+                        "projectKey": "k", "projectRoot": "/repo", "agent": "gemini",
+                        "period": "total", "activity": activity,
+                        "coverage": { "measuredSessions": 0, "unreportedSessions": 2 },
+                        "agentReport": { "sessions": 1, "contextUsed": 10, "contextSize": 100 }
+                    }
+                ],
+                "totals": {
+                    "cells": 2, "activity": activity,
+                    "coverage": { "measuredSessions": 0, "unreportedSessions": 4 },
+                    "agentReport": {
+                        "sessions": 3,
+                        "cost": [
+                            { "currency": "EUR", "amount": 0.5, "sessions": 1 },
+                            { "currency": "USD", "amount": 0.3, "sessions": 1 }
+                        ]
+                    }
+                },
+                "truncated": false,
+                "disclosure": ["agent-reported-context-and-cost"]
+            }))
+            .expect("a usage answer");
+        let out = super::render_usage(&result);
+        assert!(
+            out.contains(
+                "reported by the agent (2 session(s)): context max 3000 of 200000; \
+                 cost 0.5 EUR (1 session(s)), 0.3 USD (1 session(s))"
+            ),
+            "the figures are the agent's, one per currency, rounded: {out}"
+        );
+        assert!(
+            out.contains("context max 10 of 100; cost - not reported"),
+            "a cost nobody reported is absent, not zero: {out}"
+        );
+        assert!(
+            out.contains("reported by the agents in total (3 session(s)): cost 0.5 EUR"),
+            "{out}"
+        );
+        assert!(
+            out.contains("Meltemi only sums the cost per currency"),
+            "and the disclosure says so with the numbers: {out}"
+        );
+    }
+
+    // Scenario: El CLI dice el modelo que rigió
+    #[test]
+    fn the_free_session_says_the_model_and_effort_that_governed() {
+        let result = |model: Option<&str>, effort: Option<&str>| {
+            let mut value = serde_json::json!({
+                "sessionId": "s-1",
+                "agentCommand": ["mock-agent"],
+                "status": "completed",
+                "deniedPermissions": 0,
+                "checkpointRef": "refs/meltemi/checkpoints/x",
+            });
+            if let Some(model) = model {
+                value["model"] = model.into();
+            }
+            if let Some(effort) = effort {
+                value["effort"] = effort.into();
+            }
+            serde_json::from_value::<meltemi_proto::SessionStartResult>(value)
+                .expect("a start result")
+        };
+        let out = super::render_session(&result(Some("slow"), Some("high")));
+        assert!(out.contains("model: slow · effort: high"), "{out}");
+        let out = super::render_session(&result(Some("slow"), None));
+        assert!(
+            out.contains("model: slow") && !out.contains("effort"),
+            "{out}"
+        );
+        // Nothing declared, nothing said — never an invented default.
+        let out = super::render_session(&result(None, None));
+        assert!(!out.contains("model") && !out.contains("effort"), "{out}");
+    }
+
+    #[test]
+    fn usage_names_the_empty_turns_only_where_there_are_some() {
+        // Scenario: Las superficies muestran los turnos vacíos
+        let activity = |empty: u32| {
+            serde_json::json!({
+                "sessions": 1, "sessionsClosed": 1, "sessionsOpen": 0,
+                "activeSeconds": 10, "prompts": 1, "permissionsRequested": 0,
+                "permissionsApproved": 0, "permissionsDenied": 0,
+                "permissionsExpired": 0, "humanEdits": 0, "commits": 0,
+                "checkpoints": 0, "errors": 0, "emptyTurns": empty
+            })
+        };
+        let cell = |profile: &str, empty: u32| {
+            serde_json::json!({
+                "projectKey": "k", "projectRoot": "/repo", "agent": "opencode",
+                "profile": profile, "period": "2026-09", "activity": activity(empty),
+                "coverage": { "measuredSessions": 0, "unreportedSessions": 0, "reasons": [] }
+            })
+        };
+        let result: meltemi_proto::AnalyticsUsageResult =
+            serde_json::from_value(serde_json::json!({
+                "cells": [cell("free", 2), cell("paid", 0)],
+                "unattributed": [],
+                "totals": {
+                    "cells": 2,
+                    "activity": activity(2),
+                    "coverage": { "measuredSessions": 0, "unreportedSessions": 0 }
+                },
+                "truncated": false,
+                "disclosure": []
+            }))
+            .expect("a usage answer");
+        let out = super::render_usage(&result);
+        assert_eq!(
+            out.matches("empty turn(s)").count(),
+            1,
+            "named once, for the cell that has them: {out}"
+        );
+        assert!(out.contains("2 empty turn(s)"), "{out}");
+    }
+
+    #[test]
+    fn the_fleet_says_which_version_a_level_was_verified_against() {
+        // Scenario: El catálogo nombra la versión medida
+        let fleet: super::FleetListResult = serde_json::from_value(serde_json::json!({
+            "registryVersion": "2026-09-24",
+            "agents": [
+                {"id": "codex-cli", "displayName": "Codex CLI", "source": "registry",
+                 "integrationLevel": 2, "verifiedLevel": 2, "verifiedAt": "2026-09-24T12:00:00Z",
+                 "verifiedVersion": "0.156.1", "detected": true, "configured": false},
+                {"id": "other", "displayName": "Other", "source": "registry",
+                 "integrationLevel": 1, "detected": false, "configured": false}
+            ]
+        }))
+        .expect("a fleet listing");
+        let out = super::render_fleet(&fleet);
+        assert!(out.contains("verified L2 with 0.156.1"), "{out}");
+        assert!(out.contains("unverified"), "{out}");
+    }
+
     use super::*;
     use meltemi_proto::{FleetResolutionSource, WorktreeCompetitorDiff};
 

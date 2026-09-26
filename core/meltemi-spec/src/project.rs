@@ -21,6 +21,30 @@ pub struct ProjectionSources<'a> {
     pub rumbo: &'a [RumboFile],
     /// A summary of the change in progress, when there is one.
     pub active_change: Option<ActiveChange<'a>>,
+    /// The harness rules of the PROJECT that this repository's files carry.
+    ///
+    /// Project scope only, and structurally so: the user's own harness has no
+    /// parameter here to arrive through, which is what keeps personal content
+    /// out of a team's commit. A guard written as a check is one refactor away
+    /// from being forgotten; one written as a signature that will not hold the
+    /// data is not (harness-global-y-por-agente design D6).
+    pub project_rules: &'a [ProjectedRule<'a>],
+}
+
+/// One harness rule as the projection needs it: what to say, and what it says
+/// it applies to.
+#[derive(Debug)]
+pub struct ProjectedRule<'a> {
+    /// The rule's name, which is its directory's.
+    pub name: &'a str,
+    /// The globs it declares it applies to. Rendered as prose, because the
+    /// managed block is Markdown for an agent that reads instructions, not a
+    /// format with fields.
+    pub scope: &'a [String],
+    /// What its author said it is for, when they said.
+    pub description: Option<&'a str>,
+    /// Its Markdown body, verbatim.
+    pub body: &'a str,
 }
 
 /// The active change to summarize in the projected context.
@@ -59,11 +83,70 @@ pub fn project(sources: &ProjectionSources) -> String {
         }
     }
 
+    if !sources.project_rules.is_empty() {
+        out.push_str("\n## Reglas del proyecto\n\n");
+        out.push_str(
+            "_Del harness de este repositorio. Cada regla dice a qué archivos \
+             aplica; respetarlas es parte del trabajo._\n",
+        );
+        for rule in sources.project_rules {
+            project_rule(&mut out, rule);
+        }
+    }
+
     if let Some(change) = &sources.active_change {
         project_change(&mut out, change);
     }
 
     out
+}
+
+/// Compiles ONLY the user's own harness rules, for the instruction files of
+/// their agents.
+///
+/// Deliberately narrow, and narrow by signature: it takes rules and nothing
+/// else, so no constitution, rumbo or active change can travel into a file that
+/// applies to every repository the user opens
+/// (harness-global-y-por-agente design D6).
+#[must_use]
+pub fn project_user_rules(rules: &[ProjectedRule]) -> String {
+    let mut out = String::new();
+    out.push_str("# Meltemi — reglas propias\n\n");
+    out.push_str(
+        "_Tu harness global, proyectado por `meltemi project`. Se regenera; no \
+         editar a mano. Nada de un repositorio entra aquí._\n",
+    );
+    for rule in rules {
+        project_rule(&mut out, rule);
+    }
+    out
+}
+
+/// Projects one harness rule: its name, what it applies to, and its body.
+fn project_rule(out: &mut String, rule: &ProjectedRule) {
+    out.push_str(&format!("\n### {}\n", rule.name));
+    if let Some(description) = rule.description {
+        out.push_str(&format!("\n{}\n", description.trim()));
+    }
+    // The scope in prose, not as a field: an agent reading instructions needs a
+    // sentence, and the native scoped destinations are another change.
+    match rule.scope {
+        [] => out.push_str("\nAplica a todo el repositorio.\n"),
+        globs => out.push_str(&format!(
+            "\nAplica a: {}\n",
+            globs
+                .iter()
+                .map(|glob| format!("`{glob}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+    let body = rule.body.trim();
+    if !body.is_empty() {
+        out.push('\n');
+        out.push_str(body);
+        out.push('\n');
+    }
 }
 
 /// Projects one rumbo file according to its inclusion rule.
@@ -145,6 +228,7 @@ mod tests {
             constitution: Some("# C\n\nprinciples"),
             rumbo: &rumbo,
             active_change: None,
+            project_rules: &[],
         };
         assert_eq!(project(&sources), project(&sources));
     }
@@ -165,6 +249,7 @@ mod tests {
             constitution: Some("CONSTITUTION"),
             rumbo: &rumbo,
             active_change: None,
+            project_rules: &[],
         };
         let doc = project(&sources);
 
@@ -197,6 +282,7 @@ mod tests {
             constitution: None,
             rumbo: &rumbo,
             active_change: None,
+            project_rules: &[],
         };
         let doc = project(&sources);
         assert!(!doc.contains("SECRET BODY"), "undeclared is never injected");
@@ -232,6 +318,7 @@ mod tests {
                 proposal: Some("## Why\nbecause"),
                 deltas: &deltas,
             }),
+            project_rules: &[],
         };
         let doc = project(&sources);
         assert!(doc.contains("## Cambio activo: add-thing"));

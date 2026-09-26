@@ -64,6 +64,7 @@ impl RpcError {
             detail: detail.into(),
             remedy,
             candidates: None,
+            lever_refused: None,
         };
         Self {
             code,
@@ -91,6 +92,7 @@ impl RpcError {
             detail: detail.into(),
             remedy,
             candidates: Some(candidates),
+            lever_refused: None,
         };
         Self {
             code,
@@ -215,6 +217,12 @@ impl Peer {
         let reader_peer = peer.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(read_half).lines();
+            // Why the reading stopped, when the transport said. A socket that
+            // closes has nothing to add, but a transport that launched a process
+            // knows exactly what that process said before it died — and throwing
+            // that away is how a failure becomes an unexplained "closed"
+            // (via-ssh-del-cliente design D6).
+            let mut why: Option<String> = None;
             loop {
                 tokio::select! {
                     _ = close.notified() => break,
@@ -228,17 +236,20 @@ impl Peer {
                                 break;
                             }
                         }
-                        Ok(None) | Err(_) => break,
+                        Ok(None) => break,
+                        Err(error) => {
+                            why = Some(error.to_string());
+                            break;
+                        }
                     }
                 }
             }
-            // Connection gone: fail every in-flight outgoing request.
+            // Connection gone: fail every in-flight outgoing request, with the
+            // transport's own account of it when there is one.
+            let gone = why.unwrap_or_else(|| "connection closed".to_string());
             let mut pending = pending.lock().await;
             for (_, tx) in pending.drain() {
-                let _ = tx.send(Err(RpcError::new(
-                    codes::INTERNAL_ERROR,
-                    "connection closed",
-                )));
+                let _ = tx.send(Err(RpcError::new(codes::INTERNAL_ERROR, &gone)));
             }
             // incoming_tx drops here, closing the channel.
         });

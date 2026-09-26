@@ -17,14 +17,16 @@ use meltemi_client::bootstrap;
 use meltemi_client::rpc::{Incoming, Peer, RpcError};
 use meltemi_proto::{
     ChangeListParams, ChangeListResult, ContextProjectParams, ContextProjectResult,
-    FleetListParams, FleetListResult, InitializeParams, PROTOCOL_VERSION, PeerInfo,
-    PermissionChangedParams, PermissionDecideParams, PermissionPendingResult, PermissionRule,
-    SessionCancelParams, SessionDirectParams, SessionListParams, SessionListResult,
-    SessionLogParams, SessionLogResult, StatusResult, WorktreeDiffResult, methods,
+    FleetListParams, FleetListResult, HarnessEffectiveParams, HarnessEffectiveResult,
+    InitializeParams, LeverRefusal, PROTOCOL_VERSION, PeerInfo, PermissionChangedParams,
+    PermissionDecideParams, PermissionPendingResult, PermissionRule, SessionCancelParams,
+    SessionDirectParams, SessionListParams, SessionListResult, SessionLogParams, SessionLogResult,
+    StatusResult, WorktreeDiffResult, methods,
 };
 
 use crate::shell::live::{
-    FleetRow, FleetSnapshot, GateRow, ProjectRow, RaceBoard, RaceLane, SessionRow, Update,
+    FleetRow, FleetSnapshot, GateRow, HarnessSnapshot, ProjectRow, RaceBoard, RaceLane, SessionRow,
+    Update,
 };
 use crate::shell::messages::{Lang, Msg, text};
 use crate::shell::render::ConnState;
@@ -40,6 +42,9 @@ pub enum Command {
     Refresh,
     /// Query the fleet catalog (`fleet/list`).
     FleetList,
+    /// Read the effective harness (`harness/effective`), optionally narrowed
+    /// to one catalog agent.
+    Harness { agent: Option<String> },
     /// Query the known-project registry (`project/list`).
     ProjectList,
     /// Set the project every scoped call is made against; `None` returns to the
@@ -152,10 +157,20 @@ async fn serve_connection(
         return ConnExit::Disconnected;
     }
     refresh_status(&peer, updates).await;
-    refresh_sessions(&peer, updates).await;
+    let seeded = refresh_sessions(&peer, updates).await;
     // Seed the tray from the daemon's queue so it survives reconnection
     // (the count no longer lives per-connection).
     refresh_pending(&peer, updates).await;
+
+    // The sessions this connection has a row for. Local to the actor, like
+    // `watched`: it exists only to tell an affirmation about a session we know
+    // from one about a session we have never seen, which is the only case that
+    // still needs the list (estado-en-vivo design D7).
+    //
+    // Seeded from the list fetched a moment ago, which is what keeps the
+    // daemon's opening snapshot from costing one query per session: every id in
+    // it is already known.
+    let mut known_sessions: std::collections::HashSet<String> = seeded.into_iter().collect();
 
     let mut ticker = interval(REFRESH_EVERY);
     ticker.tick().await; // consume the immediate first tick
@@ -200,6 +215,20 @@ async fn serve_connection(
                         let _ = updates.send(Update::TranscriptLine { session_id, line });
                     }
                 }
+                Some(Incoming::Notification { method, params }) if method == methods::SESSION_STATE => {
+                    if let Ok(affirmation) =
+                        serde_json::from_value::<meltemi_proto::SessionStateParams>(params)
+                    {
+                        // A session this surface holds no row for — one another
+                        // client just opened — is fetched once. The affirmation
+                        // is deliberately thin, and a row invented from it would
+                        // show an agent with no name.
+                        if known_sessions.insert(affirmation.session_id.clone()) {
+                            known_sessions.extend(refresh_sessions(&peer, updates).await);
+                        }
+                        let _ = updates.send(Update::SessionState(affirmation));
+                    }
+                }
                 Some(Incoming::Notification { .. }) => {}
             },
             command = commands.recv() => match command {
@@ -215,9 +244,12 @@ async fn serve_connection(
                 }
                 Some(Command::Refresh) => {
                     refresh_status(&peer, updates).await;
-                    refresh_sessions(&peer, updates).await;
+                    known_sessions.extend(refresh_sessions(&peer, updates).await);
                 }
                 Some(Command::FleetList) => refresh_fleet(&peer, updates, scope.as_deref()).await,
+                Some(Command::Harness { agent }) => {
+                    read_harness(&peer, updates, scope.as_deref(), agent).await;
+                }
                 Some(Command::ProjectList) => refresh_projects(&peer, updates).await,
                 Some(Command::LinkSubscription { agent, name }) => {
                     let params = serde_json::json!({ "agent": agent, "name": name });
@@ -280,7 +312,7 @@ async fn serve_connection(
                     project_context(&peer, updates, scope.as_deref()).await
                 }
                 Some(Command::FetchSessionLog { session_id, project_root }) => {
-                    fetch_session_log(&peer, updates, &session_id, &project_root).await;
+                    fetch_session_log(&peer, updates, &session_id, &project_root, lang).await;
                 }
                 Some(Command::Direct { session_id, project_root, instruction, interrupt }) => {
                     // Not awaited here, and the reason is the resume branch:
@@ -332,7 +364,13 @@ async fn serve_connection(
                         });
                         let notice = match peer.request(methods::WORKTREE_DISPATCH, &params).await {
                             Ok(value) => dispatch_notice(&value, &agent, lang),
-                            Err(error) => format!("worktree/dispatch: {error}"),
+                            // A lever refused as the lane opened is said in
+                            // words, with the agent's text escaped
+                            // (modelo-por-opcion-anunciada D4).
+                            Err(error) => match lever_refusal(&error, lang) {
+                                Some(line) => format!("worktree/dispatch: {line}"),
+                                None => format!("worktree/dispatch: {error}"),
+                            },
                         };
                         let _ = updates.send(Update::Notice(notice));
                         // The turn is over: the lane has a new diff and a new
@@ -355,8 +393,13 @@ async fn serve_connection(
                 }
             },
             _ = ticker.tick() => {
+                // The clocks, and the daemon's own vitals. NOT the session
+                // list: the state arrives as it changes now, and polling for it
+                // was what made "0 working" possible with an agent working
+                // (estado-en-vivo design D7). The list is still asked for on
+                // connect, on an explicit refresh, and when an affirmation
+                // names a session this connection has no row for.
                 refresh_status(&peer, updates).await;
-                refresh_sessions(&peer, updates).await;
             }
         }
     }
@@ -419,16 +462,25 @@ async fn refresh_gate(peer: &Peer, updates: &UnboundedSender<Update>, scope: Opt
     }
 }
 
-async fn refresh_sessions(peer: &Peer, updates: &UnboundedSender<Update>) {
+/// Refreshes the session table, answering the ids it brought back.
+///
+/// The ids matter because the caller keeps track of which sessions it has a row
+/// for: an affirmation about one of those is applied in place, and only an
+/// affirmation about a session nobody has heard of costs a query
+/// (estado-en-vivo design D7).
+async fn refresh_sessions(peer: &Peer, updates: &UnboundedSender<Update>) -> Vec<String> {
     // Unfiltered on purpose (multiproyecto-suscripciones D7): one query brings
     // every session with its own root, and the shell groups by project.
     let params = SessionListParams::default();
     if let Ok(value) = peer.request(methods::SESSION_LIST, &params).await
         && let Ok(result) = serde_json::from_value::<SessionListResult>(value)
     {
-        let rows = result.sessions.into_iter().map(SessionRow::from).collect();
+        let rows: Vec<SessionRow> = result.sessions.into_iter().map(SessionRow::from).collect();
+        let ids = rows.iter().map(|row| row.id.clone()).collect();
         let _ = updates.send(Update::Sessions(rows));
+        return ids;
     }
+    Vec::new()
 }
 
 /// Queries `project/list` and pushes the known-project registry, so the
@@ -500,6 +552,7 @@ async fn fetch_session_log(
     updates: &UnboundedSender<Update>,
     session_id: &str,
     project_root: &str,
+    lang: Lang,
 ) {
     let params = SessionLogParams {
         project_root: project_root.to_string(),
@@ -510,7 +563,11 @@ async fn fetch_session_log(
     if let Ok(value) = peer.request(methods::SESSION_LOG, &params).await
         && let Ok(result) = serde_json::from_value::<SessionLogResult>(value)
     {
-        let lines = result.lines.iter().map(|l| summarize_log_line(l)).collect();
+        let lines = result
+            .lines
+            .iter()
+            .map(|l| summarize_log_line(l, lang))
+            .collect();
         let _ = updates.send(Update::SessionLog {
             session_id: result.session_id,
             lines,
@@ -518,12 +575,20 @@ async fn fetch_session_log(
     }
 }
 
-/// Summarizes one raw JSONL session-event line into a transcript row.
-fn summarize_log_line(line: &str) -> String {
+/// Summarizes one raw JSONL session-event line into a transcript row. An
+/// empty turn is said in words, as in the live transcript, and never left as
+/// the raw event name (turno-vacio-es-error design D6).
+fn summarize_log_line(line: &str, lang: Lang) -> String {
     match serde_json::from_str::<Value>(line) {
         Ok(event) => {
             let kind = event.get("type").and_then(Value::as_str).unwrap_or("event");
             let ts = event.get("ts").and_then(Value::as_str).unwrap_or("");
+            if kind == "turn_empty" {
+                return format!("{ts}  {}", text(Msg::EmptyTurn, lang));
+            }
+            if let Some(line) = lever_said(kind, event.get("payload"), lang) {
+                return format!("{ts}  {line}");
+            }
             format!("{ts}  {kind}")
         }
         Err(_) => line.to_string(),
@@ -551,6 +616,46 @@ async fn refresh_fleet(peer: &Peer, updates: &UnboundedSender<Update>, scope: Op
         }
         Err(error) => {
             let _ = updates.send(Update::Notice(format!("fleet/list: {error}")));
+        }
+    }
+}
+
+/// Reads the effective harness (`harness/effective`) and pushes the snapshot.
+///
+/// The project is the scope in force, or the working directory — the same rule
+/// every other scoped call here follows. Without either, the request goes out
+/// with no project at all and the answer is the user's own scopes, which the
+/// view then says out loud instead of looking empty.
+async fn read_harness(
+    peer: &Peer,
+    updates: &UnboundedSender<Update>,
+    scope: Option<&str>,
+    agent: Option<String>,
+) {
+    let project_root = scope.map(str::to_string).or_else(|| {
+        std::env::current_dir()
+            .ok()
+            .map(|root| root.display().to_string())
+    });
+    let params = HarnessEffectiveParams {
+        project_root: project_root.clone(),
+        agent: agent.clone(),
+    };
+    match peer.request(methods::HARNESS_EFFECTIVE, &params).await {
+        Ok(value) => match serde_json::from_value::<HarnessEffectiveResult>(value) {
+            Ok(answer) => {
+                let _ = updates.send(Update::Harness(HarnessSnapshot {
+                    agent,
+                    scoped_to_project: project_root.is_some(),
+                    answer,
+                }));
+            }
+            Err(error) => {
+                let _ = updates.send(Update::Notice(format!("harness/effective: {error}")));
+            }
+        },
+        Err(error) => {
+            let _ = updates.send(Update::Notice(format!("harness/effective: {error}")));
         }
     }
 }
@@ -640,7 +745,10 @@ async fn project_context(peer: &Peer, updates: &UnboundedSender<Update>, scope: 
             Err(_) => return,
         },
     };
-    let params = ContextProjectParams { project_root: root };
+    let params = ContextProjectParams {
+        project_root: root,
+        consent_user_scope: Vec::new(),
+    };
     match peer.request(methods::CONTEXT_PROJECT, &params).await {
         Ok(value) => {
             if let Ok(result) = serde_json::from_value::<ContextProjectResult>(value) {
@@ -712,6 +820,46 @@ fn refusal_line(error: &RpcError) -> String {
     }
 }
 
+/// What a lever event says, in words: a lever refused as the session opened —
+/// the lever, what was asked, why, and what the agent announced — or the
+/// levers the agent confirmed (modelo-por-opcion-anunciada D4, D6). `None` for
+/// any other event.
+fn lever_said(kind: &str, payload: Option<&Value>, lang: Lang) -> Option<String> {
+    match kind {
+        "lever_refused" => {
+            let refusal: LeverRefusal = serde_json::from_value(payload?.clone()).ok()?;
+            Some(refusal_words(&refusal, lang))
+        }
+        "levers_applied" => {
+            let payload = payload?;
+            crate::lever::governed_line(
+                payload.get("model").and_then(Value::as_str),
+                payload.get("effort").and_then(Value::as_str),
+                lang,
+            )
+        }
+        _ => None,
+    }
+}
+
+/// A refused lever in one line, with what the agent announced after it.
+fn refusal_words(refusal: &LeverRefusal, lang: Lang) -> String {
+    let mut line = crate::lever::refusal_line(refusal, lang);
+    if let Some(announced) = crate::lever::announced_line(refusal, lang) {
+        line.push_str(" — ");
+        line.push_str(&announced);
+    }
+    line
+}
+
+/// The refusal a daemon error carries, when it is a lever refused as its
+/// session opened.
+fn lever_refusal(error: &RpcError, lang: Lang) -> Option<String> {
+    let refusal: LeverRefusal =
+        serde_json::from_value(error.data.as_ref()?.get("leverRefused")?.clone()).ok()?;
+    Some(refusal_words(&refusal, lang))
+}
+
 /// A refused direction, behind the surface's own label.
 fn refusal_notice(error: &RpcError, lang: Lang) -> String {
     format!(
@@ -745,6 +893,14 @@ fn summarize_event(params: &Value, lang: Lang) -> Option<String> {
         .and_then(|e| e.get("type"))
         .and_then(Value::as_str)
         .unwrap_or("event");
+    // A turn that carried nothing is a state of the turn, said in words with
+    // its remedy (turno-vacio-es-error design D6).
+    if kind == "turn_empty" {
+        return Some(format!("[{session}] {}", text(Msg::EmptyTurn, lang)));
+    }
+    if let Some(line) = lever_said(kind, event.and_then(|e| e.get("payload")), lang) {
+        return Some(format!("[{session}] {line}"));
+    }
     let said = event
         .and_then(|e| e.get("payload"))
         .and_then(|p| said_by_agent(p, lang));
@@ -820,6 +976,7 @@ mod tests {
             queue_position: Some(2),
             status: None,
             denied_permissions: 0,
+            empty_turn: false,
         })
         .expect("serializes");
         let notice = direct_notice(&queued, Lang::Es);
@@ -841,6 +998,7 @@ mod tests {
             queue_position: None,
             status: Some(TurnStatus::Completed),
             denied_permissions: 0,
+            empty_turn: false,
         })
         .expect("serializes");
         let notice = direct_notice(&resumed, Lang::En);
@@ -864,6 +1022,115 @@ mod tests {
         assert!(
             notice.contains("s-9") && notice.contains("meltemi sessions"),
             "the diagnosis and the remedy are the daemon's, and both survive: {notice}"
+        );
+    }
+
+    fn refused_event() -> Value {
+        serde_json::json!({
+            "lever": "model",
+            "requested": "gpt-x",
+            "reason": "not_a_value",
+            "values": ["fast", "slow"],
+        })
+    }
+
+    // Scenario: El terminal dice la palanca rehusada
+    #[test]
+    fn the_transcript_says_the_refused_lever_what_was_asked_and_why() {
+        let event = serde_json::json!({
+            "sessionId": "s-1",
+            "event": { "type": "lever_refused", "payload": refused_event() }
+        });
+        let es = summarize_event(&event, Lang::Es).expect("a line");
+        assert!(
+            es.starts_with("[s-1] el agente no tomó el modelo `gpt-x`"),
+            "{es}"
+        );
+        assert!(es.contains("anunció: fast, slow"), "{es}");
+        let en = summarize_event(&event, Lang::En).expect("a line");
+        assert!(
+            en.starts_with("[s-1] the agent did not take the model `gpt-x`"),
+            "{en}"
+        );
+        assert!(en.contains("announced: fast, slow"), "{en}");
+        assert!(
+            !en.contains("lever_refused"),
+            "never the raw event name: {en}"
+        );
+
+        // The historical detail says it in the same words.
+        let line = format!(
+            r#"{{"v":1,"ts":"2026-09-25T10:00:00Z","type":"lever_refused","payload":{}}}"#,
+            refused_event()
+        );
+        let es = summarize_log_line(&line, Lang::Es);
+        assert!(
+            es.contains("2026-09-25T10:00:00Z  el agente no tomó el modelo"),
+            "{es}"
+        );
+
+        // And what the agent confirmed is said as what governed.
+        let applied = serde_json::json!({
+            "sessionId": "s-1",
+            "event": { "type": "levers_applied", "payload": { "model": "slow" } }
+        });
+        assert_eq!(
+            summarize_event(&applied, Lang::Es).as_deref(),
+            Some("[s-1] modelo: slow")
+        );
+
+        // A refused dispatch from the board says it too.
+        let error = RpcError {
+            code: 2007,
+            message: "the agent did not take the lever".into(),
+            data: Some(serde_json::json!({
+                "kind": "lever_refused",
+                "detail": "d",
+                "leverRefused": refused_event(),
+            })),
+        };
+        let said = lever_refusal(&error, Lang::En).expect("a lever refusal");
+        assert!(said.contains("the model `gpt-x`"), "{said}");
+    }
+
+    // Scenario: El transcript nombra el turno vacío
+    #[test]
+    fn the_live_transcript_names_an_empty_turn_with_its_remedy() {
+        let event = serde_json::json!({
+            "sessionId": "s-1",
+            "event": { "type": "turn_empty", "payload": { "stopReason": "completed" } }
+        });
+        let es = summarize_event(&event, Lang::Es).expect("a line");
+        assert!(es.starts_with("[s-1] turno vacío"), "{es}");
+        assert!(
+            es.contains("proveedor") && es.contains("credenciales"),
+            "{es}"
+        );
+        let en = summarize_event(&event, Lang::En).expect("a line");
+        assert!(en.starts_with("[s-1] empty turn"), "{en}");
+        assert!(!en.contains("turn_empty"), "never the raw event name: {en}");
+    }
+
+    // Scenario: El detalle histórico nombra el turno vacío
+    #[test]
+    fn the_historical_detail_names_an_empty_turn_with_its_remedy() {
+        let line = r#"{"v":1,"ts":"2026-09-24T10:00:00Z","type":"turn_empty","payload":{"stopReason":"completed"}}"#;
+        let es = summarize_log_line(line, Lang::Es);
+        assert!(es.contains("2026-09-24T10:00:00Z  turno vacío"), "{es}");
+        assert!(
+            es.contains("credenciales") && !es.contains("turn_empty"),
+            "{es}"
+        );
+        let en = summarize_log_line(line, Lang::En);
+        assert!(
+            en.contains("empty turn") && en.contains("credentials"),
+            "{en}"
+        );
+        // Any other event keeps its type line, as before.
+        let other = r#"{"v":1,"ts":"2026-09-24T10:00:01Z","type":"turn_completed","payload":{}}"#;
+        assert_eq!(
+            summarize_log_line(other, Lang::Es),
+            "2026-09-24T10:00:01Z  turn_completed"
         );
     }
 

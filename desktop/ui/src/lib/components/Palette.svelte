@@ -125,7 +125,11 @@
       return;
     }
     if (selected) {
-      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      // `!shiftKey`: the queueing chord belongs to a composer, and the palette
+      // has no turn to queue behind. Swallowing it here would make the same
+      // keys mean two different things depending on where the focus is
+      // (sesiones-en-la-barra design D5).
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
         event.preventDefault();
         void run();
       }

@@ -112,12 +112,16 @@ const ALL_SESSION_STATES: [SessionState; 6] = [
     SessionState::Interrupted,
 ];
 
-/// The session-state enum is written THREE times — once in Rust and once in
-/// each of the two schemas that define it independently — and until now nothing
-/// compared them. A state present in Rust and missing from a schema is a
-/// conformance failure that only shows up when a real daemon sends a real
-/// session; a state in one schema and not the other is a contract that
+/// The session-state enum is written FOUR times — once in Rust and once in each
+/// of the three schemas that define it independently — and until this test
+/// nothing compared them. A state present in Rust and missing from a schema is
+/// a conformance failure that only shows up when a real daemon sends a real
+/// session; a state in one schema and not another is a contract that
 /// contradicts itself.
+///
+/// The third schema arrived with `session/state` (estado-en-vivo): the
+/// notification carries the enum too, so it has to be held to the same
+/// comparison as the two that came before it.
 #[test]
 fn the_state_enum_is_the_same_in_rust_and_in_both_schemas() {
     let in_rust: Vec<String> = ALL_SESSION_STATES
@@ -131,7 +135,7 @@ fn the_state_enum_is_the_same_in_rust_and_in_both_schemas() {
         })
         .collect();
 
-    for schema in ["status", "session-list"] {
+    for schema in ["status", "session-list", "session-state"] {
         let text = std::fs::read_to_string(format!("../schemas/v1/{schema}.schema.json"))
             .unwrap_or_else(|e| panic!("read {schema}.schema.json: {e}"));
         let doc: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
@@ -207,6 +211,7 @@ fn propose_conforms() {
                     .into(),
                 status,
                 denied_permissions: 0,
+                empty_turn: false,
             },
         );
     }
@@ -219,7 +224,80 @@ fn propose_conforms() {
             proposal_path: "/repo/.meltemi/changes/add-dark-mode/proposal.md".into(),
             status: TurnStatus::Completed,
             denied_permissions: 3,
+            empty_turn: false,
         },
+    );
+}
+
+/// The empty-turn verdict (turno-vacio-es-error design D3, D7): additive,
+/// present only when true, so a turn that carried work leaves no key behind and
+/// a client written before the field reads the same bytes it always did.
+#[test]
+fn an_empty_turn_verdict_is_present_only_when_true() {
+    let worked = ProposeResult {
+        change_name: "add-dark-mode".into(),
+        proposal_path: "/repo/.meltemi/changes/add-dark-mode/proposal.md".into(),
+        status: TurnStatus::Completed,
+        denied_permissions: 0,
+        empty_turn: false,
+    };
+    let bytes = serde_json::to_value(&worked).unwrap();
+    assert!(
+        bytes.get("emptyTurn").is_none(),
+        "a turn that carried work leaves no key: {bytes:#}"
+    );
+    let empty = ProposeResult {
+        empty_turn: true,
+        ..worked
+    };
+    assert_conforms("propose", "result", &empty);
+    assert_eq!(serde_json::to_value(&empty).unwrap()["emptyTurn"], true);
+    // The status is what the agent reported; the verdict sits beside it.
+    assert_eq!(serde_json::to_value(&empty).unwrap()["status"], "completed");
+
+    // Every result that reports a turn declares it; written out as false it is
+    // not a verdict at all, and the schema says so.
+    for (file, def) in [
+        ("propose", "result"),
+        ("session-start", "result"),
+        ("session-direct", "result"),
+        ("worktree", "dispatchResult"),
+        ("sdd", "result"),
+    ] {
+        let schema = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../schemas/v1")
+                .join(format!("{file}.schema.json")),
+        )
+        .unwrap();
+        assert!(
+            schema.contains("\"emptyTurn\""),
+            "{file} declares the verdict in its {def}"
+        );
+    }
+    let mut forged = bytes;
+    forged["emptyTurn"] = serde_json::json!(false);
+    assert_rejected("propose", "result", &forged);
+
+    // The empty turn is its own event in the log, and it validates.
+    assert_conforms(
+        "session-event",
+        "sessionEvent",
+        &event(SessionEventKind::TurnEmpty {
+            stop_reason: TurnStatus::Completed,
+        }),
+    );
+
+    // And the activity counts them; zero is what a cell without any says.
+    let activity = UsageActivity {
+        empty_turns: 2,
+        ..UsageActivity::default()
+    };
+    assert_conforms("analytics", "activity", &activity);
+    assert_eq!(serde_json::to_value(&activity).unwrap()["emptyTurns"], 2);
+    assert_eq!(
+        serde_json::to_value(UsageActivity::default()).unwrap()["emptyTurns"],
+        0
     );
 }
 
@@ -403,6 +481,7 @@ fn fleet_conforms() {
                     integration_level: 1,
                     verified_level: None,
                     verified_at: None,
+                    verified_version: None,
                     mcp_support: false,
                     detected: true,
                     binary_path: Some("C:\\bin\\native-agent.exe".into()),
@@ -425,6 +504,7 @@ fn fleet_conforms() {
                     integration_level: 4,
                     verified_level: None,
                     verified_at: None,
+                    verified_version: None,
                     mcp_support: false,
                     detected: false,
                     binary_path: None,
@@ -447,6 +527,7 @@ fn fleet_conforms() {
                     integration_level: 1,
                     verified_level: None,
                     verified_at: None,
+                    verified_version: None,
                     mcp_support: false,
                     detected: false,
                     binary_path: None,
@@ -471,6 +552,7 @@ fn fleet_conforms() {
                     integration_level: 1,
                     verified_level: None,
                     verified_at: None,
+                    verified_version: None,
                     mcp_support: false,
                     detected: true,
                     binary_path: Some("C:\\bin\\native-agent.exe".into()),
@@ -626,6 +708,27 @@ fn context_project_conforms() {
         "params",
         &ContextProjectParams {
             project_root: "C:\\repos\\fixture".into(),
+            consent_user_scope: Vec::new(),
+        },
+    );
+    // Consenting is additive on the wire: a caller that does not consent sends
+    // exactly what it sent before this field existed.
+    let silent = ContextProjectParams {
+        project_root: "/repos/fixture".into(),
+        consent_user_scope: Vec::new(),
+    };
+    assert!(
+        !serde_json::to_string(&silent)
+            .unwrap()
+            .contains("consentUserScope"),
+        "asking for nothing looks like it always did"
+    );
+    assert_conforms(
+        "context",
+        "params",
+        &ContextProjectParams {
+            project_root: "/repos/fixture".into(),
+            consent_user_scope: vec!["claude-code".into()],
         },
     );
     assert_conforms(
@@ -644,7 +747,44 @@ fn context_project_conforms() {
                     written: false,
                 },
             ],
+            // The three outcomes a user-scope destination can have besides
+            // being written, each of which a surface has to be able to say.
+            user_targets: vec![
+                UserScopeTarget {
+                    agent: "claude-code".into(),
+                    path: "/home/x/.claude/CLAUDE.md".into(),
+                    state: UserScopeState::Written,
+                    overridden_by: None,
+                },
+                UserScopeTarget {
+                    agent: "opencode".into(),
+                    path: "/home/x/.config/opencode/AGENTS.md".into(),
+                    state: UserScopeState::AwaitingConsent,
+                    overridden_by: None,
+                },
+                UserScopeTarget {
+                    agent: "codex-cli".into(),
+                    path: "/home/x/.codex/AGENTS.md".into(),
+                    state: UserScopeState::IgnoredByAgent,
+                    overridden_by: Some("AGENTS.override.md".into()),
+                },
+            ],
         },
+    );
+    // A result from before this existed still conforms.
+    assert_conforms(
+        "context",
+        "result",
+        &ContextProjectResult {
+            targets: Vec::new(),
+            user_targets: Vec::new(),
+        },
+    );
+    // An outcome the contract does not name is not an outcome.
+    assert_rejected(
+        "context",
+        "userScopeTarget",
+        &json!({"agent": "claude-code", "path": "/x", "state": "probably_fine"}),
     );
     // A non-hex or wrong-length fingerprint is rejected.
     assert_rejected(
@@ -745,6 +885,7 @@ fn session_direct_conforms() {
             queue_position: Some(1),
             status: None,
             denied_permissions: 0,
+            empty_turn: false,
         },
     );
     // Resumed: a terminated resumable session was resumed with the instruction.
@@ -758,6 +899,7 @@ fn session_direct_conforms() {
             queue_position: None,
             status: Some(TurnStatus::Completed),
             denied_permissions: 2,
+            empty_turn: false,
         },
     );
 }
@@ -781,6 +923,103 @@ fn the_two_copies_of_the_config_option_shape_agree() {
             "`{def}` is missing from session-config.schema.json"
         );
     }
+}
+
+/// The refusal a session log records and the one a 2007 carries are one shape,
+/// copied into both schemas for the same reason as the config option: this
+/// holds the copies together (modelo-por-opcion-anunciada D4).
+#[test]
+fn the_two_copies_of_the_lever_refusal_shape_agree() {
+    let error = schema_doc("error");
+    let event = schema_doc("session-event");
+    assert!(!error["$defs"]["leverRefusal"].is_null());
+    assert_eq!(
+        error["$defs"]["leverRefusal"], event["$defs"]["leverRefusal"],
+        "`leverRefusal` drifted between error.schema.json and session-event.schema.json"
+    );
+}
+
+// Scenario: Cada pieza dice de qué capa viene
+// Scenario: Lo pisado y lo inválido también se ven
+#[test]
+fn harness_effective_conforms() {
+    assert_conforms("harness", "params", &HarnessEffectiveParams::default());
+    assert_conforms(
+        "harness",
+        "params",
+        &HarnessEffectiveParams {
+            project_root: Some("/repos/fixture".into()),
+            agent: Some("claude-code".into()),
+        },
+    );
+    // A rule that governs, carrying the keys the core does not use.
+    let governing = HarnessRule {
+        name: "no-any-cast".into(),
+        origin: HarnessOrigin {
+            layer: HarnessLayer::ProjectAgent,
+            agent: Some("claude-code".into()),
+            path: "/repos/fixture/.meltemi/harness/per-agent/claude-code/rules/no-any-cast/RULE.md"
+                .into(),
+        },
+        front_matter: vec![
+            HarnessField {
+                key: "name".into(),
+                value: HarnessValue::Scalar("no-any-cast".into()),
+            },
+            HarnessField {
+                key: "scope".into(),
+                value: HarnessValue::List(vec!["**/*.{ts,tsx}".into()]),
+            },
+            HarnessField {
+                key: "owner_team".into(),
+                value: HarnessValue::Scalar("dx-platform".into()),
+            },
+        ],
+        problems: Vec::new(),
+        shadowed: vec![HarnessOrigin {
+            layer: HarnessLayer::User,
+            agent: None,
+            path: "/home/x/.config/meltemi/harness/rules/no-any-cast/RULE.md".into(),
+        }],
+    };
+    // And one that cannot be projected, which must travel with its reason.
+    let broken = HarnessRule {
+        name: "no-console-log".into(),
+        origin: HarnessOrigin {
+            layer: HarnessLayer::Project,
+            agent: None,
+            path: "/repo/.meltemi/harness/rules/no-console-log/RULE.md".into(),
+        },
+        front_matter: Vec::new(),
+        problems: vec!["the front-matter declares no `name`".into()],
+        shadowed: Vec::new(),
+    };
+    assert_conforms(
+        "harness",
+        "result",
+        &HarnessEffectiveResult {
+            rules: vec![governing, broken],
+            unknown_agents: vec![HarnessUnknownAgent {
+                id: "some-agent-9000".into(),
+                path: "/repo/.meltemi/harness/per-agent/some-agent-9000".into(),
+            }],
+        },
+    );
+    // Nothing configured at all is a valid answer, not an error.
+    assert_conforms("harness", "result", &HarnessEffectiveResult::default());
+    // The wire keeps the two shapes apart without a discriminator.
+    let field = serde_json::to_value(HarnessField {
+        key: "scope".into(),
+        value: HarnessValue::List(vec!["a".into()]),
+    })
+    .expect("serializes");
+    assert!(field["value"].is_array(), "{field:#}");
+    // A layer outside the product's own four is not a layer.
+    assert_rejected(
+        "harness",
+        "harnessOrigin",
+        &json!({"layer": "somewhere_else", "path": "/x"}),
+    );
 }
 
 #[test]
@@ -978,8 +1217,28 @@ fn session_start_conforms() {
         checkpoint_ref: Some("refs/meltemi/checkpoints/free/sess-1-mock".into()),
         checkpoint_unavailable: None,
         checkpoint_remedy: None,
+        empty_turn: false,
+        model: None,
+        effort: None,
     };
     assert_conforms("session-start", "result", &started);
+    // What governed, when a lever was asked for (modelo-por-opcion-anunciada
+    // D6): additive, and absent means none was asked.
+    let governed = SessionStartResult {
+        model: Some("slow".into()),
+        effort: Some("high".into()),
+        ..started.clone()
+    };
+    assert_conforms("session-start", "result", &governed);
+    let value = serde_json::to_value(&governed).unwrap();
+    assert_eq!(value["model"], "slow");
+    assert_eq!(value["effort"], "high");
+    assert!(
+        serde_json::to_value(&started)
+            .unwrap()
+            .get("model")
+            .is_none()
+    );
     // Every turn outcome the contract knows, including a cancelled one.
     for status in [
         TurnStatus::Completed,
@@ -1157,7 +1416,33 @@ fn permission_conforms() {
                     kind,
                 })
                 .collect(),
+            request_id: None,
         },
+    );
+    // The push names its queue id (aprobador-en-el-cli design D4): additive, so
+    // a push without it is the same bytes as before the field existed.
+    let named = PermissionRequestParams {
+        session_id: "sess-1".into(),
+        tool_call: json!({ "toolCallId": "call-1" }),
+        options: vec![PermissionOption {
+            option_id: "allow".into(),
+            name: "Allow".into(),
+            kind: PermissionOptionKind::AllowOnce,
+        }],
+        request_id: Some("perm-7".into()),
+    };
+    assert_conforms("permission", "requestParams", &named);
+    assert_eq!(serde_json::to_value(&named).unwrap()["requestId"], "perm-7");
+    let bare = PermissionRequestParams {
+        request_id: None,
+        ..named
+    };
+    assert!(
+        serde_json::to_value(&bare)
+            .unwrap()
+            .get("requestId")
+            .is_none(),
+        "absent leaves no key"
     );
     assert_conforms(
         "permission",
@@ -1329,6 +1614,48 @@ fn session_events_conform() {
             reasoning_tokens: Some(1),
             total_tokens: Some(10),
         },
+        // What the agent confirmed when its announced options were set before
+        // the first prompt (modelo-por-opcion-anunciada D3).
+        SessionEventKind::LeversApplied {
+            model: Some("slow".into()),
+            effort: None,
+        },
+        SessionEventKind::LeversApplied {
+            model: None,
+            effort: Some("true".into()),
+        },
+        // A lever refused when the session opened, in each shape it takes.
+        SessionEventKind::LeverRefused(LeverRefusal {
+            lever: SessionLever::Model,
+            requested: "claude-opus".into(),
+            reason: LeverRefusalReason::NotAnnounced,
+            values: Vec::new(),
+            options: vec![AnnouncedOption {
+                id: "verbosity".into(),
+                name: "Verbosity".into(),
+                category: Some("_output".into()),
+            }],
+            more: 0,
+            left: None,
+        }),
+        SessionEventKind::LeverRefused(LeverRefusal {
+            lever: SessionLever::Model,
+            requested: "slow".into(),
+            reason: LeverRefusalReason::NotConfirmed,
+            values: Vec::new(),
+            options: Vec::new(),
+            more: 0,
+            left: Some("fast".into()),
+        }),
+        SessionEventKind::LeverRefused(LeverRefusal {
+            lever: SessionLever::Effort,
+            requested: "high".into(),
+            reason: LeverRefusalReason::NoAnswer,
+            values: Vec::new(),
+            options: Vec::new(),
+            more: 0,
+            left: None,
+        }),
         // The same agent under no profile: the id is still recorded.
         SessionEventKind::AgentResolved {
             model: Some("a-model-name".into()),
@@ -1352,6 +1679,9 @@ fn session_events_conform() {
             requirements: vec!["worktree-orchestration/managed-worktrees".into()],
         },
         SessionEventKind::TurnCompleted {
+            stop_reason: TurnStatus::Completed,
+        },
+        SessionEventKind::TurnEmpty {
             stop_reason: TurnStatus::Completed,
         },
         SessionEventKind::InstructionQueued {
@@ -1386,6 +1716,78 @@ fn session_events_conform() {
                 text: "hello".into(),
             }),
         },
+    );
+}
+
+/// The live-state notification (estado-en-vivo design D1).
+#[test]
+fn session_state_conforms() {
+    // Every state, because the notification carries the enum and a state that
+    // serialized to something the schema rejects would only surface against a
+    // real daemon.
+    for state in ALL_SESSION_STATES {
+        assert_conforms(
+            "session-state",
+            "notificationParams",
+            &SessionStateParams {
+                session_id: "sess-1".into(),
+                project_root: "/repo".into(),
+                state,
+                since: "2026-09-26T12:00:00Z".into(),
+                pending_permissions: 0,
+            },
+        );
+    }
+
+    // A session with people waiting on it, so the count is exercised as a
+    // number and not only as its zero.
+    assert_conforms(
+        "session-state",
+        "notificationParams",
+        &SessionStateParams {
+            session_id: "sess-2".into(),
+            project_root: "/repo".into(),
+            state: SessionState::WaitingPermission,
+            since: "2026-09-26T12:00:05Z".into(),
+            pending_permissions: 3,
+        },
+    );
+
+    // What the notification must NEVER be: an affirmation without the instant
+    // it started, which is the one field a clock cannot invent, and one whose
+    // `since` is not a timestamp at all.
+    assert_rejected(
+        "session-state",
+        "notificationParams",
+        &serde_json::json!({
+            "sessionId": "sess-1",
+            "projectRoot": "/repo",
+            "state": "active",
+            "pendingPermissions": 0
+        }),
+    );
+    assert_rejected(
+        "session-state",
+        "notificationParams",
+        &serde_json::json!({
+            "sessionId": "sess-1",
+            "projectRoot": "/repo",
+            "state": "active",
+            "since": "yesterday",
+            "pendingPermissions": 0
+        }),
+    );
+    // And a state nobody declared: the enum is the contract, not a hint.
+    assert_rejected(
+        "session-state",
+        "notificationParams",
+        &serde_json::json!({
+            "sessionId": "sess-1",
+            "projectRoot": "/repo",
+            "state": "working",
+            "since": "2026-09-26T12:00:00Z",
+            "pendingPermissions": 0
+        }),
     );
 }
 
@@ -1429,6 +1831,7 @@ fn analytics_usage_conforms() {
         commits: 1,
         checkpoints: 1,
         errors: 0,
+        empty_turns: 0,
     };
     let coverage = UsageCoverage {
         measured_sessions: 1,
@@ -1440,6 +1843,72 @@ fn analytics_usage_conforms() {
     };
     assert_conforms("analytics", "activity", &activity);
     assert_conforms("analytics", "coverage", &coverage);
+    // A session whose agent reported context and cost over ACP keeps its
+    // tokens absent with a reason of its own (usage-desde-acp D5).
+    assert_conforms(
+        "analytics",
+        "coverage",
+        &UsageCoverage {
+            measured_sessions: 0,
+            unreported_sessions: 1,
+            reasons: vec![UsageUnreportedReason {
+                kind: UsageUnreportedKind::ProtocolCarriesContextNotConsumption,
+                sessions: 1,
+            }],
+        },
+    );
+
+    // What the agents reported: the fullest context and the cost per
+    // currency, each with its sessions (usage-desde-acp D4).
+    let report = AgentReport {
+        sessions: 2,
+        context_used: Some(12267),
+        context_size: Some(200_000),
+        cost: vec![
+            AgentReportCost {
+                currency: "EUR".into(),
+                amount: 0.125,
+                sessions: 1,
+            },
+            AgentReportCost {
+                currency: "USD".into(),
+                amount: 0.375,
+                sessions: 1,
+            },
+        ],
+    };
+    assert_conforms("analytics", "agentReport", &report);
+    // Context without cost omits the cost entirely: never an empty list, never
+    // a zero.
+    assert_conforms(
+        "analytics",
+        "agentReport",
+        &AgentReport {
+            cost: vec![],
+            ..report.clone()
+        },
+    );
+    assert_rejected(
+        "analytics",
+        "agentReport",
+        &json!({ "sessions": 1, "cost": [] }),
+    );
+    assert_rejected(
+        "analytics",
+        "agentReportCost",
+        &json!({ "amount": 0.5, "sessions": 1 }),
+    );
+    let report_totals = AgentReportTotals {
+        sessions: 2,
+        cost: report.cost.clone(),
+    };
+    assert_conforms("analytics", "agentReportTotals", &report_totals);
+    // A total is a sum: the context, a maximum, has no place in it.
+    assert_rejected(
+        "analytics",
+        "agentReportTotals",
+        &json!({ "sessions": 1, "contextUsed": 10 }),
+    );
 
     // Measured counters: a declared subset only — absence stays absent.
     let tokens = UsageTokens {
@@ -1464,6 +1933,7 @@ fn analytics_usage_conforms() {
         activity: activity.clone(),
         tokens: Some(tokens.clone()),
         coverage: coverage.clone(),
+        agent_report: Some(report.clone()),
     };
     assert_conforms("analytics", "cell", &cell);
     // A cell with nothing measured omits tokens entirely (never zeros).
@@ -1475,6 +1945,7 @@ fn analytics_usage_conforms() {
             agent_id: None,
             profile: None,
             level: None,
+            agent_report: None,
             ..cell.clone()
         },
     );
@@ -1498,6 +1969,7 @@ fn analytics_usage_conforms() {
             activity,
             tokens: Some(tokens),
             coverage,
+            agent_report: Some(report_totals),
         },
         truncated: false,
         disclosure: vec![
@@ -1506,6 +1978,7 @@ fn analytics_usage_conforms() {
             UsageDisclosure::NoQuotaBalanceOrBilling,
             UsageDisclosure::NothingIsEstimated,
             UsageDisclosure::NothingLeavesThisMachine,
+            UsageDisclosure::AgentReportedContextAndCost,
         ],
     };
     assert_conforms("analytics", "result", &result);
@@ -1866,6 +2339,7 @@ fn worktree_conforms() {
             status: TurnStatus::Completed,
             task_ticked: false,
             session_id: Some("6f1f0a2e-2b0e-4a1c-9f4d-3b1c2d5e6f70".into()),
+            empty_turn: false,
         },
     );
     // task_ticked MUST be false — a dispatch never marks the task.
@@ -2077,6 +2551,7 @@ fn a_dispatch_result_names_its_session_and_omits_it_compatibly() {
         status: TurnStatus::Completed,
         task_ticked: false,
         session_id: None,
+        empty_turn: false,
     };
     assert_conforms("worktree", "dispatchResult", &result);
     let before = serde_json::to_value(&result).unwrap();
@@ -2586,6 +3061,7 @@ fn error_data_conforms() {
             detail: "The agent `acme-agent` is not detected on this system.".into(),
             remedy: Some("Set agent.command in your meltemi config.".into()),
             candidates: None,
+            lever_refused: None,
         },
     );
     assert_conforms(
@@ -2596,7 +3072,33 @@ fn error_data_conforms() {
             detail: "Call initialize first.".into(),
             remedy: None,
             candidates: None,
+            lever_refused: None,
         },
+    );
+    // A lever refused when its session opened (2007) carries the record the
+    // log keeps (modelo-por-opcion-anunciada D4).
+    let refused = ErrorData {
+        kind: "lever_refused".into(),
+        detail: "the agent did not announce `ollama/qwen` for its model option".into(),
+        remedy: Some("Ask for one of the announced models.".into()),
+        candidates: None,
+        lever_refused: Some(LeverRefusal {
+            lever: SessionLever::Model,
+            requested: "ollama/qwen".into(),
+            reason: LeverRefusalReason::NotAValue,
+            values: vec!["fast".into(), "slow".into()],
+            options: Vec::new(),
+            more: 315,
+            left: None,
+        }),
+    };
+    assert_conforms("error", "errorData", &refused);
+    let value = serde_json::to_value(&refused).unwrap();
+    assert_eq!(value["leverRefused"]["reason"], "not_a_value");
+    assert_eq!(value["leverRefused"]["more"], 315);
+    assert!(
+        value["leverRefused"].get("options").is_none(),
+        "empty lists are omitted"
     );
 }
 
@@ -2630,6 +3132,7 @@ fn resolution_refusals_carry_the_fleet_candidates() {
                     })
                     .collect(),
             ),
+            lever_refused: None,
         },
     );
     // A detected candidate needs no remedy at all.
@@ -2647,6 +3150,7 @@ fn resolution_refusals_carry_the_fleet_candidates() {
                 remedy: None,
                 remedy_command: None,
             }]),
+            lever_refused: None,
         },
     );
     // The fleet was consulted and nothing was found: an answer, not an omission.
@@ -2658,6 +3162,7 @@ fn resolution_refusals_carry_the_fleet_candidates() {
             detail: "No agent is configured and none was detected.".into(),
             remedy: Some("Install one of the supported CLIs.".into()),
             candidates: Some(vec![]),
+            lever_refused: None,
         },
     );
 
@@ -2831,6 +3336,7 @@ fn a_fleet_row_may_declare_its_auth_context_variable() {
         integration_level: 1,
         verified_level: None,
         verified_at: None,
+        verified_version: None,
         mcp_support: false,
         detected: false,
         binary_path: None,
@@ -2862,6 +3368,55 @@ fn a_fleet_row_may_declare_its_auth_context_variable() {
     let mut broken = serde_json::to_value(&declared).unwrap();
     broken["authContextVar"] = serde_json::json!("");
     assert_rejected("fleet", "fleetAgent", &broken);
+}
+
+/// The version a level was verified against (codex-al-dia design D11):
+/// additive, omissible, and never empty.
+#[test]
+fn a_fleet_row_names_the_version_its_level_was_verified_against() {
+    // Scenario: El catálogo nombra la versión medida
+    let verified = FleetAgent {
+        model: None,
+        effort: None,
+        id: "codex-cli".into(),
+        display_name: "Codex CLI".into(),
+        source: FleetAgentSource::Registry,
+        integration_level: 2,
+        verified_level: Some(2),
+        verified_at: Some("2026-09-24T12:00:00Z".into()),
+        verified_version: Some("0.156.1".into()),
+        mcp_support: false,
+        detected: true,
+        binary_path: None,
+        configured: false,
+        underlying_agent: None,
+        layers: Vec::new(),
+        install_state: None,
+        remedy: None,
+        remedy_command: None,
+        legal_status: None,
+        legal_note: None,
+        auth_context_var: None,
+    };
+    assert_conforms("fleet", "fleetAgent", &verified);
+    let value = serde_json::to_value(&verified).unwrap();
+    assert_eq!(value["verifiedVersion"], "0.156.1");
+
+    let unmeasured = FleetAgent {
+        verified_version: None,
+        ..verified.clone()
+    };
+    assert_conforms("fleet", "fleetAgent", &unmeasured);
+    assert!(
+        serde_json::to_value(&unmeasured)
+            .unwrap()
+            .get("verifiedVersion")
+            .is_none(),
+        "omission leaves no key behind"
+    );
+    let mut empty = value;
+    empty["verifiedVersion"] = serde_json::json!("");
+    assert_rejected("fleet", "fleetAgent", &empty);
 }
 
 /// The subscription link/unlink contract (vincular-suscripciones design D5):

@@ -97,10 +97,11 @@ exactamente como trata a Codex.
   excepciones.
 - **Guía de modelos autohospedados** en docs (EN): las dos vías con
   honestidad — el motor propio con su manifiesto, y la que ya funciona hoy
-  sin código nuevo (OpenCode y Aider de la flota actual soportan
-  proveedores ollama/OpenAI-compatible por su propia configuración),
-  verificada contra versiones actuales antes de publicarse, no citada de
-  memoria.
+  sin código nuevo, que vive en `docs/local-models.md` desde
+  `guia-modelos-locales` (OpenCode, nivel 1, con proveedores
+  ollama/OpenAI-compatible y OpenRouter por su propia configuración; el
+  nivel 3 —Aider— no se lanza hoy), verificada contra versiones actuales
+  antes de publicarse, no citada de memoria.
 
 ## Capabilities
 

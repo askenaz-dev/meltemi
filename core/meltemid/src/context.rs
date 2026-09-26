@@ -15,7 +15,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use meltemi_proto::ContextTarget;
-use meltemi_spec::{ActiveChange, MeltemiTree, ProjectionSources, project};
+use meltemi_spec::{ActiveChange, MeltemiTree, ProjectedRule, ProjectionSources, project};
 
 /// The embedded target map (design D3): the instruction files each agent reads.
 pub const EMBEDDED_TARGETS: &str = include_str!("../data/context-targets.toml");
@@ -71,7 +71,7 @@ pub fn embedded_targets() -> Targets {
 
 /// Compiles the projection for a project root, reading the pieces the model
 /// does not hold (constitution and proposal bodies) from disk.
-pub fn compile(project_root: &Path) -> std::io::Result<String> {
+pub fn compile(project_root: &Path, known_agents: &[String]) -> std::io::Result<String> {
     let tree = MeltemiTree::discover(project_root)?;
     let constitution = tree
         .constitution
@@ -87,10 +87,36 @@ pub fn compile(project_root: &Path) -> std::io::Result<String> {
         deltas: &c.deltas,
     });
 
+    // The PROJECT's harness rules, and only those. `discover` is handed no
+    // config directory here, so the user's own harness has no path into this
+    // function at all — the guard is the call, not a filter after it
+    // (harness-global-y-por-agente design D6). The scan reads only the
+    // repository's `.meltemi/harness/`, and an unreadable rule is left out of
+    // the projection while remaining visible in `harness/effective` with its
+    // diagnostic.
+    let harness = crate::harness::discover(None, Some(project_root), known_agents);
+    debug_assert!(
+        harness
+            .rules
+            .iter()
+            .all(|resolved| !resolved.rule.layer.is_user_scope()),
+        "a user-scope rule reached the repository projection"
+    );
+    let rules: Vec<ProjectedRule> = harness
+        .usable()
+        .map(|rule| ProjectedRule {
+            name: &rule.name,
+            scope: rule.scope(),
+            description: rule.description(),
+            body: &rule.body,
+        })
+        .collect();
+
     let sources = ProjectionSources {
         constitution: constitution.as_deref(),
         rumbo: &tree.rumbo,
         active_change,
+        project_rules: &rules,
     };
     Ok(project(&sources))
 }
@@ -118,8 +144,11 @@ impl From<Written> for ContextTarget {
 /// configured agent is level 4 (artifacts-only), its declared instruction
 /// file is added to the targets — projection is that agent's only channel
 /// (niveles-integracion-conformidad, integration by artifacts).
-pub fn project_and_write(project_root: &Path) -> std::io::Result<Vec<Written>> {
-    project_and_write_with(project_root, None)
+pub fn project_and_write(
+    project_root: &Path,
+    known_agents: &[String],
+) -> std::io::Result<Vec<Written>> {
+    project_and_write_with(project_root, None, known_agents)
 }
 
 /// As [`project_and_write`], with an optional extra target (the configured
@@ -127,8 +156,9 @@ pub fn project_and_write(project_root: &Path) -> std::io::Result<Vec<Written>> {
 pub fn project_and_write_with(
     project_root: &Path,
     l4_target: Option<&str>,
+    known_agents: &[String],
 ) -> std::io::Result<Vec<Written>> {
-    let content = compile(project_root)?;
+    let content = compile(project_root, known_agents)?;
     let fingerprint = fingerprint(&content);
     let mut targets = embedded_targets();
     if let Some(extra) = l4_target
@@ -155,6 +185,31 @@ pub fn project_and_write_with(
         });
     }
     Ok(written)
+}
+
+/// Writes `content` into one file's managed block, preserving everything
+/// outside it byte for byte, and reports whether the file changed.
+///
+/// The same mechanism the repository targets use, reused rather than copied:
+/// a second implementation of "preserve what is not ours" is a second place
+/// for it to stop being true.
+///
+/// # Errors
+///
+/// Propagates the write error.
+pub fn write_managed_block(path: &Path, content: &str) -> std::io::Result<bool> {
+    let fingerprint = fingerprint(content);
+    let existing = std::fs::read_to_string(path).unwrap_or_default();
+    match plan_block(&existing, content, &fingerprint) {
+        BlockPlan::Unchanged => Ok(false),
+        BlockPlan::Write(next) => {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            atomic_write(path, &next)?;
+            Ok(true)
+        }
+    }
 }
 
 /// The content fingerprint: hex SHA-256 of the compiled content.
@@ -380,7 +435,7 @@ mod tests {
         // A pre-existing AGENTS.md with hand-written content.
         std::fs::write(dir.join("AGENTS.md"), "# Hand notes\n\nkeep me.\n").unwrap();
 
-        let written = project_and_write(&dir).unwrap();
+        let written = project_and_write(&dir, &[]).unwrap();
         assert!(written.iter().any(|w| w.path == "AGENTS.md" && w.wrote));
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert!(
@@ -391,7 +446,7 @@ mod tests {
         assert!(agents.contains("rules"), "constitution projected");
 
         // A second run is idempotent: nothing is written.
-        let again = project_and_write(&dir).unwrap();
+        let again = project_and_write(&dir, &[]).unwrap();
         assert!(
             again.iter().all(|w| !w.wrote),
             "re-projection without source changes writes nothing"

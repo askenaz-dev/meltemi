@@ -13,12 +13,30 @@
 //! buffer misses events and is told so by the channel, and the honest remedy is
 //! `session/log`, which is the complete, paginated source. An unbounded channel
 //! would turn one slow client into daemon memory with no ceiling.
+//!
+//! # The second channel: lifecycle state (estado-en-vivo)
+//!
+//! Alongside the event stream runs a channel for one thing only — where a
+//! session stands. It is deliberately NOT the same channel and deliberately NOT
+//! subject to [`delivers`]:
+//!
+//! - **Every initialized connection gets every transition**, with no origin and
+//!   no watching. Filtering by origin is exactly the defect this closes: a
+//!   client that only learned about its own sessions reported that nobody was
+//!   working while an agent worked.
+//! - **The payload affirms the whole state**, not a change, so applying it twice
+//!   or out of order converges. That is what lets a lagging receiver be repaired
+//!   by re-sending rather than by a sequence number, and it is the same shape
+//!   `permission/changed` already uses for the permission queue.
+//!
+//! Nothing of the project travels on it: identifier, root, state, instant and a
+//! count, and no text of any kind.
 
 use std::sync::Arc;
 
 use tokio::sync::broadcast;
 
-use meltemi_proto::SessionEventParams;
+use meltemi_proto::{SessionEventParams, SessionStateParams};
 
 /// How many events the hub holds for a lagging connection before it starts
 /// dropping the oldest. Generous for a local socket, bounded on purpose.
@@ -33,16 +51,23 @@ pub struct Envelope {
     pub params: Arc<SessionEventParams>,
 }
 
-/// The daemon's shared session-event hub.
+/// The daemon's shared session-event hub, and its lifecycle-state channel.
 #[derive(Clone)]
 pub struct EventHub {
     tx: broadcast::Sender<Envelope>,
+    /// Lifecycle state, on its own channel.
+    ///
+    /// No envelope, because there is nothing to filter by: the affirmation goes
+    /// to every initialized connection, so sealing it with an origin would only
+    /// invite someone to filter on it later.
+    state_tx: broadcast::Sender<Arc<SessionStateParams>>,
 }
 
 impl Default for EventHub {
     fn default() -> Self {
         let (tx, _) = broadcast::channel(CAPACITY);
-        Self { tx }
+        let (state_tx, _) = broadcast::channel(CAPACITY);
+        Self { tx, state_tx }
     }
 }
 
@@ -61,6 +86,23 @@ impl EventHub {
     /// forward; the hub carries everything.
     pub fn subscribe(&self) -> broadcast::Receiver<Envelope> {
         self.tx.subscribe()
+    }
+
+    /// Publishes where one session stands.
+    ///
+    /// With no connection listening this is a no-op, like its sibling: the
+    /// registry already holds the state, and the hub never queues for
+    /// connections that are gone.
+    pub fn publish_state(&self, params: SessionStateParams) {
+        let _ = self.state_tx.send(Arc::new(params));
+    }
+
+    /// Subscribes a connection to the lifecycle-state channel.
+    ///
+    /// Every subscriber forwards everything it receives: there is no predicate
+    /// here on purpose (see the module docs).
+    pub fn subscribe_state(&self) -> broadcast::Receiver<Arc<SessionStateParams>> {
+        self.state_tx.subscribe()
     }
 }
 
@@ -139,6 +181,115 @@ mod tests {
         // Exactly one delivery each: the channel is now empty.
         assert!(first.try_recv().is_err());
         assert!(second.try_recv().is_err());
+    }
+
+    // Scenario: Una transición llega a un cliente que no inició la sesión
+    #[tokio::test]
+    async fn a_state_affirmation_reaches_every_subscriber_once_whatever_opened_the_session() {
+        // The point of the second channel: no origin, no watching, no
+        // predicate. Two connections, neither of which opened anything, both
+        // learn where the session stands.
+        let hub = EventHub::default();
+        let mut first = hub.subscribe_state();
+        let mut second = hub.subscribe_state();
+
+        hub.publish_state(SessionStateParams {
+            session_id: "sess-1".into(),
+            project_root: "/repo".into(),
+            state: meltemi_proto::SessionState::Active,
+            since: "2026-09-26T12:00:00Z".into(),
+            pending_permissions: 0,
+        });
+
+        let a = first.recv().await.expect("first subscriber");
+        let b = second.recv().await.expect("second subscriber");
+        assert_eq!(a.session_id, "sess-1");
+        assert_eq!(a.state, meltemi_proto::SessionState::Active);
+        assert_eq!(b.session_id, "sess-1");
+        assert_eq!(b.since, "2026-09-26T12:00:00Z");
+        // Exactly one delivery each.
+        assert!(first.try_recv().is_err());
+        assert!(second.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn the_two_channels_do_not_cross() {
+        // A subscriber of one must not receive the other's traffic: the event
+        // stream is filtered by `delivers` and the state channel is not, so
+        // crossing them would smuggle a session's events past that predicate.
+        let hub = EventHub::default();
+        let mut events = hub.subscribe();
+        let mut states = hub.subscribe_state();
+
+        hub.publish(7, params("sess-1"));
+        hub.publish_state(SessionStateParams {
+            session_id: "sess-1".into(),
+            project_root: "/repo".into(),
+            state: meltemi_proto::SessionState::Active,
+            since: "2026-09-26T12:00:00Z".into(),
+            pending_permissions: 0,
+        });
+
+        assert_eq!(events.recv().await.expect("the event").origin, 7);
+        assert!(
+            events.try_recv().is_err(),
+            "the state affirmation did not land on the event channel"
+        );
+        assert_eq!(
+            states.recv().await.expect("the affirmation").session_id,
+            "sess-1"
+        );
+        assert!(
+            states.try_recv().is_err(),
+            "the event did not land on the state channel"
+        );
+    }
+
+    // Scenario: Un rezago se repara reafirmando el estado, no con un hueco
+    #[tokio::test]
+    async fn a_subscriber_that_falls_behind_is_told_so_rather_than_left_short() {
+        // The trigger for the repair, measured here because it is a property of
+        // the channel: past its capacity a slow receiver is handed `Lagged`
+        // with the count it missed, and not a quietly shorter stream. What the
+        // connection does with that — re-affirm every session, the same call it
+        // makes on `initialize` — is asserted where that call lives.
+        use tokio::sync::broadcast::error::RecvError;
+
+        let hub = EventHub::default();
+        let mut slow = hub.subscribe_state();
+        for n in 0..(CAPACITY + 5) {
+            hub.publish_state(SessionStateParams {
+                session_id: format!("sess-{n}"),
+                project_root: "/repo".into(),
+                state: meltemi_proto::SessionState::Active,
+                since: "2026-09-26T12:00:00Z".into(),
+                pending_permissions: 0,
+            });
+        }
+
+        let missed = match slow.recv().await {
+            Err(RecvError::Lagged(missed)) => missed,
+            other => panic!("expected the channel to report the lag, got {other:?}"),
+        };
+        assert!(
+            missed >= 5,
+            "the count says how much was missed, so it can be logged: {missed}"
+        );
+        // And the receiver is usable afterwards: the repair happens on a live
+        // subscription, not on a broken one.
+        assert!(slow.recv().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn publishing_state_with_no_subscriber_is_harmless() {
+        let hub = EventHub::default();
+        hub.publish_state(SessionStateParams {
+            session_id: "sess-1".into(),
+            project_root: "/repo".into(),
+            state: meltemi_proto::SessionState::Ended,
+            since: "2026-09-26T12:00:00Z".into(),
+            pending_permissions: 0,
+        });
     }
 
     #[tokio::test]

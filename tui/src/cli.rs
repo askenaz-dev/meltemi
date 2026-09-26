@@ -15,6 +15,44 @@ use crate::format::Format;
 
 pub const RESERVED: &[&str] = &[];
 
+/// Every flag the grammar accepts, and no other: anything else that looks like
+/// a flag is refused before it can mean anything. A test pins the exact list,
+/// so adding a flag is a change someone reviews — and none of these grants a
+/// permission. `--mode` is a posture, not a grant: under it a user's deny
+/// prevails and whatever is irreversible still escalates (aprobador-en-el-cli
+/// design D8).
+pub const FLAGS: &[&str] = &[
+    "--",
+    "--json",
+    "--yaml",
+    "--no-color",
+    "--help",
+    "-h",
+    "--version",
+    "-V",
+    "--exec",
+    "--all",
+    "--project",
+    "--since",
+    "--until",
+    "--agent",
+    "--mode",
+    "--model",
+    "--effort",
+    "--branch",
+    "--unique",
+    "--option",
+    "--follow",
+];
+
+/// What `approve` and `deny` answer to more than one request id: one decision
+/// per request, and the place where granting without being asked is written
+/// (verbos-del-agent-boss design D3).
+const ONE_AT_A_TIME: &str = "decides one request at a time, never in bulk: name one request id \
+     (`meltemi permissions` lists them). To grant without being asked, write a permission rule \
+     in the project's .meltemi/permissions.toml or in your global permissions.toml, or start the \
+     session with `--mode`";
+
 /// Help text for the scriptable surface.
 pub const USAGE: &str = "\
 meltemi — spec-driven control plane for coding agents
@@ -49,11 +87,17 @@ SUBCOMMANDS:
                         rules decide exactly as they always did. In every mode
                         an explicit deny of yours prevails and anything
                         irreversible escalates.
-                        `--model` and `--effort` are the PROVIDER's own words:
-                        Meltemi carries them and never reads them, so what
-                        accepts or rejects one is the agent, and an agent that
-                        has no place for a lever refuses it by name
-    sessions            list agent sessions (active and historical)
+                        `--model` and `--effort` are the PROVIDER's own words,
+                        never checked against a catalog of ours: each travels
+                        as the launch flag the agent's entry declares, else by
+                        the option the agent announces, set and confirmed
+                        before the first prompt. A lever the agent does not
+                        take is refused by name, and no prompt is sent; the
+                        output says the model and effort that governed
+    sessions [root] [--follow]
+                        list agent sessions (active and historical); with
+                        --follow, write each change of state as it happens,
+                        one record per line, until Ctrl+C or the daemon goes
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing
     plan <change>       refine design and sequence a change's tasks
@@ -96,7 +140,10 @@ SUBCOMMANDS:
     usage [day|week|month|total] [--project <root>|--all] [--since <ts>] [--until <ts>]
                         local usage accounting folded from the session records;
                         tokens only where the agent's official output reports
-                        them, never estimated (`--all` spans every project)
+                        them, never estimated; the context and the cost an
+                        agent reports over ACP are shown as its own figures,
+                        summed per currency and never converted (`--all`
+                        spans every project)
     changes             list changes (active and archived) with their state
     show <change>       show a change: its artifacts and per-capability deltas
     workspace <change> [--branch <branch>|--unique]
@@ -124,6 +171,31 @@ SUBCOMMANDS:
                         set one of the options the AGENT announced for a live
                         session, without relaunching it; the option ids and
                         their values are the agent's, never a list of ours
+    watch <session>     follow a live session: each record of it as it happens,
+                        one JSON object per line, until the session ends —
+                        records only `log` has if this reader falls behind.
+                        Ctrl+C stops following; the session keeps running
+    log <session>       the session's append-only record as it is: one JSON
+                        object per line, from its first record to now
+    cancel <session>    cancel a live session, as the interactive `x` does: the
+                        agent closes its turn and the session ends; says
+                        whether it was still running when answered
+    permissions         the permission requests waiting for a decision: id,
+                        session, tool, title, how long each has waited, when it
+                        expires, and the options its agent offered
+    approve <request> [--option <option-id>]
+                        decide ONE waiting request with an option its agent
+                        offered: its one-time approval when it offered exactly
+                        one; `--option` names another of its approvals, and
+                        naming it is consent. A request no longer waiting is
+                        not decided (exit 12): the first decision wins
+    deny <request> [--option <option-id>]
+                        decide ONE waiting request with the agent's rejection,
+                        or cancel it when the agent offered none; `--option`
+                        names one of its rejections. Nothing decides in bulk
+    harness [--agent <id>]
+                        the harness that applies: every piece with the layer it
+                        comes from, plus what is covered or unreadable and why
     tunnel [user@host] [--exec]
                         compose the `ssh` command that reverse-forwards this
                         daemon's endpoint to a remote host; `--exec` runs it
@@ -133,6 +205,25 @@ SUBCOMMANDS:
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
+
+PERMISSIONS:
+    When stdin and stderr are a terminal, each permission an agent asks for
+    is asked on stderr — never on stdout — with what the agent sent (tool,
+    title, command, path, content) and the agent's own options by number.
+    `d` or Esc denies with the agent's rejection; `r` allows once and
+    remembers the most specific rule (offered only when one can be written,
+    confirmed with `y`, in force from the next session opened without
+    `--mode`); Ctrl+C cancels the session and the command exits 13. A key
+    counts only once the question could be read: keys typed before it, and
+    keys arriving together, answer nothing. A question that expires or is
+    decided elsewhere is withdrawn with its reason.
+    Without a terminal every request is denied with the agent's rejection;
+    to grant without a human, write a rule in .meltemi/permissions.toml or in
+    your global permissions.toml. No flag grants permissions.
+    A request that waits in the daemon's queue — one opened by the desktop
+    surface or the interactive shell — can be decided from any other shell,
+    a script or `ssh <pc>` with no terminal: `meltemi permissions` lists
+    them and `meltemi approve|deny <request>` decides one of them.
 
 GLOBAL FLAGS:
     --json              emit machine-readable JSON on stdout
@@ -200,7 +291,12 @@ pub enum Command {
     /// Regenerate the projected context (`context/project`).
     Project { project_root: Option<String> },
     /// List sessions, active and historical (`session/list`).
-    Sessions { project_root: Option<String> },
+    Sessions {
+        project_root: Option<String>,
+        /// With `--follow`, write each affirmation of state as it arrives
+        /// instead of answering the list once (estado-en-vivo design D8).
+        follow: bool,
+    },
     /// Deliberate with the agent without writing (`sdd/explore`).
     Explore {
         topic: String,
@@ -322,6 +418,30 @@ pub enum Command {
         option: String,
         value: String,
     },
+    /// Follow a live session's records as they happen (`session/watch`),
+    /// until it ends. Writes to the process's own stdout as it goes.
+    Watch { session: String },
+    /// A session's append-only record, as it is (`session/log`, paged).
+    Log { session: String },
+    /// Cancel a live session (`session/cancel`), as the interactive `x` does.
+    Cancel { session: String },
+    /// The permission requests waiting for a decision (`permission/pending`).
+    Permissions,
+    /// Decide one waiting request with an approval its agent offered
+    /// (`permission/decide`); `option` names one explicitly.
+    Approve {
+        request: String,
+        option: Option<String>,
+    },
+    /// Decide one waiting request with its agent's rejection, or cancel it when
+    /// the agent offered none (`permission/decide`).
+    Deny {
+        request: String,
+        option: Option<String>,
+    },
+    /// Read the harness that effectively applies (`harness/effective`), with
+    /// the layer each piece comes from and what does not apply.
+    Harness { agent: Option<String> },
     /// Compose (or, with `--exec`, run) the `ssh` reverse-forward that exposes
     /// this daemon's endpoint to a remote host. Local: touches no daemon.
     Tunnel { target: Option<String>, exec: bool },
@@ -396,6 +516,15 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             positionals.push(arg.as_str());
             continue;
         }
+        // A flag the grammar does not list is refused here, whatever a match
+        // arm below might have made of it.
+        if arg.starts_with('-') && arg != "-" && !FLAGS.contains(&arg.as_str()) {
+            return Plan {
+                action: Action::Usage(format!("unknown flag `{arg}`; run `meltemi help`")),
+                format: resolve_format(json, yaml).unwrap_or(Format::Human),
+                no_color,
+            };
+        }
         match arg.as_str() {
             "--" => end_of_flags = true,
             "--json" => json = true,
@@ -411,7 +540,7 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             // strict about unknown flags — and a rejected flag would have made
             // the advertised `usage --all` unusable.
             "--all" | "--project" | "--since" | "--until" | "--agent" | "--mode" | "--model"
-            | "--effort" | "--branch" | "--unique" => {
+            | "--effort" | "--branch" | "--unique" | "--option" | "--follow" => {
                 positionals.push(arg.as_str());
             }
             flag if flag.starts_with('-') && flag != "-" => {
@@ -497,6 +626,19 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
         }
     };
 
+    // `--option` names one of the options an agent offered for a request; it
+    // is read like the others, and only `approve` and `deny` take it.
+    let option = match take_option(&mut positionals) {
+        Ok(option) => option,
+        Err(message) => {
+            return Plan {
+                action: Action::Usage(message),
+                format,
+                no_color,
+            };
+        }
+    };
+
     let action = match positionals.split_first() {
         None => {
             // A bare invocation goes interactive only with a TTY and without
@@ -508,9 +650,18 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
                 Action::Usage("no subcommand given; run `meltemi help`".into())
             }
         }
-        Some((subcommand, rest)) => {
-            plan_subcommand(subcommand, rest, exec, agent, mode, model, effort)
-        }
+        Some((subcommand, rest)) => plan_subcommand(
+            subcommand,
+            rest,
+            Local {
+                exec,
+                agent,
+                mode,
+                model,
+                effort,
+                option,
+            },
+        ),
     };
 
     Plan {
@@ -571,6 +722,29 @@ fn take_string_flag(positionals: &mut Vec<&str>, flag: &str) -> Result<Option<St
     }
 }
 
+/// Reads `--option`: the id of one of the options an agent offered.
+///
+/// An empty value is refused like an empty `--model`: a blank id would travel
+/// as though someone had chosen it. Whether the id is one the agent offered is
+/// checked where the request is read, not here (verbos-del-agent-boss D2).
+fn take_option(positionals: &mut Vec<&str>) -> Result<Option<String>, String> {
+    let Some(index) = positionals.iter().position(|token| *token == "--option") else {
+        return Ok(None);
+    };
+    match positionals.get(index + 1) {
+        Some(value) if !value.starts_with('-') && !value.trim().is_empty() => {
+            let value = (*value).to_string();
+            positionals.drain(index..=index + 1);
+            Ok(Some(value))
+        }
+        _ => Err(
+            "`--option` requires the id of one of the options the agent offered for that \
+             request (`meltemi permissions` lists them)"
+                .into(),
+        ),
+    }
+}
+
 /// Reads `--mode`, refusing an unknown name **with the valid ones**.
 ///
 /// A mode that does not exist is never degraded into one that does: the whole
@@ -598,18 +772,40 @@ fn take_mode(positionals: &mut Vec<&str>) -> Result<Option<AutonomyMode>, String
     }
 }
 
-/// Maps a subcommand and its remaining positionals to an action. `exec` carries
-/// the global `--exec` flag (only `tunnel` consumes it); `agent` carries
-/// `--agent`, which only the session-starting verbs consume.
-fn plan_subcommand(
-    subcommand: &str,
-    rest: &[&str],
+/// The subcommand-local flags, read once wherever they were written.
+struct Local {
+    /// `--exec`: only `tunnel` consumes it.
     exec: bool,
+    /// `--agent`: only the session-starting verbs consume it.
     agent: Option<String>,
+    /// `--mode`: only `session`.
     mode: Option<AutonomyMode>,
+    /// `--model`: only `session`.
     model: Option<String>,
+    /// `--effort`: only `session`.
     effort: Option<String>,
-) -> Action {
+    /// `--option`: only `approve` and `deny`.
+    option: Option<String>,
+}
+
+/// Maps a subcommand and its remaining positionals to an action, refusing each
+/// subcommand-local flag where it means nothing.
+fn plan_subcommand(subcommand: &str, rest: &[&str], local: Local) -> Action {
+    let Local {
+        exec,
+        agent,
+        mode,
+        model,
+        effort,
+        option,
+    } = local;
+    // A verb that decides no request has nothing to do with an option of one,
+    // and swallowing the flag would be a lie about what was decided.
+    if option.is_some() && !matches!(subcommand, "approve" | "deny") {
+        return Action::Usage(format!(
+            "`--option` applies to `approve` and `deny`, not `{subcommand}`"
+        ));
+    }
     // Same reasoning as the flags above: a verb that starts no session has
     // nothing to do with a model, and swallowing it would be a lie about what
     // ran.
@@ -661,11 +857,27 @@ fn plan_subcommand(
             _ => Action::Usage("`project` takes at most a project root".into()),
         },
         "sessions" => match rest {
-            [] => Action::Run(Command::Sessions { project_root: None }),
+            [] => Action::Run(Command::Sessions {
+                project_root: None,
+                follow: false,
+            }),
+            ["--follow"] => Action::Run(Command::Sessions {
+                project_root: None,
+                follow: true,
+            }),
+            // The flag on either side of the root, because both readings are
+            // natural and refusing one would be a rule nobody could guess.
+            [root, "--follow"] | ["--follow", root] => Action::Run(Command::Sessions {
+                project_root: Some((*root).to_string()),
+                follow: true,
+            }),
             [root] => Action::Run(Command::Sessions {
                 project_root: Some((*root).to_string()),
+                follow: false,
             }),
-            _ => Action::Usage("`sessions` takes at most a project root".into()),
+            _ => Action::Usage(
+                "`sessions` takes at most a project root, and `--follow`".into(),
+            ),
         },
         "explore" => match rest {
             [] => Action::Usage("`explore` requires a topic: meltemi explore \"<topic>\"".into()),
@@ -964,6 +1176,59 @@ fn plan_subcommand(
                 "`set-option` requires: meltemi set-option <session> <option-id> <value>  \
                  (the option and its values are the AGENT's, announced when the session opened)"
                     .into(),
+            ),
+        },
+        "watch" => match rest {
+            [session] => Action::Run(Command::Watch {
+                session: (*session).to_string(),
+            }),
+            _ => Action::Usage("`watch` requires one session id: meltemi watch <session>".into()),
+        },
+        "log" => match rest {
+            [session] => Action::Run(Command::Log {
+                session: (*session).to_string(),
+            }),
+            _ => Action::Usage("`log` requires one session id: meltemi log <session>".into()),
+        },
+        "cancel" => match rest {
+            [session] => Action::Run(Command::Cancel {
+                session: (*session).to_string(),
+            }),
+            _ => {
+                Action::Usage("`cancel` requires one session id: meltemi cancel <session>".into())
+            }
+        },
+        "permissions" if rest.is_empty() => Action::Run(Command::Permissions),
+        "permissions" => Action::Usage("`permissions` takes no arguments".into()),
+        // One request per decision, never in bulk (design D3): the arity IS
+        // the rule, so it is refused here, before anything is read or decided.
+        "approve" | "deny" => match rest {
+            // `--all` and friends are the bulk intent in flag form: refused
+            // with the same words, never taken for an id.
+            [request] if request.starts_with('-') => {
+                Action::Usage(format!("`{subcommand}` {ONE_AT_A_TIME}"))
+            }
+            [request] => {
+                let request = (*request).to_string();
+                if subcommand == "approve" {
+                    Action::Run(Command::Approve { request, option })
+                } else {
+                    Action::Run(Command::Deny { request, option })
+                }
+            }
+            [] => Action::Usage(format!(
+                "`{subcommand}` requires a request id: meltemi {subcommand} <request> \
+                 [--option <option-id>] (`meltemi permissions` lists them)"
+            )),
+            _ => Action::Usage(format!("`{subcommand}` {ONE_AT_A_TIME}")),
+        },
+        "harness" => match rest {
+            [] => Action::Run(Command::Harness { agent: None }),
+            ["--agent", agent] => Action::Run(Command::Harness {
+                agent: Some((*agent).to_string()),
+            }),
+            _ => Action::Usage(
+                "`harness` takes at most `--agent <id>` (an id of the fleet catalog)".into(),
             ),
         },
         "tunnel" => match rest {
@@ -1721,15 +1986,58 @@ mod tests {
         // Scenario: sessions consulta el histórico.
         assert_eq!(
             plan_of(&["sessions"], false).action,
-            Action::Run(Command::Sessions { project_root: None })
+            Action::Run(Command::Sessions {
+                project_root: None,
+                follow: false,
+            })
         );
         assert_eq!(
             plan_of(&["sessions", "/repo"], false).action,
             Action::Run(Command::Sessions {
-                project_root: Some("/repo".into())
+                project_root: Some("/repo".into()),
+                follow: false,
             })
         );
         assert_eq!(plan_of(&["--json", "sessions"], false).format, Format::Json);
+    }
+
+    // Scenario: Sin la bandera nada cambia
+    #[test]
+    fn following_is_a_flag_on_sessions_and_reads_either_way_round() {
+        assert_eq!(
+            plan_of(&["sessions", "--follow"], false).action,
+            Action::Run(Command::Sessions {
+                project_root: None,
+                follow: true,
+            })
+        );
+        // Both orders, because both are natural and a rule that accepted one
+        // would be a rule nobody could guess.
+        for argv in [
+            &["sessions", "/repo", "--follow"][..],
+            &["sessions", "--follow", "/repo"][..],
+        ] {
+            assert_eq!(
+                plan_of(argv, false).action,
+                Action::Run(Command::Sessions {
+                    project_root: Some("/repo".into()),
+                    follow: true,
+                }),
+                "{argv:?}"
+            );
+        }
+        // And without it, exactly what it answered before this change.
+        assert_eq!(
+            plan_of(&["sessions"], false).action,
+            Action::Run(Command::Sessions {
+                project_root: None,
+                follow: false,
+            })
+        );
+        assert!(matches!(
+            plan_of(&["sessions", "/repo", "--follow", "extra"], false).action,
+            Action::Usage(_)
+        ));
     }
 
     #[test]
@@ -2068,6 +2376,78 @@ mod tests {
     }
 
     #[test]
+    fn no_flag_grants_permissions() {
+        // Scenario: Ninguna bandera nueva concede permisos
+        //
+        // The shortcuts other tools offer are usage errors here, wherever
+        // they are written…
+        for flag in [
+            "--yes",
+            "-y",
+            "--allow",
+            "--allow-all",
+            "--approve",
+            "--auto-approve",
+            "--trust",
+            "--no-confirm",
+            "--unattended",
+            "--skip-permissions",
+            "--dangerously-skip-permissions",
+        ] {
+            for line in [
+                vec!["session", "do it", flag],
+                vec![flag, "session", "do it"],
+                vec!["propose", "an idea", flag],
+                vec!["implement", "a-change", "an-agent", flag],
+            ] {
+                match plan_of(&line, false).action {
+                    Action::Usage(message) => assert!(message.contains(flag), "{message}"),
+                    other => panic!("`{line:?}` must be a usage error, got {other:?}"),
+                }
+            }
+        }
+        // …and the grammar's flags are exactly these: adding one changes this
+        // test, in front of whoever reviews it.
+        assert_eq!(
+            FLAGS,
+            &[
+                "--",
+                "--json",
+                "--yaml",
+                "--no-color",
+                "--help",
+                "-h",
+                "--version",
+                "-V",
+                "--exec",
+                "--all",
+                "--project",
+                "--since",
+                "--until",
+                "--agent",
+                "--mode",
+                "--model",
+                "--effort",
+                "--branch",
+                "--unique",
+                "--option",
+                // Reading, never granting: it asks the daemon to keep telling
+                // this terminal where sessions stand (estado-en-vivo design D8).
+                "--follow",
+            ]
+        );
+        // Every listed flag is one the grammar knows: none is refused.
+        for flag in FLAGS {
+            if let Action::Usage(message) = plan_of(&["status", flag], false).action {
+                assert!(
+                    !message.starts_with("unknown flag"),
+                    "`{flag}` is listed yet refused: {message}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn double_dash_ends_flag_parsing() {
         // After `--`, flag-looking tokens become positionals.
         assert_eq!(
@@ -2116,7 +2496,10 @@ mod tests {
         assert_eq!(plan_of(&["stop"], false).action, Action::Run(Command::Stop));
         assert_eq!(
             plan_of(&["sessions"], false).action,
-            Action::Run(Command::Sessions { project_root: None })
+            Action::Run(Command::Sessions {
+                project_root: None,
+                follow: false,
+            })
         );
     }
 
@@ -2220,5 +2603,145 @@ mod tests {
             plan_of(&["sessions", "--agent", "work"], false).action,
             Action::Usage(_)
         ));
+    }
+
+    #[test]
+    fn the_session_verbs_take_exactly_one_session_id() {
+        for (verb, expected) in [
+            (
+                "watch",
+                Command::Watch {
+                    session: "s-1".into(),
+                },
+            ),
+            (
+                "log",
+                Command::Log {
+                    session: "s-1".into(),
+                },
+            ),
+            (
+                "cancel",
+                Command::Cancel {
+                    session: "s-1".into(),
+                },
+            ),
+        ] {
+            assert_eq!(
+                plan_of(&[verb, "s-1"], false).action,
+                Action::Run(expected),
+                "`{verb} s-1`"
+            );
+            // No id, or two, is a usage error that names the grammar.
+            for line in [vec![verb], vec![verb, "s-1", "s-2"]] {
+                match plan_of(&line, false).action {
+                    Action::Usage(message) => assert!(
+                        message.contains(&format!("meltemi {verb} <session>")),
+                        "{message}"
+                    ),
+                    other => panic!("`{line:?}` must be a usage error, got {other:?}"),
+                }
+            }
+        }
+        assert_eq!(
+            plan_of(&["permissions"], false).action,
+            Action::Run(Command::Permissions)
+        );
+        assert!(matches!(
+            plan_of(&["permissions", "perm-1"], false).action,
+            Action::Usage(_)
+        ));
+    }
+
+    #[test]
+    fn approve_and_deny_take_one_request_and_an_optional_option_anywhere() {
+        assert_eq!(
+            plan_of(&["approve", "perm-3"], false).action,
+            Action::Run(Command::Approve {
+                request: "perm-3".into(),
+                option: None,
+            })
+        );
+        // `--option` is read wherever it is written, and its value verbatim.
+        for line in [
+            &["approve", "perm-3", "--option", "Allow-Always"][..],
+            &["approve", "--option", "Allow-Always", "perm-3"][..],
+            &["--option", "Allow-Always", "approve", "perm-3"][..],
+        ] {
+            assert_eq!(
+                plan_of(line, false).action,
+                Action::Run(Command::Approve {
+                    request: "perm-3".into(),
+                    option: Some("Allow-Always".into()),
+                }),
+                "{line:?}"
+            );
+        }
+        assert_eq!(
+            plan_of(&["--json", "deny", "perm-4", "--option", "reject"], false).action,
+            Action::Run(Command::Deny {
+                request: "perm-4".into(),
+                option: Some("reject".into()),
+            })
+        );
+        // No request id is a usage error that says where the ids are.
+        match plan_of(&["deny"], false).action {
+            Action::Usage(message) => assert!(message.contains("meltemi permissions"), "{message}"),
+            other => panic!("a missing id must be a usage error, got {other:?}"),
+        }
+        // A missing or empty option value is refused rather than carried.
+        for line in [
+            &["approve", "perm-3", "--option"][..],
+            &["approve", "perm-3", "--option", " "][..],
+            &["approve", "perm-3", "--option", "--json"][..],
+        ] {
+            match plan_of(line, false).action {
+                Action::Usage(message) => assert!(message.contains("`--option`"), "{message}"),
+                other => panic!("`{line:?}` must be a usage error, got {other:?}"),
+            }
+        }
+        // Where it decides nothing, the flag is refused, never swallowed.
+        for line in [
+            &["status", "--option", "allow"][..],
+            &["watch", "s-1", "--option", "allow"][..],
+            &["session", "go", "--option", "allow"][..],
+        ] {
+            match plan_of(line, false).action {
+                Action::Usage(message) => assert!(
+                    message.contains("`--option` applies to `approve` and `deny`"),
+                    "{message}"
+                ),
+                other => panic!("`{line:?}` must be a usage error, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn two_request_ids_are_refused_before_anything_is_decided() {
+        // Scenario: Dos ids se rehúsan sin decidir ninguno
+        // The grammar refuses the line before a connection exists, so nothing
+        // can have been decided; and the refusal says where granting without
+        // being asked is written.
+        for verb in ["approve", "deny"] {
+            for line in [
+                vec![verb, "perm-1", "perm-2"],
+                vec![verb, "perm-1", "perm-2", "perm-3", "--option", "allow"],
+            ] {
+                match plan_of(&line, false).action {
+                    Action::Usage(message) => {
+                        assert!(message.contains("one request at a time"), "{message}");
+                        assert!(message.contains("never in bulk"), "{message}");
+                        assert!(message.contains("permissions.toml"), "{message}");
+                    }
+                    other => panic!("`{line:?}` must be a usage error, got {other:?}"),
+                }
+            }
+        }
+        // And no flag decides in bulk: the grammar has none to offer.
+        assert!(!FLAGS.contains(&"--all-requests") && !FLAGS.contains(&"--yes"));
+        match plan_of(&["approve", "--all"], false).action {
+            Action::Usage(message) => assert!(message.contains("never in bulk"), "{message}"),
+            other => panic!("`approve --all` must not plan a decision, got {other:?}"),
+        }
     }
 }

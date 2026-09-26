@@ -2422,6 +2422,7 @@ version = "0.1.1"
 dependencies = [
  "agent-client-protocol",
  "jsonschema",
+ "meltemi-process",
  "serde",
  "serde_json",
  "tokio",
@@ -2434,11 +2435,13 @@ name = "meltemi-client"
 version = "0.1.1"
 dependencies = [
  "directories",
+ "meltemi-process",
  "meltemi-proto",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "tokio",
+ "toml 1.1.2+spec-1.1.0",
  "windows-sys 0.61.2",
 ]
 
@@ -2457,6 +2460,13 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-notification",
  "tokio",
+]
+
+[[package]]
+name = "meltemi-process"
+version = "0.1.1"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2479,9 +2489,11 @@ dependencies = [
  "agent-client-protocol",
  "anyhow",
  "directories",
+ "futures",
  "ignore",
  "libc",
  "meltemi-client",
+ "meltemi-process",
  "meltemi-proto",
  "meltemi-spec",
  "serde",

@@ -32,6 +32,10 @@ pub mod methods {
     pub const FLEET_LIST: &str = "fleet/list";
     /// Request: (re)project the compiled context into the declared targets.
     pub const CONTEXT_PROJECT: &str = "context/project";
+    /// Request: the harness that effectively applies — optionally narrowed to a
+    /// project and to an agent — with the layer each piece came from, and with
+    /// what does NOT apply and why (harness-global-y-por-agente design D8).
+    pub const HARNESS_EFFECTIVE: &str = "harness/effective";
     /// Request: list sessions (active and historical) for a project.
     pub const SESSION_LIST: &str = "session/list";
     /// Request: read a session's JSONL log, paginated by line range.
@@ -74,6 +78,12 @@ pub mod methods {
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set-config-option";
     /// Notification (daemon -> client): streamed session event.
     pub const SESSION_EVENT: &str = "session/event";
+    /// Notification (daemon -> client): the lifecycle state of one session, as
+    /// it stands. Goes to EVERY initialized connection on every transition,
+    /// including sessions the connection did not open — a client that only
+    /// learned about its own sessions is a client that reports nobody is
+    /// working while an agent works (estado-en-vivo design D2).
+    pub const SESSION_STATE: &str = "session/state";
     /// Request (client -> daemon): declare whether this connection watches a
     /// session's event stream. The connection that started a session receives
     /// its stream without asking; any other must declare it
@@ -279,6 +289,11 @@ pub struct ErrorData {
     /// itself an answer — the fleet was consulted and nothing was found.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidates: Option<Vec<AgentCandidate>>,
+    /// The lever a session refused when it opened, when the error is that
+    /// refusal (2007): the same record its log keeps, so a surface can say it
+    /// in its own words (modelo-por-opcion-anunciada design D4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lever_refused: Option<LeverRefusal>,
 }
 
 /// One agent offered as a way out of a resolution refusal. It carries the very
@@ -503,6 +518,121 @@ pub struct SessionInfo {
     /// The effort that effectively governed, on the same terms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+}
+
+/// A front-matter value of a harness piece, in the two shapes that exist.
+///
+/// Untagged because the two shapes are already unambiguous on the wire — a
+/// string or an array of strings — and a discriminator would be ceremony a
+/// reader does not need.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum HarnessValue {
+    /// `key: value`
+    Scalar(String),
+    /// `key: [a, b, c]`
+    List(Vec<String>),
+}
+
+/// One front-matter entry of a harness piece, in the order it was written.
+///
+/// Every entry travels, including the ones the core does not use: they were
+/// written on purpose, and a view that dropped them would hide what their
+/// author put there (harness-global-y-por-agente design D2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessField {
+    /// The key, verbatim.
+    pub key: String,
+    /// The value, verbatim.
+    pub value: HarnessValue,
+}
+
+/// The scope a harness piece came from.
+///
+/// A closed set because these four are the product's own layers, not a
+/// third party's vocabulary: `user`, `user_agent`, `project`, `project_agent`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HarnessLayer {
+    /// The user's own harness.
+    User,
+    /// The user's harness for one agent.
+    UserAgent,
+    /// The project's harness.
+    Project,
+    /// The project's harness for one agent.
+    ProjectAgent,
+}
+
+/// Where a piece was found: its layer, the agent that layer is specific to when
+/// it is one, and the file itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessOrigin {
+    /// The layer it came from.
+    pub layer: HarnessLayer,
+    /// The agent the layer is specific to, when it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// The file, so a reader can open what they are looking at.
+    pub path: String,
+}
+
+/// One rule of the effective harness.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessRule {
+    /// The rule's identity: the name of its directory.
+    pub name: String,
+    /// Where the governing version came from.
+    pub origin: HarnessOrigin,
+    /// Its front-matter, entries in source order, every key included.
+    pub front_matter: Vec<HarnessField>,
+    /// Why it cannot be projected, when it cannot. Empty means it governs.
+    #[serde(default)]
+    pub problems: Vec<String>,
+    /// The same rule as found in less specific layers, most general first —
+    /// the answer to "why is mine not the one applying".
+    #[serde(default)]
+    pub shadowed: Vec<HarnessOrigin>,
+}
+
+/// A per-agent directory whose identifier the fleet catalog does not know.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessUnknownAgent {
+    /// The identifier as the directory spells it.
+    pub id: String,
+    /// The directory, so it can be found and renamed.
+    pub path: String,
+}
+
+/// Params of `harness/effective`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessEffectiveParams {
+    /// The project to include. Absent means only the user's own scopes, which
+    /// is what "what do I have globally" means.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+    /// The agent to narrow to. Absent means every agent's pieces are included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+}
+
+/// Result of `harness/effective`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessEffectiveResult {
+    /// The rules, by name. Includes the ones that cannot be projected, with
+    /// their diagnostic: a view that only listed what governs would leave "why
+    /// is mine missing" unanswered.
+    pub rules: Vec<HarnessRule>,
+    /// Per-agent directories the catalog does not know. Reported rather than
+    /// read: writing for an agent the core cannot name is writing blind.
+    #[serde(default)]
+    pub unknown_agents: Vec<HarnessUnknownAgent>,
 }
 
 /// One selectable value of a `select` session configuration option, as the
@@ -744,6 +874,10 @@ pub struct UsageActivity {
     pub commits: u32,
     pub checkpoints: u32,
     pub errors: u32,
+    /// Turns declared empty in the folded records (turno-vacio-es-error
+    /// design D7). Zero when there were none.
+    #[serde(default)]
+    pub empty_turns: u32,
 }
 
 /// Measured token counters. Every field is optional on purpose: a counter the
@@ -779,8 +913,13 @@ impl UsageTokens {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageUnreportedKind {
-    /// The session ran over ACP, whose protocol does not carry usage.
+    /// The session ran over ACP and its agent reported no usage over the
+    /// protocol.
     ProtocolCarriesNoUsage,
+    /// The session ran over ACP and its agent reported what the protocol
+    /// carries — the context it holds and the cost it declares — which is not
+    /// consumption, so its tokens stay absent (usage-desde-acp design D5).
+    ProtocolCarriesContextNotConsumption,
     /// The integration level runs no process (level 4, artifacts only).
     LevelRunsNoProcess,
     /// A level-3 run whose structured output declared no counters.
@@ -808,8 +947,58 @@ pub struct UsageCoverage {
     pub reasons: Vec<UsageUnreportedReason>,
 }
 
+/// One currency of the cost the agents declared over ACP (usage-desde-acp
+/// design D4): each contributing conversation's last cumulative figure,
+/// summed. Never converted, and never a price of Meltemi's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentReportCost {
+    /// The currency as the agent sent it — ISO 4217 by the protocol, not
+    /// validated here.
+    pub currency: String,
+    /// The sum, in that currency.
+    pub amount: f64,
+    /// How many sessions contributed to it.
+    pub sessions: u32,
+}
+
+/// What the agents reported over ACP (`usage_update`) for the sessions of a
+/// cell (usage-desde-acp design D1, D2, D4): the fullest context and the cost
+/// per currency. The agents' own figures, relayed: never consumption, never
+/// converted, never priced by Meltemi.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentReport {
+    /// Sessions whose agent reported usage over the protocol.
+    pub sessions: u32,
+    /// Tokens in context in the fullest report — the largest share of its
+    /// window. A maximum, not a sum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_used: Option<u64>,
+    /// The window of that same report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_size: Option<u64>,
+    /// The cost per currency, sorted by currency; absent when no session
+    /// declared one (never zero).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cost: Vec<AgentReportCost>,
+}
+
+/// The agents' report over the returned cells: sums only, like every other
+/// total (usage-desde-acp design D4). The context is a maximum, so it is not
+/// here.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentReportTotals {
+    /// Sessions whose agent reported usage over the protocol.
+    pub sessions: u32,
+    /// The cost per currency, sorted by currency.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cost: Vec<AgentReportCost>,
+}
+
 /// One aggregation cell: project × agent × profile × period (design D2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageCell {
     pub project_key: String,
@@ -832,6 +1021,10 @@ pub struct UsageCell {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<UsageTokens>,
     pub coverage: UsageCoverage,
+    /// What the agents reported over the protocol; absent when no session of
+    /// the cell reported (usage-desde-acp).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_report: Option<AgentReport>,
 }
 
 /// Facts that could not be attributed to an agent or a profile. They live in
@@ -861,6 +1054,11 @@ pub enum UsageDisclosure {
     NothingIsEstimated,
     /// No data leaves this machine.
     NothingLeavesThisMachine,
+    /// Context and cost are what each agent reported over the protocol;
+    /// Meltemi only sums the cost per currency — it estimates, converts and
+    /// prices nothing — and a cumulative cost may include spending from
+    /// before the range (usage-desde-acp design D6).
+    AgentReportedContextAndCost,
 }
 
 /// Result of `analytics/usage`.
@@ -880,7 +1078,7 @@ pub struct AnalyticsUsageResult {
 }
 
 /// Totals over the returned cells.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageTotals {
     pub cells: u32,
@@ -889,6 +1087,10 @@ pub struct UsageTotals {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<UsageTokens>,
     pub coverage: UsageCoverage,
+    /// The agents' report summed over the returned cells; absent when none
+    /// reported (usage-desde-acp).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_report: Option<AgentReportTotals>,
 }
 
 /// Parameters of `project/list`.
@@ -1143,6 +1345,11 @@ pub struct FleetAgent {
     /// The date (RFC 3339) of the conformance run behind `verified_level`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verified_at: Option<String>,
+    /// The agent version the conformance run behind `verified_level`
+    /// measured (codex-al-dia design D11): a level is verified against a
+    /// version, and a newer one has not been measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_version: Option<String>,
     /// Whether the agent declares MCP passthrough support in the registry.
     #[serde(default)]
     pub mcp_support: bool,
@@ -1191,6 +1398,84 @@ pub struct FleetAgent {
     /// The effort this entry runs by default, on the same terms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+}
+
+/// A per-session lever an agent can take: which model runs, and how much it
+/// reasons (modelo-por-opcion-anunciada).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionLever {
+    /// The model the session runs with.
+    Model,
+    /// How much the agent reasons.
+    Effort,
+}
+
+/// Why a lever was refused when its session opened
+/// (modelo-por-opcion-anunciada design D1, D3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeverRefusalReason {
+    /// The agent announced no option of the lever's category.
+    NotAnnounced,
+    /// It announced more than one: picking one would be a guess.
+    Ambiguous,
+    /// The value is not among the announced ones, or a toggle got neither
+    /// `true` nor `false`.
+    NotAValue,
+    /// The agent's answer left another value than the one asked for, or none.
+    NotConfirmed,
+    /// Setting the lever changed the agent's mode, which nobody asked for.
+    ModeChanged,
+    /// The agent did not answer within the wait.
+    NoAnswer,
+}
+
+/// An option the agent announced, named in a refusal whose lever found no
+/// single option of its category.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnouncedOption {
+    /// The option's id — what `set-option` takes.
+    pub id: String,
+    /// The agent's label for it.
+    pub name: String,
+    /// Its category, when the agent gave one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+}
+
+/// A lever refused when its session opened, before any prompt
+/// (modelo-por-opcion-anunciada design D4): what the session log records and
+/// what the error that answers the verb carries. Lists are bounded — an agent
+/// may announce hundreds of values — and say how many were left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeverRefusal {
+    /// The lever refused.
+    pub lever: SessionLever,
+    /// What was asked for, verbatim.
+    pub requested: String,
+    /// Why.
+    pub reason: LeverRefusalReason,
+    /// The values the agent announced for the lever's option, at most 20.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<String>,
+    /// The options it announced, when none or several carried the lever's
+    /// category, at most 20.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<AnnouncedOption>,
+    /// How many values or options were left out of those lists.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub more: u32,
+    /// What the agent left instead: the value its answer kept, or the mode it
+    /// moved to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<String>,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }
 
 /// Result of `fleet/list`.
@@ -1346,6 +1631,10 @@ pub struct SddResult {
     /// How to decide the pending gate (scriptable guidance, never a hang).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate_hint: Option<String>,
+    /// Present, and `true`, only when some authoring turn this call ran ended
+    /// having said and done nothing (turno-vacio-es-error design D3).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_turn: bool,
 }
 
 /// Params of `repo/map`.
@@ -1393,6 +1682,16 @@ pub struct RepoMapResult {
 pub struct ContextProjectParams {
     /// Absolute path to the root of the target repository.
     pub project_root: String,
+    /// Catalog ids whose USER-scope instruction file Meltemi may write into
+    /// from now on. Someone else's configuration is not ours to start editing
+    /// because the feature exists (§2), so the first write to each one is
+    /// consented to here and the consent is recorded.
+    ///
+    /// Absent asks for nothing: destinations not yet consented to are reported
+    /// as awaiting consent and left untouched
+    /// (harness-global-y-por-agente design D7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consent_user_scope: Vec<String>,
 }
 
 /// One target file the projection wrote (or found already current).
@@ -1413,6 +1712,42 @@ pub struct ContextTarget {
 pub struct ContextProjectResult {
     /// Every declared target with its fingerprint and whether it changed.
     pub targets: Vec<ContextTarget>,
+    /// Every user-scope destination the user's own harness reaches, with what
+    /// happened at each. Reported whether or not anything was written: a
+    /// destination left alone for want of consent, or one the agent itself
+    /// ignores, is exactly what a surface has to be able to say.
+    #[serde(default)]
+    pub user_targets: Vec<UserScopeTarget>,
+}
+
+/// What happened at one user-scope destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserScopeState {
+    /// The file was updated.
+    Written,
+    /// The managed block already carried this content.
+    Unchanged,
+    /// This agent's file has never been consented to; nothing was written.
+    AwaitingConsent,
+    /// The agent reads a different file while this one is present, so writing
+    /// here would fill a file nobody reads.
+    IgnoredByAgent,
+}
+
+/// One user-scope destination and its outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserScopeTarget {
+    /// The catalog id whose instruction file this is.
+    pub agent: String,
+    /// The resolved absolute path.
+    pub path: String,
+    /// What happened at it.
+    pub state: UserScopeState,
+    /// For `ignored_by_agent`, the file the agent reads instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overridden_by: Option<String>,
 }
 
 /// Params of `propose`.
@@ -1447,6 +1782,11 @@ pub struct ProposeResult {
     /// zero the artifact may be incomplete (honesty of result, H1/H4/H5).
     #[serde(default)]
     pub denied_permissions: u32,
+    /// Present, and `true`, only when the turn whose status this reports ended
+    /// having said and done nothing (turno-vacio-es-error design D3). The
+    /// status stays what the agent reported: this is measured beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_turn: bool,
 }
 
 /// Params of the `session/cancel` notification.
@@ -1583,6 +1923,19 @@ pub struct SessionStartResult {
     /// The English remedy matching that cause, for surfaces that show prose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkpoint_remedy: Option<String>,
+    /// Present, and `true`, only when the turn whose status this reports ended
+    /// having said and done nothing (turno-vacio-es-error design D3). The
+    /// status stays what the agent reported: this is measured beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_turn: bool,
+    /// The model that governed the session: what travelled as a launch flag, or
+    /// what the agent confirmed through its announced option — never what was
+    /// only asked for (modelo-por-opcion-anunciada design D6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The effort that governed, on the same terms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// Params of `session/direct`: an instruction aimed at an existing session.
@@ -1655,6 +2008,11 @@ pub struct SessionDirectResult {
     /// merely queued). Greater than zero means the result may be incomplete.
     #[serde(default)]
     pub denied_permissions: u32,
+    /// Present, and `true`, only when the turn whose status this reports ended
+    /// having said and done nothing (turno-vacio-es-error design D3). The
+    /// status stays what the agent reported: this is measured beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_turn: bool,
 }
 
 /// Hint about the nature of a permission option (mirrors ACP).
@@ -1695,6 +2053,11 @@ pub struct PermissionRequestParams {
     pub tool_call: serde_json::Value,
     /// Options for the user to choose from.
     pub options: Vec<PermissionOption>,
+    /// The id this request holds in the pending queue (aprobador-en-el-cli
+    /// design D4): what lets the client that answers the push also decide or
+    /// remember it by id, and recognise when another path resolved it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 /// The decision on a permission request, mirroring ACP
@@ -2035,6 +2398,21 @@ pub enum SessionEventKind {
         /// The options, verbatim as the agent sent them.
         options: Vec<SessionConfigOption>,
     },
+    /// The levers a session asked for were set through the options the agent
+    /// announced and confirmed by its answer, before the first prompt
+    /// (modelo-por-opcion-anunciada design D3). A value the agent did not
+    /// confirm is refused, so what this carries is what governed.
+    LeversApplied {
+        /// The model that governed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// The effort that governed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
+    },
+    /// A lever was refused when the session opened, and no prompt was sent
+    /// (modelo-por-opcion-anunciada design D4).
+    LeverRefused(LeverRefusal),
     /// The agent turn finished.
     TurnCompleted {
         /// Mapped ACP stop reason.
@@ -2048,6 +2426,14 @@ pub enum SessionEventKind {
     TurnInterrupted {
         /// The instruction that relayed the interrupted turn.
         instruction: String,
+    },
+    /// The agent closed a turn as finished having said and done nothing: no
+    /// message or thought with content, no tool call, no plan, no permission
+    /// request — and nobody asked it to stop (turno-vacio-es-error design D2).
+    /// Written per turn, beside the stop reason, which it never changes.
+    TurnEmpty {
+        /// The stop reason the agent reported for the empty turn.
+        stop_reason: TurnStatus,
     },
     /// A pre-task checkpoint of the worktree was created (checkpoints-rollback).
     CheckpointCreated {
@@ -2074,6 +2460,23 @@ pub enum SessionEventKind {
         agent: String,
         /// Approved out-of-tree operations that remain in effect.
         irreversible: Vec<String>,
+    },
+    /// The agent's process, once it is running: which process this session's
+    /// agent actually is (apagado-entero-y-modos design D3).
+    ///
+    /// Separate from `AgentResolved`, which answers "which binary will run" and
+    /// is written when the fleet resolves the name — before anything is
+    /// launched, so it cannot carry an identifier that does not exist yet. This
+    /// one is written after the launch, and it is what lets a session log
+    /// answer "which process was this?" when somebody is looking at a process
+    /// that outlived something it should not have.
+    AgentProcess {
+        /// The operating system's identifier for the launched process.
+        pid: u32,
+        /// The program that was launched, as the platform resolved it. On
+        /// Windows this is frequently a script shim rather than the CLI
+        /// itself, which is exactly why the identifier beside it matters.
+        binary: String,
     },
     /// A session's agent was resolved from the fleet (flota-multiproveedor):
     /// the effective binary and how the name resolved. Carries the binary and
@@ -2216,6 +2619,37 @@ pub struct SessionEventParams {
     pub session_id: String,
     /// The event.
     pub event: SessionEvent,
+}
+
+/// Params of the `session/state` notification (daemon -> client).
+///
+/// An **affirmation**, not a difference: it states where the session stands, so
+/// applying it twice, or applying two of them out of order, converges on the
+/// last one that arrived. That is what removes the need for a sequence number
+/// and what makes the opening snapshot safe to race against the first
+/// transition (estado-en-vivo design D1).
+///
+/// Nothing of the project travels here. No instruction, no title, no turn text:
+/// what a client could not read before, it still cannot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStateParams {
+    /// The session this affirmation is about.
+    pub session_id: String,
+    /// The repository root the session runs in — the same spelling
+    /// `session/list` reports, so a client can narrow by project without
+    /// asking again.
+    pub project_root: String,
+    /// Where the session stands.
+    pub state: SessionState,
+    /// When it entered that state (RFC 3339, UTC).
+    ///
+    /// A wall clock rather than a monotonic instant, because it crosses the
+    /// wire and a surface subtracts it to show "working for 40 s". Without it a
+    /// clock can only stay blank or lie (design D6).
+    pub since: String,
+    /// How many of this session's permission requests are waiting on a human.
+    pub pending_permissions: u32,
 }
 
 /// One task to assign, with the agents that will work it and the files it
@@ -2478,6 +2912,11 @@ pub struct WorktreeDispatchResult {
     /// lane with the session that ran it (tablero-de-carrera design D2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Present, and `true`, only when the turn whose status this reports ended
+    /// having said and done nothing (turno-vacio-es-error design D3). The
+    /// status stays what the agent reported: this is measured beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_turn: bool,
 }
 
 /// Parameters of `worktree/apply-edit` (gui-tauri-paridad design D5): the

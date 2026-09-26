@@ -24,7 +24,8 @@
 
 use agent_client_protocol::schema::v1::{
     ContentBlock, PermissionOption, PermissionOptionKind, RequestPermissionRequest, SessionId,
-    TextContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    TextContent, ToolCall, ToolCallContent, ToolCallLocation, ToolCallStatus, ToolCallUpdate,
+    ToolCallUpdateFields, ToolKind,
 };
 
 use super::wire::{self, ApprovalDecision};
@@ -56,29 +57,128 @@ pub fn is_approval(method: &str) -> bool {
     )
 }
 
+/// What an approval really grants, when it is more — or other — than the item
+/// it is about (codex-al-dia design D7): its title, a line that says it, its
+/// kind, and the path it reaches.
+struct Grant {
+    title: String,
+    says: String,
+    kind: ToolKind,
+    location: Option<String>,
+}
+
+/// What an approval grants beyond the item, if anything.
+///
+/// A network access is not a command: it is shown by host and protocol, under
+/// the kind the proxy's rules read as network. Input to a terminal already
+/// running is not a new command either. And a file change that also asks for a
+/// root to write under for the rest of the session shows that root, as the
+/// path the rules match.
+fn grant(method: &str, params: &wire::ApprovalParams) -> Option<Grant> {
+    if method == wire::COMMAND_EXECUTION_APPROVAL {
+        if let Some(network) = &params.network_approval_context {
+            return Some(Grant {
+                title: format!("Connect to `{}` over {}", network.host, network.protocol),
+                says: format!(
+                    "A network access, not a new command: allowing it lets the command reach `{}` \
+                     over {}.",
+                    network.host, network.protocol
+                ),
+                kind: ToolKind::Fetch,
+                location: None,
+            });
+        }
+        if params.kind.as_deref() == Some(wire::COMMAND_KIND_WRITE_STDIN) {
+            return Some(Grant {
+                title: "Write input to a terminal that is already running".to_string(),
+                says: "This sends input to a command already running; it does not start a new one."
+                    .to_string(),
+                kind: ToolKind::Execute,
+                location: None,
+            });
+        }
+    }
+    if method == wire::FILE_CHANGE_APPROVAL
+        && let Some(root) = params.grant_root.as_ref().filter(|root| !root.is_empty())
+    {
+        return Some(Grant {
+            title: format!("Change files, and write under `{root}` for the rest of the session"),
+            says: format!(
+                "Allowing it also lets Codex write anywhere under `{root}` for the rest of this \
+                 session, not only this change."
+            ),
+            kind: ToolKind::Edit,
+            location: Some(root.clone()),
+        });
+    }
+    None
+}
+
+/// The tool an approval is about, for an approval whose item the session never
+/// saw announced — a network access has none of its own. Shown before the
+/// question, so the question is asked against something the human can see.
+#[must_use]
+pub fn announcement(method: &str, params: &wire::ApprovalParams) -> ToolCall {
+    let (title, kind, locations) = match grant(method, params) {
+        Some(grant) => (
+            grant.title,
+            grant.kind,
+            grant
+                .location
+                .map(ToolCallLocation::new)
+                .into_iter()
+                .collect(),
+        ),
+        None if method == wire::COMMAND_EXECUTION_APPROVAL => {
+            ("A command".to_string(), ToolKind::Execute, Vec::new())
+        }
+        None => ("A file change".to_string(), ToolKind::Edit, Vec::new()),
+    };
+    ToolCall::new(params.item_id.clone(), title)
+        .kind(kind)
+        .status(ToolCallStatus::Pending)
+        .locations(locations)
+}
+
 /// The permission request the proxy will decide.
 ///
 /// It is addressed to the **same tool call id** the item was streamed under, so
 /// a client shows the question against the command or the diff it already
 /// displayed instead of against an anonymous prompt. The provider's reason,
 /// when it gives one, travels as the content of that update: at the moment of
-/// deciding, the reason is the thing the human needs.
+/// deciding, the reason is the thing the human needs. When the approval grants
+/// more or other than the item — a network access, input to a running
+/// terminal, a root to write under for the session — the title, the content,
+/// the kind and the location say what is really granted, so the human and the
+/// rules decide on that.
 #[must_use]
 pub fn request_for(
     session_id: &SessionId,
     method: &str,
     params: &wire::ApprovalParams,
 ) -> RequestPermissionRequest {
-    let kind = if method == wire::COMMAND_EXECUTION_APPROVAL {
-        ToolKind::Execute
-    } else {
-        ToolKind::Edit
+    let grant = grant(method, params);
+    let kind = match &grant {
+        Some(grant) => grant.kind,
+        None if method == wire::COMMAND_EXECUTION_APPROVAL => ToolKind::Execute,
+        None => ToolKind::Edit,
     };
     let mut fields = ToolCallUpdateFields::new()
         .kind(kind)
         .status(ToolCallStatus::Pending);
+    let mut content: Vec<ToolCallContent> = Vec::new();
     if let Some(reason) = params.reason.as_ref().filter(|reason| !reason.is_empty()) {
-        fields = fields.content(vec![ContentBlock::Text(TextContent::new(reason)).into()]);
+        content.push(ContentBlock::Text(TextContent::new(reason)).into());
+    }
+    if let Some(grant) = grant {
+        content.push(ContentBlock::Text(TextContent::new(grant.says)).into());
+        fields = fields.title(grant.title);
+        if let Some(root) = grant.location {
+            fields = fields.locations(vec![ToolCallLocation::new(root)]);
+        }
+    }
+    if !content.is_empty() {
+        fields = fields.content(content);
     }
     RequestPermissionRequest::new(
         session_id.clone(),
@@ -123,7 +223,118 @@ mod tests {
             turn_id: "turn-1".into(),
             item_id: "item-2".into(),
             reason: Some("it wants to write outside the worktree".into()),
+            ..wire::ApprovalParams::default()
         }
+    }
+
+    /// The text the request shows, all of it.
+    fn shown(request: &RequestPermissionRequest) -> String {
+        let fields = &request.tool_call.fields;
+        let mut text = fields.title.clone().unwrap_or_default();
+        for block in fields.content.iter().flatten() {
+            if let ToolCallContent::Content(content) = block
+                && let ContentBlock::Text(said) = &content.content
+            {
+                text.push('\n');
+                text.push_str(&said.text);
+            }
+        }
+        text
+    }
+
+    #[test]
+    fn a_network_approval_shows_where_it_connects() {
+        // Scenario: Una aprobación de red muestra a qué se conecta
+        let network = wire::ApprovalParams {
+            item_id: "net-1".into(),
+            network_approval_context: Some(wire::NetworkApprovalContext {
+                host: "registry.npmjs.org".into(),
+                protocol: "https".into(),
+            }),
+            ..params()
+        };
+        let request = request_for(
+            &SessionId::new("s-1"),
+            wire::COMMAND_EXECUTION_APPROVAL,
+            &network,
+        );
+        let text = shown(&request);
+        assert!(
+            text.contains("registry.npmjs.org") && text.contains("https"),
+            "host and protocol: {text}"
+        );
+        assert_eq!(
+            request.tool_call.fields.kind,
+            Some(ToolKind::Fetch),
+            "under the kind the proxy's rules read as network, not as a command"
+        );
+        assert!(
+            text.contains("outside the worktree"),
+            "and the reason still: {text}"
+        );
+
+        // Its item was never announced, so it is shown before it is asked.
+        let tool = announcement(wire::COMMAND_EXECUTION_APPROVAL, &network);
+        assert_eq!(tool.tool_call_id.0.as_ref(), "net-1");
+        assert!(tool.title.contains("registry.npmjs.org"));
+        assert_eq!(tool.kind, ToolKind::Fetch);
+    }
+
+    #[test]
+    fn a_write_to_a_running_terminal_is_not_shown_as_a_new_command() {
+        // Scenario: Una escritura en una terminal se distingue de un comando
+        let stdin = wire::ApprovalParams {
+            kind: Some(wire::COMMAND_KIND_WRITE_STDIN.into()),
+            ..params()
+        };
+        let request = request_for(
+            &SessionId::new("s-1"),
+            wire::COMMAND_EXECUTION_APPROVAL,
+            &stdin,
+        );
+        let text = shown(&request);
+        assert!(
+            text.contains("already running") && text.contains("does not start a new one"),
+            "{text}"
+        );
+        // A plain command keeps the item's own title.
+        let command = wire::ApprovalParams {
+            kind: Some("command".into()),
+            ..params()
+        };
+        let request = request_for(
+            &SessionId::new("s-1"),
+            wire::COMMAND_EXECUTION_APPROVAL,
+            &command,
+        );
+        assert_eq!(request.tool_call.fields.title, None);
+        assert_eq!(request.tool_call.fields.kind, Some(ToolKind::Execute));
+    }
+
+    #[test]
+    fn a_root_to_write_under_for_the_session_is_shown() {
+        // Scenario: Una raíz de escritura para toda la sesión se muestra
+        let rooted = wire::ApprovalParams {
+            grant_root: Some("/home/dev/elsewhere".into()),
+            ..params()
+        };
+        let request = request_for(&SessionId::new("s-1"), wire::FILE_CHANGE_APPROVAL, &rooted);
+        let text = shown(&request);
+        assert!(
+            text.contains("/home/dev/elsewhere") && text.contains("rest of this session"),
+            "the root and the scope: {text}"
+        );
+        let locations = request
+            .tool_call
+            .fields
+            .locations
+            .clone()
+            .unwrap_or_default();
+        assert_eq!(
+            locations.first().map(|location| location.path.clone()),
+            Some(std::path::PathBuf::from("/home/dev/elsewhere")),
+            "as the path the rules match"
+        );
     }
 
     #[test]

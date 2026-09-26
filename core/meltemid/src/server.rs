@@ -58,15 +58,19 @@ pub struct DaemonState {
 impl DaemonState {
     /// Builds shared state. `data_dir`/`config_dir` come from [`crate::paths`].
     pub fn new(data_dir: PathBuf, config_dir: PathBuf, shutdown: mpsc::Sender<()>) -> Arc<Self> {
+        let events = crate::events::EventHub::default();
         Arc::new(Self {
             version: env!("CARGO_PKG_VERSION"),
             started: Instant::now(),
             data_dir,
             config_dir,
-            sessions: SessionRegistry::default(),
+            // One hub, held by both: the registry announces on the very
+            // channel every connection listens to. Two hubs would be two
+            // silences (estado-en-vivo design D2).
+            sessions: SessionRegistry::with_hub(events.clone()),
             pending: PendingQueue::default(),
             clients: crate::clients::ClientRegistry::default(),
-            events: crate::events::EventHub::default(),
+            events,
             edits: Arc::default(),
             shutdown,
         })
@@ -110,6 +114,18 @@ pub async fn serve_until_shutdown(
     }
 }
 
+/// Affirms where every session the daemon holds stands, to one connection.
+///
+/// Sent on `initialize`, and again whenever this connection falls behind the
+/// state channel. Both callers want exactly this and for the same reason: an
+/// affirmation states the whole standing of a session, so a snapshot is a
+/// repair as well as an opening (estado-en-vivo design D3, D4).
+async fn push_state_snapshot(peer: &Peer, state: &Arc<DaemonState>) {
+    for affirmation in state.sessions.affirmations().await {
+        peer.notify(methods::SESSION_STATE, &affirmation);
+    }
+}
+
 async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonState>) {
     let (peer, mut incoming) = Peer::start(stream);
     let mut initialized = false;
@@ -122,6 +138,13 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
     // that originated it (eventos-para-tardios D1).
     let mut watched: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut session_events = state.events.subscribe();
+    // Lifecycle state, subscribed BEFORE the snapshot this connection gets on
+    // `initialize`. The order is the whole trick: subscribing first means a
+    // transition that happens during the snapshot arrives after it and corrects
+    // it, and by the affirmation being whole rather than a difference, applying
+    // it is idempotent. The other order would lose that transition
+    // (estado-en-vivo design D3).
+    let mut session_states = state.events.subscribe_state();
 
     // Forward pending-queue changes to this client as `permission/changed`,
     // so its tray reconciles to one snapshot without a round-trip. The
@@ -151,6 +174,32 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
                         continue;
                     }
                     // The queue is gone (daemon tearing down): stop forwarding.
+                    Err(RecvError::Closed) => break,
+                }
+            }
+            affirmation = session_states.recv() => {
+                use tokio::sync::broadcast::error::RecvError;
+                match affirmation {
+                    Ok(affirmation) => {
+                        if initialized {
+                            peer.notify(methods::SESSION_STATE, affirmation.as_ref());
+                        }
+                        continue;
+                    }
+                    // Fell behind the bounded buffer. The client cannot know —
+                    // the lag is reported on THIS side — so leaving a
+                    // `tracing::warn!` here and nothing else is what the event
+                    // channel does and what makes its gaps silent. State must
+                    // not have silent gaps, so the whole snapshot goes again:
+                    // the same call the connection makes on `initialize`, and
+                    // idempotent for the same reason (design D4).
+                    Err(RecvError::Lagged(missed)) => {
+                        tracing::warn!(missed, "session state stream lagged; re-affirming");
+                        if initialized {
+                            push_state_snapshot(&peer, &state).await;
+                        }
+                        continue;
+                    }
                     Err(RecvError::Closed) => break,
                 }
             }
@@ -186,6 +235,11 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
                                 client_guard = Some(state.clients.register());
                             }
                             peer.respond(id, Ok(result));
+                            // Where every session stands, before any transition
+                            // reaches this connection. A client that had to ask
+                            // for this would be a client that shows nothing
+                            // until it does (design D3).
+                            push_state_snapshot(&peer, &state).await;
                         }
                         Err(err) => {
                             let close = err.code == error_codes::PROTOCOL_VERSION_UNSUPPORTED;
@@ -307,6 +361,7 @@ async fn dispatch_request(
         methods::PROPOSE => crate::propose::handle_propose(params, state, peer).await,
         methods::FLEET_LIST => crate::fleet::handle_fleet_list(params, state),
         methods::CONTEXT_PROJECT => handle_context_project(params, state).await,
+        methods::HARNESS_EFFECTIVE => crate::harness::handle_harness_effective(params, state),
         methods::SESSION_LIST => handle_session_list(params, state).await,
         methods::SESSION_LOG => handle_session_log(params, state).await,
         methods::SESSION_DIRECT => handle_session_direct(params, state, peer).await,
@@ -792,6 +847,15 @@ async fn handle_worktree_dispatch(
             ));
         }
     };
+    // The levers, routed BEFORE the worktree exists, the way the free session
+    // routes its own: by flag into the environment its adapter reads, by the
+    // agent's announcement before the first prompt, or refused (2006) here
+    // (modelo-por-opcion-anunciada D4, D5). The contract has carried a model and
+    // an effort for this verb all along; what the caller declares overrides the
+    // profile's default, and a profile that declares none imposes none.
+    let mut resolved =
+        resolved.with_session_levers(params.model.as_deref(), params.effort.as_deref());
+    let announced_levers = crate::levels::route_levers(&mut resolved, &agent_command)?;
 
     // The common base is fixed by the assignment; create/reuse the worktree.
     let base = crate::git::head_rev(&root).ok_or_else(|| {
@@ -826,7 +890,11 @@ async fn handle_worktree_dispatch(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            root.display().to_string(),
+        )
         .await;
     let project_key = crate::paths::project_key(&root);
     // The project registry is fed by real use only (multiproyecto D3).
@@ -844,8 +912,9 @@ async fn handle_worktree_dispatch(
         title: None,
     });
     let _ = log.append(SessionEventKind::AgentResolved {
-        model: None,
-        effort: None,
+        // Only what travelled by flag (modelo-por-opcion-anunciada D6).
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -867,7 +936,9 @@ async fn handle_worktree_dispatch(
     let dispatch_record = |ended_at: Option<String>,
                            final_status: Option<meltemi_proto::TurnStatus>,
                            agent_session_id: Option<String>,
-                           supports_load: bool| {
+                           supports_load: bool,
+                           model: Option<String>,
+                           effort: Option<String>| {
         crate::session_index::SessionRecord {
             session_id: session_id.clone(),
             agent_command: agent_command.clone(),
@@ -884,8 +955,8 @@ async fn handle_worktree_dispatch(
             agent_id: resolved.agent_id.clone(),
             profile: resolved.profile.clone(),
             mode: None,
-            model: None,
-            effort: None,
+            model,
+            effort,
             source: Some(resolved.source),
             // A race lane is not born from a sentence (design D2).
             title: None,
@@ -894,7 +965,14 @@ async fn handle_worktree_dispatch(
     let _ = crate::session_index::append(
         &state.data_dir,
         &project_key,
-        &dispatch_record(None, None, None, false),
+        &dispatch_record(
+            None,
+            None,
+            None,
+            false,
+            resolved.model.clone(),
+            resolved.effort.clone(),
+        ),
     );
 
     // The prompt points the agent at a per-task artifact so its work is
@@ -952,8 +1030,43 @@ async fn handle_worktree_dispatch(
         // A competitor dispatch is a single self-managed turn, not directable.
         instruction_queue: None,
         edit_scope: Some(edit_scope.handle()),
+        announced_levers,
+        lever_wait: config.lever_wait(),
     })
     .await;
+    let outcome = match outcome {
+        Ok(crate::acp::SessionRun::Ran(outcome)) => Ok(outcome),
+        // No turn ran: nothing to commit, and not the agent refusing to go on.
+        // The lane ends on its own reason and the caller gets the refusal
+        // itself (modelo-por-opcion-anunciada D4).
+        Ok(crate::acp::SessionRun::LeverRefused(refusal)) => {
+            append(
+                &log,
+                SessionEventKind::SessionEnded {
+                    reason: "lever_refused".to_string(),
+                },
+            )
+            .await;
+            let _ = crate::session_index::append(
+                &state.data_dir,
+                &project_key,
+                &dispatch_record(
+                    Some(crate::clock::now_rfc3339()),
+                    None,
+                    None,
+                    false,
+                    None,
+                    None,
+                ),
+            );
+            state
+                .sessions
+                .set_state(&session_id, meltemi_proto::SessionState::Ended)
+                .await;
+            return Err(crate::lever_options::refused_error(refusal));
+        }
+        Err(e) => Err(e),
+    };
     let status = outcome
         .as_ref()
         .map(|o| o.status)
@@ -1009,6 +1122,17 @@ async fn handle_worktree_dispatch(
                 .ok()
                 .and_then(|o| o.agent_session_id.clone()),
             outcome.as_ref().is_ok_and(|o| o.supports_load),
+            // What governed: confirmed on the announcement, else the flag.
+            outcome
+                .as_ref()
+                .ok()
+                .and_then(|o| o.levers_applied.model.clone())
+                .or_else(|| resolved.model.clone()),
+            outcome
+                .as_ref()
+                .ok()
+                .and_then(|o| o.levers_applied.effort.clone())
+                .or_else(|| resolved.effort.clone()),
         ),
     );
     state
@@ -1033,6 +1157,7 @@ async fn handle_worktree_dispatch(
         status,
         task_ticked: false,
         session_id: Some(session_id),
+        empty_turn: outcome.as_ref().is_ok_and(|o| o.last_turn_empty),
     };
     Ok(serde_json::to_value(result).expect("WorktreeDispatchResult serializes"))
 }
@@ -1731,11 +1856,22 @@ async fn handle_sdd_implement(
             ));
         }
     };
+    // The profile's levers, routed BEFORE any worktree exists, the way the free
+    // session routes its own: by flag into the environment its adapter reads,
+    // by the agent's announcement before the first prompt, or refused (2006)
+    // here (modelo-por-opcion-anunciada D4, D5). This verb takes no levers of
+    // its own: a profile that declares none imposes none.
+    let mut resolved = resolved.with_session_levers(None, None);
+    let announced_levers = crate::levels::route_levers(&mut resolved, &agent_command)?;
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            root.display().to_string(),
+        )
         .await;
     let project_key = crate::paths::project_key(&root);
     // The project registry is fed by real use only (multiproyecto D3).
@@ -1753,10 +1889,11 @@ async fn handle_sdd_implement(
         // and the change and task are what name its work (design D2).
         title: None,
     });
-    // Record which binary/source ran — never the env values (§2).
+    // Record which binary/source ran — never the env values (§2) — and only
+    // the levers that travelled by flag (modelo-por-opcion-anunciada D6).
     let _ = log.append(SessionEventKind::AgentResolved {
-        model: None,
-        effort: None,
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -1840,7 +1977,7 @@ async fn handle_sdd_implement(
             artifact.display()
         );
         let task_edit_scope = state.edits.enter(&worktree, &session_id, log.clone());
-        let _ = crate::acp::run_session(crate::acp::SessionParams {
+        let run = crate::acp::run_session(crate::acp::SessionParams {
             agent_command: agent_command.clone(),
             project_root: worktree.clone(),
             prompt,
@@ -1866,8 +2003,29 @@ async fn handle_sdd_implement(
             // `implement` drives its own per-task loop; each turn is not directable.
             instruction_queue: None,
             edit_scope: Some(task_edit_scope.handle()),
+            // Each task opens its agent anew, so each sets the levers anew.
+            announced_levers: announced_levers.clone(),
+            lever_wait: config.lever_wait(),
         })
         .await;
+        // No turn ran, so there is nothing to commit, and the deployment stops:
+        // the next task would open the same agent with the same lever. The
+        // caller gets the refusal itself, never an agent that "refused to go
+        // on" (modelo-por-opcion-anunciada D4).
+        if let Ok(crate::acp::SessionRun::LeverRefused(refusal)) = run {
+            append(
+                &log,
+                SessionEventKind::SessionEnded {
+                    reason: "lever_refused".to_string(),
+                },
+            )
+            .await;
+            state
+                .sessions
+                .set_state(&session_id, meltemi_proto::SessionState::Ended)
+                .await;
+            return Err(crate::lever_options::refused_error(refusal));
+        }
 
         // Commit the task with traceability. If nothing was produced (e.g. the
         // turn was denied), the commit fails and the task is left pending.
@@ -2015,7 +2173,8 @@ async fn handle_session_set_config_option(
     state: &Arc<DaemonState>,
 ) -> Result<Value, RpcError> {
     use agent_client_protocol::schema::v1::{
-        SessionConfigId, SessionId, SetSessionConfigOptionRequest,
+        SessionConfigId, SessionId, SessionModeId, SetSessionConfigOptionRequest,
+        SetSessionModeRequest,
     };
     use meltemi_proto::{
         SessionEventKind, SessionSetConfigOptionParams, SessionSetConfigOptionResult, error_codes,
@@ -2081,6 +2240,8 @@ async fn handle_session_set_config_option(
             )
         })?;
 
+    // Validated the same way either way: the announcement decides what may be
+    // chosen, and one refusal serves both verbs.
     let value = crate::session_config::chosen_value(option, &params.value).map_err(|reason| {
         RpcError::application(
             error_codes::CONFIG_OPTION_NOT_ANNOUNCED,
@@ -2090,6 +2251,53 @@ async fn handle_session_set_config_option(
             None,
         )
     })?;
+
+    // A mode Meltemi synthesised from the protocol's older announcement is not
+    // an option the agent has: sending it the configuration-option verb would
+    // name something it never announced. It travels by the verb it came from
+    // (apagado-entero-y-modos design D7).
+    if config.mode_is_inherited && option.id == crate::session_config::MODE_OPTION_ID {
+        config
+            .connection
+            .send_request(SetSessionModeRequest::new(
+                SessionId::new(config.acp_session_id.clone()),
+                SessionModeId::new(params.value.clone()),
+            ))
+            .block_task()
+            .await
+            .map_err(|e| {
+                RpcError::internal(format!(
+                    "session/set-config-option: the agent did not accept the mode: {e}"
+                ))
+            })?;
+
+        // This verb answers with no list, so acceptance IS the answer: the
+        // agent was asked for a mode and did not refuse. The rule that the
+        // agent's report is the record still holds -- it spoke by accepting --
+        // and a `current_mode_update` afterwards has the last word.
+        let options = state
+            .sessions
+            .set_current_mode(&params.session_id, &params.value)
+            .await
+            .unwrap_or_else(|| {
+                // The session went away between reading it and answering. What
+                // is reported is still the truth of what was asked and
+                // accepted, rather than the value it had before.
+                let mut options = config.options.clone();
+                crate::session_config::set_current_mode(&mut options, &params.value);
+                options
+            });
+        {
+            let mut log = config.log.lock().await;
+            let _ = log.append(SessionEventKind::ConfigOptionsAnnounced {
+                options: options.clone(),
+            });
+        }
+        return Ok(
+            serde_json::to_value(SessionSetConfigOptionResult { options })
+                .expect("SessionSetConfigOptionResult serializes"),
+        );
+    }
 
     // ACP's own verb, over the live connection: nothing is relaunched, and the
     // agent is the one that decides what the option ends up being.
@@ -2187,6 +2395,7 @@ async fn handle_session_direct(
                     queue_position: Some(position as u32),
                     status: None,
                     denied_permissions: 0,
+                    empty_turn: false,
                 };
                 return Ok(serde_json::to_value(result).expect("SessionDirectResult serializes"));
             }
@@ -2292,7 +2501,11 @@ async fn resume_with_instruction(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            project_root.display().to_string(),
+        )
         .await;
     let mut log =
         crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)
@@ -2392,6 +2605,9 @@ async fn resume_with_instruction(
         // The resumed session is itself directable.
         instruction_queue,
         edit_scope: Some(edit_scope.handle()),
+        // A resume carries no levers: it continues what already governed.
+        announced_levers: crate::lever_options::AnnouncedLevers::default(),
+        lever_wait: crate::lever_options::LEVER_WAIT,
     })
     .await;
 
@@ -2410,9 +2626,12 @@ async fn resume_with_instruction(
         agent_id: record.agent_id.clone(),
         profile: record.profile.clone(),
         source: record.source,
+        // A resume carries no levers of its own.
+        model: None,
+        effort: None,
     };
     match outcome {
-        Ok(session_outcome) => {
+        Ok(crate::acp::SessionRun::Ran(session_outcome)) => {
             let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
             let result = SessionDirectResult {
                 disposition: DirectDisposition::Resumed,
@@ -2421,8 +2640,13 @@ async fn resume_with_instruction(
                 queue_position: None,
                 status: Some(fin.status),
                 denied_permissions: fin.denied_permissions,
+                empty_turn: fin.empty_turn,
             };
             Ok(serde_json::to_value(result).expect("SessionDirectResult serializes"))
+        }
+        Ok(crate::acp::SessionRun::LeverRefused(refusal)) => {
+            crate::session_finalize::finalize_refused(&ctx).await;
+            Err(crate::lever_options::refused_error(refusal))
         }
         Err(e) => {
             crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())
@@ -2670,10 +2894,44 @@ async fn handle_context_project(
     // (projection is its only integration channel).
     let config = crate::config::Config::load(&state.config_dir, Some(&project_root));
     let l4 = crate::levels::l4_target_for(&config);
-    let written = crate::context::project_and_write_with(&project_root, l4.as_deref())
+    let known = crate::harness::known_agent_ids(&config);
+    let written = crate::context::project_and_write_with(&project_root, l4.as_deref(), &known)
         .map_err(RpcError::internal)?;
+    // Consent given in this call is recorded BEFORE the user-scope projection
+    // runs, so what the caller just agreed to is what gets written — and so a
+    // failure halfway leaves consent granted rather than a file half written
+    // under a consent nobody stored.
+    if !params.consent_user_scope.is_empty() {
+        let asked: std::collections::BTreeSet<String> =
+            params.consent_user_scope.iter().cloned().collect();
+        crate::user_scope::record_consent(&state.config_dir, &asked).map_err(RpcError::internal)?;
+    }
+    let user_targets = crate::user_scope::project_user_scope(&state.config_dir, &known)
+        .map_err(RpcError::internal)?
+        .into_iter()
+        .map(|written| {
+            use crate::user_scope::UserState;
+            use meltemi_proto::{UserScopeState, UserScopeTarget};
+            let (state, overridden_by) = match written.state {
+                UserState::Written => (UserScopeState::Written, None),
+                UserState::Unchanged => (UserScopeState::Unchanged, None),
+                UserState::AwaitingConsent => (UserScopeState::AwaitingConsent, None),
+                UserState::IgnoredByAgent { overridden_by } => {
+                    (UserScopeState::IgnoredByAgent, Some(overridden_by))
+                }
+            };
+            UserScopeTarget {
+                agent: written.agent,
+                path: written.path.display().to_string(),
+                state,
+                overridden_by,
+            }
+        })
+        .collect();
+
     let result = meltemi_proto::ContextProjectResult {
         targets: written.into_iter().map(Into::into).collect(),
+        user_targets,
     };
     Ok(serde_json::to_value(result).expect("ContextProjectResult serializes"))
 }

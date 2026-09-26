@@ -85,18 +85,19 @@ fn the_wire_plays_a_whole_conversation_from_handshake_to_closed_turn() {
     let mut wire = Wire::start(&["app-server"]);
 
     // 1. Handshake: the user agent is where the version a skew check reads
-    //    lives — the wire offers no other.
+    //    lives — the wire offers no other. Since 0.81 its first token names the
+    //    client that introduced itself, as the real CLI does.
     wire.send(&json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"clientInfo": {"name": "meltemi-codex-acp", "version": "0.1.0"}}
+        "params": {"clientInfo": {"name": "meltemi-codex-acp", "version": "0.1.1"}}
     }));
     let (initialized, _) = wire.read_until(is_response_to(1));
     let user_agent = initialized["result"]["userAgent"]
         .as_str()
         .unwrap_or_else(|| panic!("the handshake announces a user agent: {initialized}"));
     assert!(
-        user_agent.starts_with("codex_cli_rs/"),
-        "and it carries the CLI's own version: {user_agent}"
+        user_agent.starts_with("meltemi-codex-acp/0.156.1 "),
+        "and it carries the CLI's own version beside the client's name: {user_agent}"
     );
 
     // 2. A thread: what the ACP session maps onto.
@@ -109,11 +110,15 @@ fn the_wire_plays_a_whole_conversation_from_handshake_to_closed_turn() {
         .expect("the thread has an id")
         .to_string();
 
-    // 3. A turn, streamed as items, up to the approval the server asks for.
+    // 3. A turn: answered at once and still in progress, as the real CLI
+    //    answers it (recorded against 0.156.1), then streamed as items up to
+    //    the approval the server asks for.
     wire.send(&json!({
         "jsonrpc": "2.0", "id": 3, "method": "turn/start",
         "params": {"threadId": thread_id, "input": [{"type": "text", "text": "do it"}]}
     }));
+    let (answered, _) = wire.read_until(is_response_to(3));
+    assert_eq!(answered["result"]["turn"]["status"], "inProgress");
     let (approval, streamed) = wire.read_until(|m| {
         m.get("method").and_then(Value::as_str) == Some("item/fileChange/requestApproval")
     });
@@ -139,14 +144,10 @@ fn the_wire_plays_a_whole_conversation_from_handshake_to_closed_turn() {
         "jsonrpc": "2.0", "id": approval["id"].clone(), "result": {"decision": "accept"}
     }));
 
-    // 5. Only then does the turn close and the turn request get its answer.
-    let (turn, after) = wire.read_until(is_response_to(3));
-    let closing: Vec<&str> = after.iter().filter_map(|m| m["method"].as_str()).collect();
-    assert!(
-        closing.contains(&"turn/completed"),
-        "the turn completes after the decision: {closing:?}"
-    );
-    assert_eq!(turn["result"]["turn"]["status"], "completed");
+    // 5. Only then does the turn close.
+    let (closed, _) =
+        wire.read_until(|m| m.get("method").and_then(Value::as_str) == Some("turn/completed"));
+    assert_eq!(closed["params"]["turn"]["status"], "completed");
 
     wire.finish();
 }
@@ -176,8 +177,8 @@ fn the_wire_dumps_the_vendored_schema_the_way_the_cli_does() {
     );
     assert_eq!(
         written("InitializeResponse.json")["required"],
-        json!(["userAgent"]),
-        "and the field a skew check reads"
+        json!(["codexHome", "platformFamily", "platformOs", "userAgent"]),
+        "and the field a skew check reads, among the ones 0.156.1 requires"
     );
 
     // Without `--out` the real CLI refuses; so does the fixture, rather than

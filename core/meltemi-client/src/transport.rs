@@ -38,7 +38,15 @@ impl Listener {
 }
 
 /// Connects to a daemon endpoint as a client.
+///
+/// An endpoint that names a command — the `exec:` form — launches it and speaks
+/// the protocol over its stdio, which is how a client reaches a daemon on
+/// another machine through the user's own `ssh` (via-ssh-del-cliente design D1).
+/// Everything else is a local socket or pipe, exactly as before.
 pub async fn connect(endpoint: &str) -> io::Result<Stream> {
+    if crate::exec::is_exec(endpoint) {
+        return Ok(Box::new(crate::exec::connect(endpoint).await?));
+    }
     imp::connect(endpoint).await
 }
 

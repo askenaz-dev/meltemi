@@ -42,6 +42,8 @@
     onOpenFleet,
     initialMode = "free",
     initialProject = null,
+    focused = true,
+    onDraftChange,
   }: {
     onOpenSession: (sessionId: string) => void;
     /** Opens the fleet view: the empty menu names it, so it must be able to go
@@ -51,6 +53,17 @@
     initialMode?: Mode;
     /** The project the caller named, e.g. the quick action of a nav node. */
     initialProject?: string | null;
+    /**
+     * Whether this composer is the tab in front. It holds the caret only when
+     * it is: the panel stays mounted while another tab is read, and a hidden
+     * field that grabs the focus would type into something nobody can see.
+     */
+    focused?: boolean;
+    /**
+     * Reports whether an unsent instruction is in the field, so the tab that
+     * holds this composer can ask before discarding it (design D4).
+     */
+    onDraftChange?: (dirty: boolean) => void;
   } = $props();
 
   const METHOD: Record<Mode, string> = {
@@ -218,9 +231,17 @@
     void refreshSessions().catch(() => {});
   });
 
-  // The composer is what the user arrived for: it holds the caret.
+  // The composer is what the user arrived for: it holds the caret — but only
+  // while it is the tab in front. The panel stays mounted behind another tab,
+  // and a hidden field taking the focus would type into what nobody can see.
   $effect(() => {
-    box?.focus();
+    if (focused) box?.focus();
+  });
+
+  // What the tab needs to know to ask before discarding: whether there is an
+  // unsent instruction here. Trimmed, because whitespace is not work.
+  $effect(() => {
+    onDraftChange?.(text.trim() !== "");
   });
 
   /** Grows with the instruction instead of scrolling a three-line slot. */
@@ -325,6 +346,12 @@
     }
   }
 
+  /**
+   * Both chords start the session here (design D5). There is no turn in flight
+   * to queue behind, so "dispatch now" and "queue" are the same act — and a
+   * chord that did nothing in the one place a new session is written would be
+   * the surface teaching a key and then ignoring it.
+   */
   function onBoxKeydown(event: KeyboardEvent): void {
     event.stopPropagation();
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -601,6 +628,7 @@
         >
           <Icon name="plus" size={14} />
           {running ? $t("common.loading") : $t("home.send")}
+          <kbd>{$t("conv.chord.dispatch")}</kbd>
         </button>
       </div>
     </div>

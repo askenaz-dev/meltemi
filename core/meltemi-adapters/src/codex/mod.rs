@@ -11,8 +11,10 @@
 //! inside this process, which constitution §2 forbids however permissive the
 //! licence is.
 
+pub mod gate;
 pub mod mapping;
 pub mod permission;
+pub mod requests;
 pub mod version;
 pub mod wire;
 
@@ -113,6 +115,8 @@ pub struct Provenance {
     pub version: String,
     /// The user agent the server announced, verbatim.
     pub user_agent: String,
+    /// The gate the CLI made effective, once the thread is open.
+    pub gate: Option<gate::Effective>,
 }
 
 impl Provenance {
@@ -125,17 +129,48 @@ impl Provenance {
     /// say the same thing the same way.
     #[must_use]
     pub fn meta(&self) -> Meta {
+        let mut meltemi = json!({
+            "providerBin": self.program,
+            "providerVersion": self.version,
+            "providerVerifiedVersion": wire::VENDORED_SCHEMA_VERSION,
+            "providerUserAgent": self.user_agent,
+        });
+        if let Some(gate) = &self.gate {
+            meltemi["providerApprovalPolicy"] = gate.approval_policy.clone();
+            meltemi["providerApprovalsReviewer"] = gate.approvals_reviewer.clone();
+            meltemi["providerSandbox"] = gate.sandbox.clone();
+        }
         let mut meta = Meta::new();
-        meta.insert(
-            "meltemi".into(),
-            json!({
-                "providerBin": self.program,
-                "providerVersion": self.version,
-                "providerUserAgent": self.user_agent,
-            }),
-        );
+        meta.insert("meltemi".into(), meltemi);
         meta
     }
+}
+
+impl Provenance {
+    /// Whether the CLI is newer than the version this adapter was verified
+    /// against. A version that cannot be read is not declared newer: it never
+    /// got this far, because the handshake refuses it.
+    #[must_use]
+    pub fn beyond_verified(&self) -> bool {
+        version::parse(&self.version).is_some_and(version::beyond_verified)
+    }
+}
+
+/// What the session says as it opens, in order, before anything else it does:
+/// the provenance for the log, what the gate does not cover, and — when the
+/// CLI is newer than the verified version — that distance.
+fn declared_on_opening(provenance: &Provenance) -> Vec<SessionUpdate> {
+    let mut rows = vec![
+        SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta())),
+        mapping::uncovered_by_gate(),
+    ];
+    if provenance.beyond_verified() {
+        rows.push(mapping::beyond_verified(
+            &provenance.version,
+            wire::VENDORED_SCHEMA_VERSION,
+        ));
+    }
+    rows
 }
 
 /// A session over the official CLI's server mode.
@@ -149,6 +184,8 @@ pub struct CodexSession {
     control: Mutex<Option<ChildProcess>>,
     /// The turn in flight, and whether it has been asked to stop.
     turn: TurnControl,
+    /// What the session has already shown, which outlives any one turn.
+    mapper: Mutex<mapping::Mapper>,
     /// Where this session's updates go.
     stream: AcpStream,
     /// How long the provider gets to exit on its own.
@@ -164,6 +201,20 @@ impl ProviderSession for CodexSession {
         // One turn at a time is the bridge's own invariant, so holding the
         // incoming half for the length of a turn takes nothing from anyone.
         let mut incoming = self.incoming.lock().await;
+        let mut mapper = self.mapper.lock().await;
+
+        // What the server said since the last turn is read before this one
+        // starts: a remote control that came on meanwhile refuses the turn
+        // before anything is sent.
+        settle(
+            &self.peer,
+            &mut incoming,
+            &self.turn,
+            &self.stream,
+            &self.stream.session_id,
+            &mut mapper,
+        )
+        .await?;
 
         let params = wire::TurnStartParams {
             thread_id: self.turn.thread_id.clone(),
@@ -181,6 +232,7 @@ impl ProviderSession for CodexSession {
             &self.stream,
             &self.stream.session_id,
             &params,
+            &mut mapper,
         )
         .await?
         {
@@ -194,7 +246,12 @@ impl ProviderSession for CodexSession {
                     self.turn.grace
                 ));
                 self.shutdown(self.shutdown).await;
-                Ok(StopReason::Cancelled)
+                // Stopped because its remote control came on: that is what the
+                // turn answers, not a cancellation nobody asked for.
+                match mapper.remote_control() {
+                    Some(status) => Err(remote_control_refused(status)),
+                    None => Ok(StopReason::Cancelled),
+                }
             }
         }
     }
@@ -280,6 +337,11 @@ impl TurnControl {
         self.interrupted.send_replace(false);
     }
 
+    /// The id of the turn in progress, once the server has named it.
+    fn current(&self) -> Option<String> {
+        self.with(|state| state.id.clone())
+    }
+
     /// Resolves once an interruption has been asked for — immediately if it
     /// already was.
     async fn wait_interrupted(&self) {
@@ -340,13 +402,8 @@ enum TurnOutcome {
     Abandoned,
 }
 
-/// Runs one turn: start it, stream what the server says, and end when the
-/// server says the turn is over — or when it refuses to.
-///
-/// Written to be correct under either ordering of the `turn/start` answer and
-/// the streamed notifications, because the dumped schema does not settle which
-/// comes first and observing it takes a real model call. A turn ends on
-/// whichever terminal signal arrives first.
+/// Runs one turn, and remembers it as over however it ended, so that nothing
+/// it still says moves the next one (codex-al-dia design D6).
 async fn drive_turn<W, S>(
     peer: &Peer<W>,
     incoming: &mut mpsc::UnboundedReceiver<Incoming>,
@@ -354,12 +411,39 @@ async fn drive_turn<W, S>(
     stream: &S,
     session_id: &SessionId,
     params: &wire::TurnStartParams,
+    mapper: &mut mapping::Mapper,
 ) -> Result<TurnOutcome, Refusal>
 where
     W: AsyncWrite + Unpin + Send,
     S: TurnStream,
 {
-    let mut mapper = mapping::Mapper::new();
+    let outcome = drive(peer, incoming, turn, stream, session_id, params, mapper).await;
+    if let Some(id) = turn.current() {
+        mapper.finish(&id);
+    }
+    outcome
+}
+
+/// Runs one turn: start it, stream what the server says, and end when the
+/// server says the turn is over — or when it refuses to.
+///
+/// Written to be correct under either ordering of the `turn/start` answer and
+/// the streamed notifications, because the dumped schema does not settle which
+/// comes first and observing it takes a real model call. A turn ends on
+/// whichever terminal signal arrives first.
+async fn drive<W, S>(
+    peer: &Peer<W>,
+    incoming: &mut mpsc::UnboundedReceiver<Incoming>,
+    turn: &TurnControl,
+    stream: &S,
+    session_id: &SessionId,
+    params: &wire::TurnStartParams,
+    mapper: &mut mapping::Mapper,
+) -> Result<TurnOutcome, Refusal>
+where
+    W: AsyncWrite + Unpin + Send,
+    S: TurnStream,
+{
     let started = peer.request(wire::TURN_START, params);
     let mut started = std::pin::pin!(started);
     let mut answered = false;
@@ -370,6 +454,9 @@ where
     let interrupted = turn.wait_interrupted();
     let mut interrupted = std::pin::pin!(interrupted);
     let mut armed = false;
+    // Set when the CLI's remote control comes on mid-turn: the turn is
+    // interrupted and, however it then ends, it ends refused.
+    let mut refusing: Option<Refusal> = None;
 
     loop {
         tokio::select! {
@@ -380,13 +467,13 @@ where
                     return Err(turn_failed("the server started a turn this adapter cannot read"));
                 };
                 learned_turn_id(peer, turn, &result.turn.id).await;
-                if let Some(outcome) = ended(result.turn.status)? {
+                if let Some(outcome) = ended(result.turn.status, result.turn.error.as_ref())? {
                     // The answer says the turn is over, and everything the
                     // server already said belongs to it. Returning without
                     // showing what is still queued would silently swallow the
                     // whole turn whenever the answer happened to win the race.
-                    drain(peer, incoming, turn, stream, session_id, &mut mapper).await?;
-                    return Ok(outcome);
+                    drain(peer, incoming, turn, stream, session_id, mapper).await?;
+                    return refusing.map_or(Ok(outcome), Err);
                 }
             }
             () = &mut interrupted, if !armed => {
@@ -396,12 +483,21 @@ where
             () = &mut grace, if armed => return Ok(TurnOutcome::Abandoned),
             message = incoming.recv() => {
                 let Some(message) = message else {
-                    return Err(provider_gone());
+                    return Err(refusing.unwrap_or_else(provider_gone));
                 };
-                if let Some(outcome) =
-                    handle(peer, turn, stream, session_id, &mut mapper, message).await?
-                {
-                    return Ok(outcome);
+                match handle(peer, turn, stream, session_id, mapper, message).await {
+                    Ok(Some(outcome)) => return refusing.map_or(Ok(outcome), Err),
+                    Ok(None) => {}
+                    // The remote control came on while the turn ran. The turn
+                    // is stopped and seen to its end before the refusal, so no
+                    // approval of it is left for another client to answer.
+                    Err(refusal) if refusal.kind == REMOTE_CONTROL_REFUSED => {
+                        if refusing.is_none() {
+                            interrupt(peer, turn).await;
+                            refusing = Some(refusal);
+                        }
+                    }
+                    Err(refusal) => return Err(refusal),
                 }
             }
         }
@@ -425,6 +521,38 @@ where
     W: AsyncWrite + Unpin + Send,
     S: TurnStream,
 {
+    // What is not this turn's does not move it (codex-al-dia design D6).
+    let belongs = match &message {
+        Incoming::Notification { params, .. } | Incoming::Request { params, .. } => {
+            mapper.belongs(turn.current().as_deref(), params)
+        }
+        Incoming::Noise(_) => mapping::Belongs::Ours,
+    };
+    if belongs != mapping::Belongs::Ours {
+        match message {
+            // An approval that is not this turn's is declined without asking
+            // anyone, and in sight.
+            Incoming::Request { id, method, .. } if permission::is_approval(&method) => {
+                let _ = peer
+                    .respond(
+                        &id,
+                        &wire::ApprovalResponse::new(wire::ApprovalDecision::Decline),
+                    )
+                    .await;
+                stream.emit(mapping::declined_elsewhere(&id, &method, &belongs));
+            }
+            Incoming::Request { id, method, params } => {
+                relay_approval(peer, turn, stream, session_id, &id, &method, &params).await;
+            }
+            Incoming::Notification { method, .. } => {
+                if let Some(note) = mapper.set_aside(&method, &belongs) {
+                    stream.note(&note);
+                }
+            }
+            Incoming::Noise(_) => {}
+        }
+        return Ok(None);
+    }
     match message {
         Incoming::Notification { method, params } => {
             let mapped = mapper.map(&method, &params);
@@ -439,12 +567,25 @@ where
                     learned_turn_id(peer, turn, &id).await;
                     Ok(None)
                 }
-                Some(mapping::Signal::TurnEnded(status)) => ended(status),
+                Some(mapping::Signal::TurnEnded(status)) => ended(status, None),
                 Some(mapping::Signal::TurnFailed(message)) => Err(turn_failed(&message)),
+                Some(mapping::Signal::RemoteControl(status)) => {
+                    Err(remote_control_refused(&status))
+                }
                 None => Ok(None),
             }
         }
         Incoming::Request { id, method, params } => {
+            // A question about something the session never saw — a network
+            // access has no item of its own — shows that something first.
+            if permission::is_approval(&method)
+                && let Ok(approval) = serde_json::from_value::<wire::ApprovalParams>(params.clone())
+                && mapper.announce(&approval.item_id)
+            {
+                stream.emit(SessionUpdate::ToolCall(permission::announcement(
+                    &method, &approval,
+                )));
+            }
             relay_approval(peer, turn, stream, session_id, &id, &method, &params).await;
             Ok(None)
         }
@@ -479,6 +620,37 @@ where
     Ok(())
 }
 
+/// Reads what the server has already said, outside any turn, and refuses if
+/// the CLI's remote control is on (codex-al-dia design D5).
+///
+/// Run when the session opens — every connection reports the remote control
+/// before the thread's answer, so the report is already queued by then — and
+/// before each turn, for a report that arrived between turns or a remote
+/// control that came on during an earlier one and was never turned off.
+///
+/// # Errors
+///
+/// Refuses while the remote control is on, and propagates a failed turn found
+/// among what was queued.
+async fn settle<W, S>(
+    peer: &Peer<W>,
+    incoming: &mut mpsc::UnboundedReceiver<Incoming>,
+    turn: &TurnControl,
+    stream: &S,
+    session_id: &SessionId,
+    mapper: &mut mapping::Mapper,
+) -> Result<(), Refusal>
+where
+    W: AsyncWrite + Unpin + Send,
+    S: TurnStream,
+{
+    drain(peer, incoming, turn, stream, session_id, mapper).await?;
+    match mapper.remote_control() {
+        Some(status) => Err(remote_control_refused(status)),
+        None => Ok(()),
+    }
+}
+
 /// Puts one of the server's questions to the permission proxy, and answers the
 /// server with what the proxy said.
 ///
@@ -500,10 +672,12 @@ async fn relay_approval<W, S>(
     W: AsyncWrite + Unpin + Send,
     S: TurnStream,
 {
-    if !permission::is_approval(method) {
-        stream.note(&format!(
-            "the server asked `{method}`, which this adapter has no answer for"
-        ));
+    // Every request has a declared answer (codex-al-dia design D7). A refusal
+    // is shown by what it is, never with its parameters: some of them carry
+    // credentials or ask for the client's identity, and nothing of those is
+    // kept anywhere (constitution §2).
+    if let requests::Answer::Refuse(reason) = requests::answer_for(method) {
+        stream.note(&format!("refused `{method}`: {reason}"));
         let _ = peer
             .respond_with_error(
                 id,
@@ -511,6 +685,7 @@ async fn relay_approval<W, S>(
                 "this adapter does not implement that method",
             )
             .await;
+        stream.emit(mapping::refused_request(id, method, reason));
         return;
     }
 
@@ -564,14 +739,16 @@ async fn learned_turn_id<W: AsyncWrite + Unpin + Send>(
 /// A failed turn is an error, not a stop reason: ACP has no way to say "the
 /// turn did not work", and answering `end_turn` would report a failure as a
 /// finished piece of work.
-fn ended(status: wire::TurnStatus) -> Result<Option<TurnOutcome>, Refusal> {
+fn ended(
+    status: wire::TurnStatus,
+    error: Option<&wire::TurnError>,
+) -> Result<Option<TurnOutcome>, Refusal> {
     Ok(match status {
         wire::TurnStatus::InProgress => None,
         wire::TurnStatus::Completed => Some(TurnOutcome::Ended(StopReason::EndTurn)),
         wire::TurnStatus::Interrupted => Some(TurnOutcome::Ended(StopReason::Cancelled)),
-        wire::TurnStatus::Failed => {
-            return Err(turn_failed("the server reported the turn failed"));
-        }
+        // In the provider's words (codex-al-dia design D8).
+        wire::TurnStatus::Failed => return Err(turn_failed(&wire::failure(error))),
     })
 }
 
@@ -660,7 +837,7 @@ impl ProviderDialect for CodexDialect {
         // From here on the process exists, so every refusal has to end it. A
         // session that failed to open and left a CLI running would leak one
         // process per attempt, holding the worktree it was launched in.
-        let provenance = match handshake(&mut provider, &self.program).await {
+        let mut provenance = match handshake(&mut provider, &self.program).await {
             Ok(provenance) => provenance,
             Err(refusal) => {
                 let _ = provider.shutdown(self.shutdown).await;
@@ -674,8 +851,11 @@ impl ProviderDialect for CodexDialect {
         let (mut control, writer, reader) = provider.into_parts();
         let (peer, incoming) = Peer::start(writer, reader, HANDSHAKE_ID + 1);
 
-        let thread_id = match open_thread(&peer, &request).await {
-            Ok(thread_id) => thread_id,
+        let thread_id = match open_thread(&peer, &request, &provenance.version).await {
+            Ok((thread_id, effective)) => {
+                provenance.gate = Some(effective);
+                thread_id
+            }
             Err(refusal) => {
                 peer.close_input().await;
                 let _ = supervisor::end(&mut control, self.shutdown).await;
@@ -684,24 +864,51 @@ impl ProviderDialect for CodexDialect {
         };
 
         // The effective binary and the version it turned out to be, into the
-        // session log, before anything else this session does.
-        let _ = cx.send_notification(SessionNotification::new(
-            session_id.clone(),
-            SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta())),
-        ));
+        // session log, before anything else this session does; then, before
+        // the first turn, what the gate does not cover and how far the CLI is
+        // from the verified version: losses kept visible rather than silent.
+        for update in declared_on_opening(&provenance) {
+            let _ = cx.send_notification(SessionNotification::new(session_id.clone(), update));
+        }
+
+        let session = CodexSession {
+            peer,
+            incoming: Mutex::new(incoming),
+            control: Mutex::new(Some(control)),
+            mapper: Mutex::new(mapping::Mapper::for_thread(thread_id.clone())),
+            turn: TurnControl::new(thread_id, INTERRUPT_GRACE),
+            stream: AcpStream {
+                session_id: session_id.clone(),
+                cx,
+            },
+            shutdown: self.shutdown,
+        };
+
+        // What the server said while the thread opened is read now, not at the
+        // first turn: a session is not opened under a remote control that is on.
+        let settled = {
+            let mut incoming = session.incoming.lock().await;
+            let mut mapper = session.mapper.lock().await;
+            settle(
+                &session.peer,
+                &mut incoming,
+                &session.turn,
+                &session.stream,
+                &session.stream.session_id,
+                &mut mapper,
+            )
+            .await
+        };
+        if let Err(refusal) = settled {
+            session.shutdown(self.shutdown).await;
+            return Err(refusal);
+        }
 
         // The id it was handed: this dialect keeps no sessions of its own to
         // resume, so it has no better name to answer to.
         Ok(Opened {
-            id: session_id.clone(),
-            session: CodexSession {
-                peer,
-                incoming: Mutex::new(incoming),
-                control: Mutex::new(Some(control)),
-                turn: TurnControl::new(thread_id, INTERRUPT_GRACE),
-                stream: AcpStream { session_id, cx },
-                shutdown: self.shutdown,
-            },
+            id: session_id,
+            session,
         })
     }
 }
@@ -716,24 +923,30 @@ impl ProviderDialect for CodexDialect {
 async fn open_thread<W: AsyncWrite + Unpin + Send>(
     peer: &Peer<W>,
     request: &NewSessionRequest,
-) -> Result<String, Refusal> {
-    let params = wire::ThreadStartParams {
-        cwd: request.cwd.display().to_string(),
-        // The user's choice, carried verbatim to where this provider's schema
-        // accepts it: the thread.
-        model: crate::session_model(),
-    };
+    read: &str,
+) -> Result<(String, gate::Effective), Refusal> {
+    // The user's model, carried verbatim to where this provider's schema
+    // accepts it (the thread), under the strictest gate the CLI offers.
+    let params =
+        wire::ThreadStartParams::gated(request.cwd.display().to_string(), crate::session_model());
     let answer = peer
         .request(wire::THREAD_START, &params)
         .await
         .map_err(|error| thread_refused(&error.to_string()))?;
-    serde_json::from_value::<wire::ThreadStartResult>(answer)
-        .map(|result| result.thread.id)
-        .map_err(|error| {
-            thread_refused(&format!(
-                "the server opened a thread this adapter cannot read ({error})"
-            ))
-        })
+    let result = serde_json::from_value::<wire::ThreadStartResult>(answer).map_err(|error| {
+        thread_refused(&format!(
+            "the server opened a thread this adapter cannot read ({error})"
+        ))
+    })?;
+    // The CLI that made the thread is the one whose version was checked, or
+    // nothing it says about its gate is worth reading.
+    version::contrast(
+        SPEC.provider_layer,
+        read,
+        result.thread.cli_version.as_deref(),
+    )?;
+    let effective = gate::verify(SPEC.provider_layer, &result)?;
+    Ok((result.thread.id, effective))
 }
 
 /// Shakes hands with the server and checks that it is a version this adapter
@@ -787,8 +1000,12 @@ where
         ))
     })?;
 
-    let Some(version) = version::of(&result.user_agent) else {
-        return Err(version::unreadable(SPEC.provider_layer, &result.user_agent));
+    let Some(version) = version::of(&result.user_agent, SPEC.name) else {
+        return Err(version::unreadable(
+            SPEC.provider_layer,
+            &result.user_agent,
+            SPEC.name,
+        ));
     };
     if !version::supported(version) {
         return Err(version::skew(SPEC.provider_layer, version));
@@ -796,17 +1013,17 @@ where
 
     // The wire expects this once the handshake is done. It is a notification:
     // nothing answers it, and nothing should wait for anything to.
-    provider
-        .send(&json!({"jsonrpc": "2.0", "method": wire::INITIALIZED}))
-        .await
-        .map_err(|error| {
-            handshake_failed(&format!("the server closed during the handshake ({error})"))
-        })?;
+    let mut initialized = wire::initialized();
+    initialized["jsonrpc"] = json!("2.0");
+    provider.send(&initialized).await.map_err(|error| {
+        handshake_failed(&format!("the server closed during the handshake ({error})"))
+    })?;
 
     Ok(Provenance {
         program: program.to_string(),
         version: version::render(version),
         user_agent: result.user_agent,
+        gate: None,
     })
 }
 
@@ -845,6 +1062,11 @@ where
             }
         };
         if message.get("id").and_then(Value::as_i64) != Some(id) {
+            // A notice for the human is kept even this early, on the adapter's
+            // own stderr, where the daemon collects it (codex-al-dia design D8).
+            if let Some(line) = noted_in_handshake(&message) {
+                eprintln!("{}: {line}", SPEC.name);
+            }
             continue;
         }
         if let Some(error) = message.get("error") {
@@ -858,6 +1080,18 @@ where
     }
 }
 
+/// What the handshake keeps of something the server said before answering: a
+/// notice for the human, in the words [`mapping::provider_notice`] gives it,
+/// and nothing else.
+fn noted_in_handshake(message: &Value) -> Option<String> {
+    if message.get("id").is_some() {
+        return None;
+    }
+    let method = message.get("method").and_then(Value::as_str)?;
+    let params = message.get("params").cloned().unwrap_or(Value::Null);
+    mapping::provider_notice(method, &params)
+}
+
 /// The refusal for a thread the server would not open.
 fn thread_refused(detail: &str) -> Refusal {
     Refusal::new(
@@ -865,6 +1099,28 @@ fn thread_refused(detail: &str) -> Refusal {
         SPEC.provider_layer,
         detail.to_string(),
         "Check that the session's directory exists and that the CLI can work in it.".to_string(),
+    )
+}
+
+/// The kind of the refusal for a remote control that is not off.
+const REMOTE_CONTROL_REFUSED: &str = "provider_remote_control";
+
+/// The refusal for a CLI whose remote control is not off: another client could
+/// attach to the thread and answer its approvals outside the permission proxy,
+/// a remote channel constitution §3 does not admit (codex-al-dia design D5).
+fn remote_control_refused(status: &str) -> Refusal {
+    Refusal::new(
+        REMOTE_CONTROL_REFUSED,
+        SPEC.provider_layer,
+        format!(
+            "the CLI reports its remote control as `{status}`; while it is on, another client \
+             could attach to this thread and answer its approvals outside the permission proxy"
+        ),
+        "Turn off Codex's remote control on this machine to work under Meltemi, or have an \
+         administrator forbid it in Codex's managed requirements (the requirement Codex reports \
+         as `allowRemoteControl`). Meltemi's only remote access is an SSH tunnel to its own \
+         daemon."
+            .to_string(),
     )
 }
 
@@ -915,10 +1171,10 @@ mod tests {
         // Verified against the vendored schema rather than remembered: `model`
         // is a thread field and `effort` is a turn field, and the adapter keeps
         // that split instead of flattening the two into one place.
-        let started = serde_json::to_value(wire::ThreadStartParams {
-            cwd: "/repo".into(),
-            model: Some("some-provider-model".into()),
-        })
+        let started = serde_json::to_value(wire::ThreadStartParams::gated(
+            "/repo".into(),
+            Some("some-provider-model".into()),
+        ))
         .expect("thread start serializes");
         assert_eq!(started["model"], "some-provider-model");
         assert!(
@@ -938,13 +1194,10 @@ mod tests {
             "and model is not a turn field: {turn}"
         );
 
-        // Nothing chosen means nothing sent: the CLI's own configuration
+        // No model chosen means no model sent: the CLI's own configuration
         // decides, exactly as before these fields existed.
-        let bare = serde_json::to_value(wire::ThreadStartParams {
-            cwd: "/repo".into(),
-            model: None,
-        })
-        .expect("serializes");
+        let bare = serde_json::to_value(wire::ThreadStartParams::gated("/repo".into(), None))
+            .expect("serializes");
         assert!(bare.get("model").is_none(), "{bare}");
     }
 
@@ -1102,6 +1355,56 @@ mod tests {
         )
     }
 
+    #[tokio::test]
+    async fn the_thread_is_opened_under_the_strictest_gate_and_checked() {
+        // Scenario: El adaptador pide la compuerta más estricta
+        let (peer, _incoming, _turn, mut server) = wired(Duration::from_millis(50));
+        let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
+        let opening = tokio::spawn(async move { open_thread(&peer, &request, "0.156.1").await });
+
+        let call = server.next_call().await;
+        assert_eq!(call["method"], wire::THREAD_START);
+        assert_eq!(call["params"]["approvalPolicy"], "untrusted");
+        assert_eq!(call["params"]["sandbox"], "read-only");
+        assert_eq!(call["params"]["approvalsReviewer"], "user");
+        server
+            .say(&json!({"id": call["id"], "result": {
+                "thread": {"id": "thread-1"},
+                "approvalPolicy": "untrusted", "approvalsReviewer": "user",
+                "sandbox": {"type": "readOnly", "networkAccess": false}
+            }}))
+            .await;
+        let (thread, effective) = opening.await.unwrap().expect("the gate came back as asked");
+        assert_eq!(thread, "thread-1");
+        assert_eq!(effective.approval_policy, json!("untrusted"));
+    }
+
+    #[tokio::test]
+    async fn a_thread_that_comes_back_under_another_gate_is_refused() {
+        // Scenario: Un valor efectivo distinto del pedido rehúsa la sesión
+        //
+        // A configuration that overrides the request — here, approvals routed
+        // to the provider's own reviewer — never becomes a session.
+        let (peer, _incoming, _turn, mut server) = wired(Duration::from_millis(50));
+        let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
+        let opening = tokio::spawn(async move { open_thread(&peer, &request, "0.156.1").await });
+
+        let call = server.next_call().await;
+        server
+            .say(&json!({"id": call["id"], "result": {
+                "thread": {"id": "thread-1"},
+                "approvalPolicy": "untrusted", "approvalsReviewer": "auto_review",
+                "sandbox": {"type": "readOnly", "networkAccess": false}
+            }}))
+            .await;
+        let refusal = opening
+            .await
+            .unwrap()
+            .expect_err("the reviewer is not the client");
+        assert_eq!(refusal.kind, "provider_gate_refused");
+        assert!(refusal.detail.contains("auto_review"), "{}", refusal.detail);
+    }
+
     fn turn_params() -> wire::TurnStartParams {
         wire::TurnStartParams {
             effort: None,
@@ -1124,7 +1427,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             let call = server.next_call().await;
             assert_eq!(call["method"], wire::TURN_START);
@@ -1170,7 +1482,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             let start = server.next_call().await;
             interrupt(&peer, &turn).await;
@@ -1225,7 +1546,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             let start = server.next_call().await;
             assert_eq!(start["method"], wire::TURN_START);
@@ -1290,7 +1620,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             server.next_call().await;
             server
@@ -1327,7 +1666,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             let start = server.next_call().await;
             server
@@ -1366,6 +1714,607 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_turn_refuses_with_what_the_provider_said() {
+        // Scenario: Un turno fallido se explica con las palabras del proveedor
+        for answered_first in [false, true] {
+            let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+            let stream = Collected::default();
+            let params = turn_params();
+            let session = SessionId::new("s-1");
+            let mut mapper = mapping::Mapper::for_thread("thread-1");
+            let failed = json!({"id": "turn-1", "status": "failed", "items": [],
+                                "error": {"message": "You've hit your usage limit.",
+                                          "additionalDetails": "Try again at 3:05 PM."}});
+            let driving = drive_turn(
+                &peer,
+                &mut incoming,
+                &turn,
+                &stream,
+                &session,
+                &params,
+                &mut mapper,
+            );
+            let serving = async {
+                let start = server.next_call().await;
+                if answered_first {
+                    // The answer itself says the turn failed.
+                    server
+                        .say(&json!({"id": start["id"], "result": {"turn": failed}}))
+                        .await;
+                } else {
+                    server
+                        .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                        .await;
+                    server
+                        .notify(
+                            wire::TURN_COMPLETED,
+                            json!({"threadId": "thread-1", "turn": failed}),
+                        )
+                        .await;
+                }
+            };
+            let (outcome, ()) = tokio::join!(driving, serving);
+            let refusal = outcome.expect_err("a failed turn is not a stop reason");
+            assert_eq!(refusal.kind, "provider_turn_failed");
+            assert!(
+                refusal.detail.contains("You've hit your usage limit.")
+                    && refusal.detail.contains("Try again at 3:05 PM."),
+                "in the provider's words: {}",
+                refusal.detail
+            );
+        }
+    }
+
+    /// A remote control report as 0.156.1 sends it.
+    fn remote_control(status: &str) -> Value {
+        json!({"status": status, "serverName": "m", "installationId": "i", "environmentId": null})
+    }
+
+    #[tokio::test]
+    async fn a_remote_control_reported_on_while_the_thread_opens_refuses_the_session() {
+        // Scenario: Un control remoto activo rehúsa la sesión
+        //
+        // In the order the real server uses (recorded 2026-09-24): the report
+        // arrives before the thread's answer, so it is already queued when the
+        // thread opens, and the session is refused before any turn.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let mut mapper = mapping::Mapper::new();
+        let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
+        let opening = open_thread(&peer, &request, "0.156.1");
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .notify(
+                    wire::REMOTE_CONTROL_STATUS_CHANGED,
+                    remote_control("connected"),
+                )
+                .await;
+            server
+                .say(&json!({"id": start["id"], "result": {
+                    "thread": {"id": "thread-1"},
+                    "approvalPolicy": "untrusted", "approvalsReviewer": "user",
+                    "sandbox": {"type": "readOnly", "networkAccess": false}
+                }}))
+                .await;
+        };
+        let (opened, ()) = tokio::join!(opening, serving);
+        opened.expect("the thread itself opens under the gate");
+
+        let refusal = settle(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &SessionId::new("s-1"),
+            &mut mapper,
+        )
+        .await
+        .expect_err("and the session does not");
+        assert_eq!(refusal.kind, REMOTE_CONTROL_REFUSED);
+        assert!(refusal.detail.contains("`connected`"), "{}", refusal.detail);
+        assert!(
+            refusal.remedy.contains("SSH tunnel"),
+            "the remedy names the remote access Meltemi does admit: {}",
+            refusal.remedy
+        );
+    }
+
+    #[tokio::test]
+    async fn a_remote_control_left_on_refuses_the_next_turn_until_it_is_turned_off() {
+        // Scenario: Un control remoto activo rehúsa la sesión
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::new();
+
+        // Off, as every connection reports it: nothing to refuse.
+        server
+            .notify(
+                wire::REMOTE_CONTROL_STATUS_CHANGED,
+                remote_control("disabled"),
+            )
+            .await;
+        tokio::task::yield_now().await;
+        settle(&peer, &mut incoming, &turn, &stream, &session, &mut mapper)
+            .await
+            .expect("off is the state a session runs under");
+
+        // Turned on between turns: the next turn is refused before anything
+        // is sent, and stays refused while nothing says otherwise.
+        server
+            .notify(
+                wire::REMOTE_CONTROL_STATUS_CHANGED,
+                remote_control("connecting"),
+            )
+            .await;
+        for _ in 0..2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            let refusal = settle(&peer, &mut incoming, &turn, &stream, &session, &mut mapper)
+                .await
+                .expect_err("refused while it is on");
+            assert_eq!(refusal.kind, REMOTE_CONTROL_REFUSED);
+        }
+
+        // Turned off again, and the session carries on.
+        server
+            .notify(
+                wire::REMOTE_CONTROL_STATUS_CHANGED,
+                remote_control("disabled"),
+            )
+            .await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        settle(&peer, &mut incoming, &turn, &stream, &session, &mut mapper)
+            .await
+            .expect("off again");
+    }
+
+    #[tokio::test]
+    async fn a_remote_control_that_comes_on_mid_turn_interrupts_and_refuses_the_turn() {
+        // Scenario: Un control remoto activo rehúsa la sesión
+        //
+        // The turn is not simply abandoned: it is interrupted and seen to its
+        // end, so none of its approvals is left for another client to answer.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_secs(30));
+        let stream = Collected::default();
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                .await;
+            server
+                .notify(
+                    wire::REMOTE_CONTROL_STATUS_CHANGED,
+                    remote_control("connected"),
+                )
+                .await;
+
+            let stop = server.next_call().await;
+            assert_eq!(stop["method"], wire::TURN_INTERRUPT);
+            assert_eq!(stop["params"]["turnId"], "turn-1");
+            server.say(&json!({"id": stop["id"], "result": {}})).await;
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "interrupted", "items": []}}),
+                )
+                .await;
+        };
+
+        let (outcome, ()) = tokio::join!(driving, serving);
+        let refusal = outcome.expect_err("the turn ends refused, not cancelled");
+        assert_eq!(refusal.kind, REMOTE_CONTROL_REFUSED);
+    }
+
+    #[tokio::test]
+    async fn what_another_thread_says_does_not_end_the_turn_in_progress() {
+        // Scenario: Lo que dice otro hilo no cierra el turno en curso
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::for_thread("thread-1");
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                .await;
+            // A sub-agent's thread finishes its own turn, and says something.
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-2", "turn": {"id": "turn-9", "status": "completed", "items": []}}),
+                )
+                .await;
+            server
+                .notify(
+                    wire::AGENT_MESSAGE_DELTA,
+                    json!({"threadId": "thread-2", "turnId": "turn-9", "itemId": "x", "delta": "not ours"}),
+                )
+                .await;
+            server
+                .notify(
+                    wire::AGENT_MESSAGE_DELTA,
+                    json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": "m", "delta": "ours"}),
+                )
+                .await;
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+        };
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+        assert_eq!(
+            stream.said(),
+            vec!["ours".to_string()],
+            "the turn ran to its own end"
+        );
+        let notes = stream.notes.lock().unwrap();
+        assert_eq!(
+            notes
+                .iter()
+                .filter(|note| note.contains("thread-2"))
+                .count(),
+            1,
+            "the other thread is noted once: {notes:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_late_close_of_the_last_turn_does_not_close_the_next() {
+        // Scenario: El cierre rezagado de un turno anterior no cierra el siguiente
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::for_thread("thread-1");
+        let closing = |id: &str| json!({"threadId": "thread-1", "turn": {"id": id, "status": "completed", "items": []}});
+
+        // The first turn ends on its answer.
+        let first = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "completed", "items": []}}}))
+                .await;
+        };
+        let (outcome, ()) = tokio::join!(first, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+
+        // The next one: its close arrives late, before the new turn has a name.
+        turn.begin();
+        let second = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server.notify(wire::TURN_COMPLETED, closing("turn-1")).await;
+            server
+                .notify(
+                    wire::AGENT_MESSAGE_DELTA,
+                    json!({"threadId": "thread-1", "turnId": "turn-2", "itemId": "m", "delta": "the second turn speaks"}),
+                )
+                .await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-2", "status": "inProgress", "items": []}}}))
+                .await;
+            server.notify(wire::TURN_COMPLETED, closing("turn-2")).await;
+        };
+        let (outcome, ()) = tokio::join!(second, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+        assert_eq!(
+            stream.said(),
+            vec!["the second turn speaks".to_string()],
+            "the late close did not end the second turn before it spoke"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_approval_from_another_thread_or_turn_is_declined_in_sight() {
+        // Scenario: Una aprobación de otro hilo o turno se declina a la vista
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::for_thread("thread-1");
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                .await;
+            for (id, thread, turn_id) in [(21, "thread-2", "turn-9"), (22, "thread-1", "turn-0")] {
+                server
+                    .say(
+                        &json!({"id": id, "method": wire::COMMAND_EXECUTION_APPROVAL,
+                                 "params": {"threadId": thread, "turnId": turn_id, "itemId": "c",
+                                            "command": "rm -rf build"}}),
+                    )
+                    .await;
+                let answer = server.next_call().await;
+                assert_eq!(answer["id"], id);
+                assert_eq!(answer["result"]["decision"], "decline", "{answer}");
+            }
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+        };
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+        assert!(
+            stream.asked.lock().unwrap().is_empty(),
+            "nobody was asked about another thread's or turn's approval"
+        );
+        let updates = stream.updates.lock().unwrap();
+        let declined: Vec<&str> = updates
+            .iter()
+            .filter_map(|update| match update {
+                SessionUpdate::ToolCall(row)
+                    if row.status == agent_client_protocol::schema::v1::ToolCallStatus::Failed =>
+                {
+                    Some(row.tool_call_id.0.as_ref())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(declined, vec!["server-request:21", "server-request:22"]);
+    }
+
+    #[tokio::test]
+    async fn a_network_approval_is_shown_before_it_is_asked_and_asked_by_host() {
+        // Scenario: Una aprobación de red muestra a qué se conecta
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        stream
+            .answers
+            .lock()
+            .unwrap()
+            .push(permission::Decision::Selected(permission::REJECT.into()));
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::for_thread("thread-1");
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                .await;
+            server
+                .say(&json!({"id": 51, "method": wire::COMMAND_EXECUTION_APPROVAL,
+                             "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "net-1",
+                                        "startedAtMs": 1_790_000_000_000_u64, "command": null, "cwd": null,
+                                        "networkApprovalContext": {"host": "registry.npmjs.org", "protocol": "https"}}}))
+                .await;
+            let answer = server.next_call().await;
+            assert_eq!(answer["result"]["decision"], "decline");
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+        };
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+
+        let updates = stream.updates.lock().unwrap();
+        let shown = updates.iter().find_map(|update| match update {
+            SessionUpdate::ToolCall(tool) if tool.tool_call_id.0.as_ref() == "net-1" => Some(tool),
+            _ => None,
+        });
+        let shown = shown.expect("the access is shown before it is asked about");
+        assert!(shown.title.contains("registry.npmjs.org"), "{shown:?}");
+        let asked = stream.asked.lock().unwrap();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0].tool_call.tool_call_id.0.as_ref(), "net-1");
+        assert!(
+            asked[0]
+                .tool_call
+                .fields
+                .title
+                .as_deref()
+                .is_some_and(
+                    |title| title.contains("registry.npmjs.org") && title.contains("https")
+                ),
+            "asked by host and protocol: {:?}",
+            asked[0].tool_call.fields.title
+        );
+    }
+
+    /// Plays a turn in which the server makes each of `requests` and answers
+    /// each refusal, and returns what the session collected.
+    async fn a_turn_asking(requests: Vec<(i64, &'static str, Value)>) -> Collected {
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::for_thread("thread-1");
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}))
+                .await;
+            for (id, method, params) in requests {
+                server
+                    .say(&json!({"id": id, "method": method, "params": params}))
+                    .await;
+                let answer = server.next_call().await;
+                assert_eq!(answer["id"], id);
+                assert_eq!(
+                    answer["error"]["code"], METHOD_NOT_FOUND,
+                    "`{method}` is refused with the protocol's own error: {answer}"
+                );
+            }
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+        };
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+        stream
+    }
+
+    /// The failed rows the session shows, by id.
+    fn refused_rows(stream: &Collected) -> Vec<(String, String)> {
+        stream
+            .updates
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|update| match update {
+                SessionUpdate::ToolCall(row)
+                    if row.status == agent_client_protocol::schema::v1::ToolCallStatus::Failed =>
+                {
+                    Some((row.tool_call_id.0.to_string(), row.title.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_request_the_adapter_does_not_relay_is_refused_in_sight() {
+        // Scenarios: Una petición no relevada se rehúsa a la vista; Interacción
+        // no relevable denegada con motivo visible
+        //
+        // A tool asking the human a question is an interaction this adapter
+        // cannot relay yet: refused, and the session says so and why.
+        let stream = a_turn_asking(vec![(
+            31,
+            wire::TOOL_REQUEST_USER_INPUT,
+            json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": "t",
+                   "questions": [{"id": "q", "header": "Pick", "question": "Which branch?"}]}),
+        )])
+        .await;
+        assert!(
+            stream.asked.lock().unwrap().is_empty(),
+            "not put to the proxy"
+        );
+        let rows = refused_rows(&stream);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].0, "server-request:31");
+        assert!(
+            rows[0].1.contains(wire::TOOL_REQUEST_USER_INPUT),
+            "{rows:?}"
+        );
+        assert!(
+            !format!("{:?}", stream.updates.lock().unwrap()).contains("Which branch?"),
+            "without its parameters"
+        );
+    }
+
+    #[tokio::test]
+    async fn credentials_and_attestation_never_reach_the_proxy() {
+        // Scenario: Credenciales y atestación jamás llegan al proxy
+        let stream = a_turn_asking(vec![
+            (
+                41,
+                wire::AUTH_TOKENS_REFRESH,
+                json!({"reason": "unauthorized", "previousAccountId": "acct-secret-123"}),
+            ),
+            (
+                42,
+                wire::ATTESTATION_GENERATE,
+                json!({"nonce": "nonce-secret-456"}),
+            ),
+        ])
+        .await;
+        assert!(
+            stream.asked.lock().unwrap().is_empty(),
+            "never put to the proxy"
+        );
+        let rows = refused_rows(&stream);
+        assert_eq!(
+            rows.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            vec!["server-request:41", "server-request:42"]
+        );
+        let kept = format!(
+            "{:?}{:?}",
+            stream.updates.lock().unwrap(),
+            stream.notes.lock().unwrap()
+        );
+        assert!(
+            !kept.contains("secret"),
+            "nothing of their parameters is kept anywhere: {kept}"
+        );
+        for method in requests::NEVER_TO_THE_PROXY {
+            assert!(
+                kept.contains(method),
+                "but what was refused is named: {method}"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn a_proxy_that_cannot_decide_is_a_refusal_and_the_server_hears_it() {
         // Scenario: Aprobación del servidor decidida por el proxy
         //
@@ -1377,7 +2326,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             let start = server.next_call().await;
             server
@@ -1416,7 +2374,16 @@ mod tests {
 
         let params = turn_params();
         let session = SessionId::new("s-1");
-        let driving = drive_turn(&peer, &mut incoming, &turn, &stream, &session, &params);
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
         let serving = async {
             server.next_call().await;
             drop(server);
@@ -1434,17 +2401,22 @@ mod tests {
         // Scenario: Versión efectiva registrada en el log
         //
         // Note the server's answer carries no `jsonrpc` member: that is what the
-        // real CLI sends (verified against 0.77.0), and an adapter that demanded
-        // it would refuse every real session while every fixture stayed green.
+        // real CLI sends (verified against 0.77.0 and again against 0.156.1),
+        // and an adapter that demanded it would refuse every real session while
+        // every fixture stayed green.
         let (outcome, sent) = handshake_against(&announcing(
-            "codex_cli_rs/0.77.0 (Windows 10.0.26200; x86_64) (meltemi-codex-acp; 0.1.0)",
+            "meltemi-codex-acp/0.156.1 (Windows 10.0.26200; x86_64) xterm-256color (meltemi-codex-acp; 0.1.1)",
         ))
         .await;
 
         let provenance = outcome.expect("a supported version opens the session");
         assert_eq!(provenance.program, "codex");
-        assert_eq!(provenance.version, "0.77.0");
-        assert!(provenance.user_agent.starts_with("codex_cli_rs/0.77.0"));
+        assert_eq!(provenance.version, "0.156.1");
+        assert!(
+            provenance
+                .user_agent
+                .starts_with("meltemi-codex-acp/0.156.1")
+        );
 
         assert_eq!(sent[0]["method"], wire::INITIALIZE);
         assert_eq!(sent[0]["id"], HANDSHAKE_ID);
@@ -1461,6 +2433,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_handshake_reads_the_version_the_cli_writes_beside_the_clients_name() {
+        // Scenario: El CLI escribe el nombre del cliente en su user agent
+        //
+        // The shape measured against 0.156.1: the first token names the client
+        // this adapter introduced itself as, and the version beside it is the
+        // CLI's. The name read back is the very name that was sent.
+        let (outcome, sent) = handshake_against(&announcing(
+            "meltemi-codex-acp/0.156.1 (Windows 10.0.26200; x86_64) xterm-256color (meltemi-codex-acp; 0.1.1)",
+        ))
+        .await;
+
+        let provenance = outcome.expect("the echoed form carries a version that is read");
+        assert_eq!(provenance.version, "0.156.1");
+        assert_eq!(sent[0]["params"]["clientInfo"]["name"], SPEC.name);
+    }
+
+    #[tokio::test]
+    async fn the_adapter_introduces_itself_by_its_own_name() {
+        // Scenario: El adaptador se presenta con su propio nombre
+        //
+        // The name the handshake sends is the `originator` the CLI reports to
+        // its own backend. It is this adapter's, and never one of the names the
+        // provider counts as its own clients (constitution §2).
+        let (_, sent) = handshake_against(&announcing(
+            "meltemi-codex-acp/0.156.1 (linux) unknown (meltemi-codex-acp; 0.1.1)",
+        ))
+        .await;
+        let name = sent[0]["params"]["clientInfo"]["name"]
+            .as_str()
+            .expect("the handshake names the client");
+        assert_eq!(name, SPEC.name);
+        for first_party in ["codex_cli_rs", "codex_vscode", "codex-tui"] {
+            assert_ne!(name, first_party, "never a first-party client's name");
+        }
+        assert!(
+            !name.starts_with("Codex "),
+            "never a first-party client's name: {name}"
+        );
+        assert!(
+            sent[0]["params"].get("capabilities").is_none(),
+            "and nothing that opts into the experimental surface: {}",
+            sent[0]
+        );
+    }
+
+    #[test]
+    fn a_notice_during_the_handshake_is_noted_without_its_path() {
+        // Scenario: Los avisos del proveedor se anotan y no se dicen como agente
+        let noted = noted_in_handshake(&json!({
+            "method": wire::CONFIG_WARNING,
+            "params": {"summary": "unknown key `foo`", "path": "/home/dev/.codex/config.toml"}
+        }))
+        .expect("a configuration warning is kept");
+        assert!(noted.contains("unknown key `foo`") && !noted.contains(".codex"));
+        assert_eq!(
+            noted_in_handshake(
+                &json!({"method": "account/updated", "params": {"authMode": "chatgpt"}})
+            ),
+            None,
+            "only notices for the human, nothing about the account"
+        );
+        assert_eq!(noted_in_handshake(&json!({"id": 9, "result": {}})), None);
+    }
+
+    #[tokio::test]
     async fn what_the_server_says_before_answering_is_not_mistaken_for_the_answer() {
         // The wire may start talking before it finishes replying. A handshake
         // that took the first line it saw would read a version out of a
@@ -1469,16 +2506,16 @@ mod tests {
         let noise = concat!(
             "starting up\n",
             "{\"method\":\"deprecationNotice\",\"params\":{\"summary\":\"soon\"}}\n",
-            "{\"id\":99,\"result\":{\"userAgent\":\"codex_cli_rs/0.1.0\"}}\n",
+            "{\"id\":99,\"result\":{\"userAgent\":\"meltemi-codex-acp/0.1.0\"}}\n",
         );
         let (outcome, _) = handshake_against(&format!(
             "{noise}{}",
-            announcing("codex_cli_rs/0.77.0 (linux)")
+            announcing("meltemi-codex-acp/0.156.1 (linux)")
         ))
         .await;
         assert_eq!(
             outcome.expect("the answer was the one with our id").version,
-            "0.77.0"
+            "0.156.1"
         );
     }
 
@@ -1495,6 +2532,31 @@ mod tests {
             refusal.detail
         );
         assert!(refusal.remedy.contains("Update"), "{}", refusal.remedy);
+    }
+
+    #[tokio::test]
+    async fn a_cli_older_than_the_verified_one_is_told_to_update_not_that_it_is_unreadable() {
+        // Scenario: Desfase de versión rehusado con remedio
+        //
+        // The shape 0.77.0 really answers (measured), which still writes the
+        // CLI's own name first. It is read — that is why `codex_cli_rs` is kept
+        // — and refused as what it is: a CLI below the verified floor.
+        let (outcome, _) = handshake_against(&announcing(
+            "codex_cli_rs/0.77.0 (Windows 10.0.26200; x86_64) xterm-256color (meltemi-codex-acp; 0.1.0)",
+        ))
+        .await;
+        let refusal = outcome.expect_err("0.77.0 is below the verified floor");
+        assert_eq!(refusal.kind, "provider_version_skew");
+        assert!(
+            refusal.detail.contains("0.77.0") && refusal.detail.contains("0.156.1"),
+            "{}",
+            refusal.detail
+        );
+        assert!(
+            refusal.remedy.contains("Update the provider CLI"),
+            "{}",
+            refusal.remedy
+        );
     }
 
     #[tokio::test]
@@ -1520,6 +2582,66 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_thread_made_by_another_version_than_the_one_read_is_refused() {
+        // Scenario: El hilo contradice la versión leída
+        let (peer, _incoming, _turn, mut server) = wired(Duration::from_millis(50));
+        let request = NewSessionRequest::new(std::path::PathBuf::from("/project"));
+        let opening = tokio::spawn(async move { open_thread(&peer, &request, "0.156.1").await });
+        let call = server.next_call().await;
+        server
+            .say(&json!({"id": call["id"], "result": {
+                "thread": {"id": "thread-1", "cliVersion": "0.157.0"},
+                "approvalPolicy": "untrusted", "approvalsReviewer": "user",
+                "sandbox": {"type": "readOnly", "networkAccess": false}
+            }}))
+            .await;
+        let refusal = opening
+            .await
+            .unwrap()
+            .expect_err("the CLI answering is not the one checked");
+        assert_eq!(refusal.kind, "provider_version_contradicted");
+        assert!(refusal.detail.contains("0.156.1") && refusal.detail.contains("0.157.0"));
+    }
+
+    #[tokio::test]
+    async fn a_version_newer_than_the_verified_one_opens_declaring_the_distance() {
+        // Scenario: Versión posterior a la verificada declarada, no rehusada
+        //
+        // Inside the range and past the verified version: the handshake does
+        // not refuse, and the session says so before its first turn.
+        let (outcome, _) = handshake_against(&announcing(
+            "meltemi-codex-acp/0.157.0 (Windows 10.0.26200; x86_64) unknown (meltemi-codex-acp; 0.1.1)",
+        ))
+        .await;
+        let provenance = outcome.expect("newer, inside the range: not refused");
+        assert!(provenance.beyond_verified());
+        let rows = declared_on_opening(&provenance);
+        let SessionUpdate::SessionInfoUpdate(info) = &rows[0] else {
+            panic!("the provenance comes first: {rows:?}");
+        };
+        let logged = serde_json::to_value(info).unwrap();
+        assert_eq!(logged["_meta"]["meltemi"]["providerVersion"], "0.157.0");
+        assert_eq!(
+            logged["_meta"]["meltemi"]["providerVerifiedVersion"],
+            wire::VENDORED_SCHEMA_VERSION,
+            "the log registers both"
+        );
+        let Some(SessionUpdate::ToolCall(row)) = rows.last() else {
+            panic!("the distance is a visible row: {rows:?}");
+        };
+        assert_eq!(row.tool_call_id.0.as_ref(), "meltemi:provider-version");
+        assert!(row.title.contains("0.157.0") && row.title.contains(wire::VENDORED_SCHEMA_VERSION));
+
+        // At the verified version itself there is no distance to declare.
+        let (outcome, _) = handshake_against(&announcing(
+            "meltemi-codex-acp/0.156.1 (Windows 10.0.26200; x86_64) unknown (meltemi-codex-acp; 0.1.1)",
+        ))
+        .await;
+        let rows = declared_on_opening(&outcome.unwrap());
+        assert_eq!(rows.len(), 2, "provenance and the gate's losses: {rows:?}");
+    }
+
     #[test]
     fn the_provenance_travels_as_acp_extension_metadata() {
         // Scenario: Versión efectiva registrada en el log
@@ -1530,8 +2652,14 @@ mod tests {
         // (design D7), which any agent may fill the same way.
         let provenance = Provenance {
             program: "/opt/homebrew/bin/codex".into(),
-            version: "0.77.0".into(),
-            user_agent: "codex_cli_rs/0.77.0 (macOS)".into(),
+            version: "0.156.1".into(),
+            user_agent: "meltemi-codex-acp/0.156.1 (macOS) unknown (meltemi-codex-acp; 0.1.1)"
+                .into(),
+            gate: Some(gate::Effective {
+                approval_policy: json!("untrusted"),
+                approvals_reviewer: json!("user"),
+                sandbox: json!({"type": "readOnly", "networkAccess": false}),
+            }),
         };
         let update =
             SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().meta(provenance.meta()));
@@ -1540,10 +2668,29 @@ mod tests {
             logged["_meta"]["meltemi"]["providerBin"],
             "/opt/homebrew/bin/codex"
         );
-        assert_eq!(logged["_meta"]["meltemi"]["providerVersion"], "0.77.0");
+        assert_eq!(logged["_meta"]["meltemi"]["providerVersion"], "0.156.1");
+        assert_eq!(
+            logged["_meta"]["meltemi"]["providerVerifiedVersion"],
+            wire::VENDORED_SCHEMA_VERSION
+        );
         assert_eq!(
             logged["_meta"]["meltemi"]["providerUserAgent"],
-            "codex_cli_rs/0.77.0 (macOS)"
+            "meltemi-codex-acp/0.156.1 (macOS) unknown (meltemi-codex-acp; 0.1.1)"
+        );
+        // Scenario: La compuerta efectiva consta en el log
+        //
+        // And the gate the CLI ran under, as it reported it.
+        assert_eq!(
+            logged["_meta"]["meltemi"]["providerApprovalPolicy"],
+            "untrusted"
+        );
+        assert_eq!(
+            logged["_meta"]["meltemi"]["providerApprovalsReviewer"],
+            "user"
+        );
+        assert_eq!(
+            logged["_meta"]["meltemi"]["providerSandbox"],
+            json!({"type": "readOnly", "networkAccess": false})
         );
     }
 

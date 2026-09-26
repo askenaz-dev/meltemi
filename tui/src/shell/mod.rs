@@ -8,6 +8,7 @@
 //! and forwards it, so the async loop never blocks on either source.
 
 pub mod bell;
+pub mod buckets;
 pub mod conn;
 pub mod glyphs;
 pub mod keymap;
@@ -42,6 +43,9 @@ pub async fn run(endpoint: &str) -> io::Result<()> {
         present: Presentation::from_env(),
         lang: Lang::from_locale(std::env::var("LANG").ok().as_deref()),
         project: std::path::Path::new(".meltemi").is_dir(),
+        // `None` for this machine's own socket: there is no via worth naming
+        // when the answer is "here".
+        via: meltemi_client::exec::shown(endpoint),
     };
     let mut state = ShellState::new();
     let mut live = LiveData::new();
@@ -218,6 +222,9 @@ fn handle_action(
             let _ = commands.send(Command::Refresh);
         }
         Some(Effect::RefreshFleet) => refresh_fleet = true,
+        Some(Effect::RefreshHarness { agent }) => {
+            let _ = commands.send(Command::Harness { agent });
+        }
         // The Input overlay's raw `agent name`: parsed HERE so a malformed
         // line becomes a visible notice instead of a guessed request.
         Some(Effect::LinkSubscription(raw)) => {
@@ -585,6 +592,7 @@ mod tests {
                     queue_position: Some(2),
                     status: None,
                     denied_permissions: 0,
+                    empty_turn: false,
                 })
                 .expect("result serializes"),
                 Lang::Es,

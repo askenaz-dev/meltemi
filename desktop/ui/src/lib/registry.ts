@@ -85,6 +85,11 @@ export const REGISTRY: RegistryEntry[] = [
     template: { projectRoot: "" },
     injectRoot: "projectRoot",
   }),
+  R("harness/effective", "palette.m.harness.effective", {
+    template: { projectRoot: "", agent: "" },
+    injectRoot: "projectRoot",
+    view: "fleet",
+  }),
   R("session/list", "palette.m.session.list", {
     template: { projectRoot: "" },
     injectRoot: "projectRoot",

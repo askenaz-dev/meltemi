@@ -42,6 +42,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/permissionOption" },
           "minItems": 1
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The id this request holds in the pending queue, so the client that answers the push can also decide or remember it by id (permission/decide) and recognise when another path resolved it."
         }
       }
     },

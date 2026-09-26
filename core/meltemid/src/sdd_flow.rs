@@ -20,7 +20,7 @@ use meltemi_proto::{
     SessionState, error_codes,
 };
 
-use crate::acp::{self, SessionParams};
+use crate::acp::{self, SessionParams, SessionRun};
 use crate::config::Config;
 use crate::permissions::RuleSet;
 use crate::rpc::{Peer, RpcError};
@@ -47,7 +47,7 @@ pub async fn handle_explore(
     );
     // Deny-all rules: any write the agent attempts is refused (explore never
     // writes; the deliberation lives only in the session log).
-    run_turn(
+    let empty = run_turn(
         state,
         peer,
         &project_root,
@@ -70,6 +70,7 @@ pub async fn handle_explore(
         mode: None,
         diagnostics: vec![],
         gate_hint: None,
+        empty_turn: empty,
     }))
 }
 
@@ -102,7 +103,7 @@ pub async fn handle_constitution(
     // nothing with it here: this change wires the selector into `explore` and
     // `propose` only, and honouring it silently in a third verb would be a
     // capability nobody specified.
-    run_turn(
+    let empty = run_turn(
         state,
         peer,
         &project_root,
@@ -125,6 +126,7 @@ pub async fn handle_constitution(
         mode: Some("fast_forward".into()),
         diagnostics: vec![],
         gate_hint: Some(gate_hint("constitution")),
+        empty_turn: empty,
     }))
 }
 
@@ -198,7 +200,7 @@ pub async fn handle_plan(
          TASKS_PATH: {}\n",
         tasks.display()
     );
-    run_turn(
+    let empty = run_turn(
         state,
         peer,
         &project_root,
@@ -220,6 +222,7 @@ pub async fn handle_plan(
         mode: Some(mode_str(cycle.mode)),
         diagnostics: vec![],
         gate_hint: Some(gate_hint(&params.change_name)),
+        empty_turn: empty,
     }))
 }
 
@@ -270,7 +273,7 @@ pub async fn handle_gate(
             // Comment goes back to the agent as a rework instruction on the
             // same artifact; the gate re-opens on the reworked draft.
             let artifact = cycle.current.unwrap_or(Artifact::Proposal);
-            author_artifact(
+            let empty = author_artifact(
                 state,
                 peer,
                 &project_root,
@@ -279,12 +282,13 @@ pub async fn handle_gate(
                 Some(&comment),
             )
             .await?;
-            reopen_and_report(&change_dir, cycle, &params.change_name).await
+            reopen_and_report(&change_dir, cycle, &params.change_name, empty).await
         }
         GateStep::Advanced(next) => {
-            author_artifact(state, peer, &project_root, &change_dir, next, None).await?;
+            let empty =
+                author_artifact(state, peer, &project_root, &change_dir, next, None).await?;
             match validate_artifact(&change_dir, next) {
-                Ok(()) => reopen_and_report(&change_dir, cycle, &params.change_name).await,
+                Ok(()) => reopen_and_report(&change_dir, cycle, &params.change_name, empty).await,
                 Err(diagnostics) => {
                     // Invalid: do not open the gate; return diagnostics.
                     cycle.gate_pending = false;
@@ -296,6 +300,7 @@ pub async fn handle_gate(
                         mode: Some(mode_str(cycle.mode)),
                         diagnostics,
                         gate_hint: None,
+                        empty_turn: empty,
                     }))
                 }
             }
@@ -314,7 +319,9 @@ async fn author_and_gate(
     mut cycle: CycleState,
 ) -> Result<Value, RpcError> {
     let artifact = cycle.current.unwrap_or(Artifact::Proposal);
-    // Fast-forward authors all four artifacts before the single gate.
+    // Fast-forward authors all four artifacts before the single gate; the
+    // call's verdict is whether any of its turns was empty.
+    let mut empty = false;
     if cycle.mode == Mode::FastForward {
         for a in [
             Artifact::Proposal,
@@ -322,10 +329,10 @@ async fn author_and_gate(
             Artifact::Design,
             Artifact::Tasks,
         ] {
-            author_artifact(state, peer, project_root, change_dir, a, None).await?;
+            empty |= author_artifact(state, peer, project_root, change_dir, a, None).await?;
         }
     } else {
-        author_artifact(state, peer, project_root, change_dir, artifact, None).await?;
+        empty = author_artifact(state, peer, project_root, change_dir, artifact, None).await?;
     }
 
     match validate_artifact(change_dir, artifact) {
@@ -339,6 +346,7 @@ async fn author_and_gate(
                 mode: Some(mode_str(cycle.mode)),
                 diagnostics: vec![],
                 gate_hint: Some(gate_hint(&change_name)),
+                empty_turn: empty,
             }))
         }
         Err(diagnostics) => {
@@ -350,16 +358,19 @@ async fn author_and_gate(
                 mode: Some(mode_str(cycle.mode)),
                 diagnostics,
                 gate_hint: None,
+                empty_turn: empty,
             }))
         }
     }
 }
 
-/// Opens the gate on the (already-authored) current artifact and reports it.
+/// Opens the gate on the (already-authored) current artifact and reports it,
+/// with whether the turn that authored it was empty.
 async fn reopen_and_report(
     change_dir: &Path,
     mut cycle: CycleState,
     change_name: &str,
+    empty_turn: bool,
 ) -> Result<Value, RpcError> {
     let artifact = cycle.current;
     cycle.open_gate();
@@ -371,10 +382,12 @@ async fn reopen_and_report(
         mode: Some(mode_str(cycle.mode)),
         diagnostics: vec![],
         gate_hint: Some(gate_hint(change_name)),
+        empty_turn,
     }))
 }
 
 /// Authors one artifact by running an ACP turn that asks the agent to write it.
+/// Answers whether that turn was declared empty.
 async fn author_artifact(
     state: &Arc<DaemonState>,
     peer: &Peer,
@@ -382,7 +395,7 @@ async fn author_artifact(
     change_dir: &Path,
     artifact: Artifact,
     rework_comment: Option<&str>,
-) -> Result<(), RpcError> {
+) -> Result<bool, RpcError> {
     let target = change_dir.join(artifact.file_name());
     if artifact == Artifact::Specs {
         std::fs::create_dir_all(&target).map_err(RpcError::internal)?;
@@ -405,8 +418,7 @@ async fn author_artifact(
         allow_meltemi_writes(project_root),
         None,
     )
-    .await?;
-    Ok(())
+    .await
 }
 
 /// Validates a drafted artifact with the spec engine. `specs` are validated as
@@ -452,6 +464,7 @@ fn validate_artifact(change_dir: &Path, artifact: Artifact) -> Result<(), Vec<St
 }
 
 /// Runs one ACP authoring turn with a given rule posture, logging to a session.
+/// Answers whether the turn was declared empty (turno-vacio-es-error design D3).
 async fn run_turn(
     state: &Arc<DaemonState>,
     peer: &Peer,
@@ -459,7 +472,7 @@ async fn run_turn(
     prompt: String,
     rules: RuleSet,
     agent: Option<&str>,
-) -> Result<(), RpcError> {
+) -> Result<bool, RpcError> {
     let config = Config::load(&state.config_dir, Some(project_root));
     // An invalid `[permissions]` value kept its default; say so (espera-humana).
     for diagnostic in &config.permission_diagnostics {
@@ -486,11 +499,22 @@ async fn run_turn(
             ));
         }
     };
+    // The profile's levers, routed BEFORE anything is created, the way the free
+    // session routes its own: by flag into the environment its adapter reads,
+    // by the agent's announcement before the first prompt, or refused (2006)
+    // here (modelo-por-opcion-anunciada D4, D5). This verb takes no levers of
+    // its own: a profile that declares none imposes none.
+    let mut resolved = resolved.with_session_levers(None, None);
+    let announced_levers = crate::levels::route_levers(&mut resolved, &agent_command)?;
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            project_root.display().to_string(),
+        )
         .await;
     crate::projects::touch(&state.data_dir, project_root);
     let project_key = crate::paths::project_key(project_root);
@@ -512,8 +536,10 @@ async fn run_turn(
     // proposal and every authoring turn was mute about who wrote it
     // (lanzador-conversacional 4.2).
     let _ = log.append(SessionEventKind::AgentResolved {
-        model: None,
-        effort: None,
+        // Only what travelled by flag: a lever set on the agent's announcement
+        // has not governed anything yet (modelo-por-opcion-anunciada D6).
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
         binary: agent_command.first().cloned().unwrap_or_default(),
         source: resolved.source,
         profile: resolved.profile.clone(),
@@ -591,6 +617,8 @@ async fn run_turn(
         // not directable.
         instruction_queue: None,
         edit_scope: Some(edit_scope.handle()),
+        announced_levers,
+        lever_wait: config.lever_wait(),
     })
     .await;
 
@@ -614,11 +642,21 @@ async fn run_turn(
         agent_id: resolved.agent_id.clone(),
         profile: resolved.profile.clone(),
         source: Some(resolved.source),
+        // What went by flag governed from the start; what went by the
+        // announcement arrives with the outcome.
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
     };
     match outcome {
-        Ok(session_outcome) => {
-            let _ = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
-            Ok(())
+        Ok(SessionRun::Ran(session_outcome)) => {
+            let fin = crate::session_finalize::finalize_ok(&ctx, session_outcome).await;
+            Ok(fin.empty_turn)
+        }
+        // No turn ran, and the agent did not fail: the refusal is its own
+        // ending and its own answer (modelo-por-opcion-anunciada D4).
+        Ok(SessionRun::LeverRefused(refusal)) => {
+            crate::session_finalize::finalize_refused(&ctx).await;
+            Err(crate::lever_options::refused_error(refusal))
         }
         Err(e) => {
             crate::session_finalize::finalize_err(&ctx, "agent_session_failed", e.to_string())
@@ -671,6 +709,7 @@ fn done(change_name: &str, phase: &str, mode: Mode) -> SddResult {
         mode: Some(mode_str(mode)),
         diagnostics: vec![],
         gate_hint: None,
+        empty_turn: false,
     }
 }
 

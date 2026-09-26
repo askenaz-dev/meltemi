@@ -110,6 +110,9 @@ git -C $fixture commit -q -m "init"
 # ---- isolated environment ---------------------------------------------------
 
 $env:MELTEMI_ENDPOINT = "\\.\pipe\meltemi-capture-$PID"
+# The endpoint is this script's, not the user's own: a client starts a daemon
+# there only when asked to (acceso-remoto-afinado D1).
+$env:MELTEMI_START_HERE = "1"
 $env:MELTEMI_DATA_DIR = $data
 $env:MELTEMI_CONFIG_DIR = $config
 # Onboarding already seen: the figure shows the shell, not the welcome.

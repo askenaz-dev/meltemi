@@ -8,6 +8,8 @@ import test from "node:test";
 
 import {
   MAX_SESSION_TABS,
+  NEW_SESSION_TAB,
+  adoptTab,
   clearUnread,
   closeTab,
   markUnread,
@@ -126,4 +128,64 @@ test("unread accumulates for the tab it belongs to and clears when it is read", 
 
   // A count for a session with no tab is not an error and creates nothing.
   assert.equal(markUnread(tabs, "ghost").length, 2);
+});
+
+test("asking for a new session twice focuses the composer instead of opening a second", () => {
+  // Scenario: Pedirla de nuevo enfoca, no duplica. The composer tab is a tab:
+  // open-or-focus applies to it exactly as to any other.
+  const first = openTab(opened("s1"), NEW_SESSION_TAB);
+  assert.ok(!("full" in first && first.full));
+  const tabs = (first as { tabs: SessionTab[] }).tabs;
+  const again = openTab(tabs, NEW_SESSION_TAB);
+  assert.ok(!("full" in again && again.full));
+  assert.deepEqual(
+    (again as { tabs: SessionTab[] }).tabs.map((t) => t.sessionId),
+    ["s1", NEW_SESSION_TAB],
+    "one composer tab, in the place it was opened",
+  );
+  assert.equal((again as { active: string }).active, NEW_SESSION_TAB);
+});
+
+test("sending turns the composer tab into the session's own, in place", () => {
+  // Scenario: Enviar convierte la pestaña en la sesión. Same position, same
+  // panel: `session/start` knows the identity before the first token, so there
+  // is nothing to open — only a name to settle.
+  const out = adoptTab(opened("s1", NEW_SESSION_TAB, "s3"), NEW_SESSION_TAB, "s2");
+  assert.ok(out);
+  assert.deepEqual(
+    out.tabs.map((t) => t.sessionId),
+    ["s1", "s2", "s3"],
+    "the composer became the session, where it already was",
+  );
+  assert.equal(out.active, "s2", "and the tab in front is now that session");
+});
+
+test("a session that starts while you read another does not pull you away", () => {
+  // The composer still becomes the session, but the tab in front is the one
+  // being read: moving it would be the surface deciding where you look.
+  const out = adoptTab(opened("s1", NEW_SESSION_TAB), "s1", "s2");
+  assert.ok(out);
+  assert.deepEqual(out.tabs.map((t) => t.sessionId), ["s1", "s2"]);
+  assert.equal(out.active, "s1");
+});
+
+test("with no composer open there is nothing to adopt, and the caller is told", () => {
+  // A session can start from somewhere that never had a composer; the null is
+  // what sends the caller back to opening a tab the ordinary way.
+  assert.equal(adoptTab(opened("s1"), "s1", "s2"), null);
+});
+
+test("adopting onto a session already open drops the composer rather than duplicating it", () => {
+  const out = adoptTab(opened("s2", NEW_SESSION_TAB), NEW_SESSION_TAB, "s2");
+  assert.ok(out);
+  assert.deepEqual(out.tabs.map((t) => t.sessionId), ["s2"], "one tab per session, always");
+  assert.equal(out.active, "s2");
+});
+
+test("the composer tab counts against the cap like any other", () => {
+  // It is a tab. Refusing to open a ninth is the same refusal, and the draft it
+  // might hold is exactly why the cap refuses instead of evicting.
+  const full = opened(...Array.from({ length: MAX_SESSION_TABS }, (_, i) => `s${i}`));
+  const out = openTab(full, NEW_SESSION_TAB);
+  assert.deepEqual(out, { full: true });
 });

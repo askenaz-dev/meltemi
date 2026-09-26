@@ -26,3 +26,45 @@ agents = ["claude-code"]
 [[target]]
 path = "GEMINI.md"
 agents = ["gemini-cli", "antigravity"]
+
+# User-scope destinations (harness-global-y-por-agente design D7).
+#
+# Where an agent reads instructions that apply to EVERY project of this user.
+# The user's own harness is projected here and NOWHERE else; nothing of this
+# scope may enter a repository file.
+#
+# Only entries verified against the provider's own documentation appear here,
+# each with the page it was read from and the date it was read. An agent with
+# no entry is reported as "no verified global destination" — a declared absence,
+# never a silent one, and never a path guessed from a pattern.
+#
+# `path` is resolved against the user's home directory.
+
+[[user_target]]
+agent = "claude-code"
+path = "~/.claude/CLAUDE.md"
+verified_on = "2026-08-19"
+source = "https://code.claude.com/docs/en/memory"
+# "User instructions | `~/.claude/CLAUDE.md` | Personal preferences for all
+# projects | ... | Just you (all projects)".
+
+[[user_target]]
+agent = "codex-cli"
+path = "~/.codex/AGENTS.md"
+verified_on = "2026-08-19"
+source = "https://learn.chatgpt.com/docs/agent-configuration/agents-md"
+# "In your Codex home directory (defaults to `~/.codex`, unless you set
+# CODEX_HOME), Codex reads `AGENTS.override.md` if it exists. Otherwise, Codex
+# reads `AGENTS.md`." Both facts are honoured: CODEX_HOME moves the directory,
+# and an override file present means this destination is IGNORED by the agent —
+# writing it anyway would be writing into a file nobody reads.
+home_env = "CODEX_HOME"
+ignored_when_present = "AGENTS.override.md"
+
+[[user_target]]
+agent = "opencode"
+path = "~/.config/opencode/AGENTS.md"
+verified_on = "2026-08-19"
+source = "https://opencode.ai/docs/rules/"
+# "You can also have global rules in a `~/.config/opencode/AGENTS.md` file.
+# This gets applied across all opencode sessions."

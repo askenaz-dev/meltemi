@@ -126,6 +126,8 @@ export interface FleetAgent {
   integrationLevel: number;
   verifiedLevel?: number;
   verifiedAt?: string;
+  /** The agent version that level was measured against (codex-al-dia D11). */
+  verifiedVersion?: string;
   mcpSupport: boolean;
   detected: boolean;
   binaryPath?: string;
@@ -471,6 +473,33 @@ export function startIncomingRouter(
   return onIncoming((message) => {
     const params = (message.params ?? {}) as Record<string, unknown>;
     switch (message.method) {
+      case "session/state": {
+        // Where one session stands, affirmed whole. Patching the store is the
+        // entire fix: the bar's counter, the sidebar bucket, the tree buckets,
+        // the tab glyph and the detail ring all derive from this array, so all
+        // of them become true without one component being touched
+        // (estado-en-vivo design D7).
+        const sessionId = String(params.sessionId ?? "");
+        if (!sessionId) return;
+        const state = params.state as SessionState | undefined;
+        if (!state) return;
+        const known = get(allSessions);
+        const at = known.findIndex((s) => s.sessionId === sessionId);
+        if (at === -1) {
+          // A session another client just opened: we hold no row for it yet, and
+          // the affirmation is deliberately thin — it carries where the session
+          // stands, not everything a row shows. One fetch fills it in, and from
+          // then on the affirmations keep it current.
+          void refreshSessions().catch(() => {});
+          return;
+        }
+        const patched = known.slice();
+        patched[at] = { ...patched[at], state };
+        allSessions.set(patched);
+        const root = get(activeProject);
+        sessions.set(root ? scopedTo(root, patched) : patched);
+        return;
+      }
       case "permission/changed": {
         const queue = (params.pending as PendingPermission[]) ?? [];
         pending.set(queue);

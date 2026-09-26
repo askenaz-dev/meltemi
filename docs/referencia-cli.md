@@ -41,11 +41,17 @@ SUBCOMMANDS:
                         rules decide exactly as they always did. In every mode
                         an explicit deny of yours prevails and anything
                         irreversible escalates.
-                        `--model` and `--effort` are the PROVIDER's own words:
-                        Meltemi carries them and never reads them, so what
-                        accepts or rejects one is the agent, and an agent that
-                        has no place for a lever refuses it by name
-    sessions            list agent sessions (active and historical)
+                        `--model` and `--effort` are the PROVIDER's own words,
+                        never checked against a catalog of ours: each travels
+                        as the launch flag the agent's entry declares, else by
+                        the option the agent announces, set and confirmed
+                        before the first prompt. A lever the agent does not
+                        take is refused by name, and no prompt is sent; the
+                        output says the model and effort that governed
+    sessions [root] [--follow]
+                        list agent sessions (active and historical); with
+                        --follow, write each change of state as it happens,
+                        one record per line, until Ctrl+C or the daemon goes
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing
     plan <change>       refine design and sequence a change's tasks
@@ -88,7 +94,10 @@ SUBCOMMANDS:
     usage [day|week|month|total] [--project <root>|--all] [--since <ts>] [--until <ts>]
                         local usage accounting folded from the session records;
                         tokens only where the agent's official output reports
-                        them, never estimated (`--all` spans every project)
+                        them, never estimated; the context and the cost an
+                        agent reports over ACP are shown as its own figures,
+                        summed per currency and never converted (`--all`
+                        spans every project)
     changes             list changes (active and archived) with their state
     show <change>       show a change: its artifacts and per-capability deltas
     workspace <change> [--branch <branch>|--unique]
@@ -116,6 +125,31 @@ SUBCOMMANDS:
                         set one of the options the AGENT announced for a live
                         session, without relaunching it; the option ids and
                         their values are the agent's, never a list of ours
+    watch <session>     follow a live session: each record of it as it happens,
+                        one JSON object per line, until the session ends —
+                        records only `log` has if this reader falls behind.
+                        Ctrl+C stops following; the session keeps running
+    log <session>       the session's append-only record as it is: one JSON
+                        object per line, from its first record to now
+    cancel <session>    cancel a live session, as the interactive `x` does: the
+                        agent closes its turn and the session ends; says
+                        whether it was still running when answered
+    permissions         the permission requests waiting for a decision: id,
+                        session, tool, title, how long each has waited, when it
+                        expires, and the options its agent offered
+    approve <request> [--option <option-id>]
+                        decide ONE waiting request with an option its agent
+                        offered: its one-time approval when it offered exactly
+                        one; `--option` names another of its approvals, and
+                        naming it is consent. A request no longer waiting is
+                        not decided (exit 12): the first decision wins
+    deny <request> [--option <option-id>]
+                        decide ONE waiting request with the agent's rejection,
+                        or cancel it when the agent offered none; `--option`
+                        names one of its rejections. Nothing decides in bulk
+    harness [--agent <id>]
+                        the harness that applies: every piece with the layer it
+                        comes from, plus what is covered or unreadable and why
     tunnel [user@host] [--exec]
                         compose the `ssh` command that reverse-forwards this
                         daemon's endpoint to a remote host; `--exec` runs it
@@ -125,6 +159,25 @@ SUBCOMMANDS:
     stop                request an orderly daemon shutdown
     version             print the client version
     help                print this help
+
+PERMISSIONS:
+    When stdin and stderr are a terminal, each permission an agent asks for
+    is asked on stderr — never on stdout — with what the agent sent (tool,
+    title, command, path, content) and the agent's own options by number.
+    `d` or Esc denies with the agent's rejection; `r` allows once and
+    remembers the most specific rule (offered only when one can be written,
+    confirmed with `y`, in force from the next session opened without
+    `--mode`); Ctrl+C cancels the session and the command exits 13. A key
+    counts only once the question could be read: keys typed before it, and
+    keys arriving together, answer nothing. A question that expires or is
+    decided elsewhere is withdrawn with its reason.
+    Without a terminal every request is denied with the agent's rejection;
+    to grant without a human, write a rule in .meltemi/permissions.toml or in
+    your global permissions.toml. No flag grants permissions.
+    A request that waits in the daemon's queue — one opened by the desktop
+    surface or the interactive shell — can be decided from any other shell,
+    a script or `ssh <pc>` with no terminal: `meltemi permissions` lists
+    them and `meltemi approve|deny <request>` decides one of them.
 
 GLOBAL FLAGS:
     --json              emit machine-readable JSON on stdout
@@ -142,6 +195,7 @@ GLOBAL FLAGS:
 - `2` — usage — unknown subcommand, invalid flags, or a missing argument
 - `10` — unreachable — the daemon could not be reached or started
 - `11` — contract — the daemon answered with a contract/protocol error
-- `12` — denied — the operation was refused by policy (permission proxy)
+- `12` — denied — refused by the permission proxy's policy: a decision reached a request no longer waiting (the first decision wins)
 - `13` — cancelled — the operation was cancelled
 - `14` — validation — a validation completed with findings (not an error)
+- `15` — empty turn — the agent's turn ended without saying or doing anything

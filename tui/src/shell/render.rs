@@ -16,6 +16,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use meltemi_proto::SessionState;
 
+use crate::shell::buckets;
 use crate::shell::glyphs::{self, Glyph};
 use crate::shell::live::{LiveData, ProjectRow, SessionRow};
 use crate::shell::messages::{Lang, Msg, text};
@@ -60,6 +61,13 @@ pub struct ShellCtx {
     pub present: Presentation,
     pub lang: Lang,
     pub project: bool,
+    /// How this shell reaches the daemon, when it is not this machine's own
+    /// socket: the abbreviated command, for example `ssh my-pc`.
+    ///
+    /// Shown in the header because a surface that stayed quiet about talking to
+    /// another machine would make an action on the wrong one look like an action
+    /// on your own (via-ssh-del-cliente design D8).
+    pub via: Option<String>,
 }
 
 impl ShellCtx {
@@ -196,7 +204,12 @@ fn render_header(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx)
             sessions,
         } => (
             glyphs::OK,
-            format!("daemon {version} | {uptime_s}s | {sessions} ses."),
+            match &ctx.via {
+                Some(via) => {
+                    format!("daemon {version} | {uptime_s}s | {sessions} ses. | vía {via}")
+                }
+                None => format!("daemon {version} | {uptime_s}s | {sessions} ses."),
+            },
         ),
         ConnState::Unreachable { .. } => (glyphs::ERROR, ctx.msg(Msg::Unreachable).to_string()),
     };
@@ -303,6 +316,18 @@ fn pilot_is_bundled(layers: &[meltemi_proto::FleetLayer]) -> bool {
         .is_some_and(|layer| layer.source == Some(meltemi_proto::FleetLayerSource::Bundled))
 }
 
+/// The verified level in words (design D4): the version it was measured
+/// against when the run recorded one (codex-al-dia design D11), and "sin
+/// verificar" otherwise, so the distinction is visible, not hidden.
+fn verified_label(row: &crate::shell::live::FleetRow, lang: Lang) -> String {
+    match (row.verified_level, &row.verified_version) {
+        (Some(level), Some(version)) => format!("verif L{level} {version}"),
+        (Some(level), None) => format!("verif L{level}"),
+        (None, _) if lang == Lang::Es => "sin verificar".to_string(),
+        (None, _) => "unverified".to_string(),
+    }
+}
+
 /// The Fleet view: the catalog with detection (glyph + word), the declared
 /// level as a textual label, and the configured-agent marker. With zero
 /// detected agents the registry is shown anyway — what could be orchestrated
@@ -337,20 +362,24 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
     let mut lines = vec![Line::styled(header, ctx.emphasis()), Line::from("")];
 
     let id_width = fleet.rows.iter().map(|r| r.id.len()).max().unwrap_or(0);
+    // Wide enough for the longest verified label, so a version does not push
+    // the columns after it out of line.
+    let verified_width = fleet
+        .rows
+        .iter()
+        .map(|row| verified_label(row, ctx.lang).chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(13);
     for row in &fleet.rows {
         let (glyph, word) = detection_label(row.detected, ctx.lang);
         let level_word = level_label(row.level, ctx.lang);
         // Declared vs verified level (design D4): declared is always shown;
         // verified is shown when a conformance run recorded it, else "sin
         // verificar" so the distinction is visible, not hidden.
-        let verified = match row.verified_level {
-            Some(v) if ctx.lang == Lang::Es => format!("verif L{v}"),
-            Some(v) => format!("verif L{v}"),
-            None if ctx.lang == Lang::Es => "sin verificar".to_string(),
-            None => "unverified".to_string(),
-        };
+        let verified = verified_label(row, ctx.lang);
         let mut label = format!(
-            "{} {word:<13} L{} {level_word:<10} {verified:<13} {:<id_width$}  {}",
+            "{} {word:<13} L{} {level_word:<10} {verified:<verified_width$} {:<id_width$}  {}",
             glyph.text(&ctx.present),
             row.level,
             row.id,
@@ -449,7 +478,97 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
         lines.push(Line::from(ctx.msg(Msg::NoAgents)));
         lines.push(Line::from(ctx.msg(Msg::FleetByoHint)));
     }
+    // The harness reads under the catalog, on demand (`:harness [agente]`),
+    // because it is a fact ABOUT these agents and not a fifth place to
+    // navigate to (design D8). Absent until asked for: reading four scopes off
+    // disk on every refresh would be chrome nobody requested.
+    append_harness(&mut lines, live, ctx);
     render_lines(frame, area, lines);
+}
+
+/// The name of a harness layer, in the surface's language.
+fn harness_layer_label(layer: meltemi_proto::HarnessLayer, ctx: &ShellCtx) -> &'static str {
+    ctx.msg(match layer {
+        meltemi_proto::HarnessLayer::User => Msg::HarnessLayerUser,
+        meltemi_proto::HarnessLayer::UserAgent => Msg::HarnessLayerUserAgent,
+        meltemi_proto::HarnessLayer::Project => Msg::HarnessLayerProject,
+        meltemi_proto::HarnessLayer::ProjectAgent => Msg::HarnessLayerProjectAgent,
+    })
+}
+
+/// One origin rendered as `capa · agente`, the agent only when the layer has
+/// one — a per-agent layer without its agent would be the same word twice.
+fn harness_origin_label(origin: &meltemi_proto::HarnessOrigin, ctx: &ShellCtx) -> String {
+    match &origin.agent {
+        Some(agent) => format!("{} · {agent}", harness_layer_label(origin.layer, ctx)),
+        None => harness_layer_label(origin.layer, ctx).to_string(),
+    }
+}
+
+/// Appends the effective harness: every piece with the layer it came from, and
+/// —equally— what does NOT govern and why. Covered and unreadable pieces are
+/// the answer to "why is mine not the one applying"; a listing of only what
+/// governs would leave that unanswered (design D5/D8).
+fn append_harness(lines: &mut Vec<Line<'static>>, live: &LiveData, ctx: &ShellCtx) {
+    let Some(snapshot) = &live.harness else {
+        return;
+    };
+    lines.push(Line::from(""));
+    let title = match &snapshot.agent {
+        Some(agent) => format!("{} — {agent}", ctx.msg(Msg::HarnessTitle)),
+        None => ctx.msg(Msg::HarnessTitle).to_string(),
+    };
+    lines.push(Line::styled(title, ctx.emphasis()));
+    if !snapshot.scoped_to_project {
+        lines.push(Line::from(format!(
+            "  {} {}",
+            glyphs::PENDING.text(&ctx.present),
+            ctx.msg(Msg::HarnessGlobalOnly)
+        )));
+    }
+    let answer = &snapshot.answer;
+    if answer.rules.is_empty() && answer.unknown_agents.is_empty() {
+        lines.push(Line::from(format!("  {}", ctx.msg(Msg::HarnessNone))));
+        return;
+    }
+    for rule in &answer.rules {
+        // Glyph AND word, never colour alone: a piece that governs and one
+        // that cannot must be told apart on a monochrome terminal.
+        let governs = rule.problems.is_empty();
+        let glyph = if governs { glyphs::OK } else { glyphs::ABSENT };
+        let mut label = format!(
+            "  {} {:<24} [{}]",
+            glyph.text(&ctx.present),
+            rule.name,
+            harness_origin_label(&rule.origin, ctx)
+        );
+        if !governs {
+            label.push_str(&format!(" — {}", ctx.msg(Msg::HarnessNotApplied)));
+        }
+        lines.push(Line::from(label));
+        lines.push(Line::from(format!("        {}", rule.origin.path)));
+        for problem in &rule.problems {
+            lines.push(Line::from(format!("        · {problem}")));
+        }
+        for covered in &rule.shadowed {
+            lines.push(Line::from(format!(
+                "        {} {} [{}]",
+                glyphs::SELECT.text(&ctx.present),
+                ctx.msg(Msg::HarnessCovered),
+                harness_origin_label(covered, ctx)
+            )));
+        }
+    }
+    for unknown in &answer.unknown_agents {
+        lines.push(Line::from(format!(
+            "  {} {:<24} — {}",
+            glyphs::ABSENT.text(&ctx.present),
+            unknown.id,
+            ctx.msg(Msg::HarnessUnknownAgent)
+        )));
+        lines.push(Line::from(format!("        {}", unknown.path)));
+    }
+    lines.push(Line::from(format!("  {}", ctx.msg(Msg::HarnessReadOnly))));
 }
 
 /// The race board (tablero-de-carrera design D4): the lanes of one task, each
@@ -829,48 +948,72 @@ fn render_sessions(
             mark
         );
         lines.push(Line::styled(pan(&header, live.h_scroll), ctx.emphasis()));
-        for session in visible {
-            // The selection index is the flat one, so the cursor keeps working
-            // across groups exactly as it did in the flat list.
-            let index = live
-                .sessions
+        // Inside the project, by what each session asks of you. The cursor is a
+        // flat index over `live.sessions` and never learns about this: rows are
+        // reordered for reading, not renumbered (design D6).
+        for &bucket in buckets::BUCKET_ORDER {
+            let held: Vec<&SessionRow> = visible
                 .iter()
-                .position(|candidate| candidate.id == session.id)
-                .unwrap_or(usize::MAX);
-            let (glyph, word) = session_state_label(session.state, ctx.lang);
-            let marker = if index == live.selected {
-                glyphs::FOCUS.text(&ctx.present)
-            } else {
-                " "
-            };
-            let subscription = match &session.profile {
-                Some(profile) => format!("  [{profile}]"),
-                None => String::new(),
-            };
-            // What the session is about, after the id and the agent it already
-            // showed: the row keeps its columns and gains a tail, so nothing
-            // moves for a session the daemon could not name (titulo-de-sesion
-            // D6). The shell's own panning is what trims it to the width.
-            let named = match &session.title {
-                Some(title) => format!("  {title}"),
-                None => String::new(),
-            };
-            let label = format!(
-                "{marker}  {} {} {}  {}{}{}",
-                glyph.text(&ctx.present),
-                word,
-                session.id,
-                session.agent_label(),
-                subscription,
-                named
-            );
-            let panned = pan(&label, live.h_scroll);
-            if index == live.selected {
-                lines.push(Line::styled(panned, ctx.emphasis()));
-            } else {
-                lines.push(Line::from(panned));
+                .filter(|session| buckets::bucket_of(session.state) == bucket)
+                .map(|session| **session)
+                .collect();
+            if held.is_empty() {
+                // A header reading "working (0)" is noise; an empty bucket is
+                // not drawn at all.
+                continue;
             }
-            shown += 1;
+            // Glyph, word and count, like every other header in this terminal,
+            // and with the ASCII twin the presentation policy may ask for.
+            let bucket_header = format!(
+                "  {} {} ({})",
+                bucket.glyph().text(&ctx.present),
+                bucket.word(ctx.lang),
+                held.len()
+            );
+            lines.push(Line::from(pan(&bucket_header, live.h_scroll)));
+            for session in held {
+                // The selection index is the flat one, so the cursor keeps
+                // working across groups exactly as it did in the flat list.
+                let index = live
+                    .sessions
+                    .iter()
+                    .position(|candidate| candidate.id == session.id)
+                    .unwrap_or(usize::MAX);
+                let (glyph, word) = session_state_label(session.state, ctx.lang);
+                let marker = if index == live.selected {
+                    glyphs::FOCUS.text(&ctx.present)
+                } else {
+                    " "
+                };
+                let subscription = match &session.profile {
+                    Some(profile) => format!("  [{profile}]"),
+                    None => String::new(),
+                };
+                // What the session is about, after the id and the agent it
+                // already showed: the row keeps its columns and gains a tail,
+                // so nothing moves for a session the daemon could not name
+                // (titulo-de-sesion D6). The shell's own panning trims it.
+                let named = match &session.title {
+                    Some(title) => format!("  {title}"),
+                    None => String::new(),
+                };
+                let label = format!(
+                    "{marker}  {} {} {}  {}{}{}",
+                    glyph.text(&ctx.present),
+                    word,
+                    session.id,
+                    session.agent_label(),
+                    subscription,
+                    named
+                );
+                let panned = pan(&label, live.h_scroll);
+                if index == live.selected {
+                    lines.push(Line::styled(panned, ctx.emphasis()));
+                } else {
+                    lines.push(Line::from(panned));
+                }
+                shown += 1;
+            }
         }
     }
 
@@ -1639,7 +1782,44 @@ mod tests {
             present,
             lang: Lang::Es,
             project: false,
+            via: None,
         }
+    }
+
+    // Scenario: El cromo de la TUI nombra la vía
+    #[test]
+    fn the_header_names_the_via_when_the_daemon_is_on_another_machine() {
+        let mut live = LiveData::new();
+        live.apply(Update::Conn(ConnState::Connected {
+            version: "0.1.1".into(),
+            uptime_s: 12,
+            sessions: 2,
+        }));
+        let state = ShellState::new();
+
+        // Talking to this machine: no via, because "here" is not worth a
+        // segment.
+        let here = draw(
+            &state,
+            &live,
+            &ctx(Presentation::resolve(&PresentationEnv::default())),
+            120,
+            24,
+        );
+        assert!(here.contains("daemon 0.1.1"), "{here}");
+        assert!(!here.contains("vía"), "nothing invented for a local socket");
+
+        // Talking to another: the via is named.
+        let mut elsewhere = ctx(Presentation::resolve(&PresentationEnv::default()));
+        elsewhere.via = meltemi_client::exec::shown("exec:ssh my-pc meltemi bridge");
+        let shown = draw(&state, &live, &elsewhere, 120, 24);
+        assert!(
+            shown.contains("vía ssh my-pc"),
+            "the header says which machine's fleet this is: {shown}"
+        );
+        // And the daemon's own facts are still there: the via is added, not
+        // substituted.
+        assert!(shown.contains("daemon 0.1.1"), "{shown}");
     }
 
     fn draw(state: &ShellState, live: &LiveData, ctx: &ShellCtx, w: u16, h: u16) -> String {
@@ -1652,6 +1832,118 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect()
+    }
+
+    // Scenario: El terminal muestra el harness con su origen
+    #[test]
+    fn the_terminal_shows_each_piece_with_the_layer_it_came_from() {
+        use meltemi_proto::{
+            HarnessEffectiveResult, HarnessLayer, HarnessOrigin, HarnessRule, HarnessUnknownAgent,
+        };
+
+        let answer = HarnessEffectiveResult {
+            rules: vec![
+                // Governs, and it covers the same rule from a broader layer.
+                HarnessRule {
+                    name: "no-console-log".into(),
+                    origin: HarnessOrigin {
+                        layer: HarnessLayer::ProjectAgent,
+                        agent: Some("claude".into()),
+                        path: "/repo/.meltemi/harness/agents/claude/rules/no-console-log/RULE.md"
+                            .into(),
+                    },
+                    front_matter: Vec::new(),
+                    problems: Vec::new(),
+                    shadowed: vec![HarnessOrigin {
+                        layer: HarnessLayer::User,
+                        agent: None,
+                        path: "/home/u/.config/meltemi/harness/rules/no-console-log/RULE.md".into(),
+                    }],
+                },
+                // Read, but unusable: it says why instead of vanishing.
+                HarnessRule {
+                    name: "no-any-cast".into(),
+                    origin: HarnessOrigin {
+                        layer: HarnessLayer::Project,
+                        agent: None,
+                        path: "/repo/.meltemi/harness/rules/no-any-cast/RULE.md".into(),
+                    },
+                    front_matter: Vec::new(),
+                    problems: vec!["el nombre no coincide con su directorio".into()],
+                    shadowed: Vec::new(),
+                },
+            ],
+            unknown_agents: vec![HarnessUnknownAgent {
+                id: "claudius".into(),
+                path: "/repo/.meltemi/harness/agents/claudius".into(),
+            }],
+        };
+
+        let ctx = ctx(default_present());
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "1".into(),
+            rows: Vec::new(),
+        }));
+        live.apply(Update::Harness(crate::shell::live::HarnessSnapshot {
+            agent: Some("claude".into()),
+            scoped_to_project: true,
+            answer,
+        }));
+        let shown = draw(&state, &live, &ctx, 160, 40);
+
+        // Every piece, with the layer it came from.
+        assert!(
+            shown.contains("no-console-log"),
+            "the governing rule: {shown}"
+        );
+        assert!(
+            shown.contains("proyecto por agente"),
+            "the layer it came from: {shown}"
+        );
+        // What does NOT govern, and why — the question people arrive with.
+        assert!(
+            shown.contains("pisa a la de") && shown.contains("global"),
+            "the covered layer: {shown}"
+        );
+        assert!(
+            shown.contains("no aplica") && shown.contains("no coincide"),
+            "the unusable rule with its diagnostic: {shown}"
+        );
+        assert!(
+            shown.contains("claudius"),
+            "an id the catalog does not know: {shown}"
+        );
+        // Read only: this surface writes nothing.
+        assert!(
+            shown.contains("solo lectura"),
+            "the read-only note: {shown}"
+        );
+    }
+
+    // Scenario: El terminal muestra el harness con su origen
+    #[test]
+    fn the_terminal_says_the_reading_was_global_when_no_project_took_part() {
+        let ctx = ctx(default_present());
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "1".into(),
+            rows: Vec::new(),
+        }));
+        live.apply(Update::Harness(crate::shell::live::HarnessSnapshot {
+            agent: None,
+            scoped_to_project: false,
+            answer: meltemi_proto::HarnessEffectiveResult::default(),
+        }));
+        let shown = draw(&state, &live, &ctx, 160, 24);
+        assert!(
+            shown.contains("solo tu harness global"),
+            "an empty reading without a project is global, not empty: {shown}"
+        );
     }
 
     fn default_present() -> Presentation {
@@ -1763,6 +2055,111 @@ mod tests {
         assert!(!out.contains("worktrees"), "no phantom project node");
         // An absent root is marked, never dropped.
         assert!(out.contains("ausente"));
+    }
+
+    // Scenario: Cubetas dentro del proyecto en el terminal
+    // Scenario: El cursor no se entera de las cubetas
+    #[test]
+    fn the_terminal_groups_a_project_by_what_its_sessions_ask_of_you() {
+        use crate::shell::buckets::{BUCKET_ORDER, Bucket};
+
+        let mut live = LiveData::new();
+        live.apply(Update::Projects(vec![ProjectRow {
+            root: "/repos/alpha".into(),
+            exists: true,
+            sessions_total: 4,
+            active_sessions: 3,
+        }]));
+        let row = |id: &str, state: SessionState| SessionRow {
+            mode: None,
+            model: None,
+            id: id.into(),
+            agent: "claude".into(),
+            state,
+            project_root: "/repos/alpha".into(),
+            resumable: false,
+            agent_id: Some("claude-code".into()),
+            profile: None,
+            title: None,
+        };
+        // Deliberately out of signal order in the listing: the view is what
+        // orders them, not the order the daemon happened to answer in.
+        live.apply(Update::Sessions(vec![
+            row("s-ended", SessionState::Ended),
+            row("s-active", SessionState::Active),
+            row("s-idle", SessionState::WaitingInstruction),
+            row("s-perm", SessionState::WaitingPermission),
+        ]));
+
+        let out = draw(&ShellState::new(), &live, &ctx(default_present()), 110, 30);
+        // Every bucket, with its word and its count.
+        for bucket in BUCKET_ORDER {
+            let word = bucket.word(Lang::Es);
+            assert!(out.contains(word), "the bucket `{word}` is headed: {out}");
+        }
+        assert!(
+            out.contains("(1)"),
+            "and each header carries how many it holds: {out}"
+        );
+        // In signal order: a decision first, what is over last.
+        let at = |needle: &str| {
+            out.find(needle)
+                .unwrap_or_else(|| panic!("{needle}: {out}"))
+        };
+        assert!(
+            at(Bucket::Decision.word(Lang::Es)) < at(Bucket::Instruction.word(Lang::Es))
+                && at(Bucket::Instruction.word(Lang::Es)) < at(Bucket::Working.word(Lang::Es))
+                && at(Bucket::Working.word(Lang::Es)) < at(Bucket::Stopped.word(Lang::Es)),
+            "the four headers stand in signal order: {out}"
+        );
+        // The row ordering follows its header.
+        assert!(at("s-perm") < at("s-idle") && at("s-idle") < at("s-active"));
+        assert!(at("s-active") < at("s-ended"));
+
+        // The cursor is a flat index over the listing and did not learn about
+        // any of this: it still selects the row the daemon answered first.
+        assert_eq!(live.selected, 0, "the selection model is untouched");
+        assert!(
+            out.contains(&format!(
+                "{} ",
+                crate::shell::glyphs::FOCUS.text(&default_present())
+            )),
+            "and the focus marker is still drawn on it: {out}"
+        );
+    }
+
+    // Scenario: Cubetas dentro del proyecto en el terminal
+    #[test]
+    fn an_empty_bucket_gets_no_header_in_the_terminal_either() {
+        use crate::shell::buckets::Bucket;
+        let mut live = LiveData::new();
+        live.apply(Update::Projects(vec![ProjectRow {
+            root: "/repos/alpha".into(),
+            exists: true,
+            sessions_total: 1,
+            active_sessions: 1,
+        }]));
+        live.apply(Update::Sessions(vec![SessionRow {
+            mode: None,
+            model: None,
+            id: "s1".into(),
+            agent: "claude".into(),
+            state: SessionState::Active,
+            project_root: "/repos/alpha".into(),
+            resumable: false,
+            agent_id: Some("claude-code".into()),
+            profile: None,
+            title: None,
+        }]));
+        let out = draw(&ShellState::new(), &live, &ctx(default_present()), 110, 24);
+        assert!(out.contains(Bucket::Working.word(Lang::Es)), "OUT: {out}");
+        for empty in [Bucket::Decision, Bucket::Instruction, Bucket::Stopped] {
+            assert!(
+                !out.contains(empty.word(Lang::Es)),
+                "an empty bucket draws no header: {}",
+                empty.word(Lang::Es)
+            );
+        }
     }
 
     /// A board with three lanes: one committed, one that ran and produced
@@ -2153,6 +2550,7 @@ mod tests {
             name: format!("Agent {id}"),
             level,
             verified_level: None,
+            verified_version: None,
             detected,
             binary_path: detected.then(|| format!("/bin/{id}")),
             configured,
@@ -2205,6 +2603,22 @@ mod tests {
         assert!(out.contains("L1") && out.contains("nativo"), "level label");
         assert!(out.contains("L4") && out.contains("artefactos"));
         assert!(out.contains("configurado"), "configured agent is marked");
+    }
+
+    #[test]
+    fn fleet_table_names_the_version_a_level_was_verified_against() {
+        // Scenario: El catálogo nombra la versión medida
+        let mut live = connected();
+        let mut measured = fleet_row("uno", 2, true, false);
+        measured.verified_level = Some(2);
+        measured.verified_version = Some("0.156.1".into());
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "2026-09-24".into(),
+            rows: vec![measured, fleet_row("dos", 1, false, false)],
+        }));
+        let out = draw(&fleet_view(), &live, &ctx(default_present()), 100, 24);
+        assert!(out.contains("verif L2 0.156.1"), "{out}");
+        assert!(out.contains("sin verificar"), "{out}");
     }
 
     #[test]

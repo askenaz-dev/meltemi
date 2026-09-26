@@ -22,6 +22,11 @@ path = "src/bin/meltemi-codex-acp.rs"
 # that property auditable.
 [dependencies]
 agent-client-protocol.workspace = true
+# Process scopes: ending the provider ends what the provider launched, which on
+# Windows is the difference between ending a `.cmd` shim and ending the CLI
+# underneath it (apagado-entero-y-modos design D1). A workspace crate, and off
+# Windows it carries no dependency at all.
+meltemi-process.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = [

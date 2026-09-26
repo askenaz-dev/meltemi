@@ -147,6 +147,65 @@ session id, how the turn ended, the restore point (or its absence with the
 remedy), and a warning if any permission was denied — a denied permission usually
 means the work is incomplete, and silence about it would be a lie.
 
+```
+meltemi session "..." --agent opencode --model anthropic/claude-haiku-4-5
+meltemi session "..." --agent codex-cli --model <model> --effort high
+```
+
+`--model` and `--effort` are the provider's own words. Each reaches the agent as
+the launch flag its entry declares, or through the option the agent announces,
+set and confirmed before the first prompt ([how](agentes.md#model-and-effort-per-session)),
+and the output says what governed: `model: … · effort: …`. A lever the agent does
+not take is refused, never dropped in silence: before the session opens when its
+entry declares no place for it (exit `11`, error 2006), or as it opens, with no
+prompt sent, when the agent did not announce it, announced it twice, did not
+confirm it or did not answer in time (exit `11`, error 2007). The refusal names
+the lever, what you asked for, why, and what the agent announced — twenty values
+at most and how many more, with every word of the agent's escaped.
+
+When the terminal is yours — stdin and stderr are a terminal — the permissions
+the agent asks for are asked right there, on stderr, one at a time, with what the
+agent sent about the call:
+
+```
+permission requested by session 3f2c9a
+  tool     execute
+  title    Bash: cargo test
+  content  {"command":"cargo test","description":"Run the tests"}
+  1 Allow once  (allow once)
+  2 Reject  (reject once)
+  d deny   Ctrl+C stop the session
+  (no rule to remember: the request names no command or path, and a rule on the tool alone would allow every such request)
+```
+
+- **A digit** chooses one of the agent's options. There is no default: Enter
+  decides nothing. An option with which the agent stops asking — Codex's «Allow
+  for this session» — asks for `y` first, because after it similar requests
+  never reach Meltemi's proxy.
+- **`d`** (or Esc) denies with the agent's own rejection, or cancels when it
+  offered none.
+- **`r`** approves once and remembers the most specific rule the request allows:
+  its tool with the exact command, or with the exact path. It is offered only
+  when the request names both, never for anything under `.meltemi/` (where the
+  rules live), and never from `implement` or `dispatch`, whose sessions work in a
+  task worktree. `y` confirms it, and it governs from the next session opened
+  without `--mode`.
+- **Ctrl+C** cancels the session — the log records the request as interrupted —
+  and the command exits `13`.
+
+A key counts only once the question could be read: keys typed before it
+appeared, and keys arriving together (a paste), answer nothing, and input that
+keeps arriving faster than anyone reads is denied as unattended. A question that
+expires under `[permissions] wait`, or that another surface decides, is withdrawn
+with its reason. The terminal always leaves raw mode before the command ends, and
+stdout stays the channel of `--json`.
+
+Without a terminal — a script, a pipe, CI — every request is denied with the
+agent's own rejection, and stderr says how to grant without a human: a rule in
+`.meltemi/permissions.toml` (or your global `permissions.toml`). No flag grants
+permissions. And a terminal proves a keyboard, not a person: a script driving a
+pseudoterminal passes for one, which is why input faster than reading is refused.
+
 In the TUI, the palette has the same verb, and `direct` steers the open session
 from its drill-in with the same honest states as the desktop.
 

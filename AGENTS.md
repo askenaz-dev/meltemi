@@ -36,7 +36,7 @@ El motor de specs de fase 1 está operativo y hospeda las specs del propio proye
 - `docs/plan-de-cambios.md` — backlog ordenado de changes
 - `docs/research/integracion-agentes.md` — matriz de integración por agente (interno)
 
-<!-- meltemi:context:begin sha256=a8ae111f39d50f557bddce9b836e3bd987a71d7e75cf01d7c1791a46a583ebdc -->
+<!-- meltemi:context:begin sha256=79d409491a860aba5fbe026b06f36df8aac65ec58a58bc630b19d8ac8635fcf4 -->
 # Meltemi — contexto proyectado
 
 _Compilado desde `.meltemi/` por `meltemi project`. El contenido del bloque gestionado se regenera; no editarlo a mano._
@@ -129,8 +129,32 @@ meltemi/
 ├── brand/             # identidad visual (V2 vigente; ver brand/README.md)
 ├── docs/              # documentación y research interno
 ├── .meltemi/          # constitución, rumbo y (a futuro) specs del propio proyecto
+│   └── harness/       # harness de ámbito proyecto (reglas; ver abajo)
 └── openspec/          # método SDD actual del proyecto (ver nota de migración)
 ```
+
+**El harness** (añadido por `harness-global-y-por-agente`, 2026-09-15): lo que
+se le dice a todo agente antes de que empiece, en cuatro ámbitos con dos raíces.
+Dentro del repositorio viven los dos de proyecto; los dos de usuario viven en el
+directorio de configuración, que no es parte del monorepo:
+
+```
+<config>/meltemi/harness/rules/<name>/RULE.md                 (1) usuario
+<config>/meltemi/harness/per-agent/<id>/rules/<name>/RULE.md   (2) usuario × agente
+<repo>/.meltemi/harness/rules/<name>/RULE.md                   (3) proyecto
+<repo>/.meltemi/harness/per-agent/<id>/rules/<name>/RULE.md     (4) proyecto × agente
+```
+
+Precedencia 1 < 2 < 3 < 4 — lo específico pisa lo general, proyecto pisa
+usuario: la misma dirección que ya rige config, permisos y perfiles. El eje por
+agente es un **directorio**, no un campo: un directorio es forma, que el daemon
+valida; un campo sería semántica, que el daemon no interpreta. `<id>` sale del
+catálogo de flota. El formato de `RULE.md` es el de FDH, adoptado entero.
+
+La frontera de escritura es la parte que no se puede relajar: **el harness de
+usuario nunca entra a un archivo del repositorio**, y las reglas de proyecto
+entran al bloque gestionado como el resto del contexto proyectado. Detalle
+completo en `docs/harness.md`.
 
 **Método de trabajo (dogfooding en dos etapas)**: hasta que Meltemi pueda hospedar sus propias specs, el proyecto se desarrolla con OpenSpec (`openspec/changes/`, comandos `/opsx:*`). La constitución y el rumbo ya viven en `.meltemi/` (formato destino). Cuando el motor de specs de fase 1 esté operativo, se migrarán las specs vivas de `openspec/specs/` a `.meltemi/specs/` mediante una change dedicada.
 

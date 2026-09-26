@@ -81,7 +81,54 @@ export interface SystemLine extends Accounted {
   text: string;
 }
 
-export type ConversationItem = HumanTurn | AgentTurn | PermissionCard | SystemLine;
+/**
+ * A turn the agent closed as finished having said and done nothing
+ * (turno-vacio-es-error design D5). Its own item, not a neutral system line:
+ * the conversation says it as a state of the turn, with a word and a remedy.
+ */
+export interface EmptyTurn extends Accounted {
+  kind: "empty";
+  id: number;
+  ts: string;
+  /** The stop reason the agent reported, which the verdict never changes. */
+  stopReason: string | null;
+}
+
+/**
+ * A lever refused as the session opened, before any prompt
+ * (modelo-por-opcion-anunciada design D4). Its own item, like the empty turn:
+ * the conversation says it in words — the lever, what was asked, why, and what
+ * the agent announced or left — and never as the contract's identifiers.
+ */
+export interface LeverRefused extends Accounted {
+  kind: "lever";
+  id: number;
+  ts: string;
+  /** `model` or `effort`, as the contract names them. */
+  lever: string;
+  /** What was asked for, verbatim. */
+  requested: string;
+  /** The contract's reason; the surface puts it in words. */
+  reason: string;
+  /** What the agent announced for it — its values, else its options by id —
+   *  at most {@link LEVER_LISTED}. */
+  announced: string[];
+  /** How many more it announced than are listed. */
+  more: number;
+  /** What the agent left instead: the value it kept, or the mode it moved to. */
+  left: string | null;
+}
+
+/** How many announced values or options a refused lever lists. */
+export const LEVER_LISTED = 20;
+
+export type ConversationItem =
+  | HumanTurn
+  | AgentTurn
+  | PermissionCard
+  | EmptyTurn
+  | LeverRefused
+  | SystemLine;
 
 /** The events that close an agent turn. `turn_completed` carries its reason. */
 const CLOSERS = new Set(["turn_completed", "session_cancelled", "session_ended", "error"]);
@@ -295,6 +342,49 @@ export function fold(events: FoldEvent[]): ConversationItem[] {
       }
       // A decision with no request in view still has to be seen.
       system(event);
+      continue;
+    }
+
+    if (event.type === "turn_empty") {
+      open = null;
+      items.push({
+        kind: "empty",
+        id: event.id,
+        ts: event.ts,
+        stopReason: str(payload.stopReason),
+        eventIds: [event.id],
+      });
+      continue;
+    }
+
+    if (event.type === "lever_refused") {
+      open = null;
+      const values = Array.isArray(payload.values)
+        ? payload.values.filter((value): value is string => typeof value === "string")
+        : [];
+      const options = Array.isArray(payload.options) ? payload.options.map(record) : [];
+      const all =
+        values.length > 0
+          ? values
+          : options.map((option) => {
+              const id = str(option.id) ?? "";
+              const name = str(option.name);
+              return name ? `${id} (${name})` : id;
+            });
+      const listed = all.slice(0, LEVER_LISTED);
+      const declaredMore = typeof payload.more === "number" ? payload.more : 0;
+      items.push({
+        kind: "lever",
+        id: event.id,
+        ts: event.ts,
+        lever: str(payload.lever) ?? "",
+        requested: str(payload.requested) ?? "",
+        reason: str(payload.reason) ?? "",
+        announced: listed,
+        more: all.length - listed.length + declaredMore,
+        left: str(payload.left),
+        eventIds: [event.id],
+      });
       continue;
     }
 

@@ -50,7 +50,12 @@
     menu,
   }: {
     items: TabItem[];
-    activeId: string;
+    /**
+     * The tab in front, or `null` when the strip's own content is not what is
+     * on screen. A tablist may legitimately have nothing selected; what it may
+     * NOT have is nothing focusable, which is what `focusIndex` answers.
+     */
+    activeId: string | null;
     label: string;
     closeLabel: string;
     scrollLeftLabel: string;
@@ -114,9 +119,21 @@
    * arrows move focus to a tab off screen and the user types into something
    * they cannot see — an accessibility failure, not a cosmetic one.
    */
+  /**
+   * Which tab the keyboard enters the strip on. The selected one, and the first
+   * one when nothing is selected: ARIA asks for exactly one tab in the tab
+   * order, never for one to be selected.
+   */
+  const focusIndex = $derived(
+    Math.max(
+      0,
+      items.findIndex((item) => item.id === activeId),
+    ),
+  );
+
   $effect(() => {
     const id = activeId;
-    if (!strip) return;
+    if (!strip || id === null) return;
     queueMicrotask(() => {
       const el = strip?.querySelector<HTMLElement>(`[id="tab-${CSS.escape(id)}"]`);
       el?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -135,8 +152,10 @@
   }
 
   function onKeys(event: KeyboardEvent) {
-    const current = items.findIndex((item) => item.id === activeId);
-    if (current < 0 || items.length === 0) return;
+    if (items.length === 0) return;
+    // Where the arrows move FROM: the selected tab, or the one the keyboard
+    // entered on when the strip's content is not what is on screen.
+    const current = focusIndex;
     let next: number | null = null;
     if (event.key === "ArrowRight") next = (current + 1) % items.length;
     else if (event.key === "ArrowLeft") next = (current - 1 + items.length) % items.length;
@@ -224,7 +243,7 @@
         id="tab-{item.id}"
         aria-controls="panel-{item.id}"
         aria-selected={active}
-        tabindex={active ? 0 : -1}
+        tabindex={index === focusIndex ? 0 : -1}
         title={item.title ?? item.label}
         aria-label={accessibleName(item)}
         onclick={() => onSelect(item.id)}

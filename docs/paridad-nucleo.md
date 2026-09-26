@@ -23,10 +23,11 @@ future change — never a silent omission.
 | `propose` | `propose` | `propose` | registry |
 | `fleet/list` | `fleet` | `fleet` | registry + Fleet view |
 | `context/project` | `project` | `project` | registry |
+| `harness/effective` | `harness` | `harness [agente]` (bajo Flota) | registry + drill-in de Flota |
 | `session/list` | `sessions` | `sessions` | registry + Sessions view |
-| `session/log` | — | `sessions` (drill-in) | registry + session drill-in |
-| `session/watch` | — | `sessions` (drill-in) | registry + session drill-in (live stream) |
-| `session/cancel` | — | `cancel` (`x`) | registry + session drill-in |
+| `session/log` | `log` | `sessions` (drill-in) | registry + session drill-in |
+| `session/watch` | `watch` | `sessions` (drill-in) | registry + session drill-in (live stream) |
+| `session/cancel` | `cancel` | `cancel` (`x`) | registry + session drill-in |
 | `session/direct` | `direct` | `direct` (drill-in, entrada de instrucción) | registry |
 | `session/set-config-option` | `set-option` | `set-option` (reservado) | registry + selector en la ficha de sesión |
 | `session/start` | `session` | `session` | registry |
@@ -55,8 +56,8 @@ future change — never a silent omission.
 | `change/land` | `land` | `land` | registry |
 | `spec/list` | `specs` | `specs` | registry + Project view |
 | `spec/show` | `specs <capability>` | `specs` | registry |
-| `permission/pending` | — | `permissions` (`a`, tray) | registry + Permissions view |
-| `permission/decide` | — | `permissions` (tray) | registry + Permissions view |
+| `permission/pending` | `permissions`; the terminal approver (every verb: a question is asked only while it still stands) | `permissions` (`a`, tray) | registry + Permissions view |
+| `permission/decide` | `approve`, `deny`; the terminal approver (`r` + `y` in `session` and `propose`) | `permissions` (tray) | registry + Permissions view |
 | `worktree/assign` | `assign` | `assign` | registry |
 | `worktree/list` | `worktrees` | `worktrees` | registry |
 | `worktree/remove` | — | `worktree-remove` | registry |
@@ -77,7 +78,11 @@ find, the composed state and the remedy) is rendered by the scriptable
 subcommand in human mode, by the Fleet view and by the desktop detail, and
 travels verbatim under `--json` because it is part of the contract. A field
 visible in one surface only is a §4 break even when the method itself is
-registered everywhere.
+registered everywhere. The verified level follows the same rule, and with it
+the agent version it was measured against (`verifiedVersion`, codex-al-dia
+D11): «verified L2 with 0.156.1» in the scriptable subcommand, «verif L2
+0.156.1» in the Fleet view, «verificado con 0.156.1» in the desktop pill and
+detail.
 
 ### `detach`, and why one surface declines it
 
@@ -98,6 +103,80 @@ and the one that declines it declines it for a stated reason, in its own help.
 It becomes a break the day the CLI gains a way to read the stream and still does
 not offer this (sesion-que-espera design D3).
 
+### The empty-turn verdict, and where each surface reads it
+
+A turn the agent closes as finished having said and done nothing, and that
+nobody stopped, is declared empty (turno-vacio-es-error). The verdict has two
+carriers, and every surface reads the one it already lives off:
+
+| Carrier | CLI | TUI | GUI |
+|---|---|---|---|
+| `turn_empty` in the session log (every turn, every runner) | — (the CLI does not read the stream; see `detach` above) | a line in words, live and in the historical detail | a state of the turn in the conversation (`∅`, a word, the remedy) and a glyph in the operator log |
+| `emptyTurn` in an answer that reports a turn's status | any answer carrying it exits `15` and warns on stderr, whichever verb got it | — (the shell starts no sessions of its own yet) | — (the desktop starts sessions detached, so its answers carry no status) |
+
+Some answers carry no verdict by declaration, and the log is the source there:
+a detached `session/start`, a queued or relayed `session/direct`,
+`sdd/review-decide` (it discards the answer of the gate it triggers) and
+`sdd/implement` (a task whose turn was empty is already reported `pending`).
+
+The activity counts the verdicts too: `emptyTurns` in `analytics/usage` is shown
+by `meltemi usage` when it is not zero and by the Usage view as one more column.
+The TUI's `usage` home stays reserved, as it is for the rest of the activity.
+
+This is **not** a §4 break: the capability is the verdict, and it reaches all
+three surfaces; each reads it from the carrier it already consumes.
+
+### What an agent reports over ACP, and where each surface shows it
+
+An agent may report over ACP the context it holds and its cumulative cost
+(`usage_update`). The accounting reads it as the agent's figures, apart from the
+tokens — one conversation at a time, once, summed per currency, never converted
+(usage-desde-acp):
+
+| Contract | CLI | TUI | GUI |
+|---|---|---|---|
+| `agentReport` in a cell (sessions, fullest context, cost per currency) | a line under the cell, labelled as reported by the agent | — (the `usage` home stays reserved) | «Context (max)» and «Cost (agent-reported)» columns |
+| `agentReport` in the totals (sessions, cost per currency; no context) | a totals line | — | the cost in the totals row |
+| reason `protocol_carries_context_not_consumption` | in the coverage line | — | in the absence marker's reason |
+| disclosure key `agent-reported-context-and-cost` | printed with the numbers | — | in the disclosure beside the table |
+
+The TUI's reserved entry keeps the method's home in the palette, as it does for
+the rest of the accounting; this is **not** a §4 break for the same reason the
+activity is not.
+
+### A lever's route, what governed, and a refusal at open
+
+A model or an effort reaches the agent as the launch flag its entry declares or
+through the option the agent announces, confirmed before the first prompt
+(modelo-por-opcion-anunciada). What that adds to the contract, and where each
+surface reads it:
+
+| Contract | CLI | TUI | GUI |
+|---|---|---|---|
+| `levers_applied` event (what the agent confirmed) | — (the result carries it) | transcript line, live and historical | conversation line; the model chip reads it while the session runs |
+| `lever_refused` event (lever, requested, reason, announced or left) | — (the error carries it) | transcript line in words, ES/EN | its own conversation item in words, ES/EN |
+| `session_ended` reason `lever_refused` | — | transcript | translated ending |
+| `session/start` result `model`, `effort` (what governed) | printed with the outcome | — (the session list carries it) | — (the session list carries it) |
+| error 2007 `data.leverRefused` | printed bounded and escaped, exit `11` | a refused `dispatch` from the board says it | — (the conversation says it) |
+| `worktree/dispatch` params `model`, `effort` | not sent (no flags) | not sent | not offered |
+
+The same record travels in the log and in the error, so every surface can say it
+in its own words, and each bounds the lists and escapes the agent's text itself.
+
+### `requestId`, and why only the CLI reads it from the push
+
+The live push carries the id its request holds in the pending queue
+(aprobador-en-el-cli D4). The CLI reads it because it answers the push itself:
+with the id it confirms the request still stands before asking, remembers a rule
+by `permission/decide`, and withdraws the question once the queue lets the
+request go. The TUI and the GUI decide from the queue — `permission/pending` and
+`permission/changed` — where every entry already carries that id, so they have no
+need to read it from the push.
+
+This is **not** a §4 break: deciding and remembering by id is reachable from all
+three surfaces, and the field only lets the one surface that answers pushes do
+it from the push.
+
 ## Infrastructure
 
 | Method | Role |
@@ -106,11 +185,20 @@ not offer this (sesion-que-espera design D3).
 
 ## Daemon-initiated traffic
 
-Not client-invocable; delivered to every connected surface alike.
+Not client-invocable. `permission/changed` and `session/state` reach every
+connected client; `permission/request` and `permission/timeout` go to the
+connection that started the session; `session/event` goes to that connection and
+to those watching the session.
 
-| Method | Kind | TUI | GUI |
-|---|---|---|---|
-| `session/event` | notification | transcript append | `daemon:incoming` → transcript |
-| `permission/request` | request (held) | notice; tray decides | `daemon:incoming`; tray decides |
-| `permission/timeout` | notification | persistent notice | persistent notice |
-| `permission/changed` | notification | tray counter | tray counter |
+The two that reach everyone are the two whose payload affirms a whole state
+rather than a change — the permission queue, and one session's standing. That is
+why a connection that falls behind on either is repaired by re-sending, and why
+the surfaces can apply them in any order.
+
+| Method | Kind | CLI | TUI | GUI |
+|---|---|---|---|---|
+| `session/event` | notification | the approver keeps tool calls, to show what a question is about | transcript append | `daemon:incoming` → transcript |
+| `session/state` | notification | `sessions --follow` writes one record per line | session rows and buckets, without polling | `daemon:incoming` → the session store every indicator derives from |
+| `permission/request` | request (held) | asked on the terminal; without one, refused with the agent's rejection | notice; tray decides | `daemon:incoming`; tray decides |
+| `permission/timeout` | notification | withdraws the open question, checked against the queue | persistent notice | persistent notice |
+| `permission/changed` | notification | withdraws the open question once the queue no longer lists it | tray counter | tray counter |

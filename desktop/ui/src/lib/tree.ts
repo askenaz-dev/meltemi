@@ -5,7 +5,7 @@
 // the client, so no new method exists just to shape a view.
 
 import { isLive } from "./session-state.ts";
-import type { ProjectInfo, SessionInfo } from "./stores";
+import type { ProjectInfo, SessionInfo, SessionState } from "./stores";
 
 /** One project node of the tree, with the sessions that ran inside it. */
 export interface ProjectGroup {
@@ -25,6 +25,101 @@ export interface ProjectGroup {
   inferred: boolean;
 }
 
+
+/**
+ * The four buckets a project's sessions fall into, named by what they ask of
+ * you rather than by the contract state that produces them
+ * (sesiones-en-la-barra design D1).
+ */
+export type BucketId = "decision" | "instruction" | "working" | "stopped";
+
+/**
+ * Signal order: what needs a human decision comes first, what is over comes
+ * last. The same criterion as the design system's signal priority, so the bar
+ * and the status bar split the fleet the same way.
+ *
+ * The terminal carries its own copy of this table in Rust — TypeScript and Rust
+ * share no function — and a wiring test reads both and fails if they diverge.
+ */
+export const BUCKET_ORDER: readonly BucketId[] = [
+  "decision",
+  "instruction",
+  "working",
+  "stopped",
+];
+
+/**
+ * Which bucket each contract state falls into.
+ *
+ * A `Record` over the union, like `LIVE_STATE`: a state added to the contract
+ * makes THIS a compile error, once, instead of quietly falling out of every
+ * bucket and vanishing from the bar.
+ */
+export const BUCKET_OF: Record<SessionState, BucketId> = {
+  waiting_permission: "decision",
+  waiting_instruction: "instruction",
+  active: "working",
+  starting: "working",
+  ended: "stopped",
+  interrupted: "stopped",
+};
+
+/**
+ * How many stopped sessions a bucket draws before it offers the count instead.
+ *
+ * Only the stopped bucket is capped. The live ones are sessions the user
+ * launched and that are asking for something; their number is bounded by
+ * practice, not by a rule. What is over accumulates forever, and that is the
+ * one that would push the tree off the screen.
+ */
+export const STOPPED_SHOWN = 5;
+
+/** One bucket of a project node, ready to draw. */
+export interface SessionBucket {
+  id: BucketId;
+  /** The rows to draw, already capped. */
+  sessions: SessionInfo[];
+  /** How many the bucket holds — the number the header says. */
+  total: number;
+  /** True when the cap left some out, so "see all {n}" is offered. */
+  capped: boolean;
+}
+
+/**
+ * Splits a project's sessions into the four buckets, in signal order.
+ *
+ * An empty bucket is not returned at all: a header reading "Working 0" is
+ * noise, and the caller should not have to filter it out to avoid drawing it.
+ *
+ * Order inside a live bucket is the caller's (`groupSessions` hands them over
+ * most recent first). The stopped bucket sorts by start time itself, because
+ * its cap promises "the most recent" and a promise that depends on the caller
+ * having sorted is a promise that breaks the day someone calls it directly.
+ */
+export function bucketSessions(sessions: SessionInfo[]): SessionBucket[] {
+  const held = new Map<BucketId, SessionInfo[]>();
+  for (const id of BUCKET_ORDER) held.set(id, []);
+  for (const session of sessions) {
+    held.get(BUCKET_OF[session.state])?.push(session);
+  }
+  const buckets: SessionBucket[] = [];
+  for (const id of BUCKET_ORDER) {
+    const all = held.get(id) as SessionInfo[];
+    if (all.length === 0) continue;
+    if (id !== "stopped") {
+      buckets.push({ id, sessions: all, total: all.length, capped: false });
+      continue;
+    }
+    const recent = [...all].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    buckets.push({
+      id,
+      sessions: recent.slice(0, STOPPED_SHOWN),
+      total: recent.length,
+      capped: recent.length > STOPPED_SHOWN,
+    });
+  }
+  return buckets;
+}
 
 /** Separator-normalized, trailing-slash-free form for comparison. */
 function normalize(path: string): string {

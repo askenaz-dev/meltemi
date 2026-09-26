@@ -65,6 +65,19 @@
           "minimum": 0,
           "description": "How many of the agent's permission requests were denied during the turn (by rule, by the human, or by timeout/default). Greater than zero means the work may be incomplete."
         },
+        "emptyTurn": {
+          "type": "boolean",
+          "const": true,
+          "description": "Present, and true, only when the turn whose status this reports ended having said and done nothing. The status stays what the agent reported."
+        },
+        "model": {
+          "type": "string",
+          "description": "The model that governed the session: what travelled as a launch flag, or what the agent confirmed through its announced option; never what was only asked for."
+        },
+        "effort": {
+          "type": "string",
+          "description": "The effort that governed, on the same terms."
+        },
         "checkpointRef": {
           "type": "string",
           "minLength": 1,

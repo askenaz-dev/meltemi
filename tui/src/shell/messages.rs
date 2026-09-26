@@ -34,6 +34,21 @@ pub enum Msg {
     NoPermissions,
     NoAgents,
     FleetLoading,
+    BucketDecision,
+    BucketInstruction,
+    BucketWorking,
+    BucketStopped,
+    HarnessTitle,
+    HarnessNone,
+    HarnessGlobalOnly,
+    HarnessReadOnly,
+    HarnessCovered,
+    HarnessUnknownAgent,
+    HarnessNotApplied,
+    HarnessLayerUser,
+    HarnessLayerUserAgent,
+    HarnessLayerProject,
+    HarnessLayerProjectAgent,
     RaceLoading,
     RaceEmpty,
     RaceUnknown,
@@ -79,6 +94,9 @@ pub enum Msg {
     ProjectRegistryHint,
     ProjectPresent,
     ProjectAbsent,
+    /// A turn the agent closed having said and done nothing, with the remedy
+    /// (turno-vacio-es-error design D6).
+    EmptyTurn,
 }
 
 /// The text of a message in a language. Never empty.
@@ -112,7 +130,41 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         (Msg::RaceLaneHint, Lang::Es) => "j/k calle | flechas panear | Esc volver",
         (Msg::RaceLaneHint, Lang::En) => "j/k lane | arrows pan | Esc back",
         (Msg::FleetLoading, Lang::Es) => "consultando la flota...",
+        (Msg::BucketDecision, Lang::Es) => "esperan tu decision",
+        (Msg::BucketDecision, Lang::En) => "waiting on your decision",
+        (Msg::BucketInstruction, Lang::Es) => "listas para tu instruccion",
+        (Msg::BucketInstruction, Lang::En) => "ready for your instruction",
+        (Msg::BucketWorking, Lang::Es) => "trabajando",
+        (Msg::BucketWorking, Lang::En) => "working",
+        (Msg::BucketStopped, Lang::Es) => "detenidas",
+        (Msg::BucketStopped, Lang::En) => "stopped",
         (Msg::FleetLoading, Lang::En) => "querying the fleet...",
+        (Msg::HarnessTitle, Lang::Es) => "Harness efectivo",
+        (Msg::HarnessTitle, Lang::En) => "Effective harness",
+        (Msg::HarnessNone, Lang::Es) => "sin harness configurado",
+        (Msg::HarnessNone, Lang::En) => "no harness is configured",
+        (Msg::HarnessGlobalOnly, Lang::Es) => "sin proyecto: solo tu harness global",
+        (Msg::HarnessGlobalOnly, Lang::En) => "no project: only your global harness",
+        (Msg::HarnessReadOnly, Lang::Es) => "solo lectura: las piezas viven en archivos",
+        (Msg::HarnessReadOnly, Lang::En) => "read only: the pieces live in files",
+        (Msg::HarnessCovered, Lang::Es) => "pisa a la de",
+        (Msg::HarnessCovered, Lang::En) => "covers the one from",
+        (Msg::HarnessUnknownAgent, Lang::Es) => {
+            "identificador que el catalogo no conoce: nada se leyo"
+        }
+        (Msg::HarnessUnknownAgent, Lang::En) => {
+            "an identifier the catalog does not know: nothing was read"
+        }
+        (Msg::HarnessNotApplied, Lang::Es) => "no aplica",
+        (Msg::HarnessNotApplied, Lang::En) => "not applied",
+        (Msg::HarnessLayerUser, Lang::Es) => "global",
+        (Msg::HarnessLayerUser, Lang::En) => "global",
+        (Msg::HarnessLayerUserAgent, Lang::Es) => "global por agente",
+        (Msg::HarnessLayerUserAgent, Lang::En) => "global per agent",
+        (Msg::HarnessLayerProject, Lang::Es) => "proyecto",
+        (Msg::HarnessLayerProject, Lang::En) => "project",
+        (Msg::HarnessLayerProjectAgent, Lang::Es) => "proyecto por agente",
+        (Msg::HarnessLayerProjectAgent, Lang::En) => "project per agent",
         (Msg::FleetByoHint, Lang::Es) => {
             "trae tu propio agente: instala su CLI oficial (con su propia auth) \
              o declara uno en config con [[fleet.custom]]"
@@ -261,6 +313,14 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         (Msg::ProjectPresent, Lang::En) => "present",
         (Msg::ProjectAbsent, Lang::Es) => "ausente",
         (Msg::ProjectAbsent, Lang::En) => "missing",
+        (Msg::EmptyTurn, Lang::Es) => {
+            "turno vacío — el agente terminó sin decir ni hacer nada; si no lo esperabas, \
+             pruébalo por su cuenta y revisa su proveedor y sus credenciales"
+        }
+        (Msg::EmptyTurn, Lang::En) => {
+            "empty turn — the agent ended without saying or doing anything; if you did not \
+             expect that, try it on its own and check its provider and credentials"
+        }
     }
 }
 
@@ -274,6 +334,21 @@ pub const ALL: &[Msg] = &[
     Msg::NoPermissions,
     Msg::NoAgents,
     Msg::FleetLoading,
+    Msg::BucketDecision,
+    Msg::BucketInstruction,
+    Msg::BucketWorking,
+    Msg::BucketStopped,
+    Msg::HarnessTitle,
+    Msg::HarnessNone,
+    Msg::HarnessGlobalOnly,
+    Msg::HarnessReadOnly,
+    Msg::HarnessCovered,
+    Msg::HarnessUnknownAgent,
+    Msg::HarnessNotApplied,
+    Msg::HarnessLayerUser,
+    Msg::HarnessLayerUserAgent,
+    Msg::HarnessLayerProject,
+    Msg::HarnessLayerProjectAgent,
     Msg::RaceLoading,
     Msg::RaceEmpty,
     Msg::RaceUnknown,
@@ -315,6 +390,7 @@ pub const ALL: &[Msg] = &[
     Msg::ProjectRegistryHint,
     Msg::ProjectPresent,
     Msg::ProjectAbsent,
+    Msg::EmptyTurn,
 ];
 
 #[cfg(test)]
