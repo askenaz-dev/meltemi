@@ -150,3 +150,26 @@ lo que otro requisito ya dice.
 
 Nada que migrar: un script nuevo, documentos nuevos y una sección de la guía de
 agentes. Nada corre en CI.
+
+## Revisión propia (2026-09-26)
+
+Lo que la corrida enseñó sobre la propia corrida, antes del cierre:
+
+- **El veredicto «escrito por regla» mentía para OpenCode**: el script lo dedujo
+  de que el archivo existía, y OpenCode escribe sin preguntar. El script ahora
+  distingue «escrito por regla» de «escrito sin preguntar» con los permisos del
+  registro, y el informe de esta corrida corrige a mano esas dos celdas
+  diciendo cuáles.
+- **Los permisos del despacho salieron en cero**: `meltemi log` no encuentra el
+  registro de una sesión de worktree. Las tres cifras se tomaron de los
+  archivos y se marcan; el defecto tiene su change.
+- **La regla de D3 no concede nada a los adaptadores de nivel 2**: sus
+  peticiones no llevan ruta. La matriz lo midió en vez de esconderlo; para el
+  hito, el cliente decidió cada petición con una política escrita y el informe
+  cuenta cuántas aprobó y denegó.
+- **La tarea 1.1 del hito no escribe**: el agente la redactó como comprobación.
+  C3 se demostró en la 1.2, que sí añade la función; las dos carreras están en
+  el informe.
+- **La fecha es la de UTC**: la corrida pasó la medianoche UTC; los informes
+  llevan la fecha del reloj que el script usa, y las tareas se corrigieron.
+

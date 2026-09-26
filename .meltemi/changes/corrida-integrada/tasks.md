@@ -39,7 +39,7 @@ corrida usa los binarios y los adaptadores de este checkout.
 
 ## 3. Cierre
 
-- [ ] 3.1 `meltemi validate corrida-integrada` limpio, `meltemi verify
+- [x] 3.1 `meltemi validate corrida-integrada` limpio, `meltemi verify
   corrida-integrada` completo, gate del workspace (`cargo test --workspace
   --no-fail-fast`, clippy, fmt), el daemon que arranquen `validate`/`verify`/`land`
   detenido, estado de la change en `docs/plan-de-cambios.md`, `meltemi land
