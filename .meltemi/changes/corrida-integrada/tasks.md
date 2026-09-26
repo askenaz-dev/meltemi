@@ -16,8 +16,8 @@ corrida usa los binarios y los adaptadores de este checkout.
   daemon del usuario», «La corrida no corre en CI» — gates: el test nuevo, la
   corrida contra el simulado
 
-- [ ] 1.2 La corrida contra los CLIs de esta máquina (Claude Code 2.1.280,
-  OpenCode 1.18.32, Codex 0.156.1): `docs/qa/2026-09-25-corrida-integrada.md`
+- [x] 1.2 La corrida contra los CLIs de esta máquina (Claude Code 2.1.280,
+  OpenCode 1.18.32, Codex 0.156.1): `docs/qa/2026-09-26-corrida-integrada.md` (fecha UTC de la corrida)
   con la tabla, los hallazgos y los no medidos; un test pinea el informe
   (design D3–D5) — escenarios «Cada agente listo pasa por la misma matriz»,
   «Lo no instalado se declara» — gates: tests de docs
@@ -26,7 +26,7 @@ corrida usa los binarios y los adaptadores de este checkout.
 
 - [ ] 2.1 El hito v0.1 con Claude Code y OpenCode sobre un fixture mínimo, con
   la revisión y las marcas de verificación por `meltemi bridge`:
-  `docs/qa/2026-09-25-hito-v01-aceptacion.md` con veredicto por criterio y los
+  `docs/qa/2026-09-26-hito-v01-aceptacion.md` (fecha UTC) con veredicto por criterio y los
   presupuestos medidos, y `docs/hito-v01.md` enlazándolo; un test pinea ambos
   (design D6) — escenarios «El informe de aceptación existe con su veredicto»,
   «El hito enlaza su informe» — gates: tests de docs

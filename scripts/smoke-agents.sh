@@ -198,8 +198,13 @@ for id in "${ready[@]}"; do
   # shellcheck disable=SC2046
   run --json session "Create a file named $file containing the single line: hello. Do nothing else." "$fixture" $(agent_args "$id")
   sid="$(json .sessionId)"
-  verdict='not written (denied)'; [ -e "$fixture/$file" ] && verdict='WRITTEN without a rule'
   seconds=$last_seconds; f="$(facts "$sid")"; last_seconds=$seconds
+  asked="${f%% ·*}"
+  # An agent that writes without asking bypasses the proxy: said as such.
+  verdict='not written (denied)'
+  if [ -e "$fixture/$file" ]; then
+    verdict='WRITTEN without a rule'; [ "$asked" = 0 ] && verdict='WRITTEN without asking'
+  fi
   add_row "$id" 'session (write, no rule)' "$verdict" "$f" ''
 done
 
@@ -211,8 +216,14 @@ for id in "${ready[@]}"; do
   # shellcheck disable=SC2046
   run --json session "Create a file named $file containing the single line: hello. Do nothing else." "$fixture" $(agent_args "$id")
   sid="$(json .sessionId)"
-  verdict='not written'; [ -e "$fixture/$file" ] && verdict='written by rule'
   seconds=$last_seconds; f="$(facts "$sid")"; last_seconds=$seconds
+  asked="${f%% ·*}"; by_rule="$(printf '%s' "$f" | cut -d'|' -f1 | awk -F' · ' '{ print $2 }')"
+  verdict='not written'
+  if [ -e "$fixture/$file" ]; then
+    verdict='written'
+    [ "$asked" = 0 ] && verdict='written without asking'
+    [ "${by_rule:-0}" != 0 ] && verdict='written by rule'
+  fi
   add_row "$id" 'session (write, rule)' "$verdict" "$f" ''
 
   # `propose` answers with the change, not the session: the session is the one

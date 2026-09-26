@@ -240,8 +240,10 @@ foreach ($id in $ready) {
   $r = Invoke-Meltemi (@('--json', 'session', "Create a file named $file containing the single line: hello. Do nothing else.", $fixture) + (Agent-Args $id))
   $j = Read-Json $r
   $written = Test-Path (Join-Path $fixture $file)
-  $verdict = if (-not $written) { 'not written (denied)' } else { 'WRITTEN without a rule' }
-  Add-Row $id 'session (write, no rule)' $r $verdict (Get-SessionFacts $j.sessionId)
+  $facts = Get-SessionFacts $j.sessionId
+  # An agent that writes without asking bypasses the proxy: said as such.
+  $verdict = if (-not $written) { 'not written (denied)' } elseif ($facts.Asked -eq 0) { 'WRITTEN without asking' } else { 'WRITTEN without a rule' }
+  Add-Row $id 'session (write, no rule)' $r $verdict $facts
 }
 
 Set-Content -Path (Join-Path $fixture '.meltemi\permissions.toml') -Value $ruled
@@ -252,8 +254,9 @@ foreach ($id in $ready) {
   $r = Invoke-Meltemi (@('--json', 'session', "Create a file named $file containing the single line: hello. Do nothing else.", $fixture) + (Agent-Args $id))
   $j = Read-Json $r
   $written = Test-Path (Join-Path $fixture $file)
-  $verdict = if ($written) { 'written by rule' } else { 'not written' }
-  Add-Row $id 'session (write, rule)' $r $verdict (Get-SessionFacts $j.sessionId)
+  $facts = Get-SessionFacts $j.sessionId
+  $verdict = if (-not $written) { 'not written' } elseif ($facts.ByRule -gt 0) { 'written by rule' } elseif ($facts.Asked -eq 0) { 'written without asking' } else { 'written' }
+  Add-Row $id 'session (write, rule)' $r $verdict $facts
 
   # `propose` answers with the change, not the session: the session is the one
   # the fixture did not have before.

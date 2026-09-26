@@ -109,3 +109,64 @@ fn no_workflow_runs_the_integrated_run() {
     }
     assert!(seen > 0, "the workflows were read");
 }
+
+const REPORT: &str = "docs/qa/2026-09-26-corrida-integrada.md";
+
+// Scenario: Cada agente listo pasa por la misma matriz
+#[test]
+fn the_published_run_has_every_ready_agent_through_the_seven_verbs() {
+    let report = read(REPORT);
+    assert!(report.contains("# Corrida integrada — 2026-09-26"), "dated");
+    for (agent, version) in [
+        ("opencode", "1.18.32"),
+        ("claude-code", "2.1.280"),
+        ("codex-cli", "0.156.1"),
+    ] {
+        assert!(
+            report
+                .lines()
+                .any(|line| line.starts_with(&format!("| `{agent}` |")) && line.contains(version)),
+            "{agent} is listed with its version"
+        );
+        let section = report
+            .split(&format!("### `{agent}`"))
+            .nth(1)
+            .unwrap_or_else(|| panic!("{agent} has its section"));
+        let section = section.split("\n### ").next().unwrap_or(section);
+        for verb in [
+            "| session (read) |",
+            "| session (write, no rule) |",
+            "| session (write, rule) |",
+            "| propose |",
+            "| dispatch |",
+            "| direct |",
+            "| cancel |",
+        ] {
+            assert!(section.contains(verb), "{agent}: {verb}");
+        }
+    }
+    // What the run found is written down, not left to the table.
+    assert!(report.contains("## Hallazgos"));
+    assert!(report.contains("**OpenCode 1.18.32 edita sin pedir permiso.**"));
+}
+
+// Scenario: Lo no instalado se declara
+#[test]
+fn the_published_run_declares_what_was_not_installed() {
+    let report = read(REPORT);
+    for agent in [
+        "gemini-cli",
+        "copilot-cli",
+        "cursor-cli",
+        "kiro-cli",
+        "kilo-code",
+        "aider",
+        "antigravity",
+    ] {
+        assert!(
+            report.contains(&format!("| `{agent}` | **no medido**: no instalado |")),
+            "{agent} is declared as not measured"
+        );
+    }
+    assert!(report.contains("## Lo no medido"));
+}
