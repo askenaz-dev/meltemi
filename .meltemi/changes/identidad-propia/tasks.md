@@ -80,9 +80,15 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   **Qué la desbloquea**: instalar un cliente de malla, iniciar sesión y capturar
   `<cliente> status --json` una vez. Con eso, de la 2.2 a la 4.1 es
   implementación.
-  La rama queda con `main` traído. Las tareas 1.1 y 2.1 —contrato y
-  configuración— no parsean la salida del cliente y podrían hacerse sin él; no se
-  hacen ahora para no dejar media change aterrizada. -->
+  **Estado al 2026-09-26, segunda pasada**: el mantenedor eligió desbloquear por
+  esta vía, así que se hizo **todo lo que no necesita el cliente** y la rama queda
+  esperando solo el fixture: 1.1 (contrato), 2.1 (configuración) y 2.3 (el gesto
+  de vínculo) están hechas y verdes. Lo que falta es esta 2.2 y, detrás de ella,
+  las tres superficies y el cierre, porque todas muestran lo que 2.2 lee.
+  La rama trae `main` con `estado-en-vivo`, `via-ssh-del-cliente` y
+  `aviso-de-espera-opt-in` ya aterrizadas. Gates verdes sobre ella: fmt, clippy
+  del workspace, `cargo deny check` y 1.358 tests (un fallo intermitente ajeno,
+  anotado aparte como fragilidad de la suite bajo carga). -->
 - [x] 2.3 `identity/link`: el gesto compuesto (POSIX y PowerShell) con el
   servidor de login y el nombre del equipo, la pista del navegador, sin
   secretos y sin lanzar nada (design D3) — escenarios «El gesto de vínculo se
