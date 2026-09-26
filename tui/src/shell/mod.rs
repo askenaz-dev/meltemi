@@ -218,6 +218,9 @@ fn handle_action(
         Some(Effect::ShutdownDaemon) => {
             let _ = commands.send(Command::Shutdown);
         }
+        Some(Effect::TestNotice) => {
+            let _ = commands.send(Command::TestNotice);
+        }
         Some(Effect::RefreshStatus) => {
             let _ = commands.send(Command::Refresh);
         }

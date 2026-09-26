@@ -80,10 +80,16 @@ dependencia**; el daemon no se toca y no hay RPC nuevo.
   Qué cuenta como espera, leído de lo que el daemon ya empuja: la cola de permisos
   con su tamaño, y `waiting_instruction` del estado en vivo. Una cola que se vacía
   llama a `resolved`, que no manda nada. -->
-- [ ] 2.2 TUI: emite al empezar una espera y ofrece el aviso de prueba en su
+- [x] 2.2 TUI: emite al empezar una espera y ofrece el aviso de prueba en su
   paleta, diciendo la verdad cuando no hay comando configurado (design D6) —
   escenario «La paleta de la TUI envía un aviso de prueba» — gates: suite de
   `meltemi`
+  <!-- 2026-09-26: la entrada de paleta lleva **lista de métodos vacía**, y eso
+  es exactamente lo correcto para el gate de paridad: el aviso es cosa del
+  cliente y el daemon no participa, así que no aporta nada a la unión que el gate
+  compara. Los cinco tests de paridad siguen verdes sin tocarlos.
+  El ensayo dice la verdad cuando no hay nada configurado —«no hay aviso
+  configurado», con la tabla y la clave— en vez de fingir que mandó algo. -->
 - [ ] 2.3 `docs/acceso-remoto.md`: el contrato del contenido **publicado con la
   change** (§9), las recetas con infraestructura del usuario (ntfy
   autohospedado, Gotify, Apprise) y la campana de la TUI como el caso sin
