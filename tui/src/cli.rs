@@ -42,6 +42,7 @@ pub const FLAGS: &[&str] = &[
     "--branch",
     "--unique",
     "--option",
+    "--follow",
 ];
 
 /// What `approve` and `deny` answer to more than one request id: one decision
@@ -93,7 +94,10 @@ SUBCOMMANDS:
                         before the first prompt. A lever the agent does not
                         take is refused by name, and no prompt is sent; the
                         output says the model and effort that governed
-    sessions            list agent sessions (active and historical)
+    sessions [root] [--follow]
+                        list agent sessions (active and historical); with
+                        --follow, write each change of state as it happens,
+                        one record per line, until Ctrl+C or the daemon goes
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing
     plan <change>       refine design and sequence a change's tasks
@@ -287,7 +291,12 @@ pub enum Command {
     /// Regenerate the projected context (`context/project`).
     Project { project_root: Option<String> },
     /// List sessions, active and historical (`session/list`).
-    Sessions { project_root: Option<String> },
+    Sessions {
+        project_root: Option<String>,
+        /// With `--follow`, write each affirmation of state as it arrives
+        /// instead of answering the list once (estado-en-vivo design D8).
+        follow: bool,
+    },
     /// Deliberate with the agent without writing (`sdd/explore`).
     Explore {
         topic: String,
@@ -531,7 +540,7 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             // strict about unknown flags — and a rejected flag would have made
             // the advertised `usage --all` unusable.
             "--all" | "--project" | "--since" | "--until" | "--agent" | "--mode" | "--model"
-            | "--effort" | "--branch" | "--unique" | "--option" => {
+            | "--effort" | "--branch" | "--unique" | "--option" | "--follow" => {
                 positionals.push(arg.as_str());
             }
             flag if flag.starts_with('-') && flag != "-" => {
@@ -848,11 +857,27 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], local: Local) -> Action {
             _ => Action::Usage("`project` takes at most a project root".into()),
         },
         "sessions" => match rest {
-            [] => Action::Run(Command::Sessions { project_root: None }),
+            [] => Action::Run(Command::Sessions {
+                project_root: None,
+                follow: false,
+            }),
+            ["--follow"] => Action::Run(Command::Sessions {
+                project_root: None,
+                follow: true,
+            }),
+            // The flag on either side of the root, because both readings are
+            // natural and refusing one would be a rule nobody could guess.
+            [root, "--follow"] | ["--follow", root] => Action::Run(Command::Sessions {
+                project_root: Some((*root).to_string()),
+                follow: true,
+            }),
             [root] => Action::Run(Command::Sessions {
                 project_root: Some((*root).to_string()),
+                follow: false,
             }),
-            _ => Action::Usage("`sessions` takes at most a project root".into()),
+            _ => Action::Usage(
+                "`sessions` takes at most a project root, and `--follow`".into(),
+            ),
         },
         "explore" => match rest {
             [] => Action::Usage("`explore` requires a topic: meltemi explore \"<topic>\"".into()),
@@ -1961,15 +1986,58 @@ mod tests {
         // Scenario: sessions consulta el histórico.
         assert_eq!(
             plan_of(&["sessions"], false).action,
-            Action::Run(Command::Sessions { project_root: None })
+            Action::Run(Command::Sessions {
+                project_root: None,
+                follow: false,
+            })
         );
         assert_eq!(
             plan_of(&["sessions", "/repo"], false).action,
             Action::Run(Command::Sessions {
-                project_root: Some("/repo".into())
+                project_root: Some("/repo".into()),
+                follow: false,
             })
         );
         assert_eq!(plan_of(&["--json", "sessions"], false).format, Format::Json);
+    }
+
+    // Scenario: Sin la bandera nada cambia
+    #[test]
+    fn following_is_a_flag_on_sessions_and_reads_either_way_round() {
+        assert_eq!(
+            plan_of(&["sessions", "--follow"], false).action,
+            Action::Run(Command::Sessions {
+                project_root: None,
+                follow: true,
+            })
+        );
+        // Both orders, because both are natural and a rule that accepted one
+        // would be a rule nobody could guess.
+        for argv in [
+            &["sessions", "/repo", "--follow"][..],
+            &["sessions", "--follow", "/repo"][..],
+        ] {
+            assert_eq!(
+                plan_of(argv, false).action,
+                Action::Run(Command::Sessions {
+                    project_root: Some("/repo".into()),
+                    follow: true,
+                }),
+                "{argv:?}"
+            );
+        }
+        // And without it, exactly what it answered before this change.
+        assert_eq!(
+            plan_of(&["sessions"], false).action,
+            Action::Run(Command::Sessions {
+                project_root: None,
+                follow: false,
+            })
+        );
+        assert!(matches!(
+            plan_of(&["sessions", "/repo", "--follow", "extra"], false).action,
+            Action::Usage(_)
+        ));
     }
 
     #[test]
@@ -2363,6 +2431,9 @@ mod tests {
                 "--branch",
                 "--unique",
                 "--option",
+                // Reading, never granting: it asks the daemon to keep telling
+                // this terminal where sessions stand (estado-en-vivo design D8).
+                "--follow",
             ]
         );
         // Every listed flag is one the grammar knows: none is refused.
@@ -2425,7 +2496,10 @@ mod tests {
         assert_eq!(plan_of(&["stop"], false).action, Action::Run(Command::Stop));
         assert_eq!(
             plan_of(&["sessions"], false).action,
-            Action::Run(Command::Sessions { project_root: None })
+            Action::Run(Command::Sessions {
+                project_root: None,
+                follow: false,
+            })
         );
     }
 

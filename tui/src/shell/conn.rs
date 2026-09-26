@@ -157,10 +157,20 @@ async fn serve_connection(
         return ConnExit::Disconnected;
     }
     refresh_status(&peer, updates).await;
-    refresh_sessions(&peer, updates).await;
+    let seeded = refresh_sessions(&peer, updates).await;
     // Seed the tray from the daemon's queue so it survives reconnection
     // (the count no longer lives per-connection).
     refresh_pending(&peer, updates).await;
+
+    // The sessions this connection has a row for. Local to the actor, like
+    // `watched`: it exists only to tell an affirmation about a session we know
+    // from one about a session we have never seen, which is the only case that
+    // still needs the list (estado-en-vivo design D7).
+    //
+    // Seeded from the list fetched a moment ago, which is what keeps the
+    // daemon's opening snapshot from costing one query per session: every id in
+    // it is already known.
+    let mut known_sessions: std::collections::HashSet<String> = seeded.into_iter().collect();
 
     let mut ticker = interval(REFRESH_EVERY);
     ticker.tick().await; // consume the immediate first tick
@@ -205,6 +215,20 @@ async fn serve_connection(
                         let _ = updates.send(Update::TranscriptLine { session_id, line });
                     }
                 }
+                Some(Incoming::Notification { method, params }) if method == methods::SESSION_STATE => {
+                    if let Ok(affirmation) =
+                        serde_json::from_value::<meltemi_proto::SessionStateParams>(params)
+                    {
+                        // A session this surface holds no row for — one another
+                        // client just opened — is fetched once. The affirmation
+                        // is deliberately thin, and a row invented from it would
+                        // show an agent with no name.
+                        if known_sessions.insert(affirmation.session_id.clone()) {
+                            known_sessions.extend(refresh_sessions(&peer, updates).await);
+                        }
+                        let _ = updates.send(Update::SessionState(affirmation));
+                    }
+                }
                 Some(Incoming::Notification { .. }) => {}
             },
             command = commands.recv() => match command {
@@ -220,7 +244,7 @@ async fn serve_connection(
                 }
                 Some(Command::Refresh) => {
                     refresh_status(&peer, updates).await;
-                    refresh_sessions(&peer, updates).await;
+                    known_sessions.extend(refresh_sessions(&peer, updates).await);
                 }
                 Some(Command::FleetList) => refresh_fleet(&peer, updates, scope.as_deref()).await,
                 Some(Command::Harness { agent }) => {
@@ -369,8 +393,13 @@ async fn serve_connection(
                 }
             },
             _ = ticker.tick() => {
+                // The clocks, and the daemon's own vitals. NOT the session
+                // list: the state arrives as it changes now, and polling for it
+                // was what made "0 working" possible with an agent working
+                // (estado-en-vivo design D7). The list is still asked for on
+                // connect, on an explicit refresh, and when an affirmation
+                // names a session this connection has no row for.
                 refresh_status(&peer, updates).await;
-                refresh_sessions(&peer, updates).await;
             }
         }
     }
@@ -433,16 +462,25 @@ async fn refresh_gate(peer: &Peer, updates: &UnboundedSender<Update>, scope: Opt
     }
 }
 
-async fn refresh_sessions(peer: &Peer, updates: &UnboundedSender<Update>) {
+/// Refreshes the session table, answering the ids it brought back.
+///
+/// The ids matter because the caller keeps track of which sessions it has a row
+/// for: an affirmation about one of those is applied in place, and only an
+/// affirmation about a session nobody has heard of costs a query
+/// (estado-en-vivo design D7).
+async fn refresh_sessions(peer: &Peer, updates: &UnboundedSender<Update>) -> Vec<String> {
     // Unfiltered on purpose (multiproyecto-suscripciones D7): one query brings
     // every session with its own root, and the shell groups by project.
     let params = SessionListParams::default();
     if let Ok(value) = peer.request(methods::SESSION_LIST, &params).await
         && let Ok(result) = serde_json::from_value::<SessionListResult>(value)
     {
-        let rows = result.sessions.into_iter().map(SessionRow::from).collect();
+        let rows: Vec<SessionRow> = result.sessions.into_iter().map(SessionRow::from).collect();
+        let ids = rows.iter().map(|row| row.id.clone()).collect();
         let _ = updates.send(Update::Sessions(rows));
+        return ids;
     }
+    Vec::new()
 }
 
 /// Queries `project/list` and pushes the known-project registry, so the

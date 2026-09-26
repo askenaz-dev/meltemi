@@ -35,6 +35,15 @@ pub fn rings(update: &Update, previous_gate: Option<&GateRow>) -> bool {
         Update::Sessions(rows) => rows
             .iter()
             .any(|row| matches!(row.state, SessionState::Ended | SessionState::Interrupted)),
+        // A session ending is exactly the moment a bell is for, and now it
+        // arrives as its own affirmation instead of being noticed on the next
+        // poll. One session, one ring: the list-shaped rule above rings for a
+        // whole refresh that happens to contain an ended session, which is why
+        // the poll it fed is no longer the thing that finds an ending.
+        Update::SessionState(affirmation) => matches!(
+            affirmation.state,
+            SessionState::Ended | SessionState::Interrupted
+        ),
         _ => false,
     }
 }

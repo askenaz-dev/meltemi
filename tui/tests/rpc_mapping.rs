@@ -161,6 +161,7 @@ async fn sessions_maps_to_session_list_and_emits_one_json_object() {
 
     let outcome = execute(
         Command::Sessions {
+            follow: false,
             project_root: Some(fixture.display().to_string()),
         },
         &endpoint,

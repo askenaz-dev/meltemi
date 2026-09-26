@@ -112,12 +112,16 @@ const ALL_SESSION_STATES: [SessionState; 6] = [
     SessionState::Interrupted,
 ];
 
-/// The session-state enum is written THREE times — once in Rust and once in
-/// each of the two schemas that define it independently — and until now nothing
-/// compared them. A state present in Rust and missing from a schema is a
-/// conformance failure that only shows up when a real daemon sends a real
-/// session; a state in one schema and not the other is a contract that
+/// The session-state enum is written FOUR times — once in Rust and once in each
+/// of the three schemas that define it independently — and until this test
+/// nothing compared them. A state present in Rust and missing from a schema is
+/// a conformance failure that only shows up when a real daemon sends a real
+/// session; a state in one schema and not another is a contract that
 /// contradicts itself.
+///
+/// The third schema arrived with `session/state` (estado-en-vivo): the
+/// notification carries the enum too, so it has to be held to the same
+/// comparison as the two that came before it.
 #[test]
 fn the_state_enum_is_the_same_in_rust_and_in_both_schemas() {
     let in_rust: Vec<String> = ALL_SESSION_STATES
@@ -131,7 +135,7 @@ fn the_state_enum_is_the_same_in_rust_and_in_both_schemas() {
         })
         .collect();
 
-    for schema in ["status", "session-list"] {
+    for schema in ["status", "session-list", "session-state"] {
         let text = std::fs::read_to_string(format!("../schemas/v1/{schema}.schema.json"))
             .unwrap_or_else(|e| panic!("read {schema}.schema.json: {e}"));
         let doc: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
@@ -1712,6 +1716,78 @@ fn session_events_conform() {
                 text: "hello".into(),
             }),
         },
+    );
+}
+
+/// The live-state notification (estado-en-vivo design D1).
+#[test]
+fn session_state_conforms() {
+    // Every state, because the notification carries the enum and a state that
+    // serialized to something the schema rejects would only surface against a
+    // real daemon.
+    for state in ALL_SESSION_STATES {
+        assert_conforms(
+            "session-state",
+            "notificationParams",
+            &SessionStateParams {
+                session_id: "sess-1".into(),
+                project_root: "/repo".into(),
+                state,
+                since: "2026-09-26T12:00:00Z".into(),
+                pending_permissions: 0,
+            },
+        );
+    }
+
+    // A session with people waiting on it, so the count is exercised as a
+    // number and not only as its zero.
+    assert_conforms(
+        "session-state",
+        "notificationParams",
+        &SessionStateParams {
+            session_id: "sess-2".into(),
+            project_root: "/repo".into(),
+            state: SessionState::WaitingPermission,
+            since: "2026-09-26T12:00:05Z".into(),
+            pending_permissions: 3,
+        },
+    );
+
+    // What the notification must NEVER be: an affirmation without the instant
+    // it started, which is the one field a clock cannot invent, and one whose
+    // `since` is not a timestamp at all.
+    assert_rejected(
+        "session-state",
+        "notificationParams",
+        &serde_json::json!({
+            "sessionId": "sess-1",
+            "projectRoot": "/repo",
+            "state": "active",
+            "pendingPermissions": 0
+        }),
+    );
+    assert_rejected(
+        "session-state",
+        "notificationParams",
+        &serde_json::json!({
+            "sessionId": "sess-1",
+            "projectRoot": "/repo",
+            "state": "active",
+            "since": "yesterday",
+            "pendingPermissions": 0
+        }),
+    );
+    // And a state nobody declared: the enum is the contract, not a hint.
+    assert_rejected(
+        "session-state",
+        "notificationParams",
+        &serde_json::json!({
+            "sessionId": "sess-1",
+            "projectRoot": "/repo",
+            "state": "working",
+            "since": "2026-09-26T12:00:00Z",
+            "pendingPermissions": 0
+        }),
     );
 }
 

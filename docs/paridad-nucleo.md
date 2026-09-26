@@ -185,14 +185,20 @@ it from the push.
 
 ## Daemon-initiated traffic
 
-Not client-invocable. `permission/changed` reaches every connected client;
-`permission/request` and `permission/timeout` go to the connection that started
-the session; `session/event` goes to that connection and to those watching the
-session.
+Not client-invocable. `permission/changed` and `session/state` reach every
+connected client; `permission/request` and `permission/timeout` go to the
+connection that started the session; `session/event` goes to that connection and
+to those watching the session.
+
+The two that reach everyone are the two whose payload affirms a whole state
+rather than a change — the permission queue, and one session's standing. That is
+why a connection that falls behind on either is repaired by re-sending, and why
+the surfaces can apply them in any order.
 
 | Method | Kind | CLI | TUI | GUI |
 |---|---|---|---|---|
 | `session/event` | notification | the approver keeps tool calls, to show what a question is about | transcript append | `daemon:incoming` → transcript |
+| `session/state` | notification | `sessions --follow` writes one record per line | session rows and buckets, without polling | `daemon:incoming` → the session store every indicator derives from |
 | `permission/request` | request (held) | asked on the terminal; without one, refused with the agent's rejection | notice; tray decides | `daemon:incoming`; tray decides |
 | `permission/timeout` | notification | withdraws the open question, checked against the queue | persistent notice | persistent notice |
 | `permission/changed` | notification | withdraws the open question once the queue no longer lists it | tray counter | tray counter |

@@ -78,6 +78,12 @@ pub mod methods {
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set-config-option";
     /// Notification (daemon -> client): streamed session event.
     pub const SESSION_EVENT: &str = "session/event";
+    /// Notification (daemon -> client): the lifecycle state of one session, as
+    /// it stands. Goes to EVERY initialized connection on every transition,
+    /// including sessions the connection did not open — a client that only
+    /// learned about its own sessions is a client that reports nobody is
+    /// working while an agent works (estado-en-vivo design D2).
+    pub const SESSION_STATE: &str = "session/state";
     /// Request (client -> daemon): declare whether this connection watches a
     /// session's event stream. The connection that started a session receives
     /// its stream without asking; any other must declare it
@@ -2613,6 +2619,37 @@ pub struct SessionEventParams {
     pub session_id: String,
     /// The event.
     pub event: SessionEvent,
+}
+
+/// Params of the `session/state` notification (daemon -> client).
+///
+/// An **affirmation**, not a difference: it states where the session stands, so
+/// applying it twice, or applying two of them out of order, converges on the
+/// last one that arrived. That is what removes the need for a sequence number
+/// and what makes the opening snapshot safe to race against the first
+/// transition (estado-en-vivo design D1).
+///
+/// Nothing of the project travels here. No instruction, no title, no turn text:
+/// what a client could not read before, it still cannot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStateParams {
+    /// The session this affirmation is about.
+    pub session_id: String,
+    /// The repository root the session runs in — the same spelling
+    /// `session/list` reports, so a client can narrow by project without
+    /// asking again.
+    pub project_root: String,
+    /// Where the session stands.
+    pub state: SessionState,
+    /// When it entered that state (RFC 3339, UTC).
+    ///
+    /// A wall clock rather than a monotonic instant, because it crosses the
+    /// wire and a surface subtracts it to show "working for 40 s". Without it a
+    /// clock can only stay blank or lie (design D6).
+    pub since: String,
+    /// How many of this session's permission requests are waiting on a human.
+    pub pending_permissions: u32,
 }
 
 /// One task to assign, with the agents that will work it and the files it

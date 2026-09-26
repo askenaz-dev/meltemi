@@ -84,7 +84,12 @@ pub async fn execute(
         Command::Link { agent, name } => link(agent, name, endpoint).await,
         Command::Unlink { name } => unlink(name, endpoint).await,
         Command::Project { project_root } => project(project_root, endpoint).await,
-        Command::Sessions { project_root } => sessions(project_root, endpoint).await,
+        // `--follow` never reaches here: the dispatcher runs the streams where
+        // the process's own writer lives (see `Command::Watch`).
+        Command::Sessions {
+            project_root,
+            follow: _,
+        } => sessions(project_root, endpoint).await,
         Command::Explore { topic, agent } => {
             sdd_verb(endpoint, methods::SDD_EXPLORE, topic, None, agent).await
         }
