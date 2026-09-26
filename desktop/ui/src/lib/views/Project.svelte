@@ -6,6 +6,7 @@
   import { t } from "../i18n";
   import { activeProject, changes, refreshChanges, type SpecInfo } from "../stores";
   import EmptyState from "../components/EmptyState.svelte";
+  import Skeleton from "../components/Skeleton.svelte";
 
   let {
     onOpenEditor,
@@ -91,7 +92,7 @@
 </script>
 
 {#if loading}
-  <p class="muted">{$t("common.loading")}</p>
+  <Skeleton rows={5} />
 {:else if !isProject}
   <EmptyState
     glyph="project"
@@ -110,7 +111,10 @@
           <button onclick={onOpenEditor}>{$t("project.openEditor")}</button>
           <button onclick={onOpenReview}>{$t("project.openReview")}</button>
           <button disabled={validating} onclick={() => void validate()}>
-            {validating ? $t("common.loading") : $t("project.validate")}
+            <span class="steady">
+              <span hidden={validating}>{$t("project.validate")}</span>
+              <span hidden={!validating}>{$t("common.loading")}</span>
+            </span>
           </button>
           {#if validateSummary}
             <span aria-live="polite">{validateSummary}</span>

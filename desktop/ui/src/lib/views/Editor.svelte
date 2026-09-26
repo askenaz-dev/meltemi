@@ -528,7 +528,10 @@
         {/if}
         {#if isMethodFile}
           <button class="ghost" disabled={validating} onclick={() => void validate()}>
-            {validating ? $t("common.loading") : $t("editor.validate.run")}
+            <span class="steady">
+              <span hidden={validating}>{$t("editor.validate.run")}</span>
+              <span hidden={!validating}>{$t("common.loading")}</span>
+            </span>
           </button>
           {#if validateSummary}
             <span class="faint" aria-live="polite">{validateSummary}</span>

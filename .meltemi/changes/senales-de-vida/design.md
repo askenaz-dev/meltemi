@@ -110,8 +110,10 @@ el texto se ve. Nunca un gradiente en barrido: el gradiente es del anillo.
 
 Dónde: Project, Review, el arnés de Fleet, la configuración de Settings y la
 primera carga de Usage (su refresco, con datos ya en pantalla, usa la forma
-compacta en la cabecera en vez de vaciar la tabla). Los tres botones que dicen
-«cargando…» ganan un `min-width`.
+compacta en la cabecera en vez de vaciar la tabla). Todo botón que dice
+«cargando…» mientras espera conserva su ancho: sus dos etiquetas comparten una
+celda de grid y la que no se usa se oculta, así el botón mide lo que la más
+larga en cualquier idioma, cosa que un `min-width` fijo no puede saber.
 
 ### D4 — La señal de vida del turno
 

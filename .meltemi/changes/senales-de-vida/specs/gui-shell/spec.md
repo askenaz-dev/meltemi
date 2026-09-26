@@ -59,7 +59,7 @@ ancho.
 #### Scenario: Ninguna vista espera con una palabra suelta
 - **WHEN** se recorre la fuente de Project, Review, Fleet, Settings y Usage
 - **THEN** ninguna espera de bloque SHALL ser solo la palabra de carga
-- **AND** los botones que la usan como etiqueta SHALL declarar un ancho mínimo
+- **AND** los botones que la usan como etiqueta SHALL conservar su ancho
 
 ### Requirement: Señal de vida del turno
 Mientras el agente de una sesión trabaja, el transcript SHALL decir que el

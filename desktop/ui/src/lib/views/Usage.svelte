@@ -14,6 +14,7 @@
   import { projectName } from "../tree";
   import EmptyState from "../components/EmptyState.svelte";
   import Icon from "../components/Icon.svelte";
+  import Skeleton from "../components/Skeleton.svelte";
 
   type Granularity = "day" | "week" | "month" | "total";
 
@@ -245,8 +246,10 @@
       </select>
     </label>
 
-    {#if loading}
-      <span class="faint">{$t("common.loading")}</span>
+    <!-- A refresh keeps the table it is refreshing on screen: the wait is
+         said beside it, not by emptying it (senales-de-vida D3). -->
+    {#if loading && result}
+      <Skeleton compact />
     {/if}
   </header>
 
@@ -254,7 +257,9 @@
     <p class="error" role="alert">{error}</p>
   {/if}
 
-  {#if result && result.cells.length === 0 && !error}
+  {#if !result && !error}
+    <Skeleton rows={6} />
+  {:else if result && result.cells.length === 0 && !error}
     <EmptyState
       glyph="analytics"
       title={$t("usage.empty.title")}

@@ -258,7 +258,10 @@
             disabled={running || (selected.dangerous && !confirmDangerous)}
             onclick={() => void run()}
           >
-            {running ? $t("common.loading") : $t("palette.run")}
+            <span class="steady">
+              <span hidden={running}>{$t("palette.run")}</span>
+              <span hidden={!running}>{$t("common.loading")}</span>
+            </span>
           </button>
         </div>
         {#if result !== null}

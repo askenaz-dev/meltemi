@@ -1278,7 +1278,10 @@
           title={$t("conv.relayHint")}
           onclick={() => void direct(true)}
         >
-          ⤳ {sending ? $t("common.loading") : $t("conv.relay")}
+          ⤳ <span class="steady">
+            <span hidden={sending}>{$t("conv.relay")}</span>
+            <span hidden={!sending}>{$t("common.loading")}</span>
+          </span>
           <kbd>{$t("conv.chord.dispatch")}</kbd>
         </button>
       {:else if canSend}
@@ -1288,11 +1291,10 @@
           title={$t("home.sendHint")}
           onclick={() => void direct()}
         >
-          {sending
-            ? $t("common.loading")
-            : resumes
-              ? $t("sessions.resume")
-              : $t("home.send")}
+          <span class="steady">
+            <span hidden={sending}>{resumes ? $t("sessions.resume") : $t("home.send")}</span>
+            <span hidden={!sending}>{$t("common.loading")}</span>
+          </span>
           <kbd>{$t("conv.chord.dispatch")}</kbd>
         </button>
       {/if}

@@ -15,6 +15,7 @@
   import { REGISTRY } from "../registry";
   import type { MessageKey } from "../messages";
   import EmptyState from "../components/EmptyState.svelte";
+  import Skeleton from "../components/Skeleton.svelte";
   import MethodForm from "../components/MethodForm.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
 
@@ -317,7 +318,7 @@
   </header>
 
   {#if loading}
-    <p class="muted">{$t("common.loading")}</p>
+    <Skeleton rows={4} />
   {:else if worktrees.length === 0}
     <EmptyState
       glyph="diff"
@@ -608,7 +609,10 @@
       <div class="actionButtons">
         <button class="ghost" onclick={() => (action = null)}>{$t("common.cancel")}</button>
         <button class="primary" disabled={running} onclick={submit}>
-          {running ? $t("common.loading") : $t("race.action.send")}
+          <span class="steady">
+            <span hidden={running}>{$t("race.action.send")}</span>
+            <span hidden={!running}>{$t("common.loading")}</span>
+          </span>
         </button>
       </div>
     </div>

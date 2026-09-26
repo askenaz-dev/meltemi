@@ -627,7 +627,10 @@
           onclick={() => void send()}
         >
           <Icon name="plus" size={14} />
-          {running ? $t("common.loading") : $t("home.send")}
+          <span class="steady">
+            <span hidden={running}>{$t("home.send")}</span>
+            <span hidden={!running}>{$t("common.loading")}</span>
+          </span>
           <kbd>{$t("conv.chord.dispatch")}</kbd>
         </button>
       </div>

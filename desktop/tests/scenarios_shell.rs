@@ -3131,6 +3131,165 @@ fn the_surfaces_of_a_decision_arrive_still() {
     }
 }
 
+// Scenario: Una carga rápida no parpadea
+// Scenario: Una carga lenta muestra el esqueleto
+#[test]
+fn a_wait_is_shown_only_past_its_threshold() {
+    // The threshold is decided by a pure module and EXECUTED (`node --test`):
+    // this pins the cases there and that the component takes it from there.
+    let executed = read("desktop/ui/tests/skeleton.test.ts");
+    for case in [
+        "a load that answers before the threshold never shows the skeleton",
+        "a load that outlasts the threshold shows the skeleton, once",
+    ] {
+        assert!(
+            executed.contains(case),
+            "the executed case is missing: {case}"
+        );
+    }
+    let module = read("desktop/ui/src/lib/skeleton.ts");
+    assert!(
+        module.contains("export const SKELETON_DELAY_MS = 150;"),
+        "the threshold is the one the spec states"
+    );
+
+    let skeleton = read("desktop/ui/src/lib/components/Skeleton.svelte");
+    assert!(
+        skeleton.contains("import { revealAfter, skeletonWidths } from \"../skeleton\";"),
+        "the component takes its threshold and its widths from the tested module"
+    );
+    // Nothing is drawn before the reveal, and the effect hands the cancel back
+    // as its teardown: the data arriving unmounts the skeleton and the reveal
+    // never fires.
+    assert!(
+        skeleton.contains("$effect(() =>\n    revealAfter(") && skeleton.contains("{#if shown}"),
+        "the skeleton waits for its reveal and cancels it on unmount"
+    );
+    // What it draws once shown: busy, with the word for a screen reader, in
+    // the density of the table it stands in for.
+    assert_eq!(
+        skeleton
+            .matches("role=\"status\" aria-busy=\"true\"")
+            .count(),
+        2,
+        "both forms say they are busy"
+    );
+    assert_eq!(
+        skeleton
+            .matches("<span class=\"label\">{$t(\"common.loading\")}</span>")
+            .count(),
+        2,
+        "both forms carry the word for a screen reader"
+    );
+    let css = stylesheet(&repo_root().join("desktop/ui/src/lib/components/Skeleton.svelte"));
+    assert!(css.contains("height: var(--row-h);"), "32 px rows");
+
+    // And every view that waits puts it inside its waiting branch, so the
+    // answer is what withdraws it.
+    for (view, branch) in [
+        (
+            "desktop/ui/src/lib/views/Project.svelte",
+            "{#if loading}\n  <Skeleton",
+        ),
+        (
+            "desktop/ui/src/lib/views/Review.svelte",
+            "{#if loading}\n    <Skeleton",
+        ),
+        (
+            "desktop/ui/src/lib/views/Fleet.svelte",
+            "{:else if !harness}\n        <Skeleton",
+        ),
+        (
+            "desktop/ui/src/lib/views/Settings.svelte",
+            "{#if loadingConfig}\n        <Skeleton",
+        ),
+        (
+            "desktop/ui/src/lib/views/Usage.svelte",
+            "{#if !result && !error}\n    <Skeleton",
+        ),
+    ] {
+        assert!(
+            read(view).contains(branch),
+            "{view} waits with a skeleton: {branch}"
+        );
+    }
+    // A refresh keeps the table on screen and says the wait beside it.
+    assert!(
+        read("desktop/ui/src/lib/views/Usage.svelte")
+            .contains("{#if loading && result}\n      <Skeleton compact />"),
+        "a refresh does not empty the table it refreshes"
+    );
+}
+
+// Scenario: El esqueleto se queda quieto con movimiento reducido
+#[test]
+fn a_skeleton_stands_still_and_speaks_under_reduced_motion() {
+    let css = stylesheet(&repo_root().join("desktop/ui/src/lib/components/Skeleton.svelte"));
+    assert!(
+        css.contains("animation: skeleton-pulse var(--dur-pulse) var(--ease-out) infinite;"),
+        "the bars pulse by opacity"
+    );
+    assert!(
+        !css.contains("gradient"),
+        "a skeleton never sweeps a gradient: that belongs to the ring"
+    );
+    let branch = reduced_branches(&css).concat();
+    let bar = block(&branch[branch.find(".bar {").expect("the bars are named")..]);
+    assert!(
+        bar.contains("animation: none;"),
+        "the bars stand still: {bar}"
+    );
+    // Still bars say nothing about progress, so the word becomes visible.
+    let label = block(&branch[branch.find(".label {").expect("the word is named")..]);
+    assert!(
+        label.contains("position: static;") && label.contains("clip-path: none;"),
+        "the word is shown when the bars stop: {label}"
+    );
+}
+
+// Scenario: Ninguna vista espera con una palabra suelta
+#[test]
+fn no_view_waits_with_a_bare_word() {
+    // Anywhere in the surface, the loading word is either a skeleton's label or
+    // the hidden twin of a control that keeps its width — never the whole of a
+    // wait, and never a label that makes its button jump.
+    for path in walk_ui_sources() {
+        if !path.extension().is_some_and(|e| e == "svelte") {
+            continue;
+        }
+        let file = path.display().to_string();
+        let source = std::fs::read_to_string(&path).expect("read a UI source");
+        for (at, _) in source.match_indices("$t(\"common.loading\")") {
+            let line_start = source[..at].rfind('\n').map_or(0, |nl| nl + 1);
+            let line = source[line_start..at].trim_start();
+            if file.ends_with("Skeleton.svelte") {
+                assert!(
+                    line.starts_with("<span class=\"label\">"),
+                    "{file}: the word is the skeleton's label: {line}"
+                );
+                continue;
+            }
+            assert!(
+                line.starts_with("<span hidden={!"),
+                "{file}: the loading word stands alone: {line}"
+            );
+            let before = &source[at.saturating_sub(240)..at];
+            assert!(
+                before.contains("<span class=\"steady\">"),
+                "{file}: a waiting label keeps its control's width"
+            );
+        }
+    }
+    // One grid cell for both labels: the control is as wide as the longer one.
+    let app_css = read("desktop/ui/src/app.css");
+    assert!(
+        app_css.contains(".steady > * {\n  grid-area: 1 / 1;\n}")
+            && app_css
+                .contains(".steady > [hidden] {\n  display: block;\n  visibility: hidden;\n}"),
+        "a steady control stacks its labels and hides the one not in use"
+    );
+}
+
 /// The classes of the vocabulary are worn where the design system says: the
 /// palette fades in as it opens, and a status badge fades its glyph when the
 /// state changes rather than every time a list mounts (senales-de-vida D1).

@@ -12,6 +12,7 @@
     type ThemeChoice,
   } from "../ui-state";
   import Icon from "../components/Icon.svelte";
+  import Skeleton from "../components/Skeleton.svelte";
 
   let { onEditFile }: { onEditFile: (file: string) => void } = $props();
 
@@ -125,7 +126,7 @@
     {:else}
       <p class="hint mono break">{$activeProject}</p>
       {#if loadingConfig}
-        <p class="hint">{$t("common.loading")}</p>
+        <Skeleton rows={3} />
       {:else}
         {#each config as entry (entry.file)}
           <div class="configBlock">

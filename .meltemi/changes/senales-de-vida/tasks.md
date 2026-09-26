@@ -28,14 +28,14 @@ Las tareas de la interfaz corren además los gates del frontend desde
 
 ## 2. Esqueletos
 
-- [ ] 2.1 `lib/skeleton.ts` (umbral de 150 ms, anchos fijos, temporizador que
+- [x] 2.1 `lib/skeleton.ts` (umbral de 150 ms, anchos fijos, temporizador que
   revela o se cancela) con su prueba ejecutada en
   `desktop/ui/tests/skeleton.test.ts`, y `Skeleton.svelte` (filas de 32 px,
   forma compacta, `aria-busy`, texto accesible, pulso de opacidad, barras
   quietas y texto visible bajo movimiento reducido, sin gradiente); en
   Project, Review, el arnés de Fleet, la configuración de Settings y Usage
-  (primera carga en bloque, refresco compacto); `min-width` en los tres
-  botones que dicen «cargando…» (design D3) — escenarios «Una carga rápida no
+  (primera carga en bloque, refresco compacto); ancho estable (`.steady`) en
+  todo botón que dice «cargando…» mientras espera (design D3) — escenarios «Una carga rápida no
   parpadea», «Una carga lenta muestra el esqueleto», «El esqueleto se queda
   quieto con movimiento reducido», «Ninguna vista espera con una palabra
   suelta» — gates: `npm test`, `npm run check`, `-p meltemi-desktop --test
