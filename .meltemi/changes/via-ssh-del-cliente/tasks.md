@@ -64,12 +64,24 @@ aterriza en `main` con `meltemi land` al cerrar.**
 
 ## 2. Ámbito y superficies
 
-- [ ] 2.1 Ámbito usuario: el endpoint con forma de comando se lee del entorno o
+- [x] 2.1 Ámbito usuario: el endpoint con forma de comando se lee del entorno o
   de la configuración de usuario y **nunca** del `.meltemi/config.toml` de un
   repositorio; test que pone uno en un repositorio de prueba y comprueba que se
   ignora y que no se ejecuta nada (design D3) — escenario «Un repositorio no
   decide qué comando corre tu cliente» — gates: suite del crate que resuelve la
   configuración
+  <!-- 2026-09-26: la vía de usuario que la propuesta nombraba **no existía**: el
+  cliente resolvía el endpoint solo de `MELTEMI_ENDPOINT` y del valor por defecto
+  de la plataforma, y ninguna configuración entraba. Eso hacía la garantía cierta
+  por vacío, pero dejaba sin resolver el caso que importa: una GUI abierta desde
+  un icono nunca vio la variable exportada en un shell. Así que se añade el
+  lector, y **la frontera está en la firma**: recibe un directorio de
+  configuración y ningún directorio de proyecto, así que no hay camino por el que
+  un repositorio la alcance. `toml` entra como dependencia directa del crate, ya
+  estaba en la clausura por el daemon y `cargo deny check bans` sigue verde.
+  Trampa medida: parsear un documento como `toml::Value` **compila y devuelve
+  nada**; hay que pedir `toml::Table`. Costó un test rojo antes de costarle a
+  alguien una configuración ignorada en silencio. -->
 - [ ] 2.2 Las tres superficies: el CLI opera con el endpoint nuevo en cualquier
   verbo, y el cromo de la TUI y de la GUI muestra la vía con el comando
   abreviado (design D8) — escenarios «Un verbo cualquiera opera a través del

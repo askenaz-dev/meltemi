@@ -12,6 +12,11 @@ publish = false
 [dependencies]
 meltemi-proto.workspace = true
 directories.workspace = true
+# The user-scope endpoint, for a GUI launched from a desktop icon that never
+# saw a shell's exported variable (via-ssh-del-cliente design D3). Already in
+# the closure -- the daemon parses its configuration with it -- and pinned in
+# the workspace, so nothing new enters the audit.
+toml.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
