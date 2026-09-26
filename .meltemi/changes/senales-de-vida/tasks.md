@@ -73,7 +73,7 @@ Las tareas de la interfaz corren además los gates del frontend desde
 
 ## 5. La ventana y la marca
 
-- [ ] 5.1 `visible: false` en `desktop/tauri.conf.json`; la compuerta que
+- [x] 5.1 `visible: false` en `desktop/tauri.conf.json`; la compuerta que
   muestra la ventana una sola vez, el comando `first_frame` y el tope de
   500 ms en `desktop/src/lib.rs`, con la geometría restaurada antes de mostrar;
   `main.ts` invoca `first_frame` tras montar; unit test de la compuerta y

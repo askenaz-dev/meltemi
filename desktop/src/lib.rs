@@ -10,6 +10,7 @@
 pub mod bridge;
 pub mod fsops;
 pub mod lsp;
+pub mod reveal;
 pub mod uistate;
 
 use serde_json::{Value, json};
@@ -170,6 +171,28 @@ fn restore_window(app: &tauri::AppHandle, state: &uistate::UiState) {
     }
 }
 
+/// Shows the main window, once: the first of the interface's signal and the
+/// cap does it, and every later call finds the gate already passed
+/// (senales-de-vida D6).
+fn reveal_window(app: &tauri::AppHandle) {
+    let Some(reveal) = app.try_state::<reveal::Reveal>() else {
+        return;
+    };
+    if !reveal.first() {
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+    }
+}
+
+/// The interface has mounted its first tree, with its styles and theme
+/// applied: showing the window now shows the interface, not an empty frame.
+#[tauri::command]
+fn first_frame(app: tauri::AppHandle) {
+    reveal_window(&app);
+}
+
 /// Stores the current geometry into the persisted state.
 #[tauri::command]
 fn window_state_store(app: tauri::AppHandle) {
@@ -234,8 +257,18 @@ pub fn run() {
                 }
             });
 
+            // The window is created hidden (`visible: false`), so the
+            // restored geometry lands before anyone sees it; it is shown on
+            // the interface's first frame, or at the cap if that never comes
+            // (senales-de-vida D6).
             let stored = uistate::UiState::load();
             restore_window(app.handle(), &stored);
+            app.manage(reveal::Reveal::default());
+            let capped = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(reveal::REVEAL_CAP);
+                reveal_window(&capped);
+            });
 
             // Closing with unsaved editors asks the surface first: no human
             // work is ever discarded silently (spec "Ninguna pérdida
@@ -261,6 +294,7 @@ pub fn run() {
             pick_project_folder,
             onboarding_seen,
             onboarding_mark_seen,
+            first_frame,
             request_attention,
             window_state_store,
             close_confirmed,

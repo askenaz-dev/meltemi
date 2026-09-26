@@ -3391,6 +3391,74 @@ fn a_turn_in_flight_says_it_is_working() {
     );
 }
 
+// Scenario: La ventana nace oculta y con su geometría
+// Scenario: La interfaz lista muestra la ventana
+#[test]
+fn the_window_is_shown_once_the_interface_exists() {
+    // Created hidden: the system never paints an empty frame of it.
+    let config: serde_json::Value =
+        serde_json::from_str(&read("desktop/tauri.conf.json")).expect("the config parses");
+    assert_eq!(
+        config["app"]["windows"][0]["visible"],
+        serde_json::json!(false),
+        "the main window is created hidden"
+    );
+
+    // The restored geometry lands while it is hidden: restoring comes before
+    // the gate and before the cap, the two ways it can be shown.
+    let host = read("desktop/src/lib.rs");
+    let setup = host
+        .split(".setup(|app| {")
+        .nth(1)
+        .expect("the host has a setup")
+        .split(".invoke_handler(")
+        .next()
+        .expect("the setup closes");
+    let restored = setup
+        .find("restore_window(app.handle(), &stored);")
+        .expect("the geometry is restored in setup");
+    let gate = setup
+        .find("app.manage(reveal::Reveal::default());")
+        .expect("the reveal gate is managed");
+    let cap = setup
+        .find("std::thread::sleep(reveal::REVEAL_CAP);")
+        .expect("the cap is armed");
+    assert!(
+        restored < gate && gate < cap,
+        "the geometry is applied before anything can show the window"
+    );
+    // One place shows the window, and only through the gate.
+    assert_eq!(
+        host.matches(".show()").count(),
+        1,
+        "nothing but the gate shows the window"
+    );
+    assert!(
+        host.contains("if !reveal.first() {"),
+        "the window is shown once, by whoever arrives first"
+    );
+
+    // The interface signals right after it mounts — not after a paint, which
+    // a hidden webview may never produce — and the host serves the signal.
+    let main = read("desktop/ui/src/main.ts");
+    let mounted = main
+        .find("const app = mount(App,")
+        .expect("the interface mounts");
+    let signalled = main
+        .find("void invoke(\"first_frame\")")
+        .expect("the interface signals its first frame");
+    assert!(mounted < signalled, "the signal follows the mount");
+    assert!(
+        !main.contains("requestAnimationFrame("),
+        "the signal does not wait for a frame the hidden window may never paint"
+    );
+    assert!(
+        host.contains("fn first_frame(app: tauri::AppHandle)")
+            && host.contains("            first_frame,\n"),
+        "the host answers the signal"
+    );
+}
+
 /// The classes of the vocabulary are worn where the design system says: the
 /// palette fades in as it opens, and a status badge fades its glyph when the
 /// state changes rather than every time a list mounts (senales-de-vida D1).
