@@ -182,12 +182,28 @@ existe y ya está probado, en vez de contra una promesa.
   siguiente sondeo. La regla vieja suena por un refresco entero que contenga una
   sesión terminada; se deja como está, porque el sondeo que la alimentaba ya no
   es quien encuentra los finales. -->
-- [ ] 3.3 CLI: `sessions --follow` con las convenciones de `follow` —un registro
+- [x] 3.3 CLI: `sessions --follow` con las convenciones de `follow` —un registro
   por línea en todo formato, un documento YAML por registro, error a medias
   cierra el flujo con su objeto—, empezando por la foto; `sessions` sin la
   bandera responde exactamente como hoy; `docs/referencia-cli.md` lo documenta
   (design D8) — escenarios «Cada transición es una línea», «El flujo termina con
   su daemon» y «Sin la bandera nada cambia» — gates: suite de `meltemi`
+  <!-- 2026-09-26: **dos guardianes del repositorio saltaron y los dos tenían
+  razón.** La gramática rehúsa toda bandera que no liste, así que `--follow`
+  tuvo que declararse; y un test pinea la lista **entera** con el comentario
+  «adding one changes this test, in front of whoever reviews it», precisamente
+  para que ninguna bandera entre sin que alguien la vea. Queda con su razón al
+  lado: lee, no concede.
+  El verbo acepta la bandera **a los dos lados de la raíz**, porque las dos
+  lecturas son naturales y rehusar una sería una regla que nadie puede adivinar.
+  Con raíz filtra por la misma regla que la GUI —separadores y mayúsculas
+  normalizados, y un worktree bajo la raíz cuenta—, porque un verbo que acepta
+  una raíz al listar y la ignora al seguir sería una trampa.
+  No hace falta declarar interés ni vigilar la vida de nada: el daemon afirma
+  todas las sesiones a toda conexión, y este flujo no tiene una sesión a la que
+  sobrevivir. El e2e juega al daemon para escenificar las tres cosas que ningún
+  daemon real hace a pedido: foto, transición y desaparecer. Salida 10 al
+  desaparecer, comprobada. -->
 
 ## 4. Cierre
 

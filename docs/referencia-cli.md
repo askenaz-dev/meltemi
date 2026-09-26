@@ -48,7 +48,10 @@ SUBCOMMANDS:
                         before the first prompt. A lever the agent does not
                         take is refused by name, and no prompt is sent; the
                         output says the model and effort that governed
-    sessions            list agent sessions (active and historical)
+    sessions [root] [--follow]
+                        list agent sessions (active and historical); with
+                        --follow, write each change of state as it happens,
+                        one record per line, until Ctrl+C or the daemon goes
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing
     plan <change>       refine design and sequence a change's tasks
