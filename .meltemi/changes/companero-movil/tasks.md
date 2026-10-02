@@ -193,7 +193,7 @@ design, porque sería la superficie móvil siendo la única consumidora de algo
 
 ## 4. Cierre
 
-- [ ] 4.1 `docs/acceso-remoto.md` y `docs/plataformas.md`: el compañero como
+- [x] 4.1 `docs/acceso-remoto.md` y `docs/plataformas.md`: el compañero como
   capacidad presente, con la clave de la app y su revocación de una línea;
   `rumbo/structure.md` gana `mobile/` en el monorepo; `meltemi validate
   companero-movil` limpio y `meltemi verify` con los escenarios enlazados
@@ -201,3 +201,26 @@ design, porque sería la superficie móvil siendo la única consumidora de algo
   verdes; smoke en el emulador de los cuatro verbos; entrada en
   `docs/plan-de-cambios.md`; y la rama aterriza en `main` con `meltemi land
   companero-movil confirm`
+
+  <!-- 2026-10-02: el bloque de fase 3 del test de `docs.rs` se reescribió por
+  **tercera vez**, y la tercera es la que lo deja quieto: exigía que la nota
+  nombrara `companero-movil` como «la change que la consumirá», y esa change es
+  justo la que acaba de construirla — nombrarla ahí habría leído como «próximamente»
+  sobre algo entregado. Ahora pide que la nota diga **cuál es la decisión**
+  (certificados SSH de vida corta) en vez de a quién le toca.
+  Los escenarios del móvil necesitaban tests **en `.rs`**: el motor solo lee ahí
+  sus marcadores, como se aprendió en `identidad-propia`. Varios de ellos
+  comprueban cosas que el TypeScript no alcanza desde dentro del bundle: que ni el
+  crate de escritorio ni el cliente compartido ganaron `russh`, y que **cada método
+  que el compañero llama tiene fila en la matriz de paridad** — que es la regla de
+  subconjunto comprobada y no prometida.
+  Uno de esos tests tropezó con su propio tema: buscar «paste» en el módulo de
+  claves encontró el comentario que explica que pegar una clave es exactamente lo
+  que ahí se rehúsa. Ahora lee el código y no la prosa, porque un test que castiga
+  documentar una regla enseña a dejar de documentarla.
+  Gates finales: fmt, `clippy --workspace --all-targets -D warnings` 0,
+  `cargo deny check` 0 **con la excepción acotada de `ring`**, **1.458 tests** en
+  124 binarios sin un fallo, `validate` limpio y `verify` **7/7 (complete)** sin
+  marcas manuales. Smoke en el emulador con su informe en
+  `docs/qa/2026-10-02-companero-movil-smoke.md`, y lo que **no** midió escrito
+  aparte: no hubo conexión SSH real teléfono → `sshd` → `bridge`. -->
