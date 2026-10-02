@@ -11,6 +11,7 @@
   import Icon from "./lib/components/Icon.svelte";
   import { DESTINATIONS, type MobileView } from "./lib/mobile-nav";
   import {
+    activeProject,
     allSessions,
     pending,
     refreshPending,
@@ -31,6 +32,7 @@
     await Promise.all([
       refreshSessions().catch(() => {}),
       refreshPending().catch(() => {}),
+      readLanes().catch(() => {}),
     ]);
   }
 
@@ -69,6 +71,63 @@
       said = `${$t("common.error")}: ${e?.message ?? String(raw)}`;
     }
     await refreshPending().catch(() => {});
+  }
+
+  /** One worktree of the active project, as `worktree/list` reports it. */
+  interface Lane {
+    change: string;
+    task?: string;
+    branch?: string;
+    path: string;
+  }
+
+  let lanes: Lane[] = $state([]);
+  let adopting: { lane: Lane; file: string } | null = $state(null);
+
+  /** Reads the lanes of the active project, on demand and never on a timer. */
+  async function readLanes() {
+    const root = $activeProject;
+    if (!root) {
+      lanes = [];
+      return;
+    }
+    try {
+      const answer = await request<{ worktrees?: Lane[] }>("worktree/list", {
+        projectRoot: root,
+      });
+      lanes = answer.worktrees ?? [];
+    } catch {
+      lanes = [];
+    }
+  }
+
+  /**
+   * Adopting one file from a lane, and only after the user confirms.
+   *
+   * Two gates, on purpose. This surface asks first — the dialog below — and the
+   * daemon asks again: `worktree/merge-file` takes `confirm`, and without it it
+   * refuses. Adopting is a governed decision and traced like any merge; what it
+   * is NOT is editing, and there is nowhere here to type content.
+   */
+  async function adopt(lane: Lane, file: string) {
+    const root = $activeProject;
+    if (!root) return;
+    said = null;
+    try {
+      await request("worktree/merge-file", {
+        projectRoot: root,
+        target: root,
+        source: lane.path,
+        file,
+        confirm: true,
+      });
+      said = $t("mobile.review.adopted");
+    } catch (raw) {
+      const e = raw as { message?: string };
+      said = `${$t("common.error")}: ${e?.message ?? String(raw)}`;
+    } finally {
+      adopting = null;
+    }
   }
 
   /**
@@ -180,16 +239,42 @@
         {/if}
       {:else if view === "review"}
         <h1>{$t("mobile.nav.review")}</h1>
-        <p class="hint">{$t("mobile.review.decide")}</p>
         <!-- No editor and no free-text field over content: the spec forbids
              authoring here, and adopting is a governed decision that asks for
              confirmation rather than a place to type. -->
-        <p class="hint">{$t("mobile.review.soon")}</p>
+        <p class="hint">{$t("mobile.review.decide")}</p>
+        {#if lanes.length === 0}
+          <p class="hint">{$t("mobile.review.none")}</p>
+        {:else}
+          <ul class="rows">
+            {#each lanes as lane (lane.path)}
+              <li>
+                <span class="name">{lane.change}{lane.task ? ` · ${lane.task}` : ""}</span>
+                <span class="hint">{lane.branch ?? lane.path}</span>
+              </li>
+            {/each}
+          </ul>
+          <p class="hint">{$t("mobile.review.soon")}</p>
+        {/if}
       {:else}
         <h1>{$t("mobile.nav.settings")}</h1>
         <p class="hint">{$t("mobile.settings.noaccounts")}</p>
       {/if}
     </main>
+  {/if}
+
+  {#if adopting}
+    <!-- The surface's own gate. The daemon has another: `worktree/merge-file`
+         refuses without `confirm`. Two gates for one irreversible thing. -->
+    <div class="confirm" role="dialog" aria-modal="true" aria-label={$t("mobile.review.adopt")}>
+      <p>{$t("mobile.review.adopt.ask", { file: adopting.file })}</p>
+      <div class="actions">
+        <button onclick={() => (adopting = null)}>{$t("common.cancel")}</button>
+        <button class="primary" onclick={() => void adopt(adopting!.lane, adopting!.file)}>
+          {$t("mobile.review.adopt")}
+        </button>
+      </div>
+    </div>
   {/if}
 
   {#if said}
@@ -294,6 +379,14 @@
     color: var(--text);
     font: inherit;
     resize: vertical;
+  }
+  .confirm {
+    position: fixed;
+    inset: auto 0 0 0;
+    padding: var(--sp-4);
+    padding-bottom: calc(var(--sp-4) + env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
   }
   .said {
     margin: 0;

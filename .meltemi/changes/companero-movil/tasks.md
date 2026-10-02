@@ -112,13 +112,26 @@ design, porque sería la superficie móvil siendo la única consumidora de algo
 - [x] 2.2 Monitorear y dirigir: sesiones por estado con `session/list` y
   `session/state`, y el compositor mínimo con `session/direct` y
   `session/cancel` (design D5) — gates: suite de UI
-- [ ] 2.3 Aprobar y revisar: la petición que espera con sus opciones
+- [x] 2.3 Aprobar y revisar: la petición que espera con sus opciones
   (`permission/pending`, `permission/decide`, `permission/changed`), y la
   revisión de una carrera —diffs, gates, checklist, adoptar o revertir **con
   confirmación**, sin editar— (design D5) — escenarios «Aprobación de una
   petición de permiso desde el móvil», «Adopción de un archivo de un competidor
   desde el móvil» y «Propuesta de autoría en el móvil» (vigentes) — gates:
   suite de UI
+  <!-- 2026-10-02: adoptar pasa por **dos puertas**, y las dos a propósito: la
+  superficie pregunta en un diálogo con el nombre del archivo, y el daemon vuelve
+  a preguntar —`worktree/merge-file` toma `confirm` y rehúsa sin él—. Una cosa
+  irreversible merece dos.
+  La frontera de «no se redacta» se assertA **por ausencia y contando**: el
+  compañero entero tiene **exactamente un** campo de texto, que es el compositor
+  de dirigir, y el test cuenta `<textarea|<input` sobre el fuente. Colar un
+  `<input>` en la pantalla de revisión —«para corregir el nombre de un archivo»,
+  que es exactamente como se cuela— pone el test en rojo; comprobado.
+  Contar sobre el fuente no es elegante, pero es la única forma de que una regla
+  sobre lo que **no** hay siga siendo cierta cuando alguien edite el markup
+  mañana.
+  Gates: `npm run check` 0 errores, lint de i18n limpio, 108 tests de UI. -->
 - [x] 2.4 Suspensión y vuelta: nada sostiene el socket en segundo plano, y al
   volver al frente se reconecta y se reconcilia antes de mostrar nada como
   actual (design D4) — escenarios «La app vuelve al frente» y «La app está en

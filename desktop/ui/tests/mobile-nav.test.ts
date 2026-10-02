@@ -48,3 +48,40 @@ test("a destructive action never rests under the thumb", () => {
   // thumb.
   assert.equal(destructiveMayRestUnderThumb(), false);
 });
+
+// The two boundaries the review screen rests on, asserted against the source
+// because they are rules about what is ABSENT — and absence is what quietly
+// stops being true when somebody adds a field.
+test("the review screen adopts with confirmation and offers nowhere to type", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const mobile = await readFile(
+    new URL("../src/Mobile.svelte", import.meta.url),
+    "utf8",
+  );
+
+  // Scenario: Adopción de un archivo de un competidor desde el móvil
+  const adopt = mobile.slice(mobile.indexOf("async function adopt("));
+  const body = adopt.slice(0, adopt.indexOf("\n  }"));
+  assert.ok(
+    body.includes("confirm: true"),
+    "the daemon's own gate is asked for explicitly",
+  );
+  assert.ok(
+    mobile.includes('role="dialog"') && mobile.includes("mobile.review.adopt.ask"),
+    "and the surface asks first, in its own words",
+  );
+
+  // Scenario: Propuesta de autoría en el móvil
+  // The only free-text input in the whole companion is the composer, and what it
+  // carries is an instruction for the agent, not content for a file.
+  const inputs = mobile.match(/<textarea|<input/g) ?? [];
+  assert.equal(
+    inputs.length,
+    1,
+    `the companion has exactly one text field, the composer: found ${inputs.length}`,
+  );
+  assert.ok(
+    mobile.includes("mobile.direct.placeholder"),
+    "and that one is the composer",
+  );
+});
