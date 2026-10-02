@@ -21,6 +21,13 @@ use bridge::{BridgeCommand, BridgeError, BridgeEvent};
 /// Handle to the bridge actor, managed as Tauri state.
 struct BridgeHandle(mpsc::UnboundedSender<BridgeCommand>);
 
+/// The endpoint the client is talking to right now.
+///
+/// Held here rather than asked of the bridge because it must be answerable while
+/// the bridge is between connections, which is exactly when somebody is most
+/// likely to open the list and look.
+struct ActiveMachine(std::sync::Mutex<String>);
+
 /// Generic RPC passthrough for the webview: every daemon capability is
 /// reachable through this single command (core parity travels over one pipe).
 #[tauri::command]
@@ -71,6 +78,112 @@ fn notice_state() -> NoticeState {
 fn notice_test() -> bool {
     let mut emitter = meltemi_client::notices::Emitter::new(meltemi_client::paths::config_dir());
     emitter.test("test")
+}
+
+/// One machine, as the surface shows it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MachineRow {
+    name: String,
+    /// What the user wrote, which is what they recognise.
+    configured: String,
+    /// What is actually dialed, which is what `active` compares against.
+    endpoint: String,
+    /// `ssh my-pc`, when the way in is a command.
+    via: Option<String>,
+    /// Whether this is the machine the client is talking to right now.
+    active: bool,
+}
+
+/// The machines of this user, with whatever could not be read.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MachineList {
+    machines: Vec<MachineRow>,
+    diagnostics: Vec<String>,
+}
+
+/// The machines this user configured, and which one is active.
+///
+/// Read on demand. There is no watcher on the configuration file and no polling
+/// of anything: the list is what the file says when somebody asks.
+#[tauri::command]
+fn machines_list(state: tauri::State<'_, ActiveMachine>) -> MachineList {
+    let read = meltemi_client::machines::read(&meltemi_client::paths::config_dir());
+    let active = state.0.lock().map(|at| at.clone()).unwrap_or_default();
+    MachineList {
+        machines: read
+            .machines
+            .iter()
+            .map(|machine| MachineRow {
+                name: machine.name.clone(),
+                configured: machine.configured.clone(),
+                endpoint: machine.endpoint.clone(),
+                via: machine.via(),
+                active: machine.endpoint == active,
+            })
+            .collect(),
+        diagnostics: read.diagnostics,
+    }
+}
+
+/// What a connection test found.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProbeResult {
+    answered: bool,
+    version: Option<String>,
+    millis: u64,
+    detail: Option<String>,
+}
+
+/// Opens a machine, says hello, and closes.
+///
+/// Never starts anything and never changes the active machine: testing is a
+/// question, not a move.
+#[tauri::command]
+async fn machine_probe(name: String) -> Result<ProbeResult, BridgeError> {
+    let read = meltemi_client::machines::read(&meltemi_client::paths::config_dir());
+    let machine = read
+        .by_name(&name)
+        .ok_or_else(|| BridgeError::unreachable(format!("no machine called `{name}`")))?;
+    let probe = meltemi_client::machines::probe(&machine.endpoint).await;
+    Ok(ProbeResult {
+        answered: probe.answered(),
+        version: probe.version,
+        millis: probe.millis,
+        detail: probe.detail,
+    })
+}
+
+/// Talks to another machine from now on.
+///
+/// The webview asks for this only after its own unsaved-work guard has run —
+/// the same guard as switching project, not a second one — because the tabs of
+/// the machine being left point at sessions of another daemon.
+#[tauri::command]
+fn machine_switch(
+    bridge: tauri::State<'_, BridgeHandle>,
+    active: tauri::State<'_, ActiveMachine>,
+    name: String,
+) -> Result<String, BridgeError> {
+    let read = meltemi_client::machines::read(&meltemi_client::paths::config_dir());
+    let machine = read.by_name(&name).ok_or_else(|| {
+        BridgeError::unreachable(format!(
+            "no machine called `{name}`; configured: {}",
+            read.names().join(", ")
+        ))
+    })?;
+    if let Ok(mut at) = active.0.lock() {
+        machine.endpoint.clone_into(&mut at);
+    }
+    bridge
+        .0
+        .send(BridgeCommand::Switch {
+            endpoint: machine.endpoint.clone(),
+        })
+        .map_err(|_| BridgeError::unreachable("bridge stopped"))?;
+    Ok(machine.name.clone())
 }
 
 /// Fire-and-forget notification passthrough (e.g. `session/cancel`).
@@ -242,6 +355,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let endpoint = meltemi_client::paths::endpoint();
+            let started_at = endpoint.clone();
             let (command_tx, command_rx) = mpsc::unbounded_channel();
             let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
@@ -281,6 +395,9 @@ pub fn run() {
             }
 
             app.manage(BridgeHandle(command_tx));
+            // Seeded with the endpoint the process resolved at startup, which is
+            // the machine it is already talking to before anybody chooses one.
+            app.manage(ActiveMachine(std::sync::Mutex::new(started_at)));
             app.manage(lsp::LspHub::default());
             Ok(())
         })
@@ -294,6 +411,9 @@ pub fn run() {
             request_attention,
             notice_state,
             notice_test,
+            machines_list,
+            machine_probe,
+            machine_switch,
             window_state_store,
             close_confirmed,
             uistate::ui_state_load,

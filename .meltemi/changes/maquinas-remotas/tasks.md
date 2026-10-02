@@ -44,16 +44,35 @@ change se detiene y vuelve a design (design D7).
 
 ## 2. Cambiar de máquina
 
-- [ ] 2.1 `desktop/src/bridge.rs`: el endpoint deja de ser constante del actor
+- [x] 2.1 `desktop/src/bridge.rs`: el endpoint deja de ser constante del actor
   y pasa a variable del bucle; `BridgeCommand::Switch(String)` lo cambia y
   corta la conexión viva para que el bucle reconecte, con el emisor de avisos y
   el backoff intactos donde están (design D2) — escenario «Cambiar de máquina
   reconecta y lo dice» — gates: suite de `meltemi-desktop`
-- [ ] 2.2 `core/meltemi-client/src/machines.rs` + `desktop/src/lib.rs`: probar
+- [x] 2.2 `core/meltemi-client/src/machines.rs` + `desktop/src/lib.rs`: probar
   una conexión —abrir, `initialize`, anotar versión y latencia, **cerrar**— con
   su propio límite de tiempo y sin arrancar nada, y el comando Tauri que la
   expone (design D3) — escenario «Probar una conexión no arranca nada» —
   gates: suite de `meltemi-client`
+  <!-- 2026-10-02: el actor ya sabía reconectar, así que cambiar de máquina es
+  **usar lo que hay** y no construir nada: el endpoint deja de ser constante
+  capturada y pasa a variable del bucle. Dos sitios lo atienden y los dos
+  importaban. En conexión viva, se **suelta** en vez de drenar: lo que está en
+  vuelo pertenece a la máquina que se deja, y una respuesta suya llegando después
+  del cambio sería una respuesta sobre el ordenador equivocado. Durante el
+  backoff —el caso que un usuario sí pisa: la máquina actual caída, el cliente
+  reintentando, y él eligiendo otra— el cambio **corta la espera y reinicia el
+  retardo**, porque hacerle cumplir el castigo de la mala suerte de la máquina
+  anterior es el cliente penalizándolo por su propio calendario. `drain_or_stop`
+  pasó de `bool` a un enum de tres, que es lo que siempre fue.
+  La máquina activa se guarda en el proceso nativo y no se le pregunta al puente:
+  tiene que poder responderse **entre conexiones**, que es justo cuando alguien
+  abre la lista a mirar.
+  Dos roturas deliberadas, dos mordidas, una por cada sitio. Y un detalle que el
+  grep cazó: el literal del pipe muerto había perdido una barra al escribirlo
+  desde Python (`\.\pipe` en vez de `\.\pipe`), con lo que el test pasaba por
+  la razón equivocada —ruta malformada en vez de pipe sin nadie al otro lado—.
+  Gates: fmt, clippy del workspace 0, los 5 tests del puente verdes. -->
 
 ## 3. Las superficies
 

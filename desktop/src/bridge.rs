@@ -193,6 +193,13 @@ pub enum BridgeCommand {
     /// Fire-and-forget notification (e.g. `session/cancel`). Lost while
     /// disconnected — there is nothing meaningful to notify then.
     Notify { method: String, params: Value },
+    /// Talk to another machine from now on (maquinas-remotas design D2).
+    ///
+    /// Handled wherever the actor can be: in a live connection it drops it so
+    /// the loop dials the new endpoint, and during a backoff it cuts the wait
+    /// short — a user who just chose a machine should not sit through the
+    /// remains of the previous one's retry.
+    Switch { endpoint: String },
 }
 
 /// Runs the bridge until the host drops its command sender.
@@ -201,6 +208,9 @@ pub async fn bridge_actor(
     mut commands: mpsc::UnboundedReceiver<BridgeCommand>,
     events: mpsc::UnboundedSender<BridgeEvent>,
 ) {
+    // A variable, not the constant it used to be: changing machines is
+    // reconnecting, and reconnecting is what this loop already does well.
+    let mut endpoint = endpoint;
     let mut backoff = MIN_BACKOFF;
     // Outside the loop on purpose: the record of when the last notice went out
     // has to survive a reconnection, or a daemon that drops and comes back would
@@ -215,8 +225,17 @@ pub async fn bridge_actor(
                     detail: error.to_string(),
                     endpoint: endpoint.clone(),
                 }));
-                if drain_or_stop(&mut commands, backoff, &error.to_string()).await {
-                    return;
+                match drain_or_stop(&mut commands, backoff, &error.to_string()).await {
+                    Waited::HostGone => return,
+                    // A machine chosen during the backoff starts its own attempt
+                    // immediately and from the first delay: the new machine
+                    // inherits nothing from the old one's bad luck.
+                    Waited::Switch(next) => {
+                        endpoint = next;
+                        backoff = MIN_BACKOFF;
+                        continue;
+                    }
+                    Waited::Elapsed => {}
                 }
                 backoff = (backoff * 2).min(MAX_BACKOFF);
                 continue;
@@ -227,6 +246,10 @@ pub async fn bridge_actor(
         match serve_connection(stream, &mut commands, &events, &endpoint, &mut notices).await {
             ConnExit::HostGone => return,
             ConnExit::Disconnected => continue,
+            ConnExit::Switch(next) => {
+                endpoint = next;
+                continue;
+            }
         }
     }
 }
@@ -234,6 +257,18 @@ pub async fn bridge_actor(
 enum ConnExit {
     HostGone,
     Disconnected,
+    /// The user chose another machine; dial this one instead.
+    Switch(String),
+}
+
+/// How a backoff ended.
+enum Waited {
+    /// The wait ran out; try the same endpoint again.
+    Elapsed,
+    /// The host dropped its sender.
+    HostGone,
+    /// The user chose another machine while we were waiting.
+    Switch(String),
 }
 
 async fn serve_connection(
@@ -304,6 +339,13 @@ async fn serve_connection(
                 Some(BridgeCommand::Notify { method, params }) => {
                     peer.notify(&method, &params);
                 }
+                Some(BridgeCommand::Switch { endpoint: next }) => {
+                    // Dropped, not drained: what is in flight belongs to the
+                    // machine being left, and an answer from it arriving after
+                    // the switch would be an answer about the wrong computer.
+                    peer.close();
+                    return ConnExit::Switch(next);
+                }
             },
             _ = ticker.tick() => push_status(&peer, events, endpoint).await,
         }
@@ -316,18 +358,19 @@ async fn drain_or_stop(
     commands: &mut mpsc::UnboundedReceiver<BridgeCommand>,
     backoff: Duration,
     detail: &str,
-) -> bool {
+) -> Waited {
     let sleep = tokio::time::sleep(backoff);
     tokio::pin!(sleep);
     loop {
         tokio::select! {
-            _ = &mut sleep => return false,
+            _ = &mut sleep => return Waited::Elapsed,
             command = commands.recv() => match command {
-                None => return true,
+                None => return Waited::HostGone,
                 Some(BridgeCommand::Request { reply, .. }) => {
                     let _ = reply.send(Err(BridgeError::unreachable(detail)));
                 }
                 Some(BridgeCommand::Notify { .. }) => {}
+                Some(BridgeCommand::Switch { endpoint }) => return Waited::Switch(endpoint),
             },
         }
     }
