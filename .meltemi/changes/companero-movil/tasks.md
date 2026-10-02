@@ -38,17 +38,50 @@ design, porque sería la superficie móvil siendo la única consumidora de algo
   de `meltemi-client`**, que es la forma más fuerte de que «el daemon no gana
   nada» sea verdad: tampoco gana nada el cliente.
   Gates: `cargo deny check` limpio con las dos prohibiciones nuevas. -->
-- [ ] 1.2 `mobile/` (crate nuevo) con `russh` pineado: diálogo SSH hasta un
+- [x] 1.2 `mobile/` (crate nuevo) con `russh` pineado: diálogo SSH hasta un
   canal de sesión que ejecuta el comando puente, expuesto como el mismo
   `Stream` que el resto del cliente ya consume, con el host key fijado en el
   primer uso y comprobado después (design D2) — escenarios «El canal del
   teléfono termina en el socket local», «El puente es el mismo» y «La clave del
   host cambia» — gates: suite del crate
-- [ ] 1.3 `mobile/`: el par de claves de la app —generado en el teléfono,
+- [x] 1.3 `mobile/`: el par de claves de la app —generado en el teléfono,
   pública mostrada para autorizar, privada cifrada en reposo con material del
   almacén del sistema—, con la frontera escrita en el código: ni se leen ni se
   piden claves ajenas (design D3) — escenario «La clave es de la app y de nadie
   más» — gates: suite del crate
+  <!-- 2026-10-02: **el design D2 estaba equivocado en su afirmación central y
+  queda enmendado aquí**. Decía que `ring` y `aws-lc-rs` eran opcionales y se
+  quedaban apagados, y que por eso `deny.toml` no necesitaba excepción. La
+  realidad: `russh` **exige** uno de los dos —se niega a compilar sin ninguno— y
+  además trae `aws-lc-rs` **en sus features por defecto**. Los metadatos de
+  crates.io no lo dicen: ahí los dos figuran como «opcionales», y lo son como
+  features, pero una es obligatoria en tiempo de compilación.
+  Lo que sí funcionó es el guardián: la prohibición de `aws-lc-rs` **mordió en el
+  momento exacto** en que se añadió la dependencia, antes de que nada se
+  compilara, y señaló la cadena entera. Para eso existe.
+  Decisión corregida: `default-features = false` y `features = ["ring"]`.
+  `ring` es Apache-2.0 AND ISC —las dos ya en la lista—, es Rust y ensamblador
+  sin toolchain de C, y compila para los targets de Android; `aws-lc-rs` arrastra
+  `aws-lc-sys`, que es C y pide NASM en Windows. Así que `deny.toml` tiene ahora
+  una **excepción acotada** —`ring` solo como envoltorio de `russh`, igual que
+  `tauri` lo es de `reqwest`— y mantiene la **prohibición** de `aws-lc-rs`. Sin
+  `rsa` ni `flate2`: ed25519 y sin compresión es todo lo que esta app necesita.
+  `ssh-key` se declara para **encender su propia feature `getrandom`** y nada
+  más: ya está en el árbol porque russh la pina exacta, y `rand_core` 0.10 movió
+  `OsRng` fuera, así que tomar el RNG de otro sitio del árbol es como empieza el
+  desajuste de versiones.
+  **Un test mordió antes de que el código saliera**: `fe80::1` se leía como el
+  puerto 1 de un host llamado `fe80:`, porque partir por el último dos puntos no
+  distingue una dirección IPv6 de un puerto. Ahora los corchetes mandan, como en
+  todas partes donde se escriben host y puerto juntos.
+  `AppKey` **no deriva `Debug` a propósito** —una clave que se puede imprimir
+  acaba en un log—, y los tests pagan ese precio comparando contra el error en
+  vez de pedir que el lado bueno sea imprimible.
+  El hallazgo que sostiene todo: el canal SSH se entrega como
+  `Box<dyn AsyncRead + AsyncWrite + Unpin + Send>`, que es exactamente lo que el
+  `Stream` del cliente ya es. **Ni una línea de `meltemi-client` cambia.**
+  Gates: fmt, clippy del crate en 0, `cargo deny check` 0 con la excepción
+  acotada, 11 tests del crate verdes. -->
 
 ## 2. La superficie
 

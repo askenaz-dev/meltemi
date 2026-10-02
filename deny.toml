@@ -80,23 +80,29 @@ crate = "hyper"
 wrappers = ["reqwest", "hyper-util"]
 reason = "reachable only under the desktop shell's webview framework"
 
-# SSH is not HTTP and is not TLS, and that distinction is the whole reason the
-# mobile companion needs no exception here (companero-movil design D2). The
-# phone has no system `ssh` to launch, so the app speaks the protocol itself
-# with `russh`, whose REQUIRED tree is pure RustCrypto — aes, sha2, hmac,
-# ed25519-dalek, curve25519-dalek, the NIST curves, ml-kem — plus tokio and
-# futures, which this workspace already has. Not one banned crate among them.
+# SSH is not HTTP and is not TLS, and that is why the mobile companion needs no
+# TLS exception here (companero-movil design D2). The phone has no system `ssh`
+# to launch, so the app speaks the protocol itself with `russh`.
 #
-# What russh does leave ajar are two OPTIONAL backends, and those are the door
-# this pair of bans closes. Anyone turning them on — in the mobile crate or
-# anywhere else — argues for it here, in writing, exactly as `reqwest` has to.
+# What russh DOES require is a crypto backend, and it offers exactly two: `ring`
+# or `aws-lc-rs`. One of them is mandatory — the crate refuses to compile with
+# neither — so this is a real exception, written here as D2 was amended to say,
+# and not the clean "no exception needed" the design first claimed.
+#
+# `ring` is the one chosen, and `russh` is its ONLY permitted wrapper, exactly
+# as `tauri` is `reqwest`'s. It is Apache-2.0 AND ISC, both already allowed; it
+# is Rust and assembly with no C toolchain; and it builds for the Android
+# targets. `aws-lc-rs` stays banned: it drags `aws-lc-sys`, a C library that
+# wants NASM on Windows, and a C crypto stack is the thing this file exists to
+# keep out.
 [[bans.deny]]
 crate = "ring"
-reason = "the SSH client uses RustCrypto; a second crypto backend enters only with a written argument"
+wrappers = ["russh"]
+reason = "the SSH client of the mobile companion needs one crypto backend; this one, there, and nowhere else"
 
 [[bans.deny]]
 crate = "aws-lc-rs"
-reason = "the SSH client uses RustCrypto; a second crypto backend enters only with a written argument"
+reason = "it drags a C crypto library and its build toolchain; `ring` is the backend this workspace allows"
 
 [[bans.deny]]
 crate = "rustls"
