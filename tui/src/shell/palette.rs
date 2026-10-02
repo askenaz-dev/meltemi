@@ -94,6 +94,20 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "shut down the daemon (confirms)",
     },
     Entry {
+        name: "identity",
+        reserved: false,
+        methods: &[m::IDENTITY_STATUS],
+        desc_es: "quién soy en mi malla, y qué equipos hay",
+        desc_en: "who I am on my mesh, and which machines there are",
+    },
+    Entry {
+        name: "identity-link",
+        reserved: false,
+        methods: &[m::IDENTITY_LINK],
+        desc_es: "el gesto para enlazar este equipo (se imprime, no se ejecuta)",
+        desc_en: "the gesture that links this machine (printed, never run)",
+    },
+    Entry {
         // No contract method: the notice is the client's own doing and the daemon
         // takes no part in it, so this entry contributes nothing to the parity
         // union (aviso-de-espera-opt-in design D2).

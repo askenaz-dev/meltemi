@@ -15,9 +15,9 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use meltemi_proto::{
-    InitializeParams, InitializeResult, PROTOCOL_VERSION, PeerInfo, PermissionChangedParams,
-    PermissionDecideParams, PermissionDecideResult, PermissionPendingResult, SessionCancelParams,
-    StatusResult, error_codes, methods,
+    IdentityLinkParams, IdentityUnavailable, InitializeParams, InitializeResult, PROTOCOL_VERSION,
+    PeerInfo, PermissionChangedParams, PermissionDecideParams, PermissionDecideResult,
+    PermissionPendingResult, SessionCancelParams, StatusResult, error_codes, methods,
 };
 
 use crate::pending::PendingQueue;
@@ -412,12 +412,66 @@ async fn dispatch_request(
         methods::SUBSCRIPTION_UNLINK => handle_subscription_unlink(params, state).await,
         methods::PROJECT_FORGET => crate::projects::handle_project_forget(params, state).await,
         methods::ANALYTICS_USAGE => crate::analytics::handle_analytics_usage(params, state),
+        methods::IDENTITY_STATUS => handle_identity_status(state).await,
+        methods::IDENTITY_LINK => handle_identity_link(params, state).await,
         other => Err(RpcError::method_not_found(other)),
     }
 }
 
 /// Default `session/log` page size when the client gives no limit.
 const SESSION_LOG_PAGE: usize = 200;
+
+/// `identity/status`: who the user is on their own mesh, and which of their
+/// machines are there (identidad-propia design D1, D2).
+///
+/// Never an error: the three ways identity cannot be read come back as an answer
+/// with a reason and a remedy, because a user who never wanted identity is not in
+/// a broken state (design D5).
+async fn handle_identity_status(state: &Arc<DaemonState>) -> Result<Value, RpcError> {
+    // No project root, deliberately: identity is of the person and the machine,
+    // and a versioned file must not decide it (design D5).
+    let config = crate::config::Config::load(&state.config_dir, None);
+    let result = crate::identity::status(&config).await;
+    Ok(serde_json::to_value(result).expect("IdentityStatusResult serializes"))
+}
+
+/// `identity/link`: the gesture that links THIS machine, composed and handed
+/// back as text (design D3).
+///
+/// The daemon never runs it. A daemon that executed a login would be a daemon
+/// holding somebody's session, and §2 does not allow that even for the user's own
+/// mesh.
+async fn handle_identity_link(params: Value, state: &Arc<DaemonState>) -> Result<Value, RpcError> {
+    // Every field is optional, so a client that sends no params at all is asking
+    // the ordinary question.
+    let params: IdentityLinkParams = if params.is_null() {
+        IdentityLinkParams::default()
+    } else {
+        serde_json::from_value(params)
+            .map_err(|e| RpcError::invalid_params(format!("identity/link: {e}")))?
+    };
+    let config = crate::config::Config::load(&state.config_dir, None);
+    let this_machine = meltemi_client::notices::machine_name();
+    match crate::identity::link(&config, &params, &this_machine) {
+        Ok(result) => Ok(serde_json::to_value(result).expect("IdentityLinkResult serializes")),
+        Err((reason, remedy)) => {
+            // The `kind` is a literal at the site of the refusal, not a table:
+            // one place to read, and nothing to keep in sync.
+            let reason = match reason {
+                IdentityUnavailable::NotConfigured => "not_configured",
+                IdentityUnavailable::ClientMissing => "client_missing",
+                IdentityUnavailable::NotLinked => "not_linked",
+            };
+            Err(RpcError::application(
+                error_codes::IDENTITY_UNAVAILABLE,
+                "identity is unavailable",
+                "identity_unavailable",
+                format!("identity/link cannot be composed: {reason}"),
+                Some(remedy),
+            ))
+        }
+    }
+}
 
 /// `repo/map`: the repository tree honoring nested gitignore, with sizes and a
 /// declared truncation budget (gestion-contexto-repo).

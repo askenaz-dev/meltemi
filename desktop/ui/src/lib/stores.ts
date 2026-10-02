@@ -11,6 +11,7 @@ import { onIncoming, request } from "./daemon";
 import { pushNotice } from "./notices";
 import { setActiveProject, uiState } from "./ui-state";
 import { decide, type Announced, type Moment } from "./attention";
+import type { IdentityStatus } from "./identity";
 export { isLive, LIVE_STATE } from "./session-state";
 import {
   isPermissionGranted,
@@ -381,6 +382,47 @@ export async function refreshUsage(): Promise<void> {
 export async function refreshPending(): Promise<void> {
   const result = await request<{ pending: PendingPermission[] }>("permission/pending");
   pending.set(result.pending);
+}
+
+/**
+ * The user's mesh identity, or nothing.
+ *
+ * `null` means "the chrome shows nothing", and it covers both "not configured"
+ * and "not asked yet" on purpose: identity is never a requirement, so a daemon
+ * that cannot answer leaves the surface exactly as it was.
+ */
+export const identity = writable<IdentityStatus | null>(null);
+
+/** The gesture that links this machine, as the daemon composed it. */
+export interface LinkGesture {
+  command: string;
+  args: string[];
+  posix: string;
+  powershell: string;
+  opensBrowser: boolean;
+  loginServer?: string;
+}
+
+/** Reads `identity/status`. A refusal is an answer and is stored as one. */
+export async function refreshIdentity(): Promise<void> {
+  try {
+    const result = await request<IdentityStatus>("identity/status", {});
+    // `machines` is omitted when empty by the contract, and a surface that
+    // iterated `undefined` would be a blank panel instead of a mesh of one.
+    identity.set({ ...result, machines: result.machines ?? [] });
+  } catch {
+    identity.set(null);
+  }
+}
+
+/**
+ * Asks the daemon to compose the linking gesture.
+ *
+ * Composed, never run: this surface has no plugin to launch a process or open a
+ * URL and does not gain one here (identidad-propia design D3).
+ */
+export async function identityGesture(hostname?: string): Promise<LinkGesture> {
+  return request<LinkGesture>("identity/link", hostname ? { hostname } : {});
 }
 
 export async function refreshFleet(): Promise<void> {

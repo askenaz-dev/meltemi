@@ -62,9 +62,42 @@ Verificado el 2026-09-06:
   (`Self.HostName`, `Self.Online`, `Self.OS`, `Self.UserID`), el nombre de
   login en el mapa `User[<UserID>].LoginName`, la malla en
   `CurrentTailnet.Name` y los pares en el mapa `Peer` indexado por clave, con
-  `HostName`, `Online`, `OS` y `LastSeen`. Esa forma se **captura de una salida
-  real redactada antes de escribir el parser** (tarea 2.2): un campo mal
-  nombrado daría un parser verde en CI y un rehúso contra el cliente de verdad.
+  `HostName`, `Online`, `OS` y `LastSeen`. Esa forma se **verifica antes de
+  escribir el parser** (tarea 2.2): un campo mal nombrado daría un parser verde
+  en CI y un rehúso contra el cliente de verdad.
+
+  **Enmienda del 2026-10-01 — cómo se verificó.** El design pedía «capturar una
+  salida real redactada» y esa vía estuvo bloqueada: en el equipo del mantenedor
+  no hay cliente de malla instalado. Se verificó por la vía más fuerte: las
+  **definiciones de tipo publicadas del propio cliente**, fijadas en la etiqueta
+  `v1.102.5` —`ipn/ipnstate/ipnstate.go` (`Status`, `PeerStatus`,
+  `TailnetStatus`) y `tailcfg/tailcfg.go` (`UserProfile`)—, que es de donde el
+  CLI serializa su JSON. Más fuerte, y no un atajo: una captura muestra solo los
+  campos que **una** máquina pobló en **un** estado, mientras que el tipo
+  enumera todos los campos con su etiqueta JSON y su regla de presencia. La
+  hipótesis de arriba quedó confirmada campo por campo, y aparecieron tres
+  trampas que una captura en un equipo sano y enlazado habría escondido:
+
+  1. `CurrentTailnet` es un puntero **nulo cuando el equipo no está conectado**,
+     igual que `Self`: leerlos sin tolerar el nulo revienta justo en el caso
+     «sin enlazar», que es uno de los escenarios.
+  2. `LastSeen` **no lleva `omitempty`**, así que un par en línea trae el tiempo
+     cero `0001-01-01T00:00:00Z` y no la ausencia del campo. Un parser ingenuo
+     informaría «última vez visto: año 1» para la máquina que está en línea
+     ahora mismo. El modelo solo lo conserva cuando el par está fuera de línea,
+     que es lo que el comentario del tipo dice que significa.
+  3. Las claves del mapa `User` son el `UserID` en **decimal como cadena**
+     (Go exige claves de texto), mientras que `PeerStatus.UserID` es un
+     **número**. Buscar el número en el mapa sin convertirlo no encuentra nada,
+     y el resultado sería un `user` vacío contra el cliente de verdad: el fallo
+     exacto que esta precaución existe para evitar.
+
+  Queda **una comprobación de campo pendiente**, y pendiente es lo honesto:
+  correr `identity` una vez contra un cliente instalado y enlazado. No bloquea
+  la implementación —los nombres salen del tipo, no de una conjetura— y su
+  resultado no cambia el contrato; se anota en `docs/acceso-remoto.md` como lo
+  que es, una verificación de campo, con la versión contra la que se leyó el
+  tipo.
 
 ## Goals / Non-Goals
 

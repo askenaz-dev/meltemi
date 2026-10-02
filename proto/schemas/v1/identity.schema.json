@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meltemi.dev/proto/v1/identity.schema.json",
+  "title": "identity/status and identity/link",
+  "description": "Who the user is on their OWN mesh, and the gesture that links this machine to it. Meltemi has no accounts and issues no identity: it reads the official client of the mesh the user already runs, the way the daemon reads `git`, and it never touches that client's tokens. `identity/status` answers `available: false` with a reason when there is no `[identity]` table, no client where it was named, or a client that is present and not signed in — an answer, not a failure, because a user who never wanted identity is not in a broken state. `identity/link` composes the gesture and hands it back as text; the daemon never runs it, because a daemon that executed a login would be a daemon holding someone's session.",
+  "$defs": {
+    "unavailableReason": {
+      "type": "string",
+      "enum": ["not_configured", "client_missing", "not_linked"],
+      "description": "not_configured: no [identity] table in the user's configuration; client_missing: the mesh client was not found where the configuration named it; not_linked: the client is there and this machine has not signed in. Three reasons because each asks for a different remedy."
+    },
+    "presence": {
+      "type": "string",
+      "enum": ["online", "offline"],
+      "description": "Whether the machine is reachable on the mesh right now. Presence, not control: Meltemi offers nothing that acts on another machine because it knows one is online."
+    },
+    "machine": {
+      "type": "object",
+      "description": "One machine of the user's mesh, as that mesh's own client reports it.",
+      "required": ["name", "presence", "thisMachine"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "presence": { "$ref": "#/$defs/presence" },
+        "system": {
+          "type": "string",
+          "description": "The operating system the mesh reports, when it reports one."
+        },
+        "lastSeen": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the mesh last saw it (RFC 3339, UTC), when it says."
+        },
+        "thisMachine": {
+          "type": "boolean",
+          "description": "Whether this is the machine the daemon runs on."
+        }
+      }
+    },
+    "statusParams": {
+      "type": "object",
+      "description": "Params of `identity/status`: none. Identity belongs to the person and the machine, not to a project, so no project root is taken.",
+      "properties": {}
+    },
+    "statusResult": {
+      "type": "object",
+      "description": "Result of `identity/status`.",
+      "required": ["available"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "reason": { "$ref": "#/$defs/unavailableReason" },
+        "remedy": {
+          "type": "string",
+          "description": "What to do about that reason, in English like every remedy of the daemon."
+        },
+        "user": {
+          "type": "string",
+          "description": "Who the user is on their mesh, as the mesh names them. Never a Meltemi account, because there are none."
+        },
+        "provider": {
+          "type": "string",
+          "description": "Whose mesh this is: the configured `login-server` when the user runs their own, else the name the mesh gives itself, else the value of `[identity] mesh`. One slot, because that is one question."
+        },
+        "this": {
+          "type": "string",
+          "description": "This machine's name on the mesh."
+        },
+        "machines": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/machine" },
+          "description": "The user's machines. Empty when identity is unavailable, and empty is not an error: a mesh of one machine is a mesh."
+        }
+      }
+    },
+    "linkParams": {
+      "type": "object",
+      "description": "Params of `identity/link`.",
+      "properties": {
+        "hostname": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The name to ask the mesh for, when the user wants one of their choosing."
+        }
+      }
+    },
+    "linkResult": {
+      "type": "object",
+      "description": "The gesture, as text, in both shells. Handed back and never run.",
+      "required": ["command", "args", "posix", "powershell", "opensBrowser"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The gesture as one line, for reading and copying."
+        },
+        "args": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "string" },
+          "description": "The same gesture as an argument vector, for a surface that runs it: the program first, then its arguments, with no shell anywhere. A client must never re-split `command` on spaces — a client path with a space is exactly what the two quoted forms exist to survive."
+        },
+        "posix": { "type": "string", "minLength": 1 },
+        "powershell": { "type": "string", "minLength": 1 },
+        "opensBrowser": {
+          "type": "boolean",
+          "description": "Whether running it is expected to open a browser, so a surface can say so before the user is surprised by one."
+        },
+        "loginServer": {
+          "type": "string",
+          "format": "uri",
+          "description": "The login server the gesture names, when the configuration set one."
+        }
+      }
+    }
+  }
+}

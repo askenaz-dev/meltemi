@@ -26,6 +26,8 @@ future change — never a silent omission.
 | `harness/effective` | `harness` | `harness [agente]` (bajo Flota) | registry + drill-in de Flota |
 | `session/list` | `sessions` | `sessions` | registry + Sessions view |
 | `session/log` | `log` | `sessions` (drill-in) | registry + session drill-in |
+| `identity/status` | `identity` | `identity` (palette) | Settings, the Identity section |
+| `identity/link` | `identity-link` | `identity-link` (palette) | Settings, the copyable gesture |
 | `session/watch` | `watch` | `sessions` (drill-in) | registry + session drill-in (live stream) |
 | `session/cancel` | `cancel` | `cancel` (`x`) | registry + session drill-in |
 | `session/direct` | `direct` | `direct` (drill-in, entrada de instrucción) | registry |

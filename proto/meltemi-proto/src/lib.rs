@@ -78,6 +78,15 @@ pub mod methods {
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set-config-option";
     /// Notification (daemon -> client): streamed session event.
     pub const SESSION_EVENT: &str = "session/event";
+    /// Request (client -> daemon): who the user is on their own mesh, and which
+    /// of their machines are present. Meltemi has no accounts: this is read from
+    /// the official client of the mesh the user already runs, the way the daemon
+    /// reads `git` (identidad-propia design D1, D2).
+    pub const IDENTITY_STATUS: &str = "identity/status";
+    /// Request (client -> daemon): the gesture that links THIS machine to the
+    /// user's mesh. Composed and handed back as text; the daemon never runs it
+    /// (design D3).
+    pub const IDENTITY_LINK: &str = "identity/link";
     /// Notification (daemon -> client): the lifecycle state of one session, as
     /// it stands. Goes to EVERY initialized connection on every transition,
     /// including sessions the connection did not open — a client that only
@@ -270,6 +279,12 @@ pub mod error_codes {
     /// unparseable bound, empty limit). It is refused with a remedy rather than
     /// silently replaced by a default period.
     pub const USAGE_QUERY_INVALID: i64 = 5000;
+    /// Identity could not be answered: no `[identity]` table, no mesh client
+    /// where it was named, or a client that is there and not signed in. A new
+    /// domain (6xxx: identity and mesh) rather than a reuse, because none of the
+    /// existing families is about a tool the user owns and Meltemi only reads
+    /// (identidad-propia design D9).
+    pub const IDENTITY_UNAVAILABLE: i64 = 6000;
 }
 
 /// Structured `error.data` payload: `{ kind, detail, remedy }` (D11).
@@ -2619,6 +2634,126 @@ pub struct SessionEventParams {
     pub session_id: String,
     /// The event.
     pub event: SessionEvent,
+}
+
+/// Why identity could not be answered.
+///
+/// Three separate reasons, because "there is no table", "I cannot find the
+/// binary" and "this machine has not signed in" ask for three different remedies
+/// (identidad-propia design D5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityUnavailable {
+    /// No `[identity]` table in the user's configuration. Identity is opt-in.
+    NotConfigured,
+    /// The mesh client was not found where the configuration named it.
+    ClientMissing,
+    /// The client is there and this machine is not signed in to the mesh.
+    NotLinked,
+}
+
+/// Whether one of the user's machines is reachable on the mesh right now.
+///
+/// Presence, not control: knowing a machine is online says nothing about being
+/// able to do anything to it, and Meltemi offers nothing that would
+/// (identidad-propia design D4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MeshPresence {
+    Online,
+    Offline,
+}
+
+/// One machine of the user's mesh, as its own client reports it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeshMachine {
+    /// The name the mesh knows it by.
+    pub name: String,
+    pub presence: MeshPresence,
+    /// The operating system the mesh reports for it, when it reports one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    /// When it was last seen (RFC 3339, UTC), when the mesh says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<String>,
+    /// Whether this is the machine the daemon runs on.
+    pub this_machine: bool,
+}
+
+/// Params of `identity/status`: none. Identity is of the person and the machine,
+/// not of a project, so this does not take a project root.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentityStatusParams {}
+
+/// Result of `identity/status`.
+///
+/// `available: false` with a reason is an **answer**, not an error of the daemon:
+/// a user who never wanted identity is not in a broken state (design D5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentityStatusResult {
+    /// Whether identity could be read at all.
+    pub available: bool,
+    /// Why not, when it could not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<IdentityUnavailable>,
+    /// The remedy for that reason, in English like every remedy of the daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remedy: Option<String>,
+    /// Who the user is on their mesh, as the mesh names them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    /// Whose mesh this is: the configured `login-server`, else the name the mesh
+    /// gives itself, else the value of `[identity] mesh` (design D2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// This machine's name on the mesh.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub this: Option<String>,
+    /// The user's machines. Empty when identity is unavailable, and empty is not
+    /// an error: a mesh of one machine is a mesh.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub machines: Vec<MeshMachine>,
+}
+
+/// Params of `identity/link`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentityLinkParams {
+    /// The name to ask the mesh for, when the user wants one of their choosing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+}
+
+/// Result of `identity/link`: the gesture, as text, in both shells.
+///
+/// Handed back and never run. A daemon that executed a login would be a daemon
+/// that holds someone's session, and §2 does not allow that even for the user's
+/// own mesh (design D3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentityLinkResult {
+    /// The gesture as one line, for reading and copying.
+    pub command: String,
+    /// The same gesture as the argument vector, for a surface that RUNS it.
+    ///
+    /// Not a convenience: a client that re-split `command` on spaces would break
+    /// a client path that has one, which is the very bug the two quoted forms
+    /// exist to prevent. The first element is the program; the rest are its
+    /// arguments, and no shell is involved anywhere (identidad-propia 3.1).
+    pub args: Vec<String>,
+    /// The same, written for a POSIX shell.
+    pub posix: String,
+    /// The same, written for PowerShell.
+    pub powershell: String,
+    /// Whether running it is expected to open a browser, so a surface can say so
+    /// before the user is surprised by one.
+    pub opens_browser: bool,
+    /// The login server the gesture names, when the configuration set one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login_server: Option<String>,
 }
 
 /// Params of the `session/state` notification (daemon -> client).

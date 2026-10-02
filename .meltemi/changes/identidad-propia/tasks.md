@@ -10,7 +10,7 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
 
 ## 1. El contrato
 
-- [ ] 1.1 `proto/meltemi-proto`: métodos `identity/status` e `identity/link`
+- [x] 1.1 `proto/meltemi-proto`: métodos `identity/status` e `identity/link`
   con sus params/results (`IdentityStatusResult` con `available`, `user`,
   `provider`, `this` y `machines[]` de nombre, presencia, sistema y última
   vez visto; `IdentityLinkParams` con `hostname` opcional;
@@ -21,16 +21,44 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   `x-catalog` de `error.schema.json` con `kind: identity_unavailable` —en el
   daemon el `kind` es un literal en el sitio del rehúso, no una tabla— (design
   D5, D9) — gates: `cargo test -p meltemi-proto`
+  <!-- 2026-09-26: hecha **sin el cliente de malla**, porque el contrato no
+  parsea su salida: lo que 2.2 necesita medir es la forma del JSON del cliente,
+  no la del contrato. El taller trajo `main` otra vez antes de empezar, para
+  partir de `estado-en-vivo`, `via-ssh-del-cliente` y `aviso-de-espera-opt-in`
+  ya aterrizadas.
+  Dos guardianes del repositorio saltaron y los dos tenían razón. El primero es
+  una **lista a mano** de los códigos de error en el test de conformidad, con un
+  comentario que dice que existe porque es lo que hizo visible la deriva del
+  2005; añadir 6000 al enum y al catálogo no basta, hay que añadirlo también ahí.
+  El segundo es el gate de paridad: estos dos métodos **sí** son invocables por
+  el cliente, así que van a la paleta de la TUI, al registro de la GUI y a la
+  matriz, al contrario que `session/state` de la tanda anterior.
+  Un campo que la tarea no listaba y que el contrato necesita: `thisMachine` por
+  máquina. Sin él, marcar el equipo actual sería adivinarlo comparando nombres, y
+  el test rechaza una máquina que lo omita — porque omitirlo la marcaría como
+  «no es esta» por descuido. -->
 
 ## 2. El daemon
 
-- [ ] 2.1 `core/meltemid/src/config.rs`: tabla `[identity]` (`mesh`,
+- [x] 2.1 `core/meltemid/src/config.rs`: tabla `[identity]` (`mesh`,
   `login-server`, `command`) **de ámbito de usuario** —una tabla en el
   `.meltemi/config.toml` del proyecto se ignora con diagnóstico— con la
   disciplina de la casa: default ante valor inválido, diagnóstico con remedio,
   `login-server` como URL `https`, lint de secretos (design D5) — gates: suite
   del crate
-- [ ] 2.2 `core/meltemid/src/identity.rs` + `core/mock-agent` bin
+  <!-- 2026-09-26: hecha **sin el cliente de malla**, como la 1.1: leer la tabla
+  no es parsear la salida de nadie.
+  El ámbito no cabía en `apply`, que es uniforme para usuario y proyecto, así que
+  `[identity]` se lee **en `load`**, del archivo de usuario y solo de ese, y un
+  archivo de proyecto que la declare deja un diagnóstico. Dicho y no descartado en
+  silencio: alguien la escribió ahí a propósito y merece saber por qué no pasó
+  nada. El test comprueba además que un proyecto **no pisa** una tabla de usuario,
+  aunque la precedencia general vaya en ese sentido.
+  `KNOWN_MESHES` es una lista de uno, y rechazar lo demás es el punto: aceptar un
+  nombre desconocido sería ejecutar un binario desconocido y adivinar lo que
+  imprima, que es justo el fallo que esta change existe para evitar. Cada rechazo
+  deja identidad apagada y nombra su remedio, como manda la casa. -->
+- [x] 2.2 `core/meltemid/src/identity.rs` + `core/mock-agent` bin
   `mock-mesh`: **primero** capturar una salida real redactada de `status
   --json` como fixture del simulado (la forma no es verificable desde el
   repositorio, design Context); luego `identity/status` invoca el cliente
@@ -41,29 +69,154 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   presente, equipo sin enlazar», «La identidad nunca es requisito», «Ningún
   token entra ni sale del daemon», «Las máquinas son los pares de la malla» y
   «Presencia no es control» — gates: suite del crate
-- [ ] 2.3 `identity/link`: el gesto compuesto (POSIX y PowerShell) con el
+  <!-- **BLOQUEADA 2026-09-26, DESBLOQUEADA 2026-10-01.** Historia, porque la
+  razón del bloqueo sigue siendo buena: la tarea empieza por «capturar una salida
+  real redactada de `status --json`», y en este equipo no hay ningún cliente de
+  malla instalado (`tailscale`, `netbird`, `zerotier-cli` ni `headscale`, ni en el
+  PATH ni en Program Files, ni en `winget list`). Inventar el fixture era el fallo
+  que el design nombró para evitarlo, así que la change se detuvo en vez de
+  fingir, y se hizo todo lo que no necesitaba el cliente (1.1, 2.1, 2.3).
+  **Cómo se desbloqueó sin el cliente**: verificando la forma por la vía más
+  fuerte, las **definiciones de tipo publicadas del propio cliente** fijadas en
+  `v1.102.5` (`ipn/ipnstate/ipnstate.go` y `tailcfg/tailcfg.go`), que es de donde
+  el CLI serializa su JSON. No es un atajo: una captura muestra solo los campos
+  que **una** máquina pobló en **un** estado, mientras que el tipo enumera todos
+  con su etiqueta y su regla de presencia. La enmienda está escrita en el design
+  (Context, «cómo se verificó»).
+  La hipótesis del design quedó confirmada campo por campo, y el tipo delató
+  **cuatro trampas** que una captura en un equipo sano y enlazado habría
+  escondido, cada una con su test: `Self` y `CurrentTailnet` son **nulos** sin
+  conexión (justo el escenario «sin enlazar»); `LastSeen` no lleva `omitempty`, de
+  modo que un par en línea trae el **tiempo cero** y un parser ingenuo diría
+  «última vez visto: año 1»; las claves del mapa `User` son el id en **decimal
+  como cadena** mientras el par lo trae como **número**, así que buscarlo sin
+  convertir devuelve un `user` vacío contra el cliente de verdad; y `ShareeNode`
+  marca un equipo que **otra persona** compartió hacia dentro — el propio upstream
+  dice que su `status` los oculta por defecto, así que listarlo habría puesto la
+  máquina de un colega en la lista del usuario.
+  **El rigor de los tests se midió neuterando el código**: seis roturas
+  deliberadas, cinco pusieron en rojo el test previsto y **una no**, que es lo
+  que valía el ejercicio. Nada cubría «`BackendState` dice `Running` pero `Self`
+  es nulo» —los dos señales pueden discrepar en un cliente que arranca— y sin la
+  guarda el handler **panickeaba** en vez de rehusar. Se añadió el test que
+  faltaba y ahora sí muerde, con el panic exacto que predijo.
+  **Lo que la tarea sumó sin estar en su línea**: el enrutado de los dos métodos
+  en `server.rs`. La 2.3 compuso el gesto pero ningún método estaba cableado, así
+  que `identity/status` e `identity/link` eran inalcanzables; `identity/link`
+  rehúsa con `IDENTITY_UNAVAILABLE` y el `kind` literal en el sitio del rehúso.
+  Config de usuario sin raíz de proyecto, que es la frontera de D5 hecha código.
+  Y una **corrección del contrato de la 1.1**: la descripción de `provider` decía
+  «el valor de `[identity] mesh`» y el design D2 y el escenario «Quién soy, según
+  la malla» piden «el servidor o nombre de la malla». Derivó al escribir el
+  contrato antes del parser; se alineó la descripción con D2, no al revés.
+  El simulado `mock-mesh` trae cinco escenarios (`linked`, `unlinked`, `alone`,
+  `fail`, `garbage`, `slow`) y **rehúsa cualquier argv que no sea `status
+  --json`**, que es lo que convierte «Ningún token entra ni sale del daemon» en
+  una aserción: si el daemon alguna vez corriera `up` o `login`, el test se cae
+  en vez de firmar a alguien en silencio.
+  **Queda una comprobación de campo**, y pendiente es lo honesto: correr
+  `identity` una vez contra un cliente instalado y enlazado. No bloquea nada
+  —los nombres salen del tipo, no de una conjetura— y se anota en la 4.1.
+  Gates: fmt, `clippy --workspace --all-targets -D warnings` en 0, 46 tests de
+  `meltemi-proto` y la suite entera de `meltemid` verde (311 unitarios y todos
+  los binarios de integración). -->
+- [x] 2.3 `identity/link`: el gesto compuesto (POSIX y PowerShell) con el
   servidor de login y el nombre del equipo, la pista del navegador, sin
   secretos y sin lanzar nada (design D3) — escenarios «El gesto de vínculo se
   imprime, no se ejecuta» y «El gesto no lleva secretos» — gates: suite del
   crate
+  <!-- 2026-09-26: hecha **sin el cliente de malla**, como 1.1 y 2.1: componer el
+  gesto es leer la configuración, no la salida de nadie. Queda el módulo con su
+  mitad escrita y su mitad ausente declarada en la cabecera, para que el próximo
+  que lo abra sepa por qué falta `status`.
+  Las dos formas **no son la misma cadena mostrada dos veces**, y ese es el punto
+  de tener dos: un nombre con espacio pegado de POSIX a PowerShell se parte en dos
+  argumentos. Cada una cita como su shell quiere, y una comilla dentro del nombre
+  se escapa de forma distinta en cada una. El criterio de qué va sin comillas es
+  estrecho a propósito: unas comillas de más cuestan dos caracteres; unas de menos
+  cuestan un comando que hace otra cosa.
+  El test de secretos assertA **por ausencia** —ni `--authkey`, ni `tskey-`, ni
+  token ni contraseña—, que es la única forma de que siga siendo cierto cuando
+  alguien añada una opción mañana. -->
 
 ## 3. Las superficies
 
-- [ ] 3.1 CLI: verbos `identity` e `identity-link [--hostname] [--exec]` con
+- [x] 3.1 CLI: verbos `identity` e `identity-link [--hostname] [--exec]` con
   su render humano y `--json`/`--yaml`; `--exec` corre el binario del usuario
   con stdio heredado; `registry.ts` GUI + `npm run gen:forms`; dos filas en
   `docs/paridad-nucleo.md`; `docs/referencia-cli.md` regenerada (gate
   bloqueante `tui/tests/parity.rs`) — escenarios «Ejecutar es explícito y
   visible», «identity imprime quién y qué equipos» e «identity-link imprime el
   gesto y solo ejecuta a pedido» — gates: suite de `tui`, parity, `check:forms`
-- [ ] 3.2 TUI: `Effect::IdentityStatus` e `Effect::IdentityLink` despachadas
+  <!-- 2026-10-01: la tarea pedía ejecutar «el binario del propio usuario» y ahí
+  apareció un hueco del contrato: `IdentityLinkResult` traía `command`, `posix` y
+  `powershell`, tres **cadenas**, y para correr algo hace falta un **argv**.
+  Volver a partir `command` por espacios habría roto una ruta de cliente con
+  espacio —exactamente el fallo que las dos formas citadas existen para evitar—, y
+  pasarlo por un shell está fuera de la casa. Así que el contrato gana `args`, un
+  vector con el programa primero, con su `minItems: 2` y dos rechazos nuevos en
+  conformidad: sin vector, y con un vector demasiado corto para ser programa más
+  verbo. El CLI corre **ese** vector, nunca una cadena reconstruida.
+  El render humano imprime la presencia **en palabra** y no en glifo, porque esta
+  superficie se canaliza hacia otros programas y `online` sobrevive a una tubería
+  donde un símbolo no; los glifos son de la 3.2, que es una pantalla. Y la forma
+  que se imprime es la **de la plataforma** (`powershell` en Windows, `posix`
+  fuera), no la lectura plana, que es justo la que se rompe al pegarla.
+  `--hostname` entra a `FLAGS`, a la lista de paso y a la lista pineada del test
+  `no_flag_grants_permissions`, con su razón escrita: nombra, no concede. Un
+  `--hostname` sin valor es un error de uso y no «pídele a la malla el nombre que
+  quiera».
+  Un rehúso del cliente del usuario bajo `--exec` sale como `identity_link_failed`
+  reutilizando el código 10, el mismo que `tunnel_down` ya estiró a «el camino no
+  está arriba»; un número nuevo habría sido cambiar la taxonomía de salida para un
+  fallo que no es nuevo.
+  `identity` rehusa argumentos apuntando a `identity-link` en vez de decir
+  «sobran argumentos», que es lo que alguien necesita leer cuando escribió el
+  verbo de al lado.
+  Gates: fmt, clippy del workspace en 0, 23 binarios de test de `meltemi` y
+  `meltemi-proto` verdes, parity verde (5), `check:forms` fresco tras regenerar,
+  `npm run check` 0 errores, suite de `meltemi-desktop` verde y
+  `docs/referencia-cli.md` regenerada. -->
+- [x] 3.2 TUI: `Effect::IdentityStatus` e `Effect::IdentityLink` despachadas
   desde el `match` de la paleta en `state.rs`, su `Command` en `conn.rs`, su
   estado en `live.rs`, su render en `render.rs` con la presencia en símbolo con
   gemelo ASCII (`glyphs.rs`) y sus cadenas ES/EN en `messages.rs` —no existe
   runner genérico de métodos (design D6)— escenarios «Identidad desde la
   paleta» y «Sin cliente de malla, el terminal dice el remedio» — gates: suite
   de `tui`
-- [ ] 3.3 GUI: sección «Identidad» en `Settings.svelte` (quién, proveedor,
+  <!-- 2026-10-01: la pregunta que la tarea no responde es **dónde se ve**, y la
+  respuesta no podía ser una vista nueva: las vistas son cuatro, los dígitos 1–4
+  las eligen y hay un escenario vivo —«Los cuatro cuadrantes usan el mismo
+  camino»— que una quinta rompería. Así que la identidad se añade **bajo el
+  catálogo**, igual que el harness y por la razón que el harness ya tiene escrita
+  en su comentario: es un hecho ACERCA de este equipo y sus pares, no un quinto
+  sitio al que navegar. Y como el harness, ausente hasta que se pide: leer el
+  cliente de malla en cada refresco sería cromo que nadie pidió, y el escenario
+  «el estado vacío sin daemon NO menciona la identidad» se cumple por
+  construcción, no por una condición extra.
+  Los glifos de presencia son **entradas propias** y no un reuso de `OK`/`ABSENT`:
+  esas dos ya significan «el daemon responde» y «este agente está instalado», y la
+  presencia es una tercera cosa dicha de un cuarto sujeto. Misma forma a propósito
+  —el vocabulario de relleno-está/hueco-no-está ya está aprendido— con nombre
+  aparte, para que el design system liste la presencia como su par y ningún
+  significado derive cuando el otro cambie.
+  Símbolo **y** palabra, nunca uno solo, con el gemelo ASCII de la casa: el test
+  en modo sin Unicode exige que no se escape ni un carácter Unicode y que las dos
+  palabras sigan ahí.
+  Tres roturas deliberadas y las tres muerden: usar `glyph.unicode` en vez de
+  `glyph.text(&present)`, quitar la palabra de al lado del símbolo, y tragarse el
+  remedio del daemon. La primera pasada **no** mordió y el motivo valía saberlo:
+  `glyph.text(&ctx.present),` aparece doce veces en el archivo y la rotura cayó en
+  otro sitio; con el ancla correcta, muerde.
+  El rehúso se guarda como lo que es —una respuesta— así que se dibuja donde
+  habría ido la buena, con el diagnóstico en el idioma de la superficie y el
+  remedio del daemon tal cual, que es inglés por §11.
+  `identity-link` no navega: su respuesta es un aviso, y no hay a dónde ir. Acepta
+  `identidad-enlazar` y un nombre detrás del verbo, verbatim.
+  Gates: fmt, clippy del workspace en 0, 20 binarios de test de `meltemi` verdes
+  (265 unitarios), parity verde y el invariante `every_glyph_has_an_ascii_twin`
+  intacto con dos glifos más. -->
+- [x] 3.3 GUI: sección «Identidad» en `Settings.svelte` (quién, proveedor,
   este equipo, lista con presencia en símbolo y palabra, gesto copiable, la
   frase de quién es la identidad) y la fila de `Sidebar.svelte` por encima de
   Ajustes, solo con `[identity]` configurada, con marca propia (no el avatar
@@ -73,10 +226,43 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   no pide nada», «Plegada, la identidad sigue alcanzable» y «La promesa de
   privacidad sigue siendo cierta» — gates: suite de cableado, `npm run check`,
   lint de i18n
+  <!-- 2026-10-01: la decisión del pie **no vive en el componente**: `identity.ts`
+  tiene `footIdentity`, una función pura con su test ejecutado, así que «el cromo
+  no pide nada» lo sostiene un test y no quien editó el markup la última vez. Y
+  `hidden` cubre dos casos a propósito —sin tabla y «el daemon todavía no
+  respondió»—, porque una fila que aparece un segundo después de abrir la ventana
+  es cromo que parpadea y nada de esto es urgente.
+  Un caso que la tarea no listaba: **configurada y sin cliente**. Decir «Enlazar
+  este equipo» ahí sería falso, no hay nada que correr; la fila dice «Identidad» y
+  lleva al diagnóstico en Ajustes. Tercera variante, `attention`, con su test.
+  La marca es un **icono propio** (tres nodos enlazados: una malla) y no el avatar
+  de iniciales de los agentes, con el test que lo prohíbe por ausencia de
+  `<Avatar>`: esa paleta identifica agentes y un login con las mismas iniciales
+  rendiría el mismo chip. `IconName` gana su entrada, que es lo que hizo visible
+  el error de tipo cuando no la tenía.
+  «Ajustes sigue siendo la última entrada» es una aserción de **orden** dentro del
+  pie, no una frase en un comentario; y la fila está fuera del reparto por
+  construcción —el pie es hermano de la navegación y del árbol—, lo que se verifica
+  exigiendo que `nav-split.ts` no sepa nada de identidad.
+  El gesto se **copia**, con la forma de la plataforma, y el test prohíbe por
+  ausencia que esta superficie gane `shell.open` o un plugin de opener: no es una
+  limitación sorteada, es el diseño (D3).
+  **Lo que cazó un guardián**: usé `--sunken`, `--radius-1` y `--text-dim`, tres
+  variables que no existen —la piel las escribe `--surface-2`, `--radius-control` y
+  `--text-muted`—, y el test que rehúsa una variable que nadie definió las nombró
+  una por una. Cuatro reglas que no habrían pintado nada.
+  Tres roturas deliberadas, tres mordidas: quitar la guarda de `hidden`, y mover la
+  fila debajo de Ajustes (dos tests distintos). La tercera comprobación de la
+  primera pasada fue **inválida** —mi ayudante restauraba el archivo antes de
+  correrla, así que midió el código intacto— y se repitió bien.
+  Gates: fmt, clippy del workspace 0 (comprobado por código de salida real, no por
+  grep), `npm run check` 0 errores, 96 tests de UI (9 nuevos), lint de i18n limpio,
+  `check:forms` fresco y 113 tests de `scenarios_shell` con los cinco escenarios
+  marcados en `.rs`, que es donde `verify` los lee. -->
 
 ## 4. Cierre
 
-- [ ] 4.1 `docs/acceso-remoto.md`: sección «Identidad: la de tu malla» y la
+- [x] 4.1 `docs/acceso-remoto.md`: sección «Identidad: la de tu malla» y la
   nota de fase 3 acotada a lo que sigue siendo nota (certificados SSH del
   bastión, el selector que conecta, el aviso de espera); **reescribir
   `the_rendezvous_pattern_is_documented_with_its_boundary` en
@@ -92,3 +278,49 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   `docs/plan-de-cambios.md`; corrección del tablero «Inicio de sesión» del
   lienzo y maqueta de la fila en `design-system/` (design D10); y la rama
   aterriza en `main` con `meltemi land identidad-propia confirm`
+
+  <!-- 2026-10-01: la reescritura del test de `docs.rs` era el punto fino y salió
+  como el design preveía: pedía el literal «BYO-identity» **dentro de las notas de
+  fase 3**, y eso era cierto mientras la identidad de la malla fuera futuro. Ahora
+  existe, así que tiene **sección propia** y las notas se acotan a lo que sigue
+  siendo nota: certificados SSH del bastión (autorización de transporte, otra cosa
+  que leer la identidad), el selector que **conecta** (la lista ya existe; elegir
+  y conectarse no) y el aviso de espera. El test conserva sus tres marcadores y
+  ahora pinea la semántica nueva por los dos lados: que la sección dice lo que
+  hace —el verbo de solo lectura, los verbos que el daemon nunca corre, el tiempo
+  límite, los tres rehúsos, «presencia no es control» y la verificación pendiente
+  con su versión— y que las notas **ya no prometen** lo construido, porque una
+  nota rancia hace que un lector decida que la feature está a años.
+  Los dos escenarios que `verify` dejó sin enlazar al primer intento valían los
+  tests que faltaban, no una marca manual. «Ejecutar es explícito y visible» tiene
+  ahora un test de integración que lo **prueba** en vez de afirmarlo: el simulado
+  rehúsa cualquier argv que no sea `status --json` y se queja por stderr, así que
+  si su queja aparece en la tubería del test, la cadena cliente → CLI → llamador
+  no se interrumpió; si el CLI hubiera capturado la salida, no llegaría nada. Ese
+  test enseñó además un gotcha: con `std::process` bloqueaba el runtime de un
+  `#[tokio::test]` monohilo y el daemon bajo prueba no llegaba a aceptar nunca —un
+  interbloqueo que parece un CLI colgado—; va con `tokio::process`. «Presencia no
+  es control» se asserta **por ausencia** en las tres superficies: ni botón ni
+  enlace en las filas de máquina, el módulo de decisión no conoce la palabra
+  endpoint, el bloque del terminal no despacha nada, y la página lo dice.
+  `verify` cerró en **22/22 (complete) con cero marcas manuales**, incluidos los
+  tres del bloque MODIFIED.
+  El smoke se hizo con la app viva y **sin ningún cliente de malla real**, que es
+  lo único honesto aquí: `mock-mesh` configurado, daemon y datos aislados. Las
+  cinco pantallas quedaron medidas —fila del pie con nombre y cuenta, Ajustes con
+  presencia en símbolo y palabra, el gesto citado para PowerShell porque la ruta
+  tiene espacios, plegada a riel con marca propia sobre Ajustes, y con `[identity]`
+  ausente **ningún** cambio en el pie— y la promesa «sin cuentas» se leyó intacta
+  justo debajo de la sección nueva, que es el escenario. Informe en
+  `docs/qa/2026-10-01-identidad-propia-smoke.md`, con lo que el smoke **no** midió
+  escrito aparte.
+  Del lienzo de acabado: el tablero «Inicio de sesión» vive **fuera del árbol**, en
+  el artefacto publicado de la sesión de diseño, así que la forma construible se
+  dibujó en `design-system/` (sección 6b, tres estados, con la corrección y su
+  razón escritas al pie) y editar el lienzo queda como acción del mantenedor. El
+  repositorio no puede corregir lo que no contiene, y decirlo es mejor que marcar
+  la tarea como si lo hubiera hecho.
+  Gates finales: fmt 0, `clippy --workspace --all-targets -D warnings` 0,
+  `cargo deny check` 0, **1.412 tests** en 120 binarios sin un solo fallo (el
+  intermitente de `e2e_agente_por_sesion` no apareció en dos corridas completas),
+  `validate` limpio y `verify` 22/22. -->

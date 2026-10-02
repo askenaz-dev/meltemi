@@ -114,7 +114,76 @@ fn the_rendezvous_pattern_is_documented_with_its_boundary() {
         "compiling and testing Meltemi needs no account and no network"
     );
 
-    // Phase 3 is annotated, never promised.
+    // The user's mesh identity is DOCUMENTED AS BUILT, with the boundary that
+    // makes it legal: read from the user's own client, never issued, never
+    // executed, and presence that controls nothing (identidad-propia 4.1).
+    let identity = doc
+        .split("## Identidad: la de tu malla")
+        .nth(1)
+        .expect("the identity section exists")
+        .split("\n## ")
+        .next()
+        .expect("the section has an end");
+    let identity_lower = identity
+        .to_ascii_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        identity_lower.contains("no tiene cuentas"),
+        "the section opens by saying Meltemi has no accounts"
+    );
+    assert!(
+        identity.contains("[identity]") && identity_lower.contains("de usuario"),
+        "the table is documented as user scope"
+    );
+    assert!(
+        identity_lower.contains("se ignora con diagnóstico"),
+        "and a project's table is said to be ignored, with its diagnostic"
+    );
+    assert!(
+        identity.contains("status --json") && identity_lower.contains("solo lectura"),
+        "the one read-only invocation is named"
+    );
+    for forbidden in ["`up`", "`login`", "`logout`"] {
+        assert!(
+            identity.contains(forbidden),
+            "the verbs the daemon never runs are named: {forbidden}"
+        );
+    }
+    assert!(
+        identity_lower.contains("tiempo límite"),
+        "the read has a deadline and the page says so"
+    );
+    assert!(
+        identity_lower.contains("presencia no es control"),
+        "presence is declared read-only: knowing a machine is online opens nothing"
+    );
+    for reason in ["not_configured", "client_missing", "not_linked"] {
+        assert!(
+            identity.contains(reason),
+            "the three refusals ask three remedies and are named: {reason}"
+        );
+    }
+    assert!(
+        identity.contains("identity-link") && identity_lower.contains("jamás ejecuta"),
+        "the gesture is composed and never run by the daemon"
+    );
+    assert!(
+        identity_lower.contains("--exec") && identity_lower.contains("heredadas"),
+        "and running it is the user's own binary with stdio inherited"
+    );
+    // The field verification that is still pending is written as pending, with
+    // the version the shape was read against. An honest page over a tidy one.
+    assert!(
+        identity_lower.contains("pendiente") && identity.contains("v1.102.5"),
+        "the pending field check names the version the type was read at"
+    );
+
+    // Phase 3 is annotated, never promised — and what identity-propia BUILT is no
+    // longer in the notes. This is the half of the test that used to demand the
+    // literal `BYO-identity` as a future thing: it was true until the mesh
+    // identity existed, and keeping it would have pinned the old semantics.
     let phase3 = doc
         .split("## Notas para el compañero móvil")
         .nth(1)
@@ -123,7 +192,11 @@ fn the_rendezvous_pattern_is_documented_with_its_boundary() {
         phase3.contains("no existe todavía"),
         "the phase-3 notes say plainly that none of it exists yet"
     );
-    for note in ["BYO-identity", "Selector de máquinas", "Aviso de espera"] {
+    for note in [
+        "Certificados SSH del bastión",
+        "El selector que conecta",
+        "Aviso de espera",
+    ] {
         assert!(
             phase3.contains(note),
             "the design note `{note}` is recorded"
@@ -132,6 +205,21 @@ fn the_rendezvous_pattern_is_documented_with_its_boundary() {
     assert!(
         phase3.contains("companero-movil"),
         "the notes name the change that will consume them"
+    );
+    // The notes must not promise what is already built, which is the failure mode
+    // a stale note creates: a reader deciding the feature is years away.
+    let phase3_lower = phase3
+        .to_ascii_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        !phase3_lower.contains("byo-identity"),
+        "the mesh identity is no longer a note: it has a section"
+    );
+    assert!(
+        phase3_lower.contains("ya existe"),
+        "and the notes point at what already exists instead of restating it"
     );
 }
 

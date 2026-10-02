@@ -250,6 +250,8 @@ pub enum Update {
     Fleet(FleetSnapshot),
     /// The effective harness was (re)read.
     Harness(HarnessSnapshot),
+    /// Who the user is on their own mesh, as the mesh's client answered it.
+    Identity(meltemi_proto::IdentityStatusResult),
     /// The known-project registry was (re)queried.
     Projects(Vec<ProjectRow>),
     /// The lanes of a race were (re)read for the board.
@@ -296,6 +298,9 @@ pub struct LiveData {
     /// The effective harness; `None` until it is asked for. It is asked for,
     /// never polled: reading four scopes off disk is not chrome.
     pub harness: Option<HarnessSnapshot>,
+    /// The last identity answer, absent until asked for: reading the mesh client
+    /// on every refresh would be chrome nobody requested (design D6).
+    pub identity: Option<meltemi_proto::IdentityStatusResult>,
     /// The race board currently open, when the shell is drilled into one.
     pub race: Option<RaceBoard>,
     pub selected: usize,
@@ -340,6 +345,7 @@ impl LiveData {
             projects: Vec::new(),
             fleet: None,
             harness: None,
+            identity: None,
             race: None,
             selected: 0,
             permission_queue: Vec::new(),
@@ -405,6 +411,7 @@ impl LiveData {
             }
             Update::Fleet(snapshot) => self.fleet = Some(snapshot),
             Update::Harness(snapshot) => self.harness = Some(snapshot),
+            Update::Identity(answer) => self.identity = Some(answer),
             Update::Race(board) => {
                 // Selection survives a re-read as long as the lane still exists;
                 // a lane that vanished clamps rather than pointing past the end.

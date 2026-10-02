@@ -49,6 +49,16 @@ pub enum Msg {
     HarnessLayerUserAgent,
     HarnessLayerProject,
     HarnessLayerProjectAgent,
+    IdentityTitle,
+    IdentityWhose,
+    IdentityNotConfigured,
+    IdentityClientMissing,
+    IdentityNotLinked,
+    IdentityThisMachine,
+    IdentityOnline,
+    IdentityOffline,
+    IdentityLastSeen,
+    IdentityGestureHint,
     RaceLoading,
     RaceEmpty,
     RaceUnknown,
@@ -139,6 +149,38 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         (Msg::BucketStopped, Lang::Es) => "detenidas",
         (Msg::BucketStopped, Lang::En) => "stopped",
         (Msg::FleetLoading, Lang::En) => "querying the fleet...",
+        (Msg::IdentityTitle, Lang::Es) => "Identidad",
+        (Msg::IdentityTitle, Lang::En) => "Identity",
+        (Msg::IdentityWhose, Lang::Es) => {
+            "la identidad es la de tu malla; Meltemi la lee, no la guarda"
+        }
+        (Msg::IdentityWhose, Lang::En) => {
+            "the identity is your mesh's; Meltemi reads it, it does not keep it"
+        }
+        (Msg::IdentityNotConfigured, Lang::Es) => {
+            "identidad apagada: sin tabla [identity] en tu configuración"
+        }
+        (Msg::IdentityNotConfigured, Lang::En) => {
+            "identity is off: no [identity] table in your configuration"
+        }
+        (Msg::IdentityClientMissing, Lang::Es) => "no se encontró tu cliente de malla",
+        (Msg::IdentityClientMissing, Lang::En) => "your mesh client was not found",
+        (Msg::IdentityNotLinked, Lang::Es) => "este equipo no tiene sesión en tu malla",
+        (Msg::IdentityNotLinked, Lang::En) => "this machine has no session on your mesh",
+        (Msg::IdentityThisMachine, Lang::Es) => "este equipo",
+        (Msg::IdentityThisMachine, Lang::En) => "this machine",
+        (Msg::IdentityOnline, Lang::Es) => "en línea",
+        (Msg::IdentityOnline, Lang::En) => "online",
+        (Msg::IdentityOffline, Lang::Es) => "fuera de línea",
+        (Msg::IdentityOffline, Lang::En) => "offline",
+        (Msg::IdentityLastSeen, Lang::Es) => "visto",
+        (Msg::IdentityLastSeen, Lang::En) => "last seen",
+        (Msg::IdentityGestureHint, Lang::Es) => {
+            "se imprime, no se ejecuta: córrelo tú y abrirá tu navegador"
+        }
+        (Msg::IdentityGestureHint, Lang::En) => {
+            "printed, never run: run it yourself and it opens your browser"
+        }
         (Msg::HarnessTitle, Lang::Es) => "Harness efectivo",
         (Msg::HarnessTitle, Lang::En) => "Effective harness",
         (Msg::HarnessNone, Lang::Es) => "sin harness configurado",
@@ -349,6 +391,16 @@ pub const ALL: &[Msg] = &[
     Msg::HarnessLayerUserAgent,
     Msg::HarnessLayerProject,
     Msg::HarnessLayerProjectAgent,
+    Msg::IdentityTitle,
+    Msg::IdentityWhose,
+    Msg::IdentityNotConfigured,
+    Msg::IdentityClientMissing,
+    Msg::IdentityNotLinked,
+    Msg::IdentityThisMachine,
+    Msg::IdentityOnline,
+    Msg::IdentityOffline,
+    Msg::IdentityLastSeen,
+    Msg::IdentityGestureHint,
     Msg::RaceLoading,
     Msg::RaceEmpty,
     Msg::RaceUnknown,

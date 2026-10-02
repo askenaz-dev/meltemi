@@ -99,6 +99,11 @@ export const REGISTRY: RegistryEntry[] = [
     template: { projectRoot: "", sessionId: "" },
     injectRoot: "projectRoot",
   }),
+  R("identity/status", "palette.m.identity.status", { view: "settings" }),
+  R("identity/link", "palette.m.identity.link", {
+    template: { hostname: "" },
+    view: "settings",
+  }),
   R("session/watch", "palette.m.session.watch", {
     template: { sessionId: "", watch: true },
   }),

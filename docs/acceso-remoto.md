@@ -356,21 +356,110 @@ Meltemi no exige cuenta ni red. Es infraestructura **del usuario**, igual que su
 final hacia el daemon sigue siendo el SSH del usuario hacia el socket local; la
 malla es solo el enrutamiento por el que ese SSH viaja.
 
+## Identidad: la de tu malla
+
+Meltemi **no tiene cuentas y no las va a tener**. Lo que sí tienes es una
+identidad en tu malla —tu dominio, tu IdP, verificada por quien debe, y ya
+presente en cada equipo— y Meltemi la **lee**. No la crea, no la guarda y no la
+usa para nada más: ninguna conexión se etiqueta por identidad y ningún uso local
+la necesita.
+
+Se enciende con una tabla en tu configuración **de usuario**:
+
+```toml
+# <config>/meltemi/config.toml   (nunca el .meltemi/ de un proyecto)
+[identity]
+mesh = "tailscale"                           # único valor hoy
+login-server = "https://headscale.mi-casa"   # si corres tu propio servidor
+command = "tailscale"                        # opcional: ruta o nombre del binario
+```
+
+De usuario y solo de usuario: la identidad es de la persona y de la máquina, y un
+`login-server` en un archivo versionado se comitearía. Una tabla `[identity]` en
+el `.meltemi/config.toml` de un proyecto **se ignora con diagnóstico**, para que
+quien la escribió ahí sepa por qué no pasó nada.
+
+Con eso, `meltemi identity` responde quién eres, de quién es la malla, cómo se
+llama este equipo, y tus equipos con su presencia:
+
+```
+guillmar@mi-casa on https://headscale.mi-casa
+this machine: mi-pc
+
+  mi-pc        online   windows  (this machine)
+  el-portatil  online   macOS
+  la-torre     offline  linux    last seen 2026-09-30T18:21:05Z
+```
+
+**Cómo se lee, exactamente.** El daemon invoca una sola vez el binario oficial
+que configuraste, en modo de solo lectura (`status --json`), con un **tiempo
+límite**; nunca `up`, `login`, `logout` ni nada que cambie estado. Es la misma
+regla con la que ejecuta `git`: el proceso es tuyo, la red la hace tu propio
+demonio de malla en su socket, y del código de Meltemi no sale un byte. De la
+salida del cliente **nada fuera del modelo sobrevive**: ni direcciones, ni claves
+públicas —el mapa de pares viene indexado por ellas—, ni la salida cruda.
+
+**Presencia no es control.** Saber que un equipo está en línea no abre nada: el
+camino hacia un daemon remoto sigue siendo tu túnel SSH, y si en un equipo corre
+`meltemid` se sabe al conectar, nunca se supone. La lista es para **reconocer**
+equipos, no para conectarse a ellos.
+
+**Cuando no se puede, se dice por qué.** Tres rehúsos, porque piden tres remedios
+distintos: no hay tabla (`not_configured`), no se encuentra el binario donde lo
+nombraste o no se pudo leer (`client_missing`), o el cliente está ahí y este
+equipo no ha iniciado sesión (`not_linked`). Ninguno degrada nada más: Meltemi
+sigue funcionando igual con la identidad apagada, que es el estado por defecto.
+
+**Enlazar este equipo** es un gesto que Meltemi **compone y jamás ejecuta**:
+
+```
+meltemi identity-link                 # lo imprime, en la forma de tu shell
+meltemi identity-link --exec          # lo corre: es tu binario, con tu terminal
+```
+
+Un daemon que ejecutara un login sería un daemon con la sesión de alguien en las
+manos. Así que el daemon devuelve texto; el CLI lo imprime y, solo con `--exec`,
+corre **tu** binario con la entrada y la salida heredadas, para que el URL que
+imprima tu cliente llegue a ti sin filtro y decidas en tu navegador. El gesto no
+lleva secretos: una clave de preautorización sería un secreto, y no se compone
+ninguna. La GUI lo ofrece con un botón de copiar y nada más — no tiene con qué
+abrir un navegador ni lo gana aquí.
+
+En la TUI, `:identity` e `:identity-link` desde la paleta (también `:identidad`);
+la respuesta se dibuja bajo el catálogo. En la GUI, la sección «Identidad» de
+Ajustes, y una fila en el pie de la barra **solo si configuraste la tabla**: un
+llamado permanente a enlazar en el cromo de quien nunca quiso identidad sería
+pedir algo, y esto no pide nada.
+
+> **Verificación de campo pendiente.** La forma del JSON del cliente se verificó
+> contra sus **definiciones de tipo publicadas**, fijadas en `v1.102.5`
+> (`ipn/ipnstate/ipnstate.go` y `tailcfg/tailcfg.go`), que es de donde el CLI
+> serializa su salida — más fuerte que una captura, que solo muestra los campos
+> que una máquina pobló en un estado. Queda correr `meltemi identity` una vez
+> contra un cliente instalado y enlazado; no cambia el contrato, y si algo
+> apareciera se anota aquí con la versión contra la que se leyó.
+
 ## Notas para el compañero móvil (fase 3)
 
 Lo que sigue **no existe todavía**: son decisiones de diseño anotadas para la
-change `companero-movil`, no capacidades presentes.
+change `companero-movil`, no capacidades presentes. La identidad de la malla sí
+existe ya y vive arriba, en su propia sección; lo que queda anotado es lo que
+sigue siendo nota.
 
-- **Identidad del usuario (BYO-identity)**: entrar con una cuenta del dominio
-  propio se resuelve con un IdP autohospedado que emite **certificados SSH de
-  vida corta**; el punto de encuentro y los PCs confían en esa CA. Meltemi no
-  gana cuentas: la lectura contraria —«Meltemi con login»— choca con el rumbo
-  («ni un servicio en la nube», sin lock-in) y exigiría enmienda fundacional.
-- **Selector de máquinas**: varios Meltemi en varios equipos no toca el daemon;
-  cada `meltemid` sigue siendo de su máquina. El multi-daemon es un concepto de
-  la aplicación — una lista de endpoints con su presencia.
-- **Aviso de espera**: ya especificado arriba (opt-in, mínimo, jamás emitido por
-  el daemon). La infraestructura del usuario es su casa natural.
+- **Certificados SSH del bastión**: entrar al punto de encuentro con una cuenta
+  del dominio propio se resuelve con un IdP autohospedado que emite
+  **certificados SSH de vida corta**; el bastión y los PCs confían en esa CA. Eso
+  es autorización de transporte y es otra cosa que leer la identidad de la malla:
+  Meltemi no gana cuentas en ninguno de los dos casos, y la lectura contraria
+  —«Meltemi con login»— choca con el rumbo («ni un servicio en la nube», sin
+  lock-in) y exigiría enmienda fundacional.
+- **El selector que conecta**: la **lista** de equipos con su presencia ya existe
+  (arriba). Lo que no existe es elegir uno y conectarse: varios Meltemi en varios
+  equipos no toca el daemon —cada `meltemid` sigue siendo de su máquina— y el
+  multi-daemon es un concepto de la aplicación, una lista de endpoints que
+  resolver al arrancar.
+- **Aviso de espera**: ya especificado y ya implementado (opt-in, mínimo, jamás
+  emitido por el daemon). La infraestructura del usuario es su casa natural.
 
 ## El aviso de espera (opt-in)
 

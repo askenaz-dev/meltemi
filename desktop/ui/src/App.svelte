@@ -14,6 +14,7 @@
     pushNotice,
     refreshChanges,
     refreshPending,
+    refreshIdentity,
     refreshProjects,
     refreshSessions,
     startIncomingRouter,
@@ -239,6 +240,9 @@
       void refreshProjects().catch(() => {});
       void refreshSessions().catch(() => {});
       void refreshChanges().catch(() => {});
+      // And the mesh identity, because the sidebar's foot renders it. It is the
+      // one seed whose answer may legitimately be "nothing to show".
+      void refreshIdentity().catch(() => {});
     });
 
     return () => {

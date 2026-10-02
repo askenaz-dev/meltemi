@@ -389,6 +389,262 @@ fn the_privacy_promise_is_visible_in_settings() {
     );
 }
 
+// ---- the user's mesh identity (identidad-propia) -----------------------------
+
+// Scenario: Ajustes muestra quién soy y mis equipos
+// Scenario: La promesa de privacidad sigue siendo cierta
+#[test]
+fn settings_shows_the_mesh_identity_with_presence_and_a_copyable_gesture() {
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    // Who, whose mesh, this machine, and the machines.
+    for key in [
+        "settings.identity",
+        "settings.identity.whose",
+        "settings.identity.provider",
+        "settings.identity.this",
+        "settings.identity.machines",
+    ] {
+        assert!(settings.contains(key), "Settings is missing `{key}`");
+    }
+    // Presence as a SYMBOL and a WORD: the symbol comes from the shared helper
+    // and the word from the catalogue, so neither can be shown alone.
+    assert!(
+        settings.contains("presenceGlyph(machine.presence)"),
+        "the presence symbol comes from the one place that spells it"
+    );
+    assert!(
+        settings.contains("settings.identity.online")
+            && settings.contains("settings.identity.offline"),
+        "and the word is always beside it"
+    );
+    // The gesture is offered as text with a copy control, and this surface does
+    // NOT run it: no launcher, no opener, no https origin (design D3).
+    assert!(
+        settings.contains("settings.identity.copy") && settings.contains("clipboard.writeText"),
+        "the gesture is copied, not executed"
+    );
+    assert!(
+        !settings.contains("shell.open") && !settings.contains("plugin-opener"),
+        "the desktop surface gains no way to launch or to open a URL here"
+    );
+    // And the platform's own form is what gets copied: the plain reading is the
+    // one that breaks when pasted into a shell that quotes differently.
+    assert!(
+        settings.contains("gesture.powershell") && settings.contains("gesture.posix"),
+        "both forms exist and the platform picks"
+    );
+
+    // The privacy promise is untouched and now has a neighbour that says whose
+    // identity this is, so nobody reads the section as a Meltemi account.
+    assert!(
+        settings.contains("settings.privacy.noAccounts"),
+        "the `no accounts` declaration stays exactly as it was"
+    );
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    assert_eq!(
+        catalog.matches("\"settings.privacy.noAccounts\"").count(),
+        2,
+        "in both catalogues, unchanged"
+    );
+    let whose: Vec<&str> = catalog
+        .lines()
+        .filter(|line| line.contains("\"settings.identity.whose\""))
+        .collect();
+    assert_eq!(whose.len(), 2, "the sentence is translated: {whose:?}");
+    let said = whose.join(" ").to_lowercase();
+    assert!(
+        said.contains("malla") && said.contains("no la guarda"),
+        "it says the identity is the mesh's and that Meltemi does not keep it: {said}"
+    );
+    assert!(
+        said.contains("mesh") && said.contains("does not keep"),
+        "in English too: {said}"
+    );
+}
+
+// Scenario: Sin enlazar, la barra ofrece enlazar y no exige nada
+// Scenario: Sin configurar, el cromo no pide nada
+#[test]
+fn the_foot_offers_linking_only_when_configured_and_asks_for_nothing_otherwise() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    // The decision is NOT in the component: it is a pure function with its own
+    // executed test, so "the chrome asks for nothing" is driven by a test rather
+    // than by whoever last edited the markup.
+    assert!(
+        sidebar.contains("footIdentity($identity)"),
+        "the foot asks the one place that decides"
+    );
+    assert!(
+        sidebar.contains("{#if foot.kind !== \"hidden\"}"),
+        "and renders nothing when the answer is nothing"
+    );
+    assert!(
+        sidebar.contains("nav.identity.link"),
+        "the one offer it makes, when this machine is what is missing"
+    );
+    // It leads to Settings and does nothing itself.
+    assert!(
+        sidebar.contains("onclick={() => onNavigate(\"settings\")}"),
+        "the row navigates and never acts"
+    );
+    // Settings stays the LAST entry of the foot: the row goes above it.
+    let foot = sidebar
+        .split_once("<div class=\"bottom\">")
+        .expect("the foot exists")
+        .1;
+    let identity_at = foot
+        .find("class=\"item ghost identity\"")
+        .expect("the identity row");
+    let settings_at = foot
+        .find("class:current={view === \"settings\"}")
+        .expect("the settings entry");
+    assert!(
+        identity_at < settings_at,
+        "identity sits ABOVE settings, which stays the last entry"
+    );
+
+    // The decision module exists and the rule is executed there.
+    let decided = read("desktop/ui/src/lib/identity.ts");
+    assert!(
+        decided.contains("case \"not_configured\":") && decided.contains("kind: \"hidden\""),
+        "not configured means the chrome does not change"
+    );
+    let test = read("desktop/ui/tests/identity.test.ts");
+    assert!(
+        test.contains("footIdentity(null)"),
+        "including before the daemon has answered, which is most of the first second"
+    );
+}
+
+// Scenario: Presencia no es control
+#[test]
+fn a_machine_being_online_opens_nothing_in_any_surface() {
+    // The claim is about what is NOT there, which is the only way it can keep
+    // being true: knowing a machine is reachable must not become a way to reach
+    // it. The path to another machine's daemon stays the user's own tunnel, and
+    // whether `meltemid` runs there is learned by connecting, never assumed.
+
+    // The desktop's machine list: rows of text, with nothing to press.
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    let list = settings
+        .split_once("<ul class=\"machines\">")
+        .expect("the machine list exists")
+        .1;
+    let list = &list[..list.find("</ul>").expect("the list closes")];
+    for interactive in ["<button", "onclick", "<a ", "href="] {
+        assert!(
+            !list.contains(interactive),
+            "a machine row must not be actionable (`{interactive}`): {list}"
+        );
+    }
+
+    // And nothing anywhere turns a machine into an endpoint. This is the shape
+    // the feature would take if it ever crossed the line, so it is named.
+    let decided = read("desktop/ui/src/lib/identity.ts");
+    for reaching in ["endpoint", "connect", "invoke(", "tunnel", "ssh"] {
+        assert!(
+            !decided.to_lowercase().contains(reaching),
+            "the identity module must not know how to reach anything (`{reaching}`)"
+        );
+    }
+
+    // The terminal draws the same list as lines, and its keymap gains no action
+    // on a machine: the identity block is read, never operated.
+    let render = read("tui/src/shell/render.rs");
+    let block = render
+        .split_once("fn append_identity(")
+        .expect("the terminal renders identity")
+        .1;
+    let block = &block[..block
+        .find("\n/// The name of a harness layer")
+        .expect("the function ends")];
+    for reaching in ["endpoint", "connect(", "Effect::", "Command::"] {
+        assert!(
+            !block.contains(reaching),
+            "the identity block renders and does not act (`{reaching}`)"
+        );
+    }
+
+    // The posture is written where a reader looks for it, not only in code.
+    let doc = read("docs/acceso-remoto.md").to_lowercase();
+    assert!(
+        doc.contains("presencia no es control"),
+        "the page states it"
+    );
+    assert!(
+        doc.contains("sigue siendo tu túnel ssh"),
+        "and says what the path to another machine still is"
+    );
+}
+
+// Scenario: Plegada, la identidad sigue alcanzable
+#[test]
+fn folded_to_a_rail_the_identity_row_keeps_its_label_and_its_focus() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    let foot = sidebar
+        .split_once("<div class=\"bottom\">")
+        .expect("the foot exists")
+        .1;
+    let row = foot
+        .split_once("class=\"item ghost identity\"")
+        .expect("the identity row")
+        .1;
+    let row = &row[..row.find("</button>").expect("the row closes")];
+    // A real button, so it keeps focus when folded; and an accessible label, so
+    // the rail is not a mystery mark.
+    assert!(
+        row.contains("aria-label="),
+        "the row carries its own accessible label: {row}"
+    );
+    assert!(
+        row.contains("class=\"label\""),
+        "and the visible label is the thing the rail hides, not the whole row"
+    );
+    // Its mark is its own, never the agents' initials avatar: that palette
+    // identifies agents, and a login with the same initials would render the
+    // same chip (design D6).
+    assert!(
+        row.contains("<Icon name=\"identity\""),
+        "its own mark: {row}"
+    );
+    assert!(
+        !row.contains("<Avatar"),
+        "and not the agents' avatar: {row}"
+    );
+    // The foot is a sibling of the navigation and the tree, so the row takes no
+    // part in the split between them.
+    let split = read("desktop/ui/src/lib/nav-split.ts");
+    assert!(
+        !split.contains("identity"),
+        "the height arithmetic knows nothing about identity"
+    );
+}
+
+// Scenario: La identidad nunca es requisito
+#[test]
+fn onboarding_never_mentions_identity_and_never_asks_for_it() {
+    // Nothing of this is a requirement, so the first run says nothing about it.
+    let onboarding = read("desktop/ui/src/lib/components/Onboarding.svelte");
+    let lowered = onboarding.to_lowercase();
+    assert!(
+        !lowered.contains("identity") && !lowered.contains("identidad"),
+        "the onboarding does not mention identity"
+    );
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    for line in catalog
+        .lines()
+        .filter(|line| line.contains("\"onboarding."))
+    {
+        let lowered = line.to_lowercase();
+        assert!(
+            !lowered.contains("identidad")
+                && !lowered.contains("mesh")
+                && !lowered.contains("malla"),
+            "no onboarding string mentions identity: {line}"
+        );
+    }
+}
+
 // ---- identity ----------------------------------------------------------------
 
 // Scenario: Marca presente en el chrome

@@ -40,6 +40,7 @@
     <a href="#tipografia" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">4 · Tipografía</a>
     <a href="#espacio" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">5 · Espacio y forma</a>
     <a href="#estado" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">6 · Vocabulario de estado</a>
+    <a href="#identidad-malla" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">6b · Identidad de la malla</a>
     <a href="#senales" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">7 · Prioridad de señales</a>
     <a href="#foco" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">8 · Foco y teclado</a>
     <a href="#movimiento" style="border:1px solid #2c3a57;border-radius:7px;padding:6px 12px;color:#94a3b8;font-size:13px" style-hover="border-color:#60a5fa;color:#e2e8f0">9 · Movimiento</a>
@@ -391,6 +392,60 @@
     </div>
   </section>
 
+  <!-- 6b · IDENTIDAD DE LA MALLA (identidad-propia) -->
+  <section id="identidad-malla" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
+    <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5b6b8c">06b</span>
+      <h2 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.4px">Identidad de la malla</h2>
+      <span style="font-size:13px;color:#5b6b8c">Mesh identity</span>
+      <span style="margin-left:auto;font-size:12px;color:#5b6b8c;font-family:'JetBrains Mono',monospace">Sidebar.svelte · Settings.svelte</span>
+    </div>
+    <p style="margin:0 0 22px;max-width:74ch;color:#94a3b8;text-wrap:pretty">La identidad es la de <strong style="color:#e2e8f0;font-weight:500">tu malla</strong>: Meltemi la lee, no la guarda, y no tiene cuentas. Su marca es <strong style="color:#e2e8f0;font-weight:500">propia, nunca el avatar de iniciales de la flota</strong> — esa paleta identifica agentes, y un login con las mismas iniciales rendiría el mismo chip. La fila del pie aparece <strong style="color:#e2e8f0;font-weight:500">solo si hay tabla <code style="font-family:'JetBrains Mono',monospace">[identity]</code></strong>: un llamado permanente a enlazar en el cromo de quien nunca quiso identidad sería pedir algo.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:16px">
+      <div style="flex:1 1 300px;background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+        <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c;font-weight:500;margin-bottom:12px">Pie de la barra · enlazada</div>
+        <div style="background:#0e1526;border:1px solid #1a2540;border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:10px;max-width:216px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round"><path d="M12 3.5a2 2 0 100 4 2 2 0 000-4zM5 16.5a2 2 0 100 4 2 2 0 000-4zM19 16.5a2 2 0 100 4 2 2 0 000-4zM10.8 8.2L6.6 15M13.2 8.2l4.2 6.8M7.5 18.5h9" /></svg>
+          <div style="display:grid;min-width:0">
+            <span style="font-size:13px;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">guillmar@mi-casa</span>
+            <span style="font-size:11px;color:#94a3b8">3 equipos</span>
+          </div>
+        </div>
+        <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c;font-weight:500;margin:18px 0 12px">Sin enlazar · ofrece, no exige</div>
+        <div style="background:#0e1526;border:1px solid #1a2540;border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:10px;max-width:216px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round"><path d="M12 3.5a2 2 0 100 4 2 2 0 000-4zM5 16.5a2 2 0 100 4 2 2 0 000-4zM19 16.5a2 2 0 100 4 2 2 0 000-4zM10.8 8.2L6.6 15M13.2 8.2l4.2 6.8M7.5 18.5h9" /></svg>
+          <span style="font-size:13px;color:#e2e8f0">Enlazar este equipo</span>
+        </div>
+        <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c;font-weight:500;margin:18px 0 12px">Plegada a riel</div>
+        <div style="background:#0e1526;border:1px solid #1a2540;border-radius:8px;padding:8px;display:flex;justify-content:center;width:40px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round"><path d="M12 3.5a2 2 0 100 4 2 2 0 000-4zM5 16.5a2 2 0 100 4 2 2 0 000-4zM19 16.5a2 2 0 100 4 2 2 0 000-4zM10.8 8.2L6.6 15M13.2 8.2l4.2 6.8M7.5 18.5h9" /></svg>
+        </div>
+        <p style="margin:10px 0 0;font-size:12px;color:#5b6b8c">Conserva su etiqueta accesible y su foco. Ajustes sigue siendo la última entrada, debajo.</p>
+      </div>
+      <div style="flex:1 1 380px;background:#0e1526;border:1px solid #2c3a57;border-radius:10px;padding:18px">
+        <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c;font-weight:500;margin-bottom:12px">Ajustes · sección Identidad</div>
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:10px">La identidad es la de tu malla: Meltemi la lee, no la guarda.</div>
+        <div style="font-size:14px;color:#e2e8f0;font-weight:500">guillmar@mi-casa</div>
+        <div style="display:grid;gap:3px;margin:10px 0 14px;font-size:12px">
+          <div style="display:flex;gap:10px"><span style="color:#5b6b8c;min-width:92px">Malla</span><span style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">https://headscale.mi-casa</span></div>
+          <div style="display:flex;gap:10px"><span style="color:#5b6b8c;min-width:92px">Este equipo</span><span style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">mi-pc</span></div>
+        </div>
+        <div style="display:grid;gap:3px;font-size:12px">
+          <div style="display:flex;align-items:baseline;gap:8px"><span style="color:#4ade80">●</span><span style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">mi-pc</span><span style="color:#94a3b8">en línea</span><span style="color:#5b6b8c">windows · este equipo</span></div>
+          <div style="display:flex;align-items:baseline;gap:8px"><span style="color:#4ade80">●</span><span style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">el-portatil</span><span style="color:#94a3b8">en línea</span><span style="color:#5b6b8c">macOS</span></div>
+          <div style="display:flex;align-items:baseline;gap:8px"><span style="color:#5b6b8c">○</span><span style="font-family:'JetBrains Mono',monospace;color:#e2e8f0">la-torre</span><span style="color:#94a3b8">fuera de línea</span><span style="color:#5b6b8c">linux · visto 2026-09-30</span></div>
+        </div>
+        <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#5b6b8c;font-weight:500;margin:18px 0 8px">Gesto de vínculo · se copia, no se ejecuta</div>
+        <pre style="margin:0;background:#1a2540;border:1px solid #2c3a57;border-radius:6px;padding:10px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#e2e8f0;white-space:pre-wrap;word-break:break-all">tailscale up --login-server https://headscale.mi-casa --hostname mi-pc</pre>
+        <p style="margin:8px 0 0;font-size:12px;color:#5b6b8c">Córrelo tú: abrirá tu navegador para que inicies sesión con tu propio proveedor. Meltemi no lo ejecuta ni ve esa sesión. Esta superficie no tiene con qué abrir un URL y no lo gana aquí.</p>
+      </div>
+    </div>
+    <div style="margin-top:16px;border:1px solid #2c3a57;border-left:3px solid #fbbf24;border-radius:8px;background:#0e1526;padding:14px 16px">
+      <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#fbbf24;font-weight:500;margin-bottom:6px">Corrección del lienzo de acabado</div>
+      <p style="margin:0;font-size:13px;color:#94a3b8;text-wrap:pretty">El tablero «Inicio de sesión» del lienzo —que vive fuera del árbol, en el artefacto publicado de la sesión de diseño— dibuja un <strong style="color:#e2e8f0;font-weight:500">código de dispositivo dentro de la app</strong>. Eso no es construible: Meltemi no emite identidad ni ejecuta el login. La forma construible es la de arriba, en tres estados: el gesto con copiar (y el URL que imprima el cliente, como texto, fuera de la app), «este equipo no tiene sesión» leído por <code style="font-family:'JetBrains Mono',monospace">identity/status</code>, y «este equipo ya es tuyo» con la lista de equipos. Queda como acción del mantenedor sobre el lienzo: el repositorio no puede editar un artefacto que no contiene.</p>
+    </div>
+  </section>
+
   <!-- 7 · SEÑALES -->
   <section id="senales" style="max-width:1180px;margin:0 auto;padding:64px 32px 0">
     <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #2c3a57;padding-bottom:12px;margin-bottom:28px">
@@ -659,6 +714,8 @@ class Component extends DCLogic {
       { key: "waiting_permission", glyph: "●", ascii: "!", token: "--warn", color: T.dWarn, es: "esperando permiso", en: "waiting permission" },
       { key: "ended", glyph: "■", ascii: "x", token: "--text-muted", color: T.dMuted, es: "finalizada", en: "ended" },
       { key: "interrupted", glyph: "▲", ascii: "!", token: "--danger", color: T.dDanger, es: "interrumpida", en: "interrupted" },
+      { key: "mesh_online", glyph: "●", ascii: "*", token: "--ok", color: T.dOk, es: "en línea", en: "online" },
+      { key: "mesh_offline", glyph: "○", ascii: "o", token: "--text-faint", color: T.dFaint, es: "fuera de línea", en: "offline" },
     ];
 
     const typeScale = [

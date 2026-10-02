@@ -4,7 +4,15 @@
   import { get } from "svelte/store";
   import { conn, request } from "../daemon";
   import { locale, setLocale, t } from "../i18n";
-  import { activeProject, pushNotice } from "../stores";
+  import {
+    activeProject,
+    identity,
+    identityGesture,
+    pushNotice,
+    refreshIdentity,
+    type LinkGesture,
+  } from "../stores";
+  import { orderedMachines, presenceGlyph } from "../identity";
   import {
     setOpenWithTemplate,
     setStoredLocale,
@@ -45,6 +53,47 @@
     }
     await loadNoticeState();
   };
+
+  /**
+   * The linking gesture, asked for and never run.
+   *
+   * This surface has no plugin to launch a process and no reach to any https
+   * origin — its CSP is pinned by a test — so "copy it" is not a limitation
+   * worked around but the whole design: the user runs it, in their terminal,
+   * and signs in with their own provider (identidad-propia design D3).
+   */
+  let gesture: LinkGesture | null = $state(null);
+  let copied = $state(false);
+
+  const loadGesture = async () => {
+    try {
+      gesture = await identityGesture();
+    } catch {
+      // No gesture to offer is not an error of this view: the identity block
+      // above already says why, with the daemon's own remedy.
+      gesture = null;
+    }
+  };
+
+  $effect(() => {
+    // Asked for when the view opens, so the answer is current rather than
+    // whatever was true when the window did.
+    void refreshIdentity().then(loadGesture);
+  });
+
+  async function copyGesture() {
+    if (!gesture) return;
+    // The platform's own form: the plain reading is the one that breaks when
+    // pasted into a shell that quotes differently.
+    const text = navigator.userAgent.includes("Windows") ? gesture.powershell : gesture.posix;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+      pushNotice($t("settings.identity.copied"), "info");
+    } catch {
+      copied = false;
+    }
+  }
 
   const THEMES: ThemeChoice[] = ["system", "light", "dark"];
 
@@ -204,6 +253,95 @@
     {/if}
   </section>
 
+  <section aria-labelledby="identity">
+    <h2 id="identity">{$t("settings.identity")}</h2>
+    <!-- Whose identity this is, said where it is read: nobody may take this
+         section for a Meltemi account, because there are none (design D7). -->
+    <p class="hint">{$t("settings.identity.whose")}</p>
+    {#if $identity === null}
+      <p class="hint">{$t("settings.identity.notConfigured")}</p>
+    {:else if !$identity.available}
+      <p>
+        {$identity.reason === "client_missing"
+          ? $t("settings.identity.clientMissing")
+          : $identity.reason === "not_linked"
+            ? $t("settings.identity.notLinked")
+            : $t("settings.identity.notConfigured")}
+      </p>
+      {#if $identity.remedy}
+        <p class="hint mono">{$identity.remedy}</p>
+      {/if}
+    {:else}
+      {#if $identity.user}
+        <p class="who">{$identity.user}</p>
+      {/if}
+      {#if $identity.provider}
+        <div class="row">
+          <span class="label">{$t("settings.identity.provider")}</span>
+          <span class="mono">{$identity.provider}</span>
+        </div>
+      {/if}
+      {#if $identity.this}
+        <div class="row">
+          <span class="label">{$t("settings.identity.this")}</span>
+          <span class="mono">{$identity.this}</span>
+        </div>
+      {/if}
+      {#if $identity.machines.length > 0}
+        <h3>{$t("settings.identity.machines")}</h3>
+        <ul class="machines">
+          {#each orderedMachines($identity.machines) as machine (machine.name)}
+            <li>
+              <!-- Symbol AND word, never either alone and never colour alone:
+                   the same rule the terminal follows with its ASCII twin. -->
+              <span
+                class="presence"
+                class:on={machine.presence === "online"}
+                aria-hidden="true">{presenceGlyph(machine.presence)}</span
+              >
+              <span class="name">{machine.name}</span>
+              <span class="word"
+                >{machine.presence === "online"
+                  ? $t("settings.identity.online")
+                  : $t("settings.identity.offline")}</span
+              >
+              {#if machine.system}<span class="hint">{machine.system}</span>{/if}
+              {#if machine.lastSeen}
+                <span class="hint">{$t("settings.identity.lastSeen", { at: machine.lastSeen })}</span>
+              {/if}
+              {#if machine.thisMachine}
+                <span class="hint">({$t("settings.identity.thisMachine")})</span>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    {/if}
+    {#if gesture}
+      <h3>{$t("settings.identity.gesture")}</h3>
+      <pre class="gesture">{navigator.userAgent.includes("Windows")
+          ? gesture.powershell
+          : gesture.posix}</pre>
+      <p class="hint">{$t("settings.identity.gesture.hint")}</p>
+      {#if gesture.loginServer}
+        <div class="row">
+          <span class="label">{$t("settings.identity.loginServer")}</span>
+          <span class="mono">{gesture.loginServer}</span>
+        </div>
+      {/if}
+      <div class="actions">
+        <button onclick={() => void copyGesture()}>
+          <Icon name={copied ? "check" : "copy"} size={14} />
+          {$t("settings.identity.copy")}
+        </button>
+        <button onclick={() => void refreshIdentity().then(loadGesture)}>
+          <Icon name="refresh" size={14} />
+          {$t("settings.identity.reread")}
+        </button>
+      </div>
+    {/if}
+  </section>
+
   <section aria-labelledby="privacy">
     <h2 id="privacy">{$t("settings.privacy")}</h2>
     <ul class="privacy">
@@ -303,6 +441,55 @@
     font-family: var(--font-mono);
     font-size: var(--fs-dense);
     background: var(--surface);
+  }
+  .machines {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .machines li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+    font-size: var(--fs-caption);
+  }
+  .machines .name {
+    font-family: var(--font-mono);
+  }
+  /* Colour is added to the symbol, never the thing that carries the meaning:
+     the glyph differs in shape and the word is always beside it. */
+  .presence {
+    color: var(--text-faint);
+  }
+  .presence.on {
+    color: var(--ok);
+  }
+  .who {
+    margin: 0;
+    font-weight: 500;
+  }
+  .gesture {
+    margin: 0;
+    padding: var(--sp-2);
+    background: var(--surface-2);
+    border: 1px solid var(--hair);
+    border-radius: var(--radius-control);
+    font-family: var(--font-mono);
+    font-size: var(--fs-caption);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .actions {
+    display: flex;
+    gap: var(--sp-2);
+  }
+  h3 {
+    margin: var(--sp-2) 0 0;
+    font-size: var(--fs-caption);
+    font-weight: 500;
+    color: var(--text-muted);
   }
   .privacy {
     margin: 0;

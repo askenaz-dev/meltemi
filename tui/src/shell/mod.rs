@@ -228,6 +228,12 @@ fn handle_action(
         Some(Effect::RefreshHarness { agent }) => {
             let _ = commands.send(Command::Harness { agent });
         }
+        Some(Effect::IdentityStatus) => {
+            let _ = commands.send(Command::Identity);
+        }
+        Some(Effect::IdentityLink { hostname }) => {
+            let _ = commands.send(Command::IdentityLink { hostname });
+        }
         // The Input overlay's raw `agent name`: parsed HERE so a malformed
         // line becomes a visible notice instead of a guessed request.
         Some(Effect::LinkSubscription(raw)) => {
