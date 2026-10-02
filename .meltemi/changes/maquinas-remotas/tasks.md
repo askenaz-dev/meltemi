@@ -11,7 +11,7 @@ change se detiene y vuelve a design (design D7).
 
 ## 1. La lista
 
-- [ ] 1.1 `core/meltemi-client/src/machines.rs`: `[[client.machines]]`
+- [x] 1.1 `core/meltemi-client/src/machines.rs`: `[[client.machines]]`
   (`name`, `endpoint`) leída de la configuración **de usuario** por el mismo
   camino que `configured_endpoint` —directorio de configuración y ninguna raíz
   de proyecto—, con `endpoint = "local"` resuelto al default de la plataforma,
@@ -20,6 +20,27 @@ change se detiene y vuelve a design (design D7).
   `user`) nombrando dónde vive eso (design D1) — escenarios «Las máquinas se
   leen del usuario y nunca de un repositorio» y «La lista no lleva material de
   claves» — gates: suite de `meltemi-client`
+  <!-- 2026-10-02: el rechazo de material de claves se escribió **ruidoso y no
+  silencioso**, que es lo contrario de lo que primero parece prudente: si
+  `identity-file` se ignorara, el usuario creería que su clave está en uso y no
+  tendría forma de ver por qué no pasa nada. Se rehúsa la máquina entera y se
+  nombra dónde vive ese dato (`~/.ssh/config`, el agente de claves). Siete campos
+  en la lista, comparados sin distinguir mayúsculas, porque `IdentityFile` es
+  como lo escribe `ssh`.
+  `endpoint = "local"` es azúcar con razón: un named pipe con el SID del usuario
+  dentro no es algo para reescribir a mano, y el primero que lo teclee mal tendrá
+  un cliente que habla con nada en silencio.
+  La garantía de ámbito es **estructural**, y el test la fija como tal: `read`
+  toma un directorio de configuración y ningún argumento más, así que no existe
+  parámetro por el que una raíz de proyecto pueda llegar. Es la misma forma que
+  `configured_endpoint`, y es lo que tendría que cambiar para romper la regla.
+  La prueba de conexión **no pasa por `bootstrap`**: no es que `may_start` ya
+  rehúse los `exec:` —que lo hace—, es que probar no debe poder arrancar nada ni
+  por accidente, así que conecta directo. Probar una máquina apagada **falla**, y
+  eso es la respuesta correcta.
+  Dos roturas deliberadas, dos mordidas: vaciar la lista de campos rehusados y
+  quitar la resolución de `local`.
+  Gates: fmt, clippy de `meltemi-client` en 0, 51 tests del crate verdes. -->
 
 ## 2. Cambiar de máquina
 
