@@ -197,6 +197,9 @@ SUBCOMMANDS:
     harness [--agent <id>]
                         the harness that applies: every piece with the layer it
                         comes from, plus what is covered or unreadable and why
+    machines            the machines you configured, with the one in use marked.
+                        Reading only: each run of this CLI resolves its own
+                        endpoint, so there is nobody here to switch
     identity            who you are on your OWN mesh, which machines it knows
                         and whether each is online. Meltemi reads your mesh
                         client; it has no accounts and issues no identity
@@ -450,6 +453,11 @@ pub enum Command {
     /// Read the harness that effectively applies (`harness/effective`), with
     /// the layer each piece comes from and what does not apply.
     Harness { agent: Option<String> },
+    /// List the machines this user configured (maquinas-remotas design D6).
+    ///
+    /// Local: touches no daemon. Reading only — a one-shot CLI has nobody to
+    /// switch, and the verb says where switching lives.
+    Machines,
     /// Read who the user is on their own mesh, and which machines it knows
     /// (identidad-propia design D6).
     Identity,
@@ -1248,6 +1256,12 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], local: Local) -> Action {
                 "`harness` takes at most `--agent <id>` (an id of the fleet catalog)".into(),
             ),
         },
+        "machines" if rest.is_empty() => Action::Run(Command::Machines),
+        "machines" => Action::Usage(
+            "`machines` takes no arguments: it lists, and switching lives in the terminal shell \
+             (`:machine <name>`) or in the desktop's Settings"
+                .into(),
+        ),
         "identity" if rest.is_empty() => Action::Run(Command::Identity),
         "identity" => Action::Usage(
             "`identity` takes no arguments; to link this machine use `meltemi identity-link`"
@@ -1926,6 +1940,24 @@ mod tests {
             plan_of(&["bridge", "extra"], false).action,
             Action::Usage(_)
         ));
+    }
+
+    // Scenario: machines imprime la lista y cuál está activa
+    #[test]
+    fn machines_lists_and_says_where_switching_lives() {
+        assert_eq!(
+            plan_of(&["machines"], false).action,
+            Action::Run(Command::Machines)
+        );
+        // Asking this verb to switch is the mistake worth answering well: a
+        // one-shot run has nobody to switch, so it says where switching is.
+        match plan_of(&["machines", "la-torre"], false).action {
+            Action::Usage(message) => {
+                assert!(message.contains(":machine"), "{message}");
+                assert!(message.contains("Settings"), "{message}");
+            }
+            other => panic!("expected a usage error, got {other:?}"),
+        }
     }
 
     // Scenario: identity imprime quién y qué equipos

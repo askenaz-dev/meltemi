@@ -77,11 +77,27 @@ change se detiene y vuelve a design (design D7).
 
 ## 3. Las superficies
 
-- [ ] 3.1 CLI: verbo `machines` con su render humano y `--json`/`--yaml`, que
+- [x] 3.1 CLI: verbo `machines` con su render humano y `--json`/`--yaml`, que
   **lista y no cambia**, diciendo por dónde se cambia; `docs/referencia-cli.md`
   regenerada (design D6) — escenarios «machines imprime la lista y cuál está
   activa» y «Sin máquinas configuradas, dice cómo se configuran» — gates:
   suite de `tui`, parity
+  <!-- 2026-10-02: el verbo **lista y no cambia**, y eso no es una carencia que
+  disimular sino un hecho del CLI: cada corrida resuelve su endpoint y termina,
+  así que no hay a quién cambiarle la máquina. El render lo dice —dónde sí se
+  cambia— y pedirle que cambie es un error de uso que responde con el sitio
+  correcto en vez de «sobran argumentos».
+  Dos casos que el escenario no pedía y que la lista necesita: cuando **ninguna**
+  fila está activa (ordinario con `MELTEMI_ENDPOINT` puesto, y desconcertante si
+  no se dice), se nombra el endpoint en uso; y sin máquinas configuradas no hay
+  error, hay la forma de la configuración, porque tener una sola máquina es el
+  caso normal y no uno roto.
+  Se muestra la **vía** (`ssh la-torre`) y no el comando entero: es lo que un
+  humano reconoce de un vistazo, y el comando completo queda a su lado.
+  Gates: fmt, clippy de `meltemi` 0, 21 binarios de test verdes,
+  `docs/referencia-cli.md` regenerada. Nota del camino: los tests de integración
+  del CLI fallaron hasta correr `cargo build --workspace --bins`, que es el gotcha
+  conocido y no una regresión. -->
 - [ ] 3.2 TUI: `machines`/`maquinas` y `machine <nombre>`/`maquina <nombre>` en
   la paleta con sus `Effect`, su `Command` en `conn.rs`, su estado y su render,
   la máquina activa en la cabecera junto al `vía …`, y el rehúso que nombra las
