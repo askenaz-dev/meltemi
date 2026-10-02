@@ -80,6 +80,24 @@ crate = "hyper"
 wrappers = ["reqwest", "hyper-util"]
 reason = "reachable only under the desktop shell's webview framework"
 
+# SSH is not HTTP and is not TLS, and that distinction is the whole reason the
+# mobile companion needs no exception here (companero-movil design D2). The
+# phone has no system `ssh` to launch, so the app speaks the protocol itself
+# with `russh`, whose REQUIRED tree is pure RustCrypto — aes, sha2, hmac,
+# ed25519-dalek, curve25519-dalek, the NIST curves, ml-kem — plus tokio and
+# futures, which this workspace already has. Not one banned crate among them.
+#
+# What russh does leave ajar are two OPTIONAL backends, and those are the door
+# this pair of bans closes. Anyone turning them on — in the mobile crate or
+# anywhere else — argues for it here, in writing, exactly as `reqwest` has to.
+[[bans.deny]]
+crate = "ring"
+reason = "the SSH client uses RustCrypto; a second crypto backend enters only with a written argument"
+
+[[bans.deny]]
+crate = "aws-lc-rs"
+reason = "the SSH client uses RustCrypto; a second crypto backend enters only with a written argument"
+
 [[bans.deny]]
 crate = "rustls"
 reason = "no TLS stack in the workspace; the official CLI owns the transport"

@@ -16,11 +16,28 @@ design, porque sería la superficie móvil siendo la única consumidora de algo
 
 ## 1. El canal
 
-- [ ] 1.1 `deny.toml`: prohibir `ring` y `aws-lc-rs` con su razón escrita —las
+- [x] 1.1 `deny.toml`: prohibir `ring` y `aws-lc-rs` con su razón escrita —las
   features opcionales de `russh` son la puerta que nadie debe abrir sin
   argumentarlo aquí—, y dejar anotado que SSH no es HTTP ni TLS y que por eso
   no hace falta excepción alguna (design D2) — escenario «La malla del usuario
   no es una dependencia de Meltemi» (vigente) — gates: `cargo deny check`
+  <!-- 2026-10-02: confirmado contra crates.io antes de escribir una línea:
+  `russh 0.63.3` es **Apache-2.0** —la misma licencia del proyecto— y su árbol
+  **obligatorio** es RustCrypto puro más `tokio` y `futures`, que el workspace ya
+  tiene. Ni `rustls`, ni `openssl`, ni `native-tls`, ni `hyper`, ni `reqwest`. De
+  ahí que `deny.toml` **gane prohibiciones en vez de una excepción**: `ring` y
+  `aws-lc-rs`, que son las dos features opcionales de russh y la única puerta que
+  deja entornada. Quien las encienda argumenta aquí por escrito, como `reqwest`.
+  Declarado porque §10 lo pide: russh pina `ssh-key =0.7.0-rc.11`, un candidato
+  de versión, con `=` y no con un rango. Las alternativas son peores —
+  `libssh2-sys` es C y arrastra OpenSSL, prohibido; `thrussh` está sin mantener —
+  así que se acepta y queda escrito donde se audita.
+  Hallazgo que simplifica el resto: `meltemi_client::transport::Stream` es
+  `Box<dyn RawStream>` sobre **cualquier** `AsyncRead + AsyncWrite + Unpin +
+  Send`. El canal SSH entra en la pila de cliente existente **sin tocar una línea
+  de `meltemi-client`**, que es la forma más fuerte de que «el daemon no gana
+  nada» sea verdad: tampoco gana nada el cliente.
+  Gates: `cargo deny check` limpio con las dos prohibiciones nuevas. -->
 - [ ] 1.2 `mobile/` (crate nuevo) con `russh` pineado: diálogo SSH hasta un
   canal de sesión que ejecuta el comando puente, expuesto como el mismo
   `Stream` que el resto del cliente ya consume, con el host key fijado en el
