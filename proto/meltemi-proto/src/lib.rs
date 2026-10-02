@@ -2705,7 +2705,8 @@ pub struct IdentityStatusResult {
     /// Who the user is on their mesh, as the mesh names them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
-    /// Which mesh answered — the value of `[identity] mesh`.
+    /// Whose mesh this is: the configured `login-server`, else the name the mesh
+    /// gives itself, else the value of `[identity] mesh` (design D2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     /// This machine's name on the mesh.

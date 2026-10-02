@@ -58,7 +58,7 @@
         },
         "provider": {
           "type": "string",
-          "description": "Which mesh answered: the value of `[identity] mesh`."
+          "description": "Whose mesh this is: the configured `login-server` when the user runs their own, else the name the mesh gives itself, else the value of `[identity] mesh`. One slot, because that is one question."
         },
         "this": {
           "type": "string",

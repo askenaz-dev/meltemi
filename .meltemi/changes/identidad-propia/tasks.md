@@ -58,7 +58,7 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   nombre desconocido sería ejecutar un binario desconocido y adivinar lo que
   imprima, que es justo el fallo que esta change existe para evitar. Cada rechazo
   deja identidad apagada y nombra su remedio, como manda la casa. -->
-- [ ] 2.2 `core/meltemid/src/identity.rs` + `core/mock-agent` bin
+- [x] 2.2 `core/meltemid/src/identity.rs` + `core/mock-agent` bin
   `mock-mesh`: **primero** capturar una salida real redactada de `status
   --json` como fixture del simulado (la forma no es verificable desde el
   repositorio, design Context); luego `identity/status` invoca el cliente
@@ -69,26 +69,57 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   presente, equipo sin enlazar», «La identidad nunca es requisito», «Ningún
   token entra ni sale del daemon», «Las máquinas son los pares de la malla» y
   «Presencia no es control» — gates: suite del crate
-  <!-- **BLOQUEADA 2026-09-26.** Esta tarea empieza por «capturar una salida real
-  redactada de `status --json` como fixture», y en este equipo **no hay ningún
-  cliente de malla instalado**: `tailscale`, `netbird`, `zerotier-cli` y
-  `headscale` no están en el PATH ni en Program Files. El design dice por qué eso
-  no se puede saltar: la forma del JSON no es verificable desde el repositorio, y
-  un campo mal nombrado daría un parser verde en CI y un rehúso contra el cliente
-  de verdad. Inventar el fixture sería exactamente el fallo que el design nombró
-  para evitarlo, así que la change se detiene aquí en vez de fingir.
-  **Qué la desbloquea**: instalar un cliente de malla, iniciar sesión y capturar
-  `<cliente> status --json` una vez. Con eso, de la 2.2 a la 4.1 es
-  implementación.
-  **Estado al 2026-09-26, segunda pasada**: el mantenedor eligió desbloquear por
-  esta vía, así que se hizo **todo lo que no necesita el cliente** y la rama queda
-  esperando solo el fixture: 1.1 (contrato), 2.1 (configuración) y 2.3 (el gesto
-  de vínculo) están hechas y verdes. Lo que falta es esta 2.2 y, detrás de ella,
-  las tres superficies y el cierre, porque todas muestran lo que 2.2 lee.
-  La rama trae `main` con `estado-en-vivo`, `via-ssh-del-cliente` y
-  `aviso-de-espera-opt-in` ya aterrizadas. Gates verdes sobre ella: fmt, clippy
-  del workspace, `cargo deny check` y 1.358 tests (un fallo intermitente ajeno,
-  anotado aparte como fragilidad de la suite bajo carga). -->
+  <!-- **BLOQUEADA 2026-09-26, DESBLOQUEADA 2026-10-01.** Historia, porque la
+  razón del bloqueo sigue siendo buena: la tarea empieza por «capturar una salida
+  real redactada de `status --json`», y en este equipo no hay ningún cliente de
+  malla instalado (`tailscale`, `netbird`, `zerotier-cli` ni `headscale`, ni en el
+  PATH ni en Program Files, ni en `winget list`). Inventar el fixture era el fallo
+  que el design nombró para evitarlo, así que la change se detuvo en vez de
+  fingir, y se hizo todo lo que no necesitaba el cliente (1.1, 2.1, 2.3).
+  **Cómo se desbloqueó sin el cliente**: verificando la forma por la vía más
+  fuerte, las **definiciones de tipo publicadas del propio cliente** fijadas en
+  `v1.102.5` (`ipn/ipnstate/ipnstate.go` y `tailcfg/tailcfg.go`), que es de donde
+  el CLI serializa su JSON. No es un atajo: una captura muestra solo los campos
+  que **una** máquina pobló en **un** estado, mientras que el tipo enumera todos
+  con su etiqueta y su regla de presencia. La enmienda está escrita en el design
+  (Context, «cómo se verificó»).
+  La hipótesis del design quedó confirmada campo por campo, y el tipo delató
+  **cuatro trampas** que una captura en un equipo sano y enlazado habría
+  escondido, cada una con su test: `Self` y `CurrentTailnet` son **nulos** sin
+  conexión (justo el escenario «sin enlazar»); `LastSeen` no lleva `omitempty`, de
+  modo que un par en línea trae el **tiempo cero** y un parser ingenuo diría
+  «última vez visto: año 1»; las claves del mapa `User` son el id en **decimal
+  como cadena** mientras el par lo trae como **número**, así que buscarlo sin
+  convertir devuelve un `user` vacío contra el cliente de verdad; y `ShareeNode`
+  marca un equipo que **otra persona** compartió hacia dentro — el propio upstream
+  dice que su `status` los oculta por defecto, así que listarlo habría puesto la
+  máquina de un colega en la lista del usuario.
+  **El rigor de los tests se midió neuterando el código**: seis roturas
+  deliberadas, cinco pusieron en rojo el test previsto y **una no**, que es lo
+  que valía el ejercicio. Nada cubría «`BackendState` dice `Running` pero `Self`
+  es nulo» —los dos señales pueden discrepar en un cliente que arranca— y sin la
+  guarda el handler **panickeaba** en vez de rehusar. Se añadió el test que
+  faltaba y ahora sí muerde, con el panic exacto que predijo.
+  **Lo que la tarea sumó sin estar en su línea**: el enrutado de los dos métodos
+  en `server.rs`. La 2.3 compuso el gesto pero ningún método estaba cableado, así
+  que `identity/status` e `identity/link` eran inalcanzables; `identity/link`
+  rehúsa con `IDENTITY_UNAVAILABLE` y el `kind` literal en el sitio del rehúso.
+  Config de usuario sin raíz de proyecto, que es la frontera de D5 hecha código.
+  Y una **corrección del contrato de la 1.1**: la descripción de `provider` decía
+  «el valor de `[identity] mesh`» y el design D2 y el escenario «Quién soy, según
+  la malla» piden «el servidor o nombre de la malla». Derivó al escribir el
+  contrato antes del parser; se alineó la descripción con D2, no al revés.
+  El simulado `mock-mesh` trae cinco escenarios (`linked`, `unlinked`, `alone`,
+  `fail`, `garbage`, `slow`) y **rehúsa cualquier argv que no sea `status
+  --json`**, que es lo que convierte «Ningún token entra ni sale del daemon» en
+  una aserción: si el daemon alguna vez corriera `up` o `login`, el test se cae
+  en vez de firmar a alguien en silencio.
+  **Queda una comprobación de campo**, y pendiente es lo honesto: correr
+  `identity` una vez contra un cliente instalado y enlazado. No bloquea nada
+  —los nombres salen del tipo, no de una conjetura— y se anota en la 4.1.
+  Gates: fmt, `clippy --workspace --all-targets -D warnings` en 0, 46 tests de
+  `meltemi-proto` y la suite entera de `meltemid` verde (311 unitarios y todos
+  los binarios de integración). -->
 - [x] 2.3 `identity/link`: el gesto compuesto (POSIX y PowerShell) con el
   servidor de login y el nombre del equipo, la pista del navegador, sin
   secretos y sin lanzar nada (design D3) — escenarios «El gesto de vínculo se
