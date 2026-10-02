@@ -177,13 +177,45 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   `meltemi-proto` verdes, parity verde (5), `check:forms` fresco tras regenerar,
   `npm run check` 0 errores, suite de `meltemi-desktop` verde y
   `docs/referencia-cli.md` regenerada. -->
-- [ ] 3.2 TUI: `Effect::IdentityStatus` e `Effect::IdentityLink` despachadas
+- [x] 3.2 TUI: `Effect::IdentityStatus` e `Effect::IdentityLink` despachadas
   desde el `match` de la paleta en `state.rs`, su `Command` en `conn.rs`, su
   estado en `live.rs`, su render en `render.rs` con la presencia en símbolo con
   gemelo ASCII (`glyphs.rs`) y sus cadenas ES/EN en `messages.rs` —no existe
   runner genérico de métodos (design D6)— escenarios «Identidad desde la
   paleta» y «Sin cliente de malla, el terminal dice el remedio» — gates: suite
   de `tui`
+  <!-- 2026-10-01: la pregunta que la tarea no responde es **dónde se ve**, y la
+  respuesta no podía ser una vista nueva: las vistas son cuatro, los dígitos 1–4
+  las eligen y hay un escenario vivo —«Los cuatro cuadrantes usan el mismo
+  camino»— que una quinta rompería. Así que la identidad se añade **bajo el
+  catálogo**, igual que el harness y por la razón que el harness ya tiene escrita
+  en su comentario: es un hecho ACERCA de este equipo y sus pares, no un quinto
+  sitio al que navegar. Y como el harness, ausente hasta que se pide: leer el
+  cliente de malla en cada refresco sería cromo que nadie pidió, y el escenario
+  «el estado vacío sin daemon NO menciona la identidad» se cumple por
+  construcción, no por una condición extra.
+  Los glifos de presencia son **entradas propias** y no un reuso de `OK`/`ABSENT`:
+  esas dos ya significan «el daemon responde» y «este agente está instalado», y la
+  presencia es una tercera cosa dicha de un cuarto sujeto. Misma forma a propósito
+  —el vocabulario de relleno-está/hueco-no-está ya está aprendido— con nombre
+  aparte, para que el design system liste la presencia como su par y ningún
+  significado derive cuando el otro cambie.
+  Símbolo **y** palabra, nunca uno solo, con el gemelo ASCII de la casa: el test
+  en modo sin Unicode exige que no se escape ni un carácter Unicode y que las dos
+  palabras sigan ahí.
+  Tres roturas deliberadas y las tres muerden: usar `glyph.unicode` en vez de
+  `glyph.text(&present)`, quitar la palabra de al lado del símbolo, y tragarse el
+  remedio del daemon. La primera pasada **no** mordió y el motivo valía saberlo:
+  `glyph.text(&ctx.present),` aparece doce veces en el archivo y la rotura cayó en
+  otro sitio; con el ancla correcta, muerde.
+  El rehúso se guarda como lo que es —una respuesta— así que se dibuja donde
+  habría ido la buena, con el diagnóstico en el idioma de la superficie y el
+  remedio del daemon tal cual, que es inglés por §11.
+  `identity-link` no navega: su respuesta es un aviso, y no hay a dónde ir. Acepta
+  `identidad-enlazar` y un nombre detrás del verbo, verbatim.
+  Gates: fmt, clippy del workspace en 0, 20 binarios de test de `meltemi` verdes
+  (265 unitarios), parity verde y el invariante `every_glyph_has_an_ascii_twin`
+  intacto con dos glifos más. -->
 - [ ] 3.3 GUI: sección «Identidad» en `Settings.svelte` (quién, proveedor,
   este equipo, lista con presencia en símbolo y palabra, gesto copiable, la
   frase de quién es la identidad) y la fila de `Sidebar.svelte` por encima de

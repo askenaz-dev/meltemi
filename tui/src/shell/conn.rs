@@ -49,6 +49,10 @@ pub enum Command {
     /// Read the effective harness (`harness/effective`), optionally narrowed
     /// to one catalog agent.
     Harness { agent: Option<String> },
+    /// Read the user's mesh identity (identidad-propia design D6).
+    Identity,
+    /// Ask for the linking gesture. The terminal prints it and never runs it.
+    IdentityLink { hostname: Option<String> },
     /// Query the known-project registry (`project/list`).
     ProjectList,
     /// Set the project every scoped call is made against; `None` returns to the
@@ -297,6 +301,31 @@ async fn serve_connection(
                 Some(Command::FleetList) => refresh_fleet(&peer, updates, scope.as_deref()).await,
                 Some(Command::Harness { agent }) => {
                     read_harness(&peer, updates, scope.as_deref(), agent).await;
+                }
+                Some(Command::Identity) => read_identity(&peer, updates).await,
+                Some(Command::IdentityLink { hostname }) => {
+                    let mut params = json!({});
+                    if let Some(hostname) = &hostname {
+                        params["hostname"] = json!(hostname);
+                    }
+                    let notice = match peer.request(methods::IDENTITY_LINK, &params).await {
+                        // The gesture leads with the platform's own shell form:
+                        // the plain reading is the one that breaks when pasted.
+                        Ok(value) => {
+                            let gesture = if cfg!(windows) {
+                                value["powershell"].as_str().unwrap_or("")
+                            } else {
+                                value["posix"].as_str().unwrap_or("")
+                            };
+                            format!(
+                                "{gesture}  ({})",
+                                text(Msg::IdentityGestureHint, lang)
+                            )
+                        }
+                        // The daemon's own detail and remedy travel as they are.
+                        Err(error) => format!("identity/link: {error}"),
+                    };
+                    let _ = updates.send(Update::Notice(notice));
                 }
                 Some(Command::ProjectList) => refresh_projects(&peer, updates).await,
                 Some(Command::LinkSubscription { agent, name }) => {
@@ -674,6 +703,27 @@ async fn refresh_fleet(peer: &Peer, updates: &UnboundedSender<Update>, scope: Op
 /// every other scoped call here follows. Without either, the request goes out
 /// with no project at all and the answer is the user's own scopes, which the
 /// view then says out loud instead of looking empty.
+/// Reads the user's mesh identity into the live data.
+///
+/// A refusal is an ANSWER here — `available: false` with a reason — so it is
+/// stored like any other, and the view says what is missing rather than showing
+/// an empty block (identidad-propia design D5).
+async fn read_identity(peer: &Peer, updates: &UnboundedSender<Update>) {
+    match peer.request(methods::IDENTITY_STATUS, &json!({})).await {
+        Ok(value) => match serde_json::from_value::<meltemi_proto::IdentityStatusResult>(value) {
+            Ok(answer) => {
+                let _ = updates.send(Update::Identity(answer));
+            }
+            Err(error) => {
+                let _ = updates.send(Update::Notice(format!("identity/status: {error}")));
+            }
+        },
+        Err(error) => {
+            let _ = updates.send(Update::Notice(format!("identity/status: {error}")));
+        }
+    }
+}
+
 async fn read_harness(
     peer: &Peer,
     updates: &UnboundedSender<Update>,

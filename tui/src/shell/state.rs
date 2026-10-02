@@ -107,6 +107,13 @@ pub enum Effect {
     Quit,
     /// Rehearse the waiting notice (aviso-de-espera-opt-in design D6).
     TestNotice,
+    /// Read who the user is on their own mesh, and their machines.
+    IdentityStatus,
+    /// Ask the daemon to compose the gesture that links this machine. Printed as
+    /// a notice; the terminal never runs it (identidad-propia design D3).
+    IdentityLink {
+        hostname: Option<String>,
+    },
     CancelActiveSession,
     ShutdownDaemon,
     RefreshStatus,
@@ -455,6 +462,28 @@ impl ShellState {
                     }
                     "status" | "refresh" => Some(Effect::RefreshStatus),
                     "notice-test" | "aviso-prueba" => Some(Effect::TestNotice),
+                    // Identity reads under the catalog, on demand, for the same
+                    // reason the harness does: it is a fact ABOUT this machine
+                    // and its peers, not a fifth place to navigate to — and the
+                    // four quadrants are a documented promise.
+                    "identity" | "identidad" => {
+                        self.view = View::Fleet;
+                        self.drill = None;
+                        Some(Effect::IdentityStatus)
+                    }
+                    "identity-link" | "identidad-enlazar" => {
+                        Some(Effect::IdentityLink { hostname: None })
+                    }
+                    _ if command.starts_with("identity-link ") => {
+                        let hostname = command.split_once(' ').map(|(_, r)| r.trim()).unwrap_or("");
+                        if hostname.is_empty() {
+                            None
+                        } else {
+                            Some(Effect::IdentityLink {
+                                hostname: Some(hostname.to_string()),
+                            })
+                        }
+                    }
                     // `projects` alone widens to every known project; with an
                     // argument it scopes to the projects matching that text.
                     _ if command == "projects" || command == "proyectos" => {
@@ -1039,6 +1068,58 @@ mod tests {
         assert!(
             hint.contains("Tab") && hint.contains("Enter"),
             "the footer names both keys: {hint}"
+        );
+    }
+
+    // Scenario: Identidad desde la paleta
+    #[test]
+    fn palette_identity_reads_in_the_catalog_view_in_both_languages() {
+        for command in ["identity", "identidad"] {
+            let mut s = ShellState::new();
+            press(&mut s, Key::Char(':'));
+            for c in command.chars() {
+                press(&mut s, Key::Char(c));
+            }
+            assert_eq!(
+                press(&mut s, Key::Enter),
+                Some(Effect::IdentityStatus),
+                "{command}"
+            );
+            // Where the answer is going to be drawn, for the same reason the
+            // harness does it: a fact about this machine, not a fifth quadrant.
+            assert_eq!(s.view(), View::Fleet, "{command}");
+            assert!(s.top_overlay().is_none(), "{command}");
+        }
+    }
+
+    #[test]
+    fn palette_identity_link_asks_for_the_gesture_and_never_navigates() {
+        for command in ["identity-link", "identidad-enlazar"] {
+            let mut s = ShellState::new();
+            let before = s.view();
+            press(&mut s, Key::Char(':'));
+            for c in command.chars() {
+                press(&mut s, Key::Char(c));
+            }
+            assert_eq!(
+                press(&mut s, Key::Enter),
+                Some(Effect::IdentityLink { hostname: None }),
+                "{command}"
+            );
+            // The gesture arrives as a notice, so there is nowhere to go.
+            assert_eq!(s.view(), before, "{command}");
+        }
+        // And a name after the verb is carried verbatim.
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "identity-link el-portatil".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(
+            press(&mut s, Key::Enter),
+            Some(Effect::IdentityLink {
+                hostname: Some("el-portatil".into())
+            })
         );
     }
 

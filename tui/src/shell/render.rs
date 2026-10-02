@@ -483,7 +483,84 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
     // navigate to (design D8). Absent until asked for: reading four scopes off
     // disk on every refresh would be chrome nobody requested.
     append_harness(&mut lines, live, ctx);
+    // And the user's own mesh identity, on the same terms and for the same
+    // reason: asked for, not polled.
+    append_identity(&mut lines, live, ctx);
     render_lines(frame, area, lines);
+}
+
+/// Appends the user's mesh identity: who they are, whose mesh it is, and their
+/// machines with presence as a symbol AND a word.
+///
+/// Never color alone and never a symbol alone: the glyph has an ASCII twin and
+/// the word is always beside it, so the meaning survives a terminal without
+/// Unicode as well as a reader who cannot tell the two shapes apart.
+fn append_identity(lines: &mut Vec<Line<'static>>, live: &LiveData, ctx: &ShellCtx) {
+    let Some(answer) = &live.identity else {
+        return;
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(ctx.msg(Msg::IdentityTitle)));
+    if !answer.available {
+        // The three refusals ask for three different remedies, so each says its
+        // own thing in the surface's language, and the daemon's remedy — which is
+        // English, by §11 — follows as the detail it is.
+        let said = match answer.reason {
+            Some(meltemi_proto::IdentityUnavailable::ClientMissing) => {
+                ctx.msg(Msg::IdentityClientMissing)
+            }
+            Some(meltemi_proto::IdentityUnavailable::NotLinked) => ctx.msg(Msg::IdentityNotLinked),
+            _ => ctx.msg(Msg::IdentityNotConfigured),
+        };
+        lines.push(Line::from(format!("  {said}")));
+        if let Some(remedy) = &answer.remedy {
+            lines.push(Line::from(format!("  · {remedy}")));
+        }
+        return;
+    }
+    // Whose identity this is, said where it is shown: nobody should read this
+    // block as a Meltemi account, because there are none (design D7).
+    lines.push(Line::from(format!("  {}", ctx.msg(Msg::IdentityWhose))));
+    let who = match (&answer.user, &answer.provider) {
+        (Some(user), Some(provider)) => format!("  {user} · {provider}"),
+        (Some(user), None) => format!("  {user}"),
+        (None, Some(provider)) => format!("  {provider}"),
+        (None, None) => String::new(),
+    };
+    if !who.is_empty() {
+        lines.push(Line::from(who));
+    }
+    let width = answer
+        .machines
+        .iter()
+        .map(|machine| machine.name.chars().count())
+        .max()
+        .unwrap_or(0);
+    for machine in &answer.machines {
+        let (glyph, word) = match machine.presence {
+            meltemi_proto::MeshPresence::Online => (glyphs::ONLINE, ctx.msg(Msg::IdentityOnline)),
+            meltemi_proto::MeshPresence::Offline => {
+                (glyphs::OFFLINE, ctx.msg(Msg::IdentityOffline))
+            }
+        };
+        let pad = width.saturating_sub(machine.name.chars().count());
+        let mut row = format!(
+            "    {} {}{}  {word}",
+            glyph.text(&ctx.present),
+            machine.name,
+            " ".repeat(pad)
+        );
+        if let Some(system) = &machine.system {
+            row.push_str(&format!(" · {system}"));
+        }
+        if let Some(seen) = &machine.last_seen {
+            row.push_str(&format!(" · {} {seen}", ctx.msg(Msg::IdentityLastSeen)));
+        }
+        if machine.this_machine {
+            row.push_str(&format!(" ({})", ctx.msg(Msg::IdentityThisMachine)));
+        }
+        lines.push(Line::from(row));
+    }
 }
 
 /// The name of a harness layer, in the surface's language.
@@ -1832,6 +1909,135 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect()
+    }
+
+    /// The catalog view, with a linked mesh of three machines read into it.
+    fn with_identity(answer: meltemi_proto::IdentityStatusResult) -> (ShellState, LiveData) {
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "1".into(),
+            rows: Vec::new(),
+        }));
+        live.apply(Update::Identity(answer));
+        (state, live)
+    }
+
+    fn linked_mesh() -> meltemi_proto::IdentityStatusResult {
+        use meltemi_proto::{IdentityStatusResult, MeshMachine, MeshPresence};
+        IdentityStatusResult {
+            available: true,
+            reason: None,
+            remedy: None,
+            user: Some("guillmar@mock.example".into()),
+            provider: Some("https://headscale.askenaz.dev".into()),
+            this: Some("mi-pc".into()),
+            machines: vec![
+                MeshMachine {
+                    name: "mi-pc".into(),
+                    presence: MeshPresence::Online,
+                    system: Some("windows".into()),
+                    last_seen: None,
+                    this_machine: true,
+                },
+                MeshMachine {
+                    name: "la-torre".into(),
+                    presence: MeshPresence::Offline,
+                    system: Some("linux".into()),
+                    last_seen: Some("2026-09-30T18:21:05Z".into()),
+                    this_machine: false,
+                },
+            ],
+        }
+    }
+
+    // Scenario: Identidad desde la paleta
+    #[test]
+    fn the_terminal_shows_who_i_am_and_presence_in_a_symbol_and_a_word() {
+        let ctx = ctx(default_present());
+        let (state, live) = with_identity(linked_mesh());
+        let shown = draw(&state, &live, &ctx, 160, 40);
+
+        assert!(shown.contains("guillmar@mock.example"), "{shown}");
+        assert!(
+            shown.contains("headscale.askenaz.dev"),
+            "whose mesh: {shown}"
+        );
+        assert!(shown.contains("mi-pc"), "{shown}");
+        assert!(shown.contains("la-torre"), "{shown}");
+        assert!(
+            shown.contains("este equipo"),
+            "this machine marked: {shown}"
+        );
+        // Presence as a SYMBOL and a WORD, never either alone: a terminal with no
+        // Unicode still says it, and so does a reader who cannot tell ● from ○.
+        assert!(shown.contains("en línea"), "{shown}");
+        assert!(shown.contains("fuera de línea"), "{shown}");
+        assert!(
+            shown.contains(crate::shell::glyphs::ONLINE.unicode),
+            "the filled symbol: {shown}"
+        );
+        assert!(
+            shown.contains(crate::shell::glyphs::OFFLINE.unicode),
+            "the hollow symbol: {shown}"
+        );
+        assert!(shown.contains("visto 2026-09-30"), "{shown}");
+        // Nobody may read this block as a Meltemi account, so it says whose it is.
+        assert!(
+            shown.contains("Meltemi la lee, no la guarda"),
+            "whose identity this is: {shown}"
+        );
+    }
+
+    #[test]
+    fn without_unicode_presence_is_still_a_symbol_and_a_word() {
+        // The ASCII twin carries the same meaning: `*` and `o` beside the words.
+        let ctx = ctx(Presentation {
+            unicode: false,
+            ..default_present()
+        });
+        let (state, live) = with_identity(linked_mesh());
+        let shown = draw(&state, &live, &ctx, 160, 40);
+        assert!(
+            !shown.contains(crate::shell::glyphs::ONLINE.unicode),
+            "no Unicode may leak into an ASCII terminal: {shown}"
+        );
+        assert!(
+            shown.contains("en línea") && shown.contains("fuera de línea"),
+            "{shown}"
+        );
+    }
+
+    // Scenario: Sin cliente de malla, el terminal dice el remedio
+    #[test]
+    fn without_a_mesh_client_the_terminal_says_the_remedy_and_stays_put() {
+        use meltemi_proto::{IdentityStatusResult, IdentityUnavailable};
+        let ctx = ctx(default_present());
+        let remedy = "install your mesh client or set [identity] command to its path";
+        let (state, live) = with_identity(IdentityStatusResult {
+            available: false,
+            reason: Some(IdentityUnavailable::ClientMissing),
+            remedy: Some(remedy.into()),
+            user: None,
+            provider: None,
+            this: None,
+            machines: Vec::new(),
+        });
+        let before = state.view();
+        let shown = draw(&state, &live, &ctx, 160, 40);
+
+        // The diagnosis in the surface's language, and the daemon's remedy as it
+        // is — English, because the daemon's strings are English by §11.
+        assert!(
+            shown.contains("no se encontró tu cliente de malla"),
+            "{shown}"
+        );
+        assert!(shown.contains("[identity] command"), "the remedy: {shown}");
+        // And the refusal does not move the user anywhere.
+        assert_eq!(state.view(), before, "a refusal is not a navigation");
+        // Nothing of the available shape is shown for an answer that has none.
+        assert!(!shown.contains("este equipo"), "{shown}");
     }
 
     // Scenario: El terminal muestra el harness con su origen

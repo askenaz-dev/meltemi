@@ -53,6 +53,23 @@ pub const ABSENT: Glyph = Glyph {
     unicode: "○",
     ascii: "o",
 };
+/// A machine of the user's mesh that is reachable right now.
+///
+/// Its own entry rather than a reuse of [`OK`]: that one means "the daemon
+/// answers" and "this agent is installed", and presence is a third thing said
+/// about a fourth kind of subject. Same shape on purpose — the vocabulary of
+/// filled-is-here and hollow-is-not is already learned — but a separate name, so
+/// the design system can list presence as its own pair and neither meaning drifts
+/// when the other changes (identidad-propia design D6).
+pub const ONLINE: Glyph = Glyph {
+    unicode: "●",
+    ascii: "*",
+};
+/// A machine of the user's mesh that the mesh cannot reach now.
+pub const OFFLINE: Glyph = Glyph {
+    unicode: "○",
+    ascii: "o",
+};
 /// Daemon unreachable / error.
 pub const ERROR: Glyph = Glyph {
     unicode: "✕",
