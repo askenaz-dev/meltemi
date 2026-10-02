@@ -85,11 +85,30 @@ design, porque sería la superficie móvil siendo la única consumidora de algo
 
 ## 2. La superficie
 
-- [ ] 2.1 `desktop/ui`: segunda entrada `mobile.html` + `Mobile.svelte` que
+- [x] 2.1 `desktop/ui`: segunda entrada `mobile.html` + `Mobile.svelte` que
   reutiliza stores, catálogo ES/EN, i18n y los módulos de decisión ya probados,
   con navegación inferior de cuatro destinos y objetivos de 44 px; la pantalla
   sin canal dice qué falta y cómo se arregla (design D1, D6) — escenario «Sin
   canal» — gates: `npm run check`, lint de i18n, suite de UI
+  <!-- 2026-10-02: **una segunda entrada de Vite, no una segunda aplicación**:
+  `mobile.html` + `mobile.ts` + `Mobile.svelte` en el mismo bundle, compartiendo
+  todo lo que vive debajo del shell —stores, catálogo ES/EN, i18n, los módulos de
+  decisión— y cambiando solo lo que va encima. Encoger el shell de escritorio
+  habría sido lo contrario de un compañero: la barra lateral y las tres zonas
+  existen porque hay ratón y 1.280 píxeles.
+  **La lista de destinos vive en un módulo con su test**, no en el markup: que
+  sean cuatro es el límite que la spec pone, y un quinto exige enmienda
+  fundacional, no una tarde. `mayAuthor()` devuelve `false` como **función**
+  ejecutada y no como comentario, por la misma razón. Dirigir no es un destino:
+  es algo que se le hace a una sesión que estás mirando, no un sitio al que ir, y
+  su ausencia de la lista es deliberada.
+  La pantalla sin canal **no es un error**: dice qué falta y cómo se arregla, y
+  no ofrece ninguna otra vía — ni relé, ni puerto, ni cuenta.
+  `env(safe-area-inset-*)` en los dos extremos: una navegación inferior debajo del
+  indicador de inicio es una navegación que nadie puede pulsar, y el notch de
+  arriba no es nuestro para pintar debajo.
+  Gates: `npm run check` 0 errores sobre 156 archivos, lint de i18n limpio, 107
+  tests de UI y el bundle produce **las dos** entradas. -->
 - [ ] 2.2 Monitorear y dirigir: sesiones por estado con `session/list` y
   `session/state`, y el compositor mínimo con `session/direct` y
   `session/cancel` (design D5) — gates: suite de UI

@@ -13,5 +13,15 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
+    // Two entries, one bundle: the desktop shell and the mobile companion. They
+    // share every module below the shell — stores, catalogue, the decision
+    // modules — and differ only in what sits on top, which is the whole point
+    // of a companion rather than a shrunken desktop (companero-movil design D1).
+    rollupOptions: {
+      input: {
+        index: "index.html",
+        mobile: "mobile.html",
+      },
+    },
   },
 });
