@@ -621,7 +621,10 @@
       {:else if view === "analytics"}
         <Usage />
       {:else}
-        <Settings onEditFile={(file) => openProjectEditor(file)} />
+        <Settings
+          onEditFile={(file) => openProjectEditor(file)}
+          onGuarded={(go) => leaveEditor(go)}
+        />
       {/if}
     </main>
 

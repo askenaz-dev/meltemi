@@ -124,7 +124,7 @@ change se detiene y vuelve a design (design D7).
   y dejando a `HarnessSnapshot` sin ninguno; y el import nuevo hubo que añadirlo a
   mano. El compilador cazó ambos al instante.
   Gates: fmt, clippy de `meltemi` 0, 21 binarios de test verdes. -->
-- [ ] 3.3 GUI: sección «Máquinas» en `Settings.svelte` (lista con endpoint,
+- [x] 3.3 GUI: sección «Máquinas» en `Settings.svelte` (lista con endpoint,
   activa marcada, probar con versión y latencia, cambiar con la guarda de
   trabajo sin guardar **reutilizada**, no una nueva) y el nombre de la máquina
   activa en `StatusBar.svelte` junto al `vía …`; presencia **a pedido** cruzada
@@ -134,6 +134,32 @@ change se detiene y vuelve a design (design D7).
   máquina avisa del trabajo sin guardar», «Sin máquinas configuradas el cromo
   no cambia» y «La presencia se muestra a pedido y no es una prueba de
   conexión» — gates: suite de cableado, `npm run check`, lint de i18n
+  <!-- 2026-10-02: la guarda de trabajo sin guardar se **hereda como prop** desde
+  `App.svelte` (`onGuarded={(go) => leaveEditor(go)}`) en vez de reimplementarse:
+  dos guardas para un mismo peligro es cómo aparecen dos comportamientos ante la
+  misma pregunta. El test lo fija por los dos extremos, el que la recibe y el que
+  la entrega.
+  Cambiar de máquina **vacía las sesiones**: las pestañas de la que se deja apuntan
+  a sesiones de otro daemon y dejan de significar nada.
+  La presencia se cruza **por nombre**, que es lo único que las dos listas
+  comparten —la malla no sabe de endpoints y la configuración no sabe de la
+  malla—, y cuando no cruzan **no se inventa**: la fila va sin presencia en vez de
+  adivinarse por sufijo. Y una máquina de la malla que no está configurada **no
+  añade fila**: la lista es de máquinas a las que conectarse, y la presencia no
+  convierte a nadie en una de ésas.
+  El cromo calla con **una sola** máquina: una máquina no es una flota y nombrar
+  el único ordenador que alguien tiene es ruido.
+  **Lo que cazó un guardián vivo**: reusé la clase `machines` para la lista de
+  endpoints y con eso el test de `identidad-propia` —«ninguna fila de máquina de
+  la malla es accionable»— empezó a rebanar **mi** lista, que sí tiene botones a
+  propósito. Las dos listas significan cosas distintas y no deben compartir
+  selector: la de endpoints pasó a `endpoints`. El test ajeno tenía razón.
+  Dos roturas deliberadas, dos mordidas: saltarse la guarda y bajar el umbral del
+  cromo a una máquina.
+  Nota del taller: este worktree no traía `node_modules`, y dos tests de UI
+  fallaban por `svelte` ausente hasta correr `npm ci` en `desktop/ui`.
+  Gates: fmt, clippy del workspace 0, 102 tests de UI, 117 de `scenarios_shell`,
+  `npm run check` 0 errores y lint de i18n limpio. -->
 
 ## 4. Cierre
 

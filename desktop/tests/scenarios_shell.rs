@@ -389,6 +389,141 @@ fn the_privacy_promise_is_visible_in_settings() {
     );
 }
 
+// ---- the user's machines (maquinas-remotas) ----------------------------------
+
+// Scenario: Ajustes lista las máquinas con su endpoint
+// Scenario: Probar una máquina dice si respondió y cuánto tardó
+#[test]
+fn settings_lists_the_machines_with_their_endpoint_and_a_test_that_reports() {
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    for key in [
+        "settings.machines",
+        "settings.machines.hint",
+        "settings.machines.here",
+        "settings.machines.use",
+        "settings.machines.test",
+    ] {
+        assert!(settings.contains(key), "Settings is missing `{key}`");
+    }
+    // The way in is shown, falling back to what the user wrote.
+    assert!(
+        settings.contains("machine.via ?? machine.configured"),
+        "each row shows how it is reached"
+    );
+    // A test reports the version and the time, or why not — through the one
+    // place that spells that sentence.
+    assert!(
+        settings.contains("probeLine(probe, {"),
+        "the probe's line comes from the module with the test"
+    );
+    assert!(
+        settings.contains("settings.machines.answered")
+            && settings.contains("settings.machines.failed"),
+        "and both outcomes have words"
+    );
+    // Testing does not change the active machine: there is no switch call in
+    // the test path, which is what would make it one.
+    let probe = settings
+        .split_once("async function testMachine(")
+        .expect("the test function")
+        .1;
+    let probe = &probe[..probe.find("\n  }").expect("it ends")];
+    assert!(
+        !probe.contains("switchMachine"),
+        "testing is a question, not a move: {probe}"
+    );
+}
+
+// Scenario: Cambiar de máquina avisa del trabajo sin guardar
+#[test]
+fn changing_machines_runs_the_same_unsaved_work_guard_as_leaving_the_editor() {
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    // The guard is HANDED DOWN, not reimplemented: two guards for one danger is
+    // how two behaviours appear for one question.
+    assert!(
+        settings.contains("onGuarded: (go: () => void) => void"),
+        "the view takes the guard as a prop"
+    );
+    let switch = settings
+        .split_once("function useMachine(")
+        .expect("the switch function")
+        .1;
+    let switch = &switch[..switch.find("\n  }").expect("it ends")];
+    assert!(
+        switch.contains("onGuarded(() =>"),
+        "the switch goes through the guard: {switch}"
+    );
+
+    // And the guard it receives is the editor's own.
+    let app = read("desktop/ui/src/App.svelte");
+    assert!(
+        app.contains("onGuarded={(go) => leaveEditor(go)}"),
+        "App hands down `leaveEditor`, the same one navigation uses"
+    );
+
+    // Switching clears the tabs of the machine being left: they point at
+    // sessions of another daemon and stop meaning anything.
+    let stores = read("desktop/ui/src/lib/stores.ts");
+    let switching = stores
+        .split_once("export async function switchMachine(")
+        .expect("the store function")
+        .1;
+    let switching = &switching[..switching.find("\n}").expect("it ends")];
+    assert!(
+        switching.contains("sessions.set([])") && switching.contains("allSessions.set([])"),
+        "the sessions of the old machine do not survive the switch: {switching}"
+    );
+}
+
+// Scenario: Sin máquinas configuradas el cromo no cambia
+// Scenario: La presencia se muestra a pedido y no es una prueba de conexión
+#[test]
+fn the_chrome_says_nothing_about_machines_unless_there_is_a_choice() {
+    let bar = read("desktop/ui/src/lib/components/StatusBar.svelte");
+    // The decision is a pure function with its own executed test, not a
+    // condition written into the markup.
+    assert!(
+        bar.contains("worthShowing($machines.machines)"),
+        "the bar asks the one place that decides"
+    );
+
+    let decided = read("desktop/ui/src/lib/machines.ts");
+    // Presence is crossed by NAME and never invented, which is the rule that
+    // keeps a mesh machine from being read as a machine with a daemon.
+    assert!(
+        decided.contains("export function withPresence("),
+        "the crossing lives in one place"
+    );
+    assert!(
+        decided.contains("mesh.get(machine.name.toLowerCase())"),
+        "crossed by name, the only thing the two lists share"
+    );
+    assert!(
+        decided.contains("presence ? { ...machine, presence } : { ...machine }"),
+        "and nothing is invented when they do not cross"
+    );
+
+    // Read when asked for, never polled: no interval, no timer, no watcher
+    // anywhere near the machine list.
+    let stores = read("desktop/ui/src/lib/stores.ts");
+    let reading = stores
+        .split_once("export async function refreshMachines(")
+        .expect("the reader")
+        .1;
+    let reading = &reading[..reading.find("\n}").expect("it ends")];
+    for polling in ["setInterval", "setTimeout", "watch("] {
+        assert!(
+            !reading.contains(polling),
+            "the machine list is read on demand (`{polling}`): {reading}"
+        );
+    }
+    let test = read("desktop/ui/tests/machines.test.ts");
+    assert!(
+        test.contains("worthShowing([configured[0]])"),
+        "one machine is not a fleet, and that is executed"
+    );
+}
+
 // ---- the user's mesh identity (identidad-propia) -----------------------------
 
 // Scenario: Ajustes muestra quién soy y mis equipos

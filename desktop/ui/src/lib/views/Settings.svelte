@@ -8,11 +8,16 @@
     activeProject,
     identity,
     identityGesture,
+    machines,
+    probeMachine,
     pushNotice,
     refreshIdentity,
+    refreshMachines,
+    switchMachine,
     type LinkGesture,
   } from "../stores";
   import { orderedMachines, presenceGlyph } from "../identity";
+  import { probeLine, withPresence } from "../machines";
   import {
     setOpenWithTemplate,
     setStoredLocale,
@@ -22,7 +27,19 @@
   } from "../ui-state";
   import Icon from "../components/Icon.svelte";
 
-  let { onEditFile }: { onEditFile: (file: string) => void } = $props();
+  let {
+    onEditFile,
+    onGuarded,
+  }: {
+    onEditFile: (file: string) => void;
+    /**
+     * Runs `go` once unsaved work has been dealt with. The SAME guard that
+     * leaving the editor uses, handed down rather than reimplemented: two
+     * guards for one danger is how two behaviours appear for one question
+     * (maquinas-remotas design D2).
+     */
+    onGuarded: (go: () => void) => void;
+  } = $props();
 
   /**
    * The waiting notice. The command itself is not editable here on purpose: it
@@ -93,6 +110,54 @@
     } catch {
       copied = false;
     }
+  }
+
+  /** The result of the last test, per machine. Nothing is remembered longer. */
+  let probes: Record<string, string> = $state({});
+  let probing: string | null = $state(null);
+
+  $effect(() => {
+    void refreshMachines();
+  });
+
+  /** The configured machines, with the mesh's presence when it knows them. */
+  const shownMachines = $derived(withPresence($machines.machines, $identity));
+
+  async function testMachine(name: string) {
+    probing = name;
+    try {
+      const probe = await probeMachine(name);
+      probes = {
+        ...probes,
+        [name]: probeLine(probe, {
+          answered: $t("settings.machines.answered"),
+          failed: $t("settings.machines.failed"),
+        }),
+      };
+    } catch (raw) {
+      const e = raw as { message?: string };
+      probes = {
+        ...probes,
+        [name]: `${$t("settings.machines.failed")}: ${e?.message ?? String(raw)}`,
+      };
+    } finally {
+      probing = null;
+    }
+  }
+
+  function useMachine(name: string) {
+    // The guard first, always: the tabs of the machine being left point at
+    // another daemon's sessions.
+    onGuarded(() => {
+      void switchMachine(name)
+        .then((switched) =>
+          pushNotice($t("settings.machines.switched", { name: switched }), "info"),
+        )
+        .catch((raw) => {
+          const e = raw as { message?: string };
+          pushNotice(`${$t("common.error")}: ${e?.message ?? String(raw)}`, "danger");
+        });
+    });
   }
 
   const THEMES: ThemeChoice[] = ["system", "light", "dark"];
@@ -251,6 +316,55 @@
       {/if}
       <button onclick={() => void projectContext()}>{$t("settings.project.project")}</button>
     {/if}
+  </section>
+
+  <section aria-labelledby="machines">
+    <h2 id="machines">{$t("settings.machines")}</h2>
+    <p class="hint">{$t("settings.machines.hint")}</p>
+    {#if $machines.machines.length === 0}
+      <p class="hint">{$t("settings.machines.none")}</p>
+    {:else}
+      <ul class="endpoints">
+        {#each shownMachines as machine (machine.name)}
+          <li>
+            <span class="presence" class:on={machine.active} aria-hidden="true"
+              >{machine.active ? "●" : "○"}</span
+            >
+            <span class="name">{machine.name}</span>
+            {#if machine.active}
+              <span class="word">({$t("settings.machines.here")})</span>
+            {/if}
+            <span class="hint mono">{machine.via ?? machine.configured}</span>
+            {#if machine.presence}
+              <!-- The mesh's presence, which is NOT a promise about a daemon:
+                   that is learned by testing or by connecting. -->
+              <span class="hint"
+                >{machine.presence === "online"
+                  ? $t("settings.machines.online")
+                  : $t("settings.machines.offline")}</span
+              >
+            {/if}
+            <span class="grow"></span>
+            <button onclick={() => void testMachine(machine.name)} disabled={probing !== null}>
+              {probing === machine.name
+                ? $t("settings.machines.testing")
+                : $t("settings.machines.test")}
+            </button>
+            {#if !machine.active}
+              <button onclick={() => useMachine(machine.name)}>
+                {$t("settings.machines.use")}
+              </button>
+            {/if}
+          </li>
+          {#if probes[machine.name]}
+            <li class="hint probe">{probes[machine.name]}</li>
+          {/if}
+        {/each}
+      </ul>
+    {/if}
+    {#each $machines.diagnostics as said (said)}
+      <p class="hint mono">{said}</p>
+    {/each}
   </section>
 
   <section aria-labelledby="identity">
@@ -442,7 +556,19 @@
     font-size: var(--fs-dense);
     background: var(--surface);
   }
-  .machines {
+  .endpoints li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+  }
+  .endpoints .grow {
+    flex: 1;
+  }
+  .endpoints .probe {
+    font-family: var(--font-mono);
+  }
+  .machines,
+  .endpoints {
     list-style: none;
     margin: 0;
     padding: 0;
