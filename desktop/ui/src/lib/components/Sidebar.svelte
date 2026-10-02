@@ -7,6 +7,7 @@
     activeProject,
     allSessions,
     forgetProject,
+    identity,
     isLive,
     pending,
     pickAndRegisterProject,
@@ -15,6 +16,7 @@
     sessions,
     switchProject,
   } from "../stores";
+  import { footIdentity } from "../identity";
   import {
     type BucketId,
     agentLabelOf,
@@ -165,6 +167,9 @@
   // Project -> Sessions, aggregated in the client from the global session list
   // joined with the project registry (design D7).
   const tree = $derived(groupSessions($projects, $allSessions));
+
+  /** What the foot shows about the mesh identity, decided in `identity.ts`. */
+  const foot = $derived(footIdentity($identity));
 
   /** The state glyph of the design system's vocabulary (never colour alone). */
   function stateGlyph(state: string): string {
@@ -581,6 +586,40 @@
   </div>
 
   <div class="bottom">
+    <!-- The mesh identity, above Settings, which stays the last entry. Outside
+         the navigation/tree split by construction: this foot is a sibling of
+         both and takes no part in their arithmetic (design D6). Absent unless
+         identity is configured — a permanent invitation in the chrome of
+         somebody who never wanted it would be asking for something, and this
+         change asks for nothing (design D7). -->
+    {#if foot.kind !== "hidden"}
+      <button
+        class="item ghost identity"
+        onclick={() => onNavigate("settings")}
+        aria-label={foot.kind === "who"
+          ? $t("settings.identity") + ": " + foot.user
+          : foot.kind === "link"
+            ? $t("nav.identity.link")
+            : $t("nav.identity.attention")}
+        title={foot.kind === "who" ? foot.user : undefined}
+      >
+        <Icon name="identity" size={16} />
+        <span class="label">
+          {#if foot.kind === "who"}
+            <span class="who">{foot.user}</span>
+            <span class="count"
+              >{foot.machines === 1
+                ? $t("nav.identity.oneMachine")
+                : $t("nav.identity.machines", { n: String(foot.machines) })}</span
+            >
+          {:else if foot.kind === "link"}
+            {$t("nav.identity.link")}
+          {:else}
+            {$t("nav.identity.attention")}
+          {/if}
+        </span>
+      </button>
+    {/if}
     <button
       class="item ghost"
       class:current={view === "settings"}
@@ -651,6 +690,23 @@
      settings entry is pushed to the foot where it sits when unfolded. */
   aside.folded nav {
     flex: 1;
+  }
+  /* Two lines inside one row: the login name and the count under it. The row
+     keeps the same height discipline as every other entry when folded, where
+     only the mark shows. */
+  .identity .label {
+    display: grid;
+    gap: 0;
+    min-width: 0;
+  }
+  .identity .who {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .identity .count {
+    font-size: var(--fs-caption);
+    color: var(--text-muted);
   }
   .fold {
     margin-left: auto;

@@ -11,6 +11,7 @@ export type IconName =
   | "fleet"
   | "editor"
   | "analytics"
+  | "identity"
   | "settings"
   | "search"
   | "plus"
@@ -35,6 +36,11 @@ export const ICONS: Record<IconName, string> = {
   permissions: "M12 3l7 3v6c0 4-3 6.5-7 8-4-1.5-7-4-7-8V6zM9 12l2 2 4-4",
   editor: "M4 5h9M4 10h6M4 15h5M13.5 17.5l6-6 2.5 2.5-6 6H13.5z",
   analytics: "M4 20V10M9.5 20V5M15 20v-7M20.5 20v-11",
+  // Three linked nodes: a mesh. Deliberately NOT the agents' initials avatar —
+  // that palette identifies agents, and a login whose initials collided would
+  // render the same chip as one of them (identidad-propia design D6).
+  identity:
+    "M12 3.5a2 2 0 100 4 2 2 0 000-4zM5 16.5a2 2 0 100 4 2 2 0 000-4zM19 16.5a2 2 0 100 4 2 2 0 000-4zM10.8 8.2L6.6 15M13.2 8.2l4.2 6.8M7.5 18.5h9",
   settings: "M12 9.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM4 12h2M18 12h2M12 4v2M12 18v2M6.5 6.5l1.5 1.5M16 16l1.5 1.5M17.5 6.5L16 8M8 16l-1.5 1.5",
   search: "M11 4a7 7 0 100 14 7 7 0 000-14zM16 16l4 4",
   plus: "M12 5v14M5 12h14",

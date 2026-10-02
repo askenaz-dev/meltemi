@@ -216,7 +216,7 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   Gates: fmt, clippy del workspace en 0, 20 binarios de test de `meltemi` verdes
   (265 unitarios), parity verde y el invariante `every_glyph_has_an_ascii_twin`
   intacto con dos glifos más. -->
-- [ ] 3.3 GUI: sección «Identidad» en `Settings.svelte` (quién, proveedor,
+- [x] 3.3 GUI: sección «Identidad» en `Settings.svelte` (quién, proveedor,
   este equipo, lista con presencia en símbolo y palabra, gesto copiable, la
   frase de quién es la identidad) y la fila de `Sidebar.svelte` por encima de
   Ajustes, solo con `[identity]` configurada, con marca propia (no el avatar
@@ -226,6 +226,39 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   no pide nada», «Plegada, la identidad sigue alcanzable» y «La promesa de
   privacidad sigue siendo cierta» — gates: suite de cableado, `npm run check`,
   lint de i18n
+  <!-- 2026-10-01: la decisión del pie **no vive en el componente**: `identity.ts`
+  tiene `footIdentity`, una función pura con su test ejecutado, así que «el cromo
+  no pide nada» lo sostiene un test y no quien editó el markup la última vez. Y
+  `hidden` cubre dos casos a propósito —sin tabla y «el daemon todavía no
+  respondió»—, porque una fila que aparece un segundo después de abrir la ventana
+  es cromo que parpadea y nada de esto es urgente.
+  Un caso que la tarea no listaba: **configurada y sin cliente**. Decir «Enlazar
+  este equipo» ahí sería falso, no hay nada que correr; la fila dice «Identidad» y
+  lleva al diagnóstico en Ajustes. Tercera variante, `attention`, con su test.
+  La marca es un **icono propio** (tres nodos enlazados: una malla) y no el avatar
+  de iniciales de los agentes, con el test que lo prohíbe por ausencia de
+  `<Avatar>`: esa paleta identifica agentes y un login con las mismas iniciales
+  rendiría el mismo chip. `IconName` gana su entrada, que es lo que hizo visible
+  el error de tipo cuando no la tenía.
+  «Ajustes sigue siendo la última entrada» es una aserción de **orden** dentro del
+  pie, no una frase en un comentario; y la fila está fuera del reparto por
+  construcción —el pie es hermano de la navegación y del árbol—, lo que se verifica
+  exigiendo que `nav-split.ts` no sepa nada de identidad.
+  El gesto se **copia**, con la forma de la plataforma, y el test prohíbe por
+  ausencia que esta superficie gane `shell.open` o un plugin de opener: no es una
+  limitación sorteada, es el diseño (D3).
+  **Lo que cazó un guardián**: usé `--sunken`, `--radius-1` y `--text-dim`, tres
+  variables que no existen —la piel las escribe `--surface-2`, `--radius-control` y
+  `--text-muted`—, y el test que rehúsa una variable que nadie definió las nombró
+  una por una. Cuatro reglas que no habrían pintado nada.
+  Tres roturas deliberadas, tres mordidas: quitar la guarda de `hidden`, y mover la
+  fila debajo de Ajustes (dos tests distintos). La tercera comprobación de la
+  primera pasada fue **inválida** —mi ayudante restauraba el archivo antes de
+  correrla, así que midió el código intacto— y se repitió bien.
+  Gates: fmt, clippy del workspace 0 (comprobado por código de salida real, no por
+  grep), `npm run check` 0 errores, 96 tests de UI (9 nuevos), lint de i18n limpio,
+  `check:forms` fresco y 113 tests de `scenarios_shell` con los cinco escenarios
+  marcados en `.rs`, que es donde `verify` los lee. -->
 
 ## 4. Cierre
 
