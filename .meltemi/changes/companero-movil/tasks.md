@@ -152,14 +152,44 @@ design, porque sería la superficie móvil siendo la única consumidora de algo
 
 ## 3. El APK
 
-- [ ] 3.1 `mobile/tauri.conf.json` + `tauri android init`: el proyecto Android
+- [x] 3.1 `mobile/tauri.conf.json` + `tauri android init`: el proyecto Android
   generado, `.gitignore` de lo generado y de cualquier keystore, y el APK de
   depuración corriendo en el emulador contra el daemon de este equipo (design
   D7) — gates: el APK instala y conecta
-- [ ] 3.2 Presupuesto y release: medir el APK de release por ABI contra el
+- [x] 3.2 Presupuesto y release: medir el APK de release por ABI contra el
   techo declarado (≤ 25 MB) y **escribir lo medido**; `arm64-v8a` como ABI de
   release, `x86_64` solo para el emulador; la firma queda como tarea del
   mantenedor con su propio keystore (design D7) — gates: medición escrita
+  <!-- 2026-10-02. **Medido, no estimado**:
+
+  | Artefacto | Tamaño |
+  | --- | --- |
+  | APK **release** (arm64, sin firmar) | **10,69 MB** |
+  | `libmeltemi_mobile.so` release arm64 | 9,15 MB |
+  | AAB debug universal | 44,71 MB |
+  | APK **debug** universal | 322,93 MB |
+
+  **Cabe**: 10,69 MB contra el techo declarado de 25 MB, y de eso 9,15 MB es la
+  biblioteca nativa — es decir, el presupuesto lo gasta el código, no el envoltorio.
+  El número de debug (323 MB) no es comparable y se anota solo para que nadie lo
+  confunda con el de release: lleva símbolos sin quitar y todas las ABI.
+  El orden de las tareas se alteró a propósito: **3.1 se hizo antes que 2.3**,
+  porque el riesgo real de la change era el build de Android y descubrirlo después
+  de escribir tres pantallas más habría sido el orden equivocado. Acertó: falló, y
+  por una razón que no se adivina desde el mensaje.
+  **El fallo y su causa**: el proyecto Gradle generado registra **cómo se invocó
+  el CLI de Tauri** para poder volver a llamarlo. Desde el shim de npm registra
+  `node` con el nombre del script como argumento, que Gradle no puede arrancar; el
+  error que imprime nombra el **último** recurso probado (`node.bat`) y no la
+  causa, así que parece un problema de extensión y no lo es. Con el CLI nativo
+  (`cargo install tauri-cli`) registra `cargo` y funciona. Queda escrito en
+  `mobile/README.md`, porque un build que depende de algo que nadie anotó es un
+  build que funciona una vez.
+  **Lo que corrigió el dispositivo**: `env(safe-area-inset-bottom)` sola dejaba la
+  barra de gestos cruzando «Permissions» y «Review». Ahora `max(inset, 16px)`. Eso
+  no se razona desde el escritorio; se ve en la pantalla.
+  `gen/` queda ignorado —es salida de build que deriva de su fuente— y con él
+  cualquier keystore. La firma de release es del mantenedor, con la suya. -->
 
 ## 4. Cierre
 

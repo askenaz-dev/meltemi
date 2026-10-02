@@ -282,7 +282,12 @@ fn the_rendezvous_pattern_is_documented_with_its_boundary() {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    for built in ["byo-identity", "selector que conecta", "aviso de espera", "android primero"] {
+    for built in [
+        "byo-identity",
+        "selector que conecta",
+        "aviso de espera",
+        "android primero",
+    ] {
         assert!(
             !phase3_lower.contains(built),
             "`{built}` is built and must not still read as a future thing"

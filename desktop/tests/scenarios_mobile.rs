@@ -87,8 +87,10 @@ fn the_companions_key_is_its_own_and_it_reads_nobody_elses() {
             !trimmed.starts_with("//") && !trimmed.starts_with("///") && !trimmed.starts_with("//!")
         })
         .collect::<Vec<_>>()
-        .join("
-");
+        .join(
+            "
+",
+        );
     for forbidden in [
         "from_openssh_file",
         ".ssh/id_",
@@ -127,10 +129,7 @@ fn a_changed_host_key_cuts_the_connection_and_says_so() {
         "naming the possibility that matters"
     );
     // Trust on first use is accepted and named; a CHANGED key never is.
-    assert!(
-        ssh.contains("None => Ok(true)"),
-        "first use is accepted"
-    );
+    assert!(ssh.contains("None => Ok(true)"), "first use is accepted");
     assert!(
         ssh.contains("Some(_) => {"),
         "and a different key is refused"
@@ -172,11 +171,7 @@ fn without_a_channel_the_screen_says_what_is_missing_and_offers_nothing_else() {
         .lines()
         .filter(|line| line.contains("\"mobile.nochannel."))
         .collect();
-    assert_eq!(
-        said.len(),
-        6,
-        "three keys in two languages: {said:?}"
-    );
+    assert_eq!(said.len(), 6, "three keys in two languages: {said:?}");
     let text = said.join(" ").to_lowercase();
     assert!(
         text.contains("deliberate") || text.contains("deliberado"),
@@ -279,9 +274,15 @@ fn the_companion_consumes_nothing_the_other_surfaces_cannot() {
 #[test]
 fn the_generated_android_project_is_not_committed_and_neither_is_a_key() {
     let ignored = read("mobile/.gitignore");
-    assert!(ignored.contains("gen/"), "the generated project is a build output");
+    assert!(
+        ignored.contains("gen/"),
+        "the generated project is a build output"
+    );
     for secret in ["*.keystore", "*.jks", "keystore.properties"] {
-        assert!(ignored.contains(secret), "`{secret}` must never be committed");
+        assert!(
+            ignored.contains(secret),
+            "`{secret}` must never be committed"
+        );
     }
     // And nothing of the sort is in the tree right now.
     assert!(!exists("mobile/gen/android/app/release.keystore"));

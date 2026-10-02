@@ -94,9 +94,8 @@ impl AppKey {
         // The system's randomness, reached through the crate that defines the
         // trait: `rand_core` 0.10 moved `OsRng` out, and borrowing a different
         // `rand_core` from elsewhere in the tree is how version skew starts.
-        let mut rng = russh::keys::ssh_key::rand_core::UnwrapErr(
-            russh::keys::ssh_key::getrandom::SysRng,
-        );
+        let mut rng =
+            russh::keys::ssh_key::rand_core::UnwrapErr(russh::keys::ssh_key::getrandom::SysRng);
         let key = PrivateKey::random(&mut rng, Algorithm::Ed25519)
             .map_err(|e| format!("could not generate a key: {e}"))?;
         let sealed = key
