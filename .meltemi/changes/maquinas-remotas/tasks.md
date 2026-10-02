@@ -70,8 +70,9 @@ change se detiene y vuelve a design (design D7).
   abre la lista a mirar.
   Dos roturas deliberadas, dos mordidas, una por cada sitio. Y un detalle que el
   grep cazó: el literal del pipe muerto había perdido una barra al escribirlo
-  desde Python (`\.\pipe` en vez de `\.\pipe`), con lo que el test pasaba por
-  la razón equivocada —ruta malformada en vez de pipe sin nadie al otro lado—.
+  desde Python (una barra al principio del nombre en vez de dos), con lo que el
+  test pasaba por la razón equivocada: ruta malformada, no un pipe sin nadie al
+  otro lado. Escribir escapes a través de un script es así de frágil.
   Gates: fmt, clippy del workspace 0, los 5 tests del puente verdes. -->
 
 ## 3. Las superficies
