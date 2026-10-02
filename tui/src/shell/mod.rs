@@ -231,6 +231,12 @@ fn handle_action(
         Some(Effect::IdentityStatus) => {
             let _ = commands.send(Command::Identity);
         }
+        Some(Effect::Machines) => {
+            let _ = commands.send(Command::Machines);
+        }
+        Some(Effect::SwitchMachine { name }) => {
+            let _ = commands.send(Command::SwitchMachine { name });
+        }
         Some(Effect::IdentityLink { hostname }) => {
             let _ = commands.send(Command::IdentityLink { hostname });
         }

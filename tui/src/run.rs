@@ -185,6 +185,8 @@ pub async fn execute(
             value,
         } => set_option(session, option, value, endpoint).await,
         Command::Harness { agent } => harness(agent, endpoint).await,
+        // `machines` is a local reader: it never touches the daemon.
+        Command::Machines => machines(endpoint),
         Command::Identity => identity(endpoint).await,
         Command::IdentityLink { hostname, exec } => identity_link(hostname, exec, endpoint).await,
         // `tunnel` is a local formatter: it never touches the daemon.
@@ -1773,6 +1775,102 @@ async fn harness(agent: Option<String>, endpoint: &str) -> Result<Outcome, CliEr
     })
 }
 
+/// `machines`: the machines this user configured, and which one this run uses.
+///
+/// Local, like `tunnel`: it reads the user's configuration and never dials
+/// anything. Listing only — a one-shot CLI resolves its endpoint and exits, so
+/// there is nobody here whose machine could be switched, and the render says
+/// where switching does live.
+fn machines(endpoint: &str) -> Result<Outcome, CliError> {
+    let read = meltemi_client::machines::read(&meltemi_client::paths::config_dir());
+    let rows: Vec<serde_json::Value> = read
+        .machines
+        .iter()
+        .map(|machine| {
+            json!({
+                "name": machine.name,
+                "configured": machine.configured,
+                "endpoint": machine.endpoint,
+                "via": machine.via(),
+                "active": machine.endpoint == endpoint,
+            })
+        })
+        .collect();
+    Ok(Outcome {
+        human: render_machines(&rows, &read.diagnostics, endpoint),
+        json: json!({ "machines": rows, "diagnostics": read.diagnostics }),
+    })
+}
+
+fn render_machines(rows: &[serde_json::Value], diagnostics: &[String], endpoint: &str) -> String {
+    let mut out = String::new();
+    if rows.is_empty() {
+        // Not an error: most people have one machine, and that is the ordinary
+        // case rather than a broken one. So it says how to have more.
+        out.push_str(
+            "no machines configured
+Add them to your user config.toml:
+
+               [[client.machines]]
+  name = \"this one\"
+  endpoint = \"local\"
+
+               [[client.machines]]
+  name = \"the tower\"
+  endpoint = \"exec:ssh tower meltemi              bridge\"
+",
+        );
+    } else {
+        let width = rows
+            .iter()
+            .filter_map(|row| row["name"].as_str())
+            .map(str::len)
+            .max()
+            .unwrap_or(0);
+        for row in rows {
+            let name = row["name"].as_str().unwrap_or("?");
+            let mark = if row["active"].as_bool().unwrap_or(false) {
+                "*"
+            } else {
+                " "
+            };
+            let shown = row["via"].as_str().map_or_else(
+                || row["configured"].as_str().unwrap_or("").to_string(),
+                |via| format!("{via}  ({})", row["configured"].as_str().unwrap_or("")),
+            );
+            out.push_str(&format!(
+                "{mark} {name:<width$}  {shown}
+"
+            ));
+        }
+        if !rows
+            .iter()
+            .any(|row| row["active"].as_bool().unwrap_or(false))
+        {
+            // The endpoint in use is not one of the named machines, which is
+            // ordinary with MELTEMI_ENDPOINT set — and confusing if unsaid.
+            out.push_str(&format!(
+                "
+this run is on {endpoint}, which is not one of them
+"
+            ));
+        }
+        out.push_str(
+            "
+`machines` lists. To switch, use `:machine <name>` in the terminal shell or the Machines section of the desktop's Settings.
+",
+        );
+    }
+    for said in diagnostics {
+        out.push_str(&format!(
+            "
+{said}
+"
+        ));
+    }
+    out
+}
+
 /// `identity`: who the user is on their own mesh, and which machines it knows.
 ///
 /// No project root: identity is of the person and the machine, not of a project
@@ -3348,6 +3446,71 @@ mod tests {
                   "lastSeen": "2026-09-30T18:21:05Z", "thisMachine": false }
             ]
         })
+    }
+
+    // Scenario: Sin máquinas configuradas, dice cómo se configuran
+    #[test]
+    fn with_no_machines_it_says_how_to_have_some_and_is_not_an_error() {
+        // Most people have one machine. That is the ordinary case, not a broken
+        // one, so it answers with the shape of the configuration rather than a
+        // complaint.
+        let rendered = render_machines(&[], &[], "local");
+        assert!(rendered.starts_with("no machines configured"), "{rendered}");
+        assert!(rendered.contains("[[client.machines]]"), "{rendered}");
+        assert!(rendered.contains("endpoint = \"local\""), "{rendered}");
+        assert!(
+            rendered.contains("exec:ssh"),
+            "the remote shape too: {rendered}"
+        );
+    }
+
+    // Scenario: machines imprime la lista y cuál está activa
+    #[test]
+    fn machines_marks_the_one_in_use_and_names_the_way_in() {
+        let rows = vec![
+            json!({
+                "name": "esta", "configured": "local", "endpoint": "local",
+                "via": null, "active": true
+            }),
+            json!({
+                "name": "la-torre", "configured": "exec:ssh la-torre meltemi bridge",
+                "endpoint": "exec:ssh la-torre meltemi bridge",
+                "via": "ssh la-torre", "active": false
+            }),
+        ];
+        let rendered = render_machines(&rows, &[], "local");
+        assert!(
+            rendered.contains("* esta"),
+            "the active one is marked: {rendered}"
+        );
+        assert!(rendered.contains("  la-torre"), "{rendered}");
+        assert!(
+            rendered.contains("ssh la-torre"),
+            "the way in is named, not the whole command: {rendered}"
+        );
+        // Listing only, and it says where switching is rather than leaving the
+        // reader to guess that this verb cannot.
+        assert!(rendered.contains(":machine <name>"), "{rendered}");
+        assert!(rendered.contains("Settings"), "{rendered}");
+    }
+
+    #[test]
+    fn an_endpoint_that_is_not_one_of_the_machines_is_said_rather_than_hidden() {
+        // Ordinary with MELTEMI_ENDPOINT set, and confusing if left unsaid: no
+        // row is marked and nothing explains why.
+        let rows = vec![json!({
+            "name": "esta", "configured": "local", "endpoint": "local",
+            "via": null, "active": false
+        })];
+        let rendered = render_machines(&rows, &[], "/tmp/somewhere-else.sock");
+        assert!(rendered.contains("not one of them"), "{rendered}");
+        assert!(rendered.contains("somewhere-else"), "{rendered}");
+    }
+
+    #[test]
+    fn a_refused_machine_is_reported_under_the_list() {
+        let rendered = render_machines(&[], &["machine `x` was skipped: ...".to_string()], "local");
+        assert!(rendered.contains("was skipped"), "{rendered}");
     }
 
     // Scenario: identity imprime quién y qué equipos

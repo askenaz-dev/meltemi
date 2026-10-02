@@ -59,6 +59,10 @@ pub enum Msg {
     IdentityOffline,
     IdentityLastSeen,
     IdentityGestureHint,
+    MachinesTitle,
+    MachinesNone,
+    MachinesHere,
+    MachinesElsewhere,
     RaceLoading,
     RaceEmpty,
     RaceUnknown,
@@ -149,6 +153,16 @@ pub fn text(msg: Msg, lang: Lang) -> &'static str {
         (Msg::BucketStopped, Lang::Es) => "detenidas",
         (Msg::BucketStopped, Lang::En) => "stopped",
         (Msg::FleetLoading, Lang::En) => "querying the fleet...",
+        (Msg::MachinesTitle, Lang::Es) => "Máquinas",
+        (Msg::MachinesTitle, Lang::En) => "Machines",
+        (Msg::MachinesNone, Lang::Es) => {
+            "sin máquinas configuradas: se escriben en tu config.toml de usuario"
+        }
+        (Msg::MachinesNone, Lang::En) => "no machines configured: they go in your user config.toml",
+        (Msg::MachinesHere, Lang::Es) => "aquí",
+        (Msg::MachinesHere, Lang::En) => "here",
+        (Msg::MachinesElsewhere, Lang::Es) => "esta conexión no es ninguna de ellas",
+        (Msg::MachinesElsewhere, Lang::En) => "this connection is none of them",
         (Msg::IdentityTitle, Lang::Es) => "Identidad",
         (Msg::IdentityTitle, Lang::En) => "Identity",
         (Msg::IdentityWhose, Lang::Es) => {
@@ -401,6 +415,10 @@ pub const ALL: &[Msg] = &[
     Msg::IdentityOffline,
     Msg::IdentityLastSeen,
     Msg::IdentityGestureHint,
+    Msg::MachinesTitle,
+    Msg::MachinesNone,
+    Msg::MachinesHere,
+    Msg::MachinesElsewhere,
     Msg::RaceLoading,
     Msg::RaceEmpty,
     Msg::RaceUnknown,

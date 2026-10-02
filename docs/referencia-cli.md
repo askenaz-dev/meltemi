@@ -150,6 +150,9 @@ SUBCOMMANDS:
     harness [--agent <id>]
                         the harness that applies: every piece with the layer it
                         comes from, plus what is covered or unreadable and why
+    machines            the machines you configured, with the one in use marked.
+                        Reading only: each run of this CLI resolves its own
+                        endpoint, so there is nobody here to switch
     identity            who you are on your OWN mesh, which machines it knows
                         and whether each is online. Meltemi reads your mesh
                         client; it has no accounts and issues no identity

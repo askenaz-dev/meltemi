@@ -12,6 +12,7 @@ import { pushNotice } from "./notices";
 import { setActiveProject, uiState } from "./ui-state";
 import { decide, type Announced, type Moment } from "./attention";
 import type { IdentityStatus } from "./identity";
+import type { MachineList, ProbeResult } from "./machines";
 export { isLive, LIVE_STATE } from "./session-state";
 import {
   isPermissionGranted,
@@ -382,6 +383,45 @@ export async function refreshUsage(): Promise<void> {
 export async function refreshPending(): Promise<void> {
   const result = await request<{ pending: PendingPermission[] }>("permission/pending");
   pending.set(result.pending);
+}
+
+/**
+ * The machines this user configured, with whatever could not be read.
+ *
+ * Read on demand and never polled: a background sweep towards remote machines
+ * would raise ssh connections nobody asked for (maquinas-remotas design D4).
+ */
+export const machines = writable<MachineList>({ machines: [], diagnostics: [] });
+
+/** Reads the machine list from the native side. */
+export async function refreshMachines(): Promise<void> {
+  try {
+    machines.set(await invoke<MachineList>("machines_list"));
+  } catch {
+    // No list is the ordinary state of most installs, not a failure to report.
+    machines.set({ machines: [], diagnostics: [] });
+  }
+}
+
+/** Opens a machine, says hello and closes. Changes nothing. */
+export async function probeMachine(name: string): Promise<ProbeResult> {
+  return invoke<ProbeResult>("machine_probe", { name });
+}
+
+/**
+ * Talks to another machine from now on.
+ *
+ * The caller runs the unsaved-work guard FIRST — the same guard as leaving the
+ * editor, not a second one — because the tabs of the machine being left point at
+ * sessions of another daemon and stop meaning anything.
+ */
+export async function switchMachine(name: string): Promise<string> {
+  const switched = await invoke<string>("machine_switch", { name });
+  // The tabs of the machine being left are about another daemon's sessions.
+  sessions.set([]);
+  allSessions.set([]);
+  await refreshMachines();
+  return switched;
 }
 
 /**

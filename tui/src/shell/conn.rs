@@ -25,8 +25,8 @@ use meltemi_proto::{
 };
 
 use crate::shell::live::{
-    FleetRow, FleetSnapshot, GateRow, HarnessSnapshot, ProjectRow, RaceBoard, RaceLane, SessionRow,
-    Update,
+    FleetRow, FleetSnapshot, GateRow, HarnessSnapshot, MachineRow, MachinesSnapshot, ProjectRow,
+    RaceBoard, RaceLane, SessionRow, Update,
 };
 use crate::shell::messages::{Lang, Msg, text};
 use crate::shell::render::ConnState;
@@ -51,6 +51,10 @@ pub enum Command {
     Harness { agent: Option<String> },
     /// Read the user's mesh identity (identidad-propia design D6).
     Identity,
+    /// List the machines this user configured (maquinas-remotas design D6).
+    Machines,
+    /// Talk to another machine from now on.
+    SwitchMachine { name: String },
     /// Ask for the linking gesture. The terminal prints it and never runs it.
     IdentityLink { hostname: Option<String> },
     /// Query the known-project registry (`project/list`).
@@ -111,6 +115,9 @@ pub async fn connection_actor(
     mut commands: UnboundedReceiver<Command>,
     updates: UnboundedSender<Update>,
 ) {
+    // A variable, not the constant it used to be: changing machines is
+    // reconnecting, and this loop already reconnects (maquinas-remotas D2).
+    let mut endpoint = endpoint;
     let mut backoff = MIN_BACKOFF;
     loop {
         let _ = updates.send(Update::Conn(ConnState::Connecting));
@@ -120,8 +127,17 @@ pub async fn connection_actor(
                 let _ = updates.send(Update::Conn(ConnState::Unreachable {
                     detail: error.to_string(),
                 }));
-                if backoff_or_stop(&mut commands, backoff).await {
-                    return;
+                match backoff_or_stop(&mut commands, backoff, &updates, lang).await {
+                    Waited::UiGone => return,
+                    // The machine chosen during a wait starts its own attempt at
+                    // once: the new one inherits nothing from the old one's bad
+                    // luck.
+                    Waited::Switch(next) => {
+                        endpoint = next;
+                        backoff = MIN_BACKOFF;
+                        continue;
+                    }
+                    Waited::Elapsed => {}
                 }
                 backoff = (backoff * 2).min(MAX_BACKOFF);
                 continue;
@@ -131,9 +147,13 @@ pub async fn connection_actor(
 
         // A dropped UI sender ends the actor entirely; a dropped connection just
         // reconnects.
-        match serve_connection(stream, lang, &mut commands, &updates).await {
+        match serve_connection(stream, lang, &mut commands, &updates, &endpoint).await {
             ConnExit::UiGone => return,
             ConnExit::Disconnected => continue,
+            ConnExit::Switch(next) => {
+                endpoint = next;
+                continue;
+            }
         }
     }
 }
@@ -143,6 +163,18 @@ enum ConnExit {
     UiGone,
     /// The connection closed: reconnect.
     Disconnected,
+    /// The user chose another machine; dial this one instead.
+    Switch(String),
+}
+
+/// How a backoff ended.
+enum Waited {
+    /// The wait ran out; try the same endpoint again.
+    Elapsed,
+    /// The UI dropped its command sender.
+    UiGone,
+    /// The user chose another machine while we were waiting.
+    Switch(String),
 }
 
 async fn serve_connection(
@@ -150,6 +182,7 @@ async fn serve_connection(
     lang: Lang,
     commands: &mut UnboundedReceiver<Command>,
     updates: &UnboundedSender<Update>,
+    endpoint: &str,
 ) -> ConnExit {
     let (peer, mut incoming) = Peer::start(stream);
 
@@ -303,6 +336,15 @@ async fn serve_connection(
                     read_harness(&peer, updates, scope.as_deref(), agent).await;
                 }
                 Some(Command::Identity) => read_identity(&peer, updates).await,
+                Some(Command::Machines) => send_machines(updates, Some(endpoint)),
+                Some(Command::SwitchMachine { name }) => {
+                    if let Some(endpoint) = resolve_machine(&name, updates, lang) {
+                        // Dropped, not drained: what is in flight belongs to the
+                        // machine being left.
+                        peer.close();
+                        return ConnExit::Switch(endpoint);
+                    }
+                }
                 Some(Command::IdentityLink { hostname }) => {
                     let mut params = json!({});
                     if let Some(hostname) = &hostname {
@@ -483,10 +525,79 @@ async fn serve_connection(
 }
 
 /// Sleeps for `backoff`, returning `true` if the UI went away meanwhile.
-async fn backoff_or_stop(commands: &mut UnboundedReceiver<Command>, backoff: Duration) -> bool {
-    tokio::select! {
-        _ = tokio::time::sleep(backoff) => false,
-        command = commands.recv() => command.is_none(),
+async fn backoff_or_stop(
+    commands: &mut UnboundedReceiver<Command>,
+    backoff: Duration,
+    updates: &UnboundedSender<Update>,
+    lang: Lang,
+) -> Waited {
+    let sleep = tokio::time::sleep(backoff);
+    tokio::pin!(sleep);
+    loop {
+        tokio::select! {
+            _ = &mut sleep => return Waited::Elapsed,
+            command = commands.recv() => match command {
+                None => return Waited::UiGone,
+                // Listing the machines works while unreachable, and that is when
+                // somebody most wants it: the list is configuration, not an
+                // answer from a daemon.
+                Some(Command::Machines) => send_machines(updates, None),
+                Some(Command::SwitchMachine { name }) => {
+                    if let Some(endpoint) = resolve_machine(&name, updates, lang) {
+                        return Waited::Switch(endpoint);
+                    }
+                }
+                Some(_) => {}
+            },
+        }
+    }
+}
+
+/// Sends the configured machines, marking `active` when there is one.
+fn send_machines(updates: &UnboundedSender<Update>, active: Option<&str>) {
+    let read = meltemi_client::machines::read(&meltemi_client::paths::config_dir());
+    let rows: Vec<MachineRow> = read
+        .machines
+        .iter()
+        .map(|machine| MachineRow {
+            name: machine.name.clone(),
+            configured: machine.configured.clone(),
+            via: machine.via(),
+            active: active.is_some_and(|at| at == machine.endpoint),
+        })
+        .collect();
+    let named = active.and_then(|at| read.named(at)).map(|m| m.name.clone());
+    let _ = updates.send(Update::Machines(MachinesSnapshot {
+        rows,
+        active: named,
+        diagnostics: read.diagnostics,
+    }));
+}
+
+/// The endpoint of the machine called `name`, or a notice naming the ones there
+/// are.
+///
+/// A refusal that lists the alternatives, because the mistake this answers is
+/// almost always a typo or a half-remembered name.
+fn resolve_machine(name: &str, updates: &UnboundedSender<Update>, lang: Lang) -> Option<String> {
+    let read = meltemi_client::machines::read(&meltemi_client::paths::config_dir());
+    match read.by_name(name) {
+        Some(machine) => Some(machine.endpoint.clone()),
+        None => {
+            let names = read.names().join(", ");
+            let notice = match lang {
+                Lang::Es if names.is_empty() => {
+                    "no hay máquinas configuradas en tu config.toml de usuario".to_string()
+                }
+                Lang::Es => format!("no hay ninguna máquina `{name}`; tienes: {names}"),
+                Lang::En if names.is_empty() => {
+                    "no machines are configured in your user config.toml".to_string()
+                }
+                Lang::En => format!("there is no machine `{name}`; you have: {names}"),
+            };
+            let _ = updates.send(Update::Notice(notice));
+            None
+        }
     }
 }
 

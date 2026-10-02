@@ -202,15 +202,18 @@ fn render_header(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx)
             version,
             uptime_s,
             sessions,
-        } => (
-            glyphs::OK,
-            match &ctx.via {
-                Some(via) => {
-                    format!("daemon {version} | {uptime_s}s | {sessions} ses. | vía {via}")
-                }
-                None => format!("daemon {version} | {uptime_s}s | {sessions} ses."),
-            },
-        ),
+        } => (glyphs::OK, {
+            let mut said = format!("daemon {version} | {uptime_s}s | {sessions} ses.");
+            // Which machine, when the user named one: an action on the wrong
+            // computer must not look like an action on your own.
+            if let Some(machine) = live.machines.as_ref().and_then(|m| m.active.as_ref()) {
+                said.push_str(&format!(" | {machine}"));
+            }
+            if let Some(via) = &ctx.via {
+                said.push_str(&format!(" | vía {via}"));
+            }
+            said
+        }),
         ConnState::Unreachable { .. } => (glyphs::ERROR, ctx.msg(Msg::Unreachable).to_string()),
     };
     // Permission indicator: glyph + count + word, always present (never a bare dot).
@@ -486,7 +489,62 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
     // And the user's own mesh identity, on the same terms and for the same
     // reason: asked for, not polled.
     append_identity(&mut lines, live, ctx);
+    // And the machines of this user, on the same terms: asked for, not polled.
+    append_machines(&mut lines, live, ctx);
     render_lines(frame, area, lines);
+}
+
+/// Appends the machines this user configured, marking the one in use.
+///
+/// Configuration, not an answer from a daemon, which is why it renders the same
+/// whether or not there is a connection — and why it is the one block worth
+/// reading when there is not.
+fn append_machines(lines: &mut Vec<Line<'static>>, live: &LiveData, ctx: &ShellCtx) {
+    let Some(snapshot) = &live.machines else {
+        return;
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(ctx.msg(Msg::MachinesTitle)));
+    if snapshot.rows.is_empty() {
+        lines.push(Line::from(format!("  {}", ctx.msg(Msg::MachinesNone))));
+    }
+    let width = snapshot
+        .rows
+        .iter()
+        .map(|row| row.name.chars().count())
+        .max()
+        .unwrap_or(0);
+    for row in &snapshot.rows {
+        // The marker is a glyph with its ASCII twin and a word beside it, like
+        // every other state in this surface.
+        let glyph = if row.active {
+            glyphs::OK
+        } else {
+            glyphs::ABSENT
+        };
+        let pad = width.saturating_sub(row.name.chars().count());
+        let mut text = format!(
+            "    {} {}{}",
+            glyph.text(&ctx.present),
+            row.name,
+            " ".repeat(pad)
+        );
+        if row.active {
+            text.push_str(&format!("  ({})", ctx.msg(Msg::MachinesHere)));
+        }
+        // The way in, not the whole command: it is what a person recognises.
+        match &row.via {
+            Some(via) => text.push_str(&format!("  · {via}")),
+            None => text.push_str(&format!("  · {}", row.configured)),
+        }
+        lines.push(Line::from(text));
+    }
+    if !snapshot.rows.is_empty() && snapshot.active.is_none() {
+        lines.push(Line::from(format!("  {}", ctx.msg(Msg::MachinesElsewhere))));
+    }
+    for said in &snapshot.diagnostics {
+        lines.push(Line::from(format!("  · {said}")));
+    }
 }
 
 /// Appends the user's mesh identity: who they are, whose mesh it is, and their
@@ -1950,6 +2008,75 @@ mod tests {
                 },
             ],
         }
+    }
+
+    fn machines_of(active: Option<&str>) -> crate::shell::live::MachinesSnapshot {
+        use crate::shell::live::{MachineRow, MachinesSnapshot};
+        MachinesSnapshot {
+            rows: vec![
+                MachineRow {
+                    name: "esta".into(),
+                    configured: "local".into(),
+                    via: None,
+                    active: active == Some("esta"),
+                },
+                MachineRow {
+                    name: "la-torre".into(),
+                    configured: "exec:ssh la-torre meltemi bridge".into(),
+                    via: Some("ssh la-torre".into()),
+                    active: active == Some("la-torre"),
+                },
+            ],
+            active: active.map(str::to_string),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    // Scenario: Máquinas desde la paleta
+    #[test]
+    fn the_terminal_lists_the_machines_and_marks_the_one_it_is_on() {
+        let ctx = ctx(default_present());
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "1".into(),
+            rows: Vec::new(),
+        }));
+        live.apply(Update::Machines(machines_of(Some("esta"))));
+        let shown = draw(&state, &live, &ctx, 160, 40);
+
+        assert!(shown.contains("Máquinas"), "{shown}");
+        assert!(shown.contains("esta"), "{shown}");
+        assert!(shown.contains("la-torre"), "{shown}");
+        // Marked with a glyph AND a word, like every other state here.
+        assert!(shown.contains("aquí"), "the one in use says so: {shown}");
+        assert!(shown.contains(crate::shell::glyphs::OK.unicode), "{shown}");
+        assert!(
+            shown.contains(crate::shell::glyphs::ABSENT.unicode),
+            "and the ones that are not: {shown}"
+        );
+        // The way in, not the whole command.
+        assert!(shown.contains("ssh la-torre"), "{shown}");
+        assert!(
+            !shown.contains("meltemi bridge"),
+            "the command is not what a person reads at a glance: {shown}"
+        );
+    }
+
+    #[test]
+    fn a_connection_that_is_none_of_the_machines_is_said_rather_than_left_blank() {
+        let ctx = ctx(default_present());
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "1".into(),
+            rows: Vec::new(),
+        }));
+        live.apply(Update::Machines(machines_of(None)));
+        let shown = draw(&state, &live, &ctx, 160, 40);
+        assert!(shown.contains("ninguna de ellas"), "{shown}");
     }
 
     // Scenario: Identidad desde la paleta
