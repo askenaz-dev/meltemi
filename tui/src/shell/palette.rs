@@ -108,6 +108,23 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "the gesture that links this machine (printed, never run)",
     },
     Entry {
+        // No contract method: the machines are the client's own configuration and
+        // the daemon does not know other machines exist, so these two contribute
+        // nothing to the parity union (maquinas-remotas design D7).
+        name: "machines",
+        reserved: false,
+        methods: &[],
+        desc_es: "las máquinas que configuraste, y en cuál estás",
+        desc_en: "the machines you configured, and which one you are on",
+    },
+    Entry {
+        name: "machine",
+        reserved: false,
+        methods: &[],
+        desc_es: "hablar con otra máquina: `machine <nombre>`",
+        desc_en: "talk to another machine: `machine <name>`",
+    },
+    Entry {
         // No contract method: the notice is the client's own doing and the daemon
         // takes no part in it, so this entry contributes nothing to the parity
         // union (aviso-de-espera-opt-in design D2).

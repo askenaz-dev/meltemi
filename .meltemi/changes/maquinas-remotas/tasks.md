@@ -98,12 +98,32 @@ change se detiene y vuelve a design (design D7).
   `docs/referencia-cli.md` regenerada. Nota del camino: los tests de integración
   del CLI fallaron hasta correr `cargo build --workspace --bins`, que es el gotcha
   conocido y no una regresión. -->
-- [ ] 3.2 TUI: `machines`/`maquinas` y `machine <nombre>`/`maquina <nombre>` en
+- [x] 3.2 TUI: `machines`/`maquinas` y `machine <nombre>`/`maquina <nombre>` en
   la paleta con sus `Effect`, su `Command` en `conn.rs`, su estado y su render,
   la máquina activa en la cabecera junto al `vía …`, y el rehúso que nombra las
   que sí están; cadenas ES/EN (design D6) — escenarios «Máquinas desde la
   paleta» y «Cambiar de máquina desde la paleta reconecta» — gates: suite de
   `tui`
+  <!-- 2026-10-02: el bucle del terminal recibió el mismo tratamiento que el del
+  escritorio —endpoint como variable, dos sitios que lo atienden— y además una
+  mejora que ya hacía falta: `backoff_or_stop` **descartaba** cualquier comando
+  que llegara durante la espera. Ahora listar máquinas funciona **estando
+  desconectado**, que es justo cuando alguien más quiere mirarlas: la lista es
+  configuración, no una respuesta de un daemon.
+  La máquina activa va a la cabecera junto al `vía …`, por la misma razón que
+  aquel: una acción sobre el ordenador equivocado no debe parecerse a una sobre el
+  propio.
+  Las dos entradas de paleta llevan `methods: &[]` —el daemon no sabe que existen
+  otras máquinas y no debe saberlo—, así que no entran a la unión de paridad, como
+  `notice-test`. Aceptan `maquinas` y `máquinas`, con y sin tilde, porque quien
+  escribe rápido no pone tildes.
+  Un nombre que no está rehúsa **nombrando los que sí están**: el error que esto
+  contesta es casi siempre un tecleo o un nombre a medio recordar.
+  Dos tropiezos del camino, los dos de escribir Rust desde un script: la inserción
+  de tipos cayó **entre un `derive` y su struct**, dándole mis derives a `MachineRow`
+  y dejando a `HarnessSnapshot` sin ninguno; y el import nuevo hubo que añadirlo a
+  mano. El compilador cazó ambos al instante.
+  Gates: fmt, clippy de `meltemi` 0, 21 binarios de test verdes. -->
 - [ ] 3.3 GUI: sección «Máquinas» en `Settings.svelte` (lista con endpoint,
   activa marcada, probar con versión y latencia, cambiar con la guarda de
   trabajo sin guardar **reutilizada**, no una nueva) y el nombre de la máquina

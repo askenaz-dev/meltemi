@@ -109,6 +109,12 @@ pub enum Effect {
     TestNotice,
     /// Read who the user is on their own mesh, and their machines.
     IdentityStatus,
+    /// List the machines this user configured (maquinas-remotas design D6).
+    Machines,
+    /// Talk to another machine from now on.
+    SwitchMachine {
+        name: String,
+    },
     /// Ask the daemon to compose the gesture that links this machine. Printed as
     /// a notice; the terminal never runs it (identidad-propia design D3).
     IdentityLink {
@@ -466,6 +472,28 @@ impl ShellState {
                     // reason the harness does: it is a fact ABOUT this machine
                     // and its peers, not a fifth place to navigate to — and the
                     // four quadrants are a documented promise.
+                    "machines" | "maquinas" | "máquinas" => {
+                        // Under the catalog, like the harness and the identity:
+                        // a fact about this installation, not a fifth quadrant.
+                        self.view = View::Fleet;
+                        self.drill = None;
+                        Some(Effect::Machines)
+                    }
+                    _ if command.starts_with("machine ")
+                        || command.starts_with("maquina ")
+                        || command.starts_with("máquina ") =>
+                    {
+                        let name = command.split_once(' ').map(|(_, r)| r.trim()).unwrap_or("");
+                        if name.is_empty() {
+                            None
+                        } else {
+                            self.view = View::Fleet;
+                            self.drill = None;
+                            Some(Effect::SwitchMachine {
+                                name: name.to_string(),
+                            })
+                        }
+                    }
                     "identity" | "identidad" => {
                         self.view = View::Fleet;
                         self.drill = None;
@@ -1069,6 +1097,50 @@ mod tests {
             hint.contains("Tab") && hint.contains("Enter"),
             "the footer names both keys: {hint}"
         );
+    }
+
+    // Scenario: Máquinas desde la paleta
+    #[test]
+    fn palette_machines_reads_in_the_catalog_view_in_both_languages() {
+        for command in ["machines", "maquinas", "máquinas"] {
+            let mut s = ShellState::new();
+            press(&mut s, Key::Char(':'));
+            for c in command.chars() {
+                press(&mut s, Key::Char(c));
+            }
+            assert_eq!(
+                press(&mut s, Key::Enter),
+                Some(Effect::Machines),
+                "{command}"
+            );
+            assert_eq!(s.view(), View::Fleet, "{command}");
+        }
+    }
+
+    // Scenario: Cambiar de máquina desde la paleta reconecta
+    #[test]
+    fn palette_machine_takes_the_name_verbatim_in_both_languages() {
+        for command in ["machine la-torre", "maquina la-torre", "máquina la-torre"] {
+            let mut s = ShellState::new();
+            press(&mut s, Key::Char(':'));
+            for c in command.chars() {
+                press(&mut s, Key::Char(c));
+            }
+            assert_eq!(
+                press(&mut s, Key::Enter),
+                Some(Effect::SwitchMachine {
+                    name: "la-torre".into()
+                }),
+                "{command}"
+            );
+        }
+        // A bare `machine` with no name is not a switch to nowhere.
+        let mut s = ShellState::new();
+        press(&mut s, Key::Char(':'));
+        for c in "machine ".chars() {
+            press(&mut s, Key::Char(c));
+        }
+        assert_eq!(press(&mut s, Key::Enter), None);
     }
 
     // Scenario: Identidad desde la paleta

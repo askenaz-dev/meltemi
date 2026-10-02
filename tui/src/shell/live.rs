@@ -187,6 +187,26 @@ pub struct FleetSnapshot {
 /// because "why is mine not the one applying" is the question people arrive
 /// with, and a listing of only what governs leaves it unanswered
 /// (harness-global-y-por-agente design D5/D8).
+/// One machine, as the terminal shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRow {
+    pub name: String,
+    /// What the user wrote, which is what they recognise.
+    pub configured: String,
+    /// `ssh my-pc`, when the way in is a command.
+    pub via: Option<String>,
+    pub active: bool,
+}
+
+/// The machines, read when asked for and never polled.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MachinesSnapshot {
+    pub rows: Vec<MachineRow>,
+    /// The name of the active machine, when it is one of the configured ones.
+    pub active: Option<String>,
+    pub diagnostics: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessSnapshot {
     /// The agent the reading was narrowed to, when it was.
@@ -252,6 +272,8 @@ pub enum Update {
     Harness(HarnessSnapshot),
     /// Who the user is on their own mesh, as the mesh's client answered it.
     Identity(meltemi_proto::IdentityStatusResult),
+    /// The machines this user configured, and which one is active.
+    Machines(MachinesSnapshot),
     /// The known-project registry was (re)queried.
     Projects(Vec<ProjectRow>),
     /// The lanes of a race were (re)read for the board.
@@ -301,6 +323,9 @@ pub struct LiveData {
     /// The last identity answer, absent until asked for: reading the mesh client
     /// on every refresh would be chrome nobody requested (design D6).
     pub identity: Option<meltemi_proto::IdentityStatusResult>,
+    /// The machines, absent until asked for. The active one survives the list
+    /// being closed, because the header names it.
+    pub machines: Option<MachinesSnapshot>,
     /// The race board currently open, when the shell is drilled into one.
     pub race: Option<RaceBoard>,
     pub selected: usize,
@@ -346,6 +371,7 @@ impl LiveData {
             fleet: None,
             harness: None,
             identity: None,
+            machines: None,
             race: None,
             selected: 0,
             permission_queue: Vec::new(),
@@ -412,6 +438,7 @@ impl LiveData {
             Update::Fleet(snapshot) => self.fleet = Some(snapshot),
             Update::Harness(snapshot) => self.harness = Some(snapshot),
             Update::Identity(answer) => self.identity = Some(answer),
+            Update::Machines(snapshot) => self.machines = Some(snapshot),
             Update::Race(board) => {
                 // Selection survives a re-read as long as the lane still exists;
                 // a lane that vanished clamps rather than pointing past the end.
