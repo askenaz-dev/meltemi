@@ -1862,6 +1862,14 @@ fn identity_conforms() {
         &IdentityLinkResult {
             command: "tailscale up --login-server https://headscale.askenaz.dev --hostname mi-pc"
                 .into(),
+            args: vec![
+                "tailscale".into(),
+                "up".into(),
+                "--login-server".into(),
+                "https://headscale.askenaz.dev".into(),
+                "--hostname".into(),
+                "mi-pc".into(),
+            ],
             posix: "tailscale up --login-server https://headscale.askenaz.dev --hostname mi-pc"
                 .into(),
             powershell:
@@ -1885,7 +1893,37 @@ fn identity_conforms() {
     assert_rejected(
         "identity",
         "linkResult",
-        &json!({ "command": "", "posix": "x", "powershell": "x", "opensBrowser": false }),
+        &json!({
+            "command": "",
+            "args": ["tailscale", "up"],
+            "posix": "x",
+            "powershell": "x",
+            "opensBrowser": false
+        }),
+    );
+    // A gesture with no argument vector, or one too short to be a program plus a
+    // verb: `--exec` would have nothing to run, and guessing by re-splitting the
+    // line is the bug the vector exists to prevent.
+    assert_rejected(
+        "identity",
+        "linkResult",
+        &json!({
+            "command": "tailscale up",
+            "posix": "tailscale up",
+            "powershell": "tailscale up",
+            "opensBrowser": true
+        }),
+    );
+    assert_rejected(
+        "identity",
+        "linkResult",
+        &json!({
+            "command": "tailscale up",
+            "args": ["tailscale"],
+            "posix": "tailscale up",
+            "powershell": "tailscale up",
+            "opensBrowser": true
+        }),
     );
     // A machine that does not say whether it is this one: the surfaces mark the
     // current machine, and a row that left it out would be marked as not-this by

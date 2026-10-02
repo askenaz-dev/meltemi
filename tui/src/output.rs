@@ -112,6 +112,17 @@ impl CliError {
         Self::new(ExitCode::Unreachable, "tunnel_down", message)
     }
 
+    /// The user's own mesh client, run by `identity-link --exec`, ended badly
+    /// (exit 10): Meltemi is fine and this machine is still not on the mesh.
+    ///
+    /// Reuses the code `tunnel_down` already stretched to mean "the path is not
+    /// up" rather than minting one, the way `not_found` reuses the contract code:
+    /// a new numeric code would be a change to the exit taxonomy, and this is not
+    /// a new kind of failure — it is the same "you cannot get there from here".
+    pub fn link_failed(message: impl Into<String>) -> Self {
+        Self::new(ExitCode::Unreachable, "identity_link_failed", message)
+    }
+
     /// An unexpected internal error (exit 1).
     pub fn internal(detail: impl std::fmt::Display) -> Self {
         Self::new(

@@ -43,6 +43,7 @@ pub const FLAGS: &[&str] = &[
     "--unique",
     "--option",
     "--follow",
+    "--hostname",
 ];
 
 /// What `approve` and `deny` answer to more than one request id: one decision
@@ -196,6 +197,13 @@ SUBCOMMANDS:
     harness [--agent <id>]
                         the harness that applies: every piece with the layer it
                         comes from, plus what is covered or unreadable and why
+    identity            who you are on your OWN mesh, which machines it knows
+                        and whether each is online. Meltemi reads your mesh
+                        client; it has no accounts and issues no identity
+    identity-link [--hostname <name>] [--exec]
+                        print the gesture that links THIS machine to your mesh;
+                        `--exec` runs your own client, which opens your browser
+                        so you sign in with your own provider
     tunnel [user@host] [--exec]
                         compose the `ssh` command that reverse-forwards this
                         daemon's endpoint to a remote host; `--exec` runs it
@@ -442,6 +450,15 @@ pub enum Command {
     /// Read the harness that effectively applies (`harness/effective`), with
     /// the layer each piece comes from and what does not apply.
     Harness { agent: Option<String> },
+    /// Read who the user is on their own mesh, and which machines it knows
+    /// (identidad-propia design D6).
+    Identity,
+    /// Print the gesture that links this machine to the user's mesh and, only
+    /// with `--exec`, run the user's own client with stdio inherited.
+    IdentityLink {
+        hostname: Option<String>,
+        exec: bool,
+    },
     /// Compose (or, with `--exec`, run) the `ssh` reverse-forward that exposes
     /// this daemon's endpoint to a remote host. Local: touches no daemon.
     Tunnel { target: Option<String>, exec: bool },
@@ -540,7 +557,7 @@ pub fn plan(args: &[String], stdout_is_tty: bool) -> Plan {
             // strict about unknown flags — and a rejected flag would have made
             // the advertised `usage --all` unusable.
             "--all" | "--project" | "--since" | "--until" | "--agent" | "--mode" | "--model"
-            | "--effort" | "--branch" | "--unique" | "--option" | "--follow" => {
+            | "--effort" | "--branch" | "--unique" | "--option" | "--follow" | "--hostname" => {
                 positionals.push(arg.as_str());
             }
             flag if flag.starts_with('-') && flag != "-" => {
@@ -1231,6 +1248,29 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], local: Local) -> Action {
                 "`harness` takes at most `--agent <id>` (an id of the fleet catalog)".into(),
             ),
         },
+        "identity" if rest.is_empty() => Action::Run(Command::Identity),
+        "identity" => Action::Usage(
+            "`identity` takes no arguments; to link this machine use `meltemi identity-link`"
+                .into(),
+        ),
+        "identity-link" => match rest {
+            [] => Action::Run(Command::IdentityLink {
+                hostname: None,
+                exec,
+            }),
+            ["--hostname", hostname] => Action::Run(Command::IdentityLink {
+                hostname: Some((*hostname).to_string()),
+                exec,
+            }),
+            ["--hostname"] => Action::Usage(
+                "`--hostname` needs a name: meltemi identity-link --hostname <name>".into(),
+            ),
+            _ => Action::Usage(
+                "`identity-link` takes at most `--hostname <name>`: meltemi identity-link \
+                 [--hostname <name>] [--exec]"
+                    .into(),
+            ),
+        },
         "tunnel" => match rest {
             [] => Action::Run(Command::Tunnel {
                 target: None,
@@ -1888,6 +1928,68 @@ mod tests {
         ));
     }
 
+    // Scenario: identity imprime quién y qué equipos
+    #[test]
+    fn identity_takes_nothing_and_says_where_linking_lives() {
+        assert_eq!(
+            plan_of(&["identity"], false).action,
+            Action::Run(Command::Identity)
+        );
+        // A user who typed the wrong verb is pointed at the right one rather
+        // than told "too many arguments".
+        match plan_of(&["identity", "mi-pc"], false).action {
+            Action::Usage(message) => assert!(message.contains("identity-link"), "{message}"),
+            other => panic!("expected a usage error, got {other:?}"),
+        }
+    }
+
+    // Scenario: identity-link imprime el gesto y solo ejecuta a pedido
+    #[test]
+    fn identity_link_parses_the_hostname_and_the_exec_flag() {
+        assert_eq!(
+            plan_of(&["identity-link"], false).action,
+            Action::Run(Command::IdentityLink {
+                hostname: None,
+                exec: false,
+            })
+        );
+        assert_eq!(
+            plan_of(&["identity-link", "--hostname", "el-portatil"], false).action,
+            Action::Run(Command::IdentityLink {
+                hostname: Some("el-portatil".into()),
+                exec: false,
+            })
+        );
+        // `--exec` is opt-in and position-independent, like every global flag.
+        for line in [
+            &["identity-link", "--exec"][..],
+            &["--exec", "identity-link"][..],
+        ] {
+            assert_eq!(
+                plan_of(line, false).action,
+                Action::Run(Command::IdentityLink {
+                    hostname: None,
+                    exec: true,
+                }),
+                "{line:?}"
+            );
+        }
+        // And running is never the default: the gesture prints unless asked.
+        assert_eq!(
+            plan_of(&["identity-link", "--hostname", "mi-pc"], false).action,
+            Action::Run(Command::IdentityLink {
+                hostname: Some("mi-pc".into()),
+                exec: false,
+            })
+        );
+        // A `--hostname` with nothing after it is a typo, and a typo must not
+        // become "ask the mesh for whatever name it likes".
+        match plan_of(&["identity-link", "--hostname"], false).action {
+            Action::Usage(message) => assert!(message.contains("needs a name"), "{message}"),
+            other => panic!("expected a usage error, got {other:?}"),
+        }
+    }
+
     #[test]
     fn tunnel_parses_optional_target_and_exec_flag() {
         // Scenario: Composición del túnel por plataforma
@@ -2434,6 +2536,10 @@ mod tests {
                 // Reading, never granting: it asks the daemon to keep telling
                 // this terminal where sessions stand (estado-en-vivo design D8).
                 "--follow",
+                // Naming the machine to ask the mesh for. It names, it does not
+                // grant: the gesture it goes into is printed, and only `--exec`
+                // runs it (identidad-propia design D3).
+                "--hostname",
             ]
         );
         // Every listed flag is one the grammar knows: none is refused.

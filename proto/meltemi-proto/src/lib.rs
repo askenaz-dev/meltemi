@@ -2737,6 +2737,13 @@ pub struct IdentityLinkParams {
 pub struct IdentityLinkResult {
     /// The gesture as one line, for reading and copying.
     pub command: String,
+    /// The same gesture as the argument vector, for a surface that RUNS it.
+    ///
+    /// Not a convenience: a client that re-split `command` on spaces would break
+    /// a client path that has one, which is the very bug the two quoted forms
+    /// exist to prevent. The first element is the program; the rest are its
+    /// arguments, and no shell is involved anywhere (identidad-propia 3.1).
+    pub args: Vec<String>,
     /// The same, written for a POSIX shell.
     pub posix: String,
     /// The same, written for PowerShell.

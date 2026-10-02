@@ -85,12 +85,18 @@
     "linkResult": {
       "type": "object",
       "description": "The gesture, as text, in both shells. Handed back and never run.",
-      "required": ["command", "posix", "powershell", "opensBrowser"],
+      "required": ["command", "args", "posix", "powershell", "opensBrowser"],
       "properties": {
         "command": {
           "type": "string",
           "minLength": 1,
           "description": "The gesture as one line, for reading and copying."
+        },
+        "args": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "string" },
+          "description": "The same gesture as an argument vector, for a surface that runs it: the program first, then its arguments, with no shell anywhere. A client must never re-split `command` on spaces — a client path with a space is exactly what the two quoted forms exist to survive."
         },
         "posix": { "type": "string", "minLength": 1 },
         "powershell": { "type": "string", "minLength": 1 },

@@ -141,13 +141,42 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
 
 ## 3. Las superficies
 
-- [ ] 3.1 CLI: verbos `identity` e `identity-link [--hostname] [--exec]` con
+- [x] 3.1 CLI: verbos `identity` e `identity-link [--hostname] [--exec]` con
   su render humano y `--json`/`--yaml`; `--exec` corre el binario del usuario
   con stdio heredado; `registry.ts` GUI + `npm run gen:forms`; dos filas en
   `docs/paridad-nucleo.md`; `docs/referencia-cli.md` regenerada (gate
   bloqueante `tui/tests/parity.rs`) — escenarios «Ejecutar es explícito y
   visible», «identity imprime quién y qué equipos» e «identity-link imprime el
   gesto y solo ejecuta a pedido» — gates: suite de `tui`, parity, `check:forms`
+  <!-- 2026-10-01: la tarea pedía ejecutar «el binario del propio usuario» y ahí
+  apareció un hueco del contrato: `IdentityLinkResult` traía `command`, `posix` y
+  `powershell`, tres **cadenas**, y para correr algo hace falta un **argv**.
+  Volver a partir `command` por espacios habría roto una ruta de cliente con
+  espacio —exactamente el fallo que las dos formas citadas existen para evitar—, y
+  pasarlo por un shell está fuera de la casa. Así que el contrato gana `args`, un
+  vector con el programa primero, con su `minItems: 2` y dos rechazos nuevos en
+  conformidad: sin vector, y con un vector demasiado corto para ser programa más
+  verbo. El CLI corre **ese** vector, nunca una cadena reconstruida.
+  El render humano imprime la presencia **en palabra** y no en glifo, porque esta
+  superficie se canaliza hacia otros programas y `online` sobrevive a una tubería
+  donde un símbolo no; los glifos son de la 3.2, que es una pantalla. Y la forma
+  que se imprime es la **de la plataforma** (`powershell` en Windows, `posix`
+  fuera), no la lectura plana, que es justo la que se rompe al pegarla.
+  `--hostname` entra a `FLAGS`, a la lista de paso y a la lista pineada del test
+  `no_flag_grants_permissions`, con su razón escrita: nombra, no concede. Un
+  `--hostname` sin valor es un error de uso y no «pídele a la malla el nombre que
+  quiera».
+  Un rehúso del cliente del usuario bajo `--exec` sale como `identity_link_failed`
+  reutilizando el código 10, el mismo que `tunnel_down` ya estiró a «el camino no
+  está arriba»; un número nuevo habría sido cambiar la taxonomía de salida para un
+  fallo que no es nuevo.
+  `identity` rehusa argumentos apuntando a `identity-link` en vez de decir
+  «sobran argumentos», que es lo que alguien necesita leer cuando escribió el
+  verbo de al lado.
+  Gates: fmt, clippy del workspace en 0, 23 binarios de test de `meltemi` y
+  `meltemi-proto` verdes, parity verde (5), `check:forms` fresco tras regenerar,
+  `npm run check` 0 errores, suite de `meltemi-desktop` verde y
+  `docs/referencia-cli.md` regenerada. -->
 - [ ] 3.2 TUI: `Effect::IdentityStatus` e `Effect::IdentityLink` despachadas
   desde el `match` de la paleta en `state.rs`, su `Command` en `conn.rs`, su
   estado en `live.rs`, su render en `render.rs` con la presencia en símbolo con

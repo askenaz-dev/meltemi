@@ -454,6 +454,9 @@ pub fn link(
     Ok(IdentityLinkResult {
         // The plain reading, for a person looking at it rather than pasting it.
         command: parts.join(" "),
+        // The same words as a vector, so a surface that runs the gesture runs
+        // these exact arguments instead of re-splitting a string.
+        args: parts.clone(),
         posix,
         powershell,
         // Signing in opens a browser, and a surface says so before the user is
