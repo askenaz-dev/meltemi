@@ -1489,7 +1489,7 @@ la regla de que la barra no anima, y hay que decidir si repregunta el cliente o
 empuja el daemon. Nota completa en
 `docs/qa/2026-09-16-sesiones-en-la-barra-smoke.md`.
 
-### `identidad-propia` — abierta el 2026-09-06, vía completa
+### `identidad-propia` — abierta el 2026-09-06, implementada el 2026-10-01, vía completa
 
 Nace de una frase del mantenedor —«lo otro importante, inicio de sesión; sé que
 para esto hace falta un backend pero puede ser parte de la propuesta»— y de lo
@@ -1525,6 +1525,41 @@ real redactada como fixture antes de escribir el parser —un campo mal nombrado
 daría un parser verde en CI y un rehúso contra el cliente de verdad—. Y el test
 `tui/tests/docs.rs` pinea hoy la nota de fase 3 que la change reescribe: se
 reescribe con ella, conservando sus tres marcadores.
+
+**Implementada el 2026-10-01** (8/8). La deuda declarada arriba **bloqueó la
+change cuatro días**: en el equipo del mantenedor no hay cliente de malla
+instalado, y el design decía por qué no se podía saltar. Se desbloqueó por la vía
+más fuerte, no por un atajo: la forma se verificó contra las **definiciones de
+tipo publicadas del propio cliente**, fijadas en `v1.102.5`
+(`ipn/ipnstate/ipnstate.go`, `tailcfg/tailcfg.go`), que es de donde el CLI
+serializa su JSON. Una captura muestra solo los campos que **una** máquina pobló
+en **un** estado; el tipo enumera todos con su etiqueta y su regla de presencia —y
+delató **cuatro trampas** que una captura en un equipo sano habría escondido:
+`Self` y `CurrentTailnet` son nulos sin conexión (justo el caso «sin enlazar»),
+`LastSeen` no lleva `omitempty` y un par en línea trae el tiempo cero (un parser
+ingenuo diría «visto: año 1»), las claves del mapa `User` son el id en decimal
+**como cadena** mientras el par lo trae como **número** (buscarlo sin convertir
+devuelve un usuario vacío contra el cliente real), y `ShareeNode` marca el equipo
+que **otra persona** compartió hacia dentro, que el propio `status` del cliente
+oculta por defecto. Cada una con su test.
+
+Tres hallazgos más del camino. (1) El contrato traía tres **cadenas** y `--exec`
+necesita un **argv**: volver a partir la línea por espacios habría roto una ruta
+de cliente con espacio, que es el fallo exacto que las dos formas citadas existen
+para evitar, así que `IdentityLinkResult` gana `args`. (2) El rigor de los tests
+se midió neuterando el código, y de seis roturas deliberadas **una no puso nada
+en rojo**: nada cubría «`BackendState` dice `Running` pero `Self` es nulo», donde
+el handler **panickeaba** en vez de rehusar; ese test ahora existe. (3) El
+guardián de variables de estilo cazó cuatro reglas CSS que no habrían pintado
+nada (`--sunken`, `--radius-1`, `--text-dim` no existen en la piel).
+
+Lo que queda, y queda dicho: **una verificación de campo** —correr `meltemi
+identity` una vez contra un cliente instalado y enlazado—, que no bloquea nada
+porque los nombres salen del tipo y no de una conjetura; y la **corrección del
+tablero «Inicio de sesión» del lienzo de acabado**, que vive fuera del árbol, en
+el artefacto publicado de la sesión de diseño: la forma construible está dibujada
+en `design-system/` (sección 6b, con sus tres estados) y la edición del lienzo es
+acción del mantenedor, porque el repositorio no puede editar lo que no contiene.
 
 > **Gobernanza de alcance** (changes `enmienda-edicion-movil` y `enmienda-agent-boss`): la edición in situ de Fase 2 está acotada por la cerca de la spec `edit-surface`; el compañero móvil de Fase 3 (`companero-movil`, meltemi.md §10) es el puesto remoto del **Agent Boss** — monitorear/aprobar/revisar/dirigir, sin autoría, túnel SSH exclusivamente, aviso de espera opt-in autohospedado — por las specs `mobile-companion` y `remote-access`.
 

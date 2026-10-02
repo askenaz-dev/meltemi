@@ -35,9 +35,16 @@
 //! serialiser, so that a human can diff them against a real client's output when
 //! one is at hand.
 //!
-//! Driven by `MOCK_MESH_SCENARIO`; refuses any argv that is not the one
-//! read-only verb, which is what makes «Ningún token entra ni sale del daemon»
-//! an assertion rather than a promise.
+//! The scenario comes from this binary's own file name — a copy called
+//! `mock-mesh-unlinked` plays `unlinked` — and falls back to
+//! `MOCK_MESH_SCENARIO`. The file name rather than only the variable because
+//! Rust's tests share one process and therefore one environment: two tests
+//! wanting two scenarios would race, and a flaky fixture is worse than no
+//! fixture. A copy per scenario is also honest about what the daemon runs, which
+//! is a binary and never a shell.
+//!
+//! Refuses any argv that is not the one read-only verb, which is what makes
+//! «Ningún token entra ni sale del daemon» an assertion rather than a promise.
 
 use std::io::Write;
 
@@ -199,6 +206,19 @@ const ALONE: &str = r#"{
 }
 "#;
 
+/// The scenario to play: this binary's file-name suffix, else the variable, else
+/// the ordinary case.
+fn scenario_of() -> String {
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(stem) = exe.file_stem().and_then(|stem| stem.to_str())
+        && let Some(suffix) = stem.strip_prefix("mock-mesh-")
+        && !suffix.is_empty()
+    {
+        return suffix.to_string();
+    }
+    std::env::var(SCENARIO).unwrap_or_else(|_| "linked".to_string())
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args != READ_ONLY {
@@ -211,7 +231,7 @@ fn main() {
         std::process::exit(64);
     }
 
-    let scenario = std::env::var(SCENARIO).unwrap_or_else(|_| "linked".to_string());
+    let scenario = scenario_of();
     let body = match scenario.as_str() {
         "linked" => LINKED,
         "unlinked" => UNLINKED,

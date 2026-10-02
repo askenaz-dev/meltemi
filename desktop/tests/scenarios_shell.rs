@@ -516,6 +516,67 @@ fn the_foot_offers_linking_only_when_configured_and_asks_for_nothing_otherwise()
     );
 }
 
+// Scenario: Presencia no es control
+#[test]
+fn a_machine_being_online_opens_nothing_in_any_surface() {
+    // The claim is about what is NOT there, which is the only way it can keep
+    // being true: knowing a machine is reachable must not become a way to reach
+    // it. The path to another machine's daemon stays the user's own tunnel, and
+    // whether `meltemid` runs there is learned by connecting, never assumed.
+
+    // The desktop's machine list: rows of text, with nothing to press.
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    let list = settings
+        .split_once("<ul class=\"machines\">")
+        .expect("the machine list exists")
+        .1;
+    let list = &list[..list.find("</ul>").expect("the list closes")];
+    for interactive in ["<button", "onclick", "<a ", "href="] {
+        assert!(
+            !list.contains(interactive),
+            "a machine row must not be actionable (`{interactive}`): {list}"
+        );
+    }
+
+    // And nothing anywhere turns a machine into an endpoint. This is the shape
+    // the feature would take if it ever crossed the line, so it is named.
+    let decided = read("desktop/ui/src/lib/identity.ts");
+    for reaching in ["endpoint", "connect", "invoke(", "tunnel", "ssh"] {
+        assert!(
+            !decided.to_lowercase().contains(reaching),
+            "the identity module must not know how to reach anything (`{reaching}`)"
+        );
+    }
+
+    // The terminal draws the same list as lines, and its keymap gains no action
+    // on a machine: the identity block is read, never operated.
+    let render = read("tui/src/shell/render.rs");
+    let block = render
+        .split_once("fn append_identity(")
+        .expect("the terminal renders identity")
+        .1;
+    let block = &block[..block
+        .find("\n/// The name of a harness layer")
+        .expect("the function ends")];
+    for reaching in ["endpoint", "connect(", "Effect::", "Command::"] {
+        assert!(
+            !block.contains(reaching),
+            "the identity block renders and does not act (`{reaching}`)"
+        );
+    }
+
+    // The posture is written where a reader looks for it, not only in code.
+    let doc = read("docs/acceso-remoto.md").to_lowercase();
+    assert!(
+        doc.contains("presencia no es control"),
+        "the page states it"
+    );
+    assert!(
+        doc.contains("sigue siendo tu túnel ssh"),
+        "and says what the path to another machine still is"
+    );
+}
+
 // Scenario: Plegada, la identidad sigue alcanzable
 #[test]
 fn folded_to_a_rail_the_identity_row_keeps_its_label_and_its_focus() {

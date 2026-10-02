@@ -262,7 +262,7 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
 
 ## 4. Cierre
 
-- [ ] 4.1 `docs/acceso-remoto.md`: sección «Identidad: la de tu malla» y la
+- [x] 4.1 `docs/acceso-remoto.md`: sección «Identidad: la de tu malla» y la
   nota de fase 3 acotada a lo que sigue siendo nota (certificados SSH del
   bastión, el selector que conecta, el aviso de espera); **reescribir
   `the_rendezvous_pattern_is_documented_with_its_boundary` en
@@ -278,3 +278,49 @@ si alguna lo necesitara, la change se detiene y vuelve a design.
   `docs/plan-de-cambios.md`; corrección del tablero «Inicio de sesión» del
   lienzo y maqueta de la fila en `design-system/` (design D10); y la rama
   aterriza en `main` con `meltemi land identidad-propia confirm`
+
+  <!-- 2026-10-01: la reescritura del test de `docs.rs` era el punto fino y salió
+  como el design preveía: pedía el literal «BYO-identity» **dentro de las notas de
+  fase 3**, y eso era cierto mientras la identidad de la malla fuera futuro. Ahora
+  existe, así que tiene **sección propia** y las notas se acotan a lo que sigue
+  siendo nota: certificados SSH del bastión (autorización de transporte, otra cosa
+  que leer la identidad), el selector que **conecta** (la lista ya existe; elegir
+  y conectarse no) y el aviso de espera. El test conserva sus tres marcadores y
+  ahora pinea la semántica nueva por los dos lados: que la sección dice lo que
+  hace —el verbo de solo lectura, los verbos que el daemon nunca corre, el tiempo
+  límite, los tres rehúsos, «presencia no es control» y la verificación pendiente
+  con su versión— y que las notas **ya no prometen** lo construido, porque una
+  nota rancia hace que un lector decida que la feature está a años.
+  Los dos escenarios que `verify` dejó sin enlazar al primer intento valían los
+  tests que faltaban, no una marca manual. «Ejecutar es explícito y visible» tiene
+  ahora un test de integración que lo **prueba** en vez de afirmarlo: el simulado
+  rehúsa cualquier argv que no sea `status --json` y se queja por stderr, así que
+  si su queja aparece en la tubería del test, la cadena cliente → CLI → llamador
+  no se interrumpió; si el CLI hubiera capturado la salida, no llegaría nada. Ese
+  test enseñó además un gotcha: con `std::process` bloqueaba el runtime de un
+  `#[tokio::test]` monohilo y el daemon bajo prueba no llegaba a aceptar nunca —un
+  interbloqueo que parece un CLI colgado—; va con `tokio::process`. «Presencia no
+  es control» se asserta **por ausencia** en las tres superficies: ni botón ni
+  enlace en las filas de máquina, el módulo de decisión no conoce la palabra
+  endpoint, el bloque del terminal no despacha nada, y la página lo dice.
+  `verify` cerró en **22/22 (complete) con cero marcas manuales**, incluidos los
+  tres del bloque MODIFIED.
+  El smoke se hizo con la app viva y **sin ningún cliente de malla real**, que es
+  lo único honesto aquí: `mock-mesh` configurado, daemon y datos aislados. Las
+  cinco pantallas quedaron medidas —fila del pie con nombre y cuenta, Ajustes con
+  presencia en símbolo y palabra, el gesto citado para PowerShell porque la ruta
+  tiene espacios, plegada a riel con marca propia sobre Ajustes, y con `[identity]`
+  ausente **ningún** cambio en el pie— y la promesa «sin cuentas» se leyó intacta
+  justo debajo de la sección nueva, que es el escenario. Informe en
+  `docs/qa/2026-10-01-identidad-propia-smoke.md`, con lo que el smoke **no** midió
+  escrito aparte.
+  Del lienzo de acabado: el tablero «Inicio de sesión» vive **fuera del árbol**, en
+  el artefacto publicado de la sesión de diseño, así que la forma construible se
+  dibujó en `design-system/` (sección 6b, tres estados, con la corrección y su
+  razón escritas al pie) y editar el lienzo queda como acción del mantenedor. El
+  repositorio no puede corregir lo que no contiene, y decirlo es mejor que marcar
+  la tarea como si lo hubiera hecho.
+  Gates finales: fmt 0, `clippy --workspace --all-targets -D warnings` 0,
+  `cargo deny check` 0, **1.412 tests** en 120 binarios sin un solo fallo (el
+  intermitente de `e2e_agente_por_sesion` no apareció en dos corridas completas),
+  `validate` limpio y `verify` 22/22. -->
