@@ -267,9 +267,13 @@ fn the_rendezvous_pattern_is_documented_with_its_boundary() {
         phase3.contains("Certificados SSH del bastión"),
         "the one design note left is recorded"
     );
+    // What is left is a decision for a FUTURE change, and the note says what it
+    // is rather than naming a change that has already happened: `companero-movil`
+    // built the companion, so pointing at it would read as "coming soon" for
+    // something shipped.
     assert!(
-        phase3.contains("companero-movil"),
-        "the notes name the change that will consume them"
+        phase3.contains("certificados SSH de vida corta"),
+        "the note says what the decision is"
     );
     // The notes must not promise what is already built, which is the failure mode
     // a stale note creates: a reader deciding the feature is years away.
@@ -278,7 +282,7 @@ fn the_rendezvous_pattern_is_documented_with_its_boundary() {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    for built in ["byo-identity", "selector que conecta", "aviso de espera"] {
+    for built in ["byo-identity", "selector que conecta", "aviso de espera", "android primero"] {
         assert!(
             !phase3_lower.contains(built),
             "`{built}` is built and must not still read as a future thing"
