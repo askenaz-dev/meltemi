@@ -66,10 +66,12 @@ allow-wildcard-paths = true
 # leaves from the official binary, with the auth that binary manages (§2).
 #
 # `reqwest` is the single gate through which an HTTP stack can enter this tree,
-# and only the desktop shell's webview framework pulls it. Naming `tauri` as
-# its sole wrapper keeps that door where it is: any other crate — an adapter,
-# the daemon, a future engine — that reaches for HTTP or TLS fails this gate
-# and must argue for its exception here, in writing, as design D2 did.
+# and only a shell's webview framework pulls it — the desktop's, and since
+# `companero-movil` the companion's, which is the same `tauri` under another
+# target. Naming `tauri` as its sole wrapper keeps that door where it is: any
+# other crate — an adapter, the daemon, a future engine — that reaches for HTTP
+# or TLS fails this gate and must argue for its exception here, in writing, as
+# design D2 did.
 [[bans.deny]]
 crate = "reqwest"
 wrappers = ["tauri"]
@@ -78,7 +80,7 @@ reason = "HTTP belongs to the provider's official binary, never to Meltemi's own
 [[bans.deny]]
 crate = "hyper"
 wrappers = ["reqwest", "hyper-util"]
-reason = "reachable only under the desktop shell's webview framework"
+reason = "reachable only under a shell's webview framework — the desktop's, and now the companion's"
 
 # SSH is not HTTP and is not TLS, and that is why the mobile companion needs no
 # TLS exception here (companero-movil design D2). The phone has no system `ssh`

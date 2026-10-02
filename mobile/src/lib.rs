@@ -21,3 +21,14 @@
 
 pub mod keys;
 pub mod ssh;
+
+/// The Android entry point.
+///
+/// Tauri calls this from the Java side; everything above it is the same Svelte
+/// bundle the desktop builds, at its own entry.
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .run(tauri::generate_context!())
+        .expect("error while running the Meltemi companion");
+}

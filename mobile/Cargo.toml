@@ -15,6 +15,9 @@ name = "meltemi_mobile"
 crate-type = ["staticlib", "cdylib", "rlib"]
 path = "src/lib.rs"
 
+[build-dependencies]
+tauri-build.workspace = true
+
 [dependencies]
 meltemi-client.workspace = true
 meltemi-proto.workspace = true
@@ -24,6 +27,7 @@ russh.workspace = true
 ssh-key.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tauri.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
 
 [dev-dependencies]

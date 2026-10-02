@@ -109,7 +109,7 @@ design, porque sería la superficie móvil siendo la única consumidora de algo
   arriba no es nuestro para pintar debajo.
   Gates: `npm run check` 0 errores sobre 156 archivos, lint de i18n limpio, 107
   tests de UI y el bundle produce **las dos** entradas. -->
-- [ ] 2.2 Monitorear y dirigir: sesiones por estado con `session/list` y
+- [x] 2.2 Monitorear y dirigir: sesiones por estado con `session/list` y
   `session/state`, y el compositor mínimo con `session/direct` y
   `session/cancel` (design D5) — gates: suite de UI
 - [ ] 2.3 Aprobar y revisar: la petición que espera con sus opciones
@@ -119,10 +119,23 @@ design, porque sería la superficie móvil siendo la única consumidora de algo
   petición de permiso desde el móvil», «Adopción de un archivo de un competidor
   desde el móvil» y «Propuesta de autoría en el móvil» (vigentes) — gates:
   suite de UI
-- [ ] 2.4 Suspensión y vuelta: nada sostiene el socket en segundo plano, y al
+- [x] 2.4 Suspensión y vuelta: nada sostiene el socket en segundo plano, y al
   volver al frente se reconecta y se reconcilia antes de mostrar nada como
   actual (design D4) — escenarios «La app vuelve al frente» y «La app está en
   segundo plano» — gates: suite de UI
+  <!-- 2026-10-02: dirigir **no es un destino** de la navegación: es algo que se
+  le hace a una sesión que estás mirando, así que el compositor se abre dentro de
+  su fila y se cierra al enviar. Y es texto **para el agente**, que cae del lado
+  de decidir y no del de redactar, que es donde la spec pone la línea.
+  La reconciliación cuelga de `visibilitychange` y no de un temporizador: nada
+  sostiene el socket en segundo plano (D4), así que lo que había en pantalla es el
+  recuerdo de otro momento y se vuelve a preguntar antes de presentar nada como
+  actual.
+  Los permisos se deciden **de uno en uno**, con las palabras del propio agente
+  para cada opción —no «Sí/No» inventados aquí—, y el aviso de resultado va al
+  pie en vez de desplazar la lista, porque el layout no debe moverse bajo el
+  pulgar mientras alguien lee.
+  Gates: `npm run check` 0 errores, lint de i18n limpio, 107 tests de UI. -->
 
 ## 3. El APK
 
