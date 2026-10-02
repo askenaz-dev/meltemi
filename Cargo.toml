@@ -10,6 +10,7 @@ members = [
     "core/mock-headless",
     "core/mock-provider",
     "desktop",
+    "mobile",
     "proto/meltemi-proto",
     "tui",
 ]
@@ -64,6 +65,30 @@ sha2 = "=0.11.0"
 # Desktop client shell (gui-tauri-paridad design D1/D2): native-webview app
 # frame with deny-by-default capabilities; the webview never opens sockets —
 # the Rust side owns the daemon connection via meltemi-client.
+# The SSH client of the mobile companion, and of nothing else
+# (companero-movil design D2). A phone has no system `ssh` to launch, so the app
+# speaks the protocol itself. Apache-2.0, like this project; its REQUIRED tree is
+# pure RustCrypto plus tokio and futures, which are already here — no TLS stack
+# and no HTTP client enter with it.
+#
+# `default-features = false` is load-bearing, not tidiness: russh's defaults are
+# `flate2`, `rsa` and **`aws-lc-rs`**, and that last one drags a C crypto library
+# (`aws-lc-sys`, which wants NASM to build on Windows). The `deny.toml` ban on it
+# caught exactly that the moment this dependency was added, which is what a ban
+# is for.
+#
+# `ring` is then NOT optional-and-off, as the design first claimed: russh refuses
+# to compile without one of its two backends. So `ring` it is — Apache-2.0 AND
+# ISC, Rust and assembly with no C toolchain, and allowed in `deny.toml` only as
+# a wrapper of `russh`. Without `rsa` and `flate2` the client speaks ed25519 and
+# no compression, which is all this app needs.
+russh = { version = "=0.63.3", default-features = false, features = ["ring"] }
+# Already in the tree: `russh` pins exactly this version. Declared here only to
+# turn ON its own `getrandom` feature, which is what exposes the system RNG the
+# key generator needs — `rand_core` 0.10 moved `OsRng` out, and borrowing a
+# different `rand_core` from elsewhere in the tree is how version skew starts.
+# No new code enters with this line, only a feature of code already present.
+ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["ed25519", "getrandom"] }
 tauri = "=2.11.5"
 tauri-build = "=2.6.3"
 # The official Tauri dialog plugin, for the native folder picker of "Open

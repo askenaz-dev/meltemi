@@ -501,11 +501,54 @@ conectar, nunca se supone.
 activa, y el cromo dice cuál. Buscar entre máquinas exigiría un agregador, y un
 agregador es un servicio.
 
+## El compañero móvil
+
+El puesto remoto del Agent Boss: **monitorear, aprobar, revisar y dirigir**, y
+nada más. Sin autoría de código ni de specs — la spec `mobile-companion` lo
+prohíbe salvo enmienda fundacional, y la app tiene **un solo campo de texto**, el
+compositor con el que le hablas a un agente.
+
+**El canal es el mismo de siempre.** El teléfono marca hacia afuera, por tu
+propia infraestructura, hasta `meltemi bridge`. La única diferencia con el
+escritorio es **quién ejecuta el SSH**: en el teléfono no hay un `ssh` del
+sistema que lanzar, así que lo habla la app. El daemon no gana nada y no sabe
+que existe un teléfono; el canal que recibe es el mismo flujo que cualquier
+cliente con un endpoint de comando.
+
+**La clave es de la app.** La genera en el teléfono la primera vez y te muestra
+la **pública** para que la añadas a tu `authorized_keys`; la privada queda
+cifrada en reposo con material del almacén de claves del sistema. Meltemi **no
+lee ni pide claves de otras apps ni la tuya** (§2), y revocar el acceso del
+teléfono es borrar **una línea** de ese archivo — que es la propiedad que hace
+aceptable tener una clave por teléfono.
+
+Dicho con precisión, porque la frase cómoda no es cierta: el almacén de Android
+**no exporta claves privadas asimétricas**, y una biblioteca SSH en espacio de
+usuario necesita la clave para firmar. Lo que el almacén guarda es la clave
+simétrica que cifra la privada en disco, que es el patrón real de la plataforma.
+Firmar por el almacén exigiría un puente JNI y un backend de firma propio; no
+está hecho, y decirlo es mejor que insinuarlo.
+
+**La clave del host se fija en el primer uso** y se comprueba después. Si cambia,
+la conexión **se corta y lo dice**: o reinstalaste esa máquina, o no es esa
+máquina. Nunca se acepta en silencio.
+
+**Suspendida no es conectada.** La app **no sostiene el socket en segundo
+plano** y no finge estar conectada cuando no lo está: el deny-by-default del
+daemon depende de que haya alguien mirando. Al volver al frente reconecta y
+reconcilia antes de presentar nada como actual. Lo que te trae de vuelta es el
+**aviso de espera** opt-in, que sale de tu propia infraestructura — y por eso no
+hay un segundo camino para lo mismo, peor y con una conexión colgando.
+
+**Sin túnel no hay nada que mostrar**, y esa pantalla es la más importante: dice
+qué falta y cómo se arregla. No ofrece relé, ni puerto, ni cuenta, porque no
+existen.
+
 ## Notas para el compañero móvil (fase 3)
 
-Lo que sigue **no existe todavía**: es una decisión de diseño anotada para la
-change `companero-movil`, no una capacidad presente. La identidad de la malla y
-el selector de máquinas sí existen ya y viven arriba, cada uno en su sección.
+Lo que sigue **no existe todavía**: es una decisión de diseño anotada, no una
+capacidad presente. La identidad de la malla, el selector de máquinas y el
+compañero móvil sí existen ya y viven arriba, cada uno en su sección.
 
 - **Certificados SSH del bastión**: entrar al punto de encuentro con una cuenta
   del dominio propio se resuelve con un IdP autohospedado que emite
@@ -514,6 +557,10 @@ el selector de máquinas sí existen ya y viven arriba, cada uno en su sección.
   Meltemi no gana cuentas en ninguno de los dos casos, y la lectura contraria
   —«Meltemi con login»— choca con el rumbo («ni un servicio en la nube», sin
   lock-in) y exigiría enmienda fundacional.
+
+> **iOS** queda para después, con el mismo código y el trámite de la tienda como
+> tarea del mantenedor. No es una decisión de diseño pendiente: es el mismo
+> compañero en otra plataforma.
 
 ## El aviso de espera (opt-in)
 
