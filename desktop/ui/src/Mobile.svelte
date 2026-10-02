@@ -402,8 +402,11 @@
     border-top: 1px solid var(--hair);
     background: var(--panel);
     /* The home indicator sits below this; a navigation under it cannot be
-       pressed. */
-    padding-bottom: env(safe-area-inset-bottom);
+       pressed. Measured on a device and not assumed: with the inset alone the
+       gesture bar crossed the labels, so there is a floor under it. `max()`
+       rather than a fixed value, because a device with a real inset needs the
+       real one. */
+    padding-bottom: max(env(safe-area-inset-bottom), 16px);
   }
   nav button {
     display: grid;
