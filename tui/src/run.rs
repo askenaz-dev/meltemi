@@ -1857,7 +1857,7 @@ this run is on {endpoint}, which is not one of them
         }
         out.push_str(
             "
-`machines` lists. To switch, use `:machine <name>` in the terminal shell or the              Machines section of the desktop's Settings.
+`machines` lists. To switch, use `:machine <name>` in the terminal shell or the Machines section of the desktop's Settings.
 ",
         );
     }

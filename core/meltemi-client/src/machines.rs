@@ -315,7 +315,12 @@ async fn say_hello(endpoint: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     // The connection is dropped here, which is the point: a test leaves nothing
     // open and does not become a second client.
-    Ok(answer["daemonVersion"]
+    //
+    // `initialize` answers `daemon: { name, version }` — NOT the `daemonVersion`
+    // that `status` answers. Reading the wrong one was green in every test
+    // (an absent field falls back) and said `unknown` against a real daemon,
+    // which is what the conducted smoke caught.
+    Ok(answer["daemon"]["version"]
         .as_str()
         .unwrap_or("unknown")
         .to_string())

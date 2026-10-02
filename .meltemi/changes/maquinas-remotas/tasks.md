@@ -163,7 +163,7 @@ change se detiene y vuelve a design (design D7).
 
 ## 4. Cierre
 
-- [ ] 4.1 `docs/acceso-remoto.md`: el selector pasa de nota de fase 3 a sección
+- [x] 4.1 `docs/acceso-remoto.md`: el selector pasa de nota de fase 3 a sección
   presente, y la nota queda acotada a lo único que sigue siendo nota (los
   certificados SSH del bastión); **reescribir el bloque de fase 3 de
   `the_rendezvous_pattern_is_documented_with_its_boundary` en `tui/tests/docs.rs`**
@@ -176,3 +176,30 @@ change se detiene y vuelve a design (design D7).
   app viva de la sección y del cambio de máquina; entrada en
   `docs/plan-de-cambios.md`; y la rama aterriza en `main` con `meltemi land
   maquinas-remotas confirm`
+
+  <!-- 2026-10-02: el bloque de fase 3 del test de `docs.rs` se reescribió por
+  **segunda vez en dos changes**, y las dos por la misma razón: pineaba la
+  semántica vieja y eso era justo el punto de reescribirlo. Ahora la nota queda
+  en una sola —los certificados SSH del bastión— y el test exige además que lo
+  construido **ya no se lea como futuro**, porque una nota rancia hace que un
+  lector decida que la feature está a años. Al acotarlo salió un defecto del test
+  anterior: el corte de la sección iba **hasta el final de la página** y se
+  tragaba las secciones siguientes, con lo que «esto sigue siendo nota» se
+  satisfacía con un encabezado que decía lo contrario. Acotado.
+  El e2e **no** fue a `core/meltemi-client/tests/` como decía la tarea: el crate
+  de cliente no depende del daemon, y hacerlo depender para un test añadiría una
+  dependencia —circular— que esta misma change se prohibió en su lista de tareas.
+  Vive en `core/meltemid/tests/`, donde la dependencia ya va en el sentido
+  correcto, y la razón queda escrita en su cabecera.
+  **El smoke encontró un defecto real y lo encontró porque los tests no podían**:
+  la prueba de conexión leía `answer["daemonVersion"]`, que es lo que responde
+  `status`, mientras `initialize` responde `daemon: { name, version }`. Un campo
+  ausente caía al `unwrap_or("unknown")`, así que **todo estaba verde** y contra
+  un daemon de verdad decía «unknown». Corregido, y el e2e pasó a exigir una
+  versión real —ni el literal `unknown` ni algo que no empiece por dígito—, que
+  es la aserción que faltaba; comprobado que muerde.
+  Gates: fmt, clippy del workspace 0, `cargo deny` 0, **1.437 tests** en 121
+  binarios sin un fallo, `validate` limpio y `verify` **16/16 (complete)** sin una
+  sola marca manual. Smoke con dos daemons reales: el cambio de máquina se midió
+  en vivo, de `on esta` a `on la-torre`, sin reiniciar la app. Informe en
+  `docs/qa/2026-10-02-maquinas-remotas-smoke.md`, con lo que no midió aparte. -->

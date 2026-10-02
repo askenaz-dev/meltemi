@@ -439,12 +439,73 @@ pedir algo, y esto no pide nada.
 > contra un cliente instalado y enlazado; no cambia el contrato, y si algo
 > apareciera se anota aquí con la versión contra la que se leyó.
 
+## Tus máquinas, con nombre
+
+Varios Meltemi en varios equipos **no toca el daemon**: cada `meltemid` sigue
+siendo de su máquina y no sabe que existen otras. El multi-daemon es un concepto
+del cliente — una lista de endpoints con nombre, que vive en tu configuración de
+usuario:
+
+```toml
+# <config>/meltemi/config.toml   (nunca el .meltemi/ de un proyecto)
+[[client.machines]]
+name = "esta"
+endpoint = "local"                           # el default de esta plataforma
+
+[[client.machines]]
+name = "la-torre"
+endpoint = "exec:ssh la-torre meltemi bridge"
+```
+
+De usuario y solo de usuario, por la misma razón que el endpoint suelto y sin
+ninguna nuance: un endpoint puede nombrar un comando, así que un repositorio
+capaz de fijarlo ejecutaría algo en tu máquina por el hecho de abrirlo.
+
+**Sin material de claves.** Ni ruta de clave, ni passphrase, ni puerto, ni
+usuario: `la-torre` es un alias que resuelve tu `~/.ssh/config` con tu agente de
+claves, que es donde `ssh` ya los lee. Un campo aquí para una ruta de clave sería
+el primer paso hacia leerla, así que escribir uno **rehúsa la máquina entera** y
+te dice dónde vive ese dato — ruidoso a propósito: ignorarlo te dejaría creyendo
+que tu clave está en uso sin ver por qué no pasa nada.
+
+Dónde se ve y qué hace cada superficie:
+
+```
+meltemi machines              # lista, con la que estás en uso marcada
+:machines  /  :maquinas       # lo mismo en la paleta de la TUI
+:machine la-torre             # cambiar de máquina, sin reiniciar
+```
+
+En la GUI, la sección «Máquinas» de Ajustes: la lista, «Probar» y «Usar esta».
+El CLI **lista y no cambia**, y lo dice: cada corrida resuelve su endpoint y
+termina, así que no hay a quién cambiarle la máquina.
+
+**Cambiar de máquina es reconectar**, no reiniciar: el cliente corta y marca el
+endpoint de la nueva. Si eliges una mientras el cliente está reintentando contra
+otra que no responde, el cambio **corta la espera** en vez de hacerte cumplir el
+castigo de la mala suerte de la anterior. Y antes de cambiar se aplica la misma
+guarda de trabajo sin guardar que al salir del editor —no una segunda—, porque
+las pestañas de la máquina que dejas apuntan a sesiones de **otro** daemon.
+
+**«Probar» abre, saluda y cierra.** Informa la versión del daemon y cuánto tardó,
+o por qué no respondió. No arranca nada: probar una máquina remota apagada
+**falla**, que es la respuesta correcta y no un arranque remoto sorpresa.
+
+**La presencia se lee cuando abres la lista**, nunca de fondo: un sondeo
+periódico hacia máquinas remotas levantaría conexiones `ssh` que nadie pidió. Y
+la presencia es la de **tu malla** (ver arriba), no una prueba de conexión: que un
+equipo esté en línea no dice que allí corra `meltemid`. Eso se sabe al probar o al
+conectar, nunca se supone.
+
+**Nada agrega sesiones de varias máquinas.** Lo que ves es lo de la máquina
+activa, y el cromo dice cuál. Buscar entre máquinas exigiría un agregador, y un
+agregador es un servicio.
+
 ## Notas para el compañero móvil (fase 3)
 
-Lo que sigue **no existe todavía**: son decisiones de diseño anotadas para la
-change `companero-movil`, no capacidades presentes. La identidad de la malla sí
-existe ya y vive arriba, en su propia sección; lo que queda anotado es lo que
-sigue siendo nota.
+Lo que sigue **no existe todavía**: es una decisión de diseño anotada para la
+change `companero-movil`, no una capacidad presente. La identidad de la malla y
+el selector de máquinas sí existen ya y viven arriba, cada uno en su sección.
 
 - **Certificados SSH del bastión**: entrar al punto de encuentro con una cuenta
   del dominio propio se resuelve con un IdP autohospedado que emite
@@ -453,13 +514,6 @@ sigue siendo nota.
   Meltemi no gana cuentas en ninguno de los dos casos, y la lectura contraria
   —«Meltemi con login»— choca con el rumbo («ni un servicio en la nube», sin
   lock-in) y exigiría enmienda fundacional.
-- **El selector que conecta**: la **lista** de equipos con su presencia ya existe
-  (arriba). Lo que no existe es elegir uno y conectarse: varios Meltemi en varios
-  equipos no toca el daemon —cada `meltemid` sigue siendo de su máquina— y el
-  multi-daemon es un concepto de la aplicación, una lista de endpoints que
-  resolver al arrancar.
-- **Aviso de espera**: ya especificado y ya implementado (opt-in, mínimo, jamás
-  emitido por el daemon). La infraestructura del usuario es su casa natural.
 
 ## El aviso de espera (opt-in)
 
