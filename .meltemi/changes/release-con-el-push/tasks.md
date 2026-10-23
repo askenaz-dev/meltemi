@@ -195,6 +195,9 @@ cerrar sin ellas.
 - [ ] 5.3 Al archivar, si el motor deja vacío `.meltemi/specs/product-site/`,
   borrar la carpeta en el mismo commit y comprobar que `dogfood.rs` sigue
   verde (design D8)
+  <!-- 2026-10-23, leído en `core/meltemid/src/archive.rs`: el archivo escribe
+  el texto fundido tal cual, así que `product-site` quedará con su cabecera y
+  sin requisitos. Esta tarea se cumple en el commit del archivo (7.4). -->
 
 ## 6. Fuera de este repositorio, antes del merge
 
