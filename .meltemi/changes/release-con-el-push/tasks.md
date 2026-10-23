@@ -281,6 +281,11 @@ cerrar sin ellas.
 - [ ] 7.3 *(mantenedor)* Con `main` ya en 0.2.0: borrar el borrador v0.1.1 y su
   tag, apagar GitHub Pages en este repositorio y borrar su entorno
   `github-pages` (design D8, D10)
+  <!-- 2026-10-23: el borrador v0.1.1 está borrado (release 366263679, nueve
+  assets sin firmar); quedan v0.2.0 y v0.1.0. Su tag se queda: el ruleset de
+  tags `v*`, aplicado antes por la 6.1 y sin excepciones, no admite borrarlo.
+  No estorba, porque el gate pide una versión mayor que todo tag y 0.2.0 ya
+  lo es. Apagar Pages y borrar `github-pages` sigue en manos del mantenedor. -->
 - [ ] 7.4 `meltemi verify release-con-el-push` sin escenarios sin vínculo;
   `meltemi archive release-con-el-push`; actualizar `docs/plan-de-cambios.md`
   y el gate de `antes-de-anunciar`

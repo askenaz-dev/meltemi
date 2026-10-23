@@ -326,6 +326,9 @@ existe, el del borrador. Por eso:
 3. el mantenedor fija 0.2.0 con el script y empuja: esa es la release;
 4. solo entonces se borran el borrador v0.1.1 y su tag, que con `main` en
    0.2.0 ya no protegen nada.
+   **Nota del 2026-10-23**: el borrador se borró y el tag quedó, porque el
+   ruleset de tags del paso 2 no admite borrarlo para nadie. Es inofensivo:
+   el gate solo exige una versión mayor que todo tag.
 
 La primera corrida es también la que resuelve lo que este design deja sin
 verificar, y su evidencia queda en las tareas.
