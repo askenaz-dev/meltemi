@@ -126,7 +126,7 @@ cerrar sin ellas.
 
 ## 4. La verificación publicada
 
-- [ ] 4.1 `docs/release.md` reescrito: la atestación como firma; los dos pasos
+- [x] 4.1 `docs/release.md` reescrito: la atestación como firma; los dos pasos
   con red y sin ella, con la raíz de confianza descargada una vez; el límite
   de la cuenta con escritura y los controles que lo rodean; el repudio de una
   release; la vía de vuelta a un paso humano; fuera la custodia de clave y la

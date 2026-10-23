@@ -557,47 +557,30 @@ fn every_workflow_script_stays_inside_its_block() {
 }
 
 #[test]
-fn signed_artifacts_and_verification_are_documented() {
+fn a_download_is_verified_by_its_checksum_and_the_workflow_that_published_it() {
     // Scenario: Verificación por el usuario
-    // checksum and signature verifiable.
+    // Two steps: the checksum, and the attestation of an artifact pinned to the
+    // release workflow. The anchor is the workflow's identity, never the text of
+    // a release page (release-con-el-push D3).
     let doc = read(&repo_root(), "docs/release.md");
-    assert!(doc.contains("SHA256SUMS"), "checksums are published");
+    let flat = doc.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(doc.contains("sha256sum --check"), "step 1 is the checksum");
     assert!(
-        doc.to_ascii_lowercase().contains("signature"),
-        "signature verification is documented"
+        doc.contains("gh attestation verify meltemi-Linux.tar.gz --repo askenaz-dev/meltemi"),
+        "step 2 verifies an artifact"
     );
     assert!(
-        doc.to_ascii_lowercase().contains("custody"),
-        "key custody procedure is documented (maintainer's)"
+        doc.contains("--signer-workflow askenaz-dev/meltemi/.github/workflows/release.yml"),
+        "step 2 pins the release workflow as the signer"
     );
-    // One name for the signature asset, everywhere. The pipeline's release notes
-    // said `SHA256SUMS.sig` while the documented procedure and the signing script
-    // produced `SHA256SUMS.minisig`, so the notes every downloader reads pointed
-    // at a file that was never published — and nothing failed, because nothing
-    // was checking.
-    let root = repo_root();
-    let signature = "SHA256SUMS.minisig";
-    // The workflow no longer names it: the release is published by the
-    // pipeline and signed by its attestation (release-con-el-push 3.3); this
-    // whole test is rewritten with the documentation in task 4.3.
-    for file in ["docs/release.md", "scripts/sign-release.ps1"] {
-        let text = read(&root, file);
-        assert!(
-            text.contains(signature),
-            "{file} names the signature asset `{signature}`"
-        );
-        // `.sig` alone would be a second, wrong name for the same thing.
-        assert!(
-            !text.contains("SHA256SUMS.sig"),
-            "{file} still uses the old `SHA256SUMS.sig` name"
-        );
-    }
-    // The trust anchor lives in the repository, not on the release page: whoever
-    // can publish a release can edit the text beside it, so a key printed only
-    // there proves nothing.
     assert!(
-        !doc.contains("public key printed on every release page"),
-        "the public key must not be sourced from the release page it authenticates"
+        !doc.contains("gh attestation verify SHA256SUMS"),
+        "the checksums file is not a subject of the attestation, so it is not what is verified"
+    );
+    assert!(
+        flat.contains("The trust anchor is the identity of the workflow")
+            && flat.contains("Never take the anchor, or any key, from the text of a release page"),
+        "the anchor is the workflow identity, and never comes from the page it authenticates"
     );
 }
 
@@ -832,7 +815,7 @@ fn the_attestation_scope_is_declared_without_overclaiming() {
         .collect::<Vec<_>>()
         .join(" ");
     assert!(
-        doc.contains("`release` job"),
+        doc.contains("`publish` job"),
         "docs/release.md names the job that mints the attestation"
     );
     assert!(
@@ -844,8 +827,8 @@ fn the_attestation_scope_is_declared_without_overclaiming() {
         "docs/release.md denies the per-artifact build claim in so many words"
     );
     assert!(
-        doc.contains("not a substitute for the maintainer's signature"),
-        "the attestation must never be presented as replacing the signature"
+        doc.contains("is the signature of the release"),
+        "the attestation is presented as what it now is: the release's signature"
     );
 }
 
@@ -873,55 +856,79 @@ fn the_transparency_log_is_declared_and_is_not_telemetry() {
 }
 
 #[test]
-fn the_trust_anchor_is_never_sourced_from_the_release_page() {
-    // Scenario: Ancla de confianza fuera de la página que autentica
-    // the key's documented home is the tree; no instruction says otherwise.
-    let root = repo_root();
-    let doc = read(&root, "docs/release.md");
+fn the_limit_of_a_workflow_signature_is_declared_with_its_controls() {
+    // Scenario: Límite de la firma del workflow declarado
+    // The door the manual signature used to close is named as open, and the
+    // controls around it are named beside it (release-con-el-push D3, D5).
+    let flat = read(&repo_root(), "docs/release.md")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     assert!(
-        doc.contains("here, in the repository"),
-        "docs/release.md declares the repository as the key's home"
+        flat.contains(
+            "An account with write access to this repository can publish a release that verifies"
+        ),
+        "the limit is written as a limit"
     );
-    // The signing walkthrough must not send the key to the page a publisher
-    // controls: notes and site point at the anchor, never carry it.
+    for control in [
+        "pinned by full commit",
+        "read-only",
+        "`release` environment",
+        "not on `main`",
+        "already has a tag",
+        "rulesets",
+    ] {
+        assert!(
+            flat.contains(control),
+            "docs/release.md names the control `{control}`"
+        );
+    }
     assert!(
-        !doc.contains("paste the public key into the release notes")
-            && !doc.contains("goes in the release notes"),
-        "docs/release.md must not direct the key to the release notes"
-    );
-    // Both readmes source the key from the repository file.
-    let readme = read(&root, "README.md");
-    assert!(
-        readme.contains("the public key in docs/release.md"),
-        "README.md sources the public key from docs/release.md"
-    );
-    let leeme = read(&root, "LEEME.md");
-    assert!(
-        leeme.contains("la clave pública de docs/release.md"),
-        "LEEME.md sources the public key from docs/release.md"
+        flat.contains("The way back to a human step"),
+        "and the way back, should the trade be revisited"
     );
 }
 
 #[test]
-fn the_signing_tools_limits_are_declared_not_promised_away() {
-    // Scenario: Límites de la herramienta declarados
-    // offline, not hardware-backed; repudiation defined without revocation.
+fn a_bad_release_is_repudiated_by_the_next_one() {
+    // Scenario: Repudio de una release
+    // Immutable releases cannot be corrected in place; the procedure is the
+    // next version plus a dated declaration (release-con-el-push D5).
     let doc = read(&repo_root(), "docs/release.md");
+    let flat = doc.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        doc.contains("offline, not hardware-backed"),
-        "custody promises offline storage, not a hardware token minisign lacks"
+        doc.contains("## Repudiating a release"),
+        "docs/release.md has the repudiation procedure"
     );
     assert!(
-        doc.contains("no revocation mechanism"),
-        "custody states that minisign cannot revoke a signature"
+        flat.contains("publish the next version and to declare the bad one, with its date"),
+        "repudiating is the next version plus a dated declaration"
     );
     assert!(
-        doc.contains("repudiated from a given date"),
-        "repudiation is defined as a new key in the tree plus a dated statement"
+        doc.contains("Repudiated releases:"),
+        "and keeps the list where a repudiation is declared"
+    );
+}
+
+#[test]
+fn a_download_verifies_offline_with_the_published_bundle() {
+    // Scenario: Verificación sin red con el bundle publicado
+    // The bundle travels with the release; only the trusted root comes from
+    // the network, once (release-con-el-push D3).
+    let root = repo_root();
+    let doc = read(&root, "docs/release.md");
+    assert!(
+        doc.contains("gh attestation trusted-root > trusted_root.jsonl"),
+        "the trusted root is downloaded once"
     );
     assert!(
-        !doc.contains("hardware-backed storage"),
-        "the doc must not promise hardware-backed custody"
+        doc.contains("--bundle attestation.sigstore.json --custom-trusted-root trusted_root.jsonl"),
+        "the offline command uses the published bundle and that root"
+    );
+    let publish = job_block(&read(&root, ".github/workflows/release.yml"), "publish");
+    assert!(
+        publish.contains("release-assets/attestation.sigstore.json"),
+        "and the pipeline publishes the bundle under the name the documentation uses"
     );
 }
 
