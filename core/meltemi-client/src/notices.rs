@@ -421,15 +421,32 @@ echo \"$MELTEMI_WAITING $MELTEMI_SESSION $MELTEMI_COUNT $MELTEMI_MACHINE\" > '{}
         path
     }
 
+    /// The directory the Windows recorder claims around its append.
+    #[cfg(windows)]
+    const APPEND_LOCK: &str = "append.lock";
+
     /// A script that appends one line per call, so notices can be counted.
+    ///
+    /// On Windows two notices close together run two `cmd.exe` at once, and
+    /// `cmd` opens a `>>` target without sharing it: the second one could not
+    /// open the file and its line was lost. So the script first claims
+    /// [`APPEND_LOCK`] beside itself with `mkdir`, which creates the directory
+    /// or fails, atomically, and tries again until it can; then it appends and
+    /// lets the lock go (change `grabador-de-avisos-sin-carrera`).
     #[cfg(windows)]
     fn write_appender(dir: &std::path::Path, seen: &std::path::Path) -> std::path::PathBuf {
         let path = dir.join("append.cmd");
+        let lock = dir.join(APPEND_LOCK);
         std::fs::write(
             &path,
             format!(
-                "@echo off\r\necho %MELTEMI_WAITING% %MELTEMI_COUNT% >> \"{}\"\r\n",
-                seen.display()
+                "@echo off\r\n\
+                 :claim\r\n\
+                 mkdir \"{lock}\" 2>nul || goto claim\r\n\
+                 echo %MELTEMI_WAITING% %MELTEMI_COUNT% >> \"{seen}\"\r\n\
+                 rmdir \"{lock}\"\r\n",
+                lock = lock.display(),
+                seen = seen.display()
             ),
         )
         .expect("write the script");
