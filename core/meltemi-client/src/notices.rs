@@ -214,9 +214,10 @@ pub fn send(config_dir: &Path, notice: &Notice) -> bool {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        // Dropping the scope ends anything the command started and did not wait
-        // for.
-        drop(scope);
+        // Ending the scope ends anything the command started and did not wait
+        // for. Said explicitly rather than left to the drop: off Windows the
+        // scope is inert and has no drop to lean on (meltemi-process).
+        let _ = scope.end();
     });
     true
 }
