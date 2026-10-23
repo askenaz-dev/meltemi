@@ -1179,9 +1179,6 @@ fn not_detected(
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// Windows shims: `.cmd` is a launch target, `.ps1` is evidence only
-    /// (flota-deteccion-guia design D4).
-    #[cfg(windows)]
     #[test]
     fn the_catalog_names_the_version_a_level_was_verified_against() {
         // Scenario: El catálogo nombra la versión medida
@@ -1215,6 +1212,9 @@ mod tests {
         );
     }
 
+    /// Windows shims: `.cmd` is a launch target, `.ps1` is evidence only
+    /// (flota-deteccion-guia design D4).
+    #[cfg(windows)]
     #[test]
     fn windows_script_shims_are_evidence_not_launch_targets() {
         let dir = std::env::temp_dir().join(format!("mel-shims-{}", std::process::id()));
