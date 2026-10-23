@@ -228,11 +228,15 @@ cerrar sin ellas.
 
 ## 7. Merge y primera release, en este orden (design D10)
 
-- [ ] 7.1 Merge de la rama a `main` con la versión intacta en 0.1.1 y el
+- [x] 7.1 Merge de la rama a `main` con la versión intacta en 0.1.1 y el
   borrador v0.1.1 todavía en su sitio; la corrida de `release.yml` debe decir
   `release=false` porque el tag `v0.1.1` existe; anotar aquí el run — escenarios
   «Versión ya publicada no se republica», «Push sin versión nueva no publica»
   (evidencia real)
+  <!-- 2026-10-23: merge `c12f165` empujado (`02bf784..c12f165`). Release run
+  39986769808: el job `release gate` respondió `release=false`, `version=0.1.1`,
+  `tag=v0.1.1`, y los seis jobs restantes se saltaron; nada se publicó. CI run
+  39986769755 verde en las tres plataformas y en cargo-deny; Build verde. -->
 - [ ] 7.2 *(mantenedor)* `scripts/set-version.ps1 0.2.0`, commit y push a
   `main`; seguir la corrida y anotar aquí la evidencia: el tag sobre el
   commit, los assets con el bundle, los comandos de verificación que
