@@ -2,13 +2,13 @@
 
 ## 1. El grabador
 
-- [ ] 1.1 Test del fixture en `core/meltemi-client/src/notices.rs`: dos
-  lanzamientos simultáneos del grabador dejan dos líneas, veinte rondas
-  (design D2); comprobar que falla con el `append.cmd` de hoy — gate: el test
-  rojo en Windows con el script de antes
-- [ ] 1.2 `write_appender` de Windows: el candado con `mkdir` alrededor del
-  `>>` (design D1) — gates: `cargo test -p meltemi-client notices` verde, y el
-  test del aviso de prueba repetido cincuenta veces sin un rojo
+- [ ] 1.1 `write_appender` de Windows en `core/meltemi-client/src/notices.rs`:
+  el candado con `mkdir` alrededor del `>>` (design D1) — gates: `cargo test
+  -p meltemi-client notices` verde, y el test del aviso de prueba repetido
+  cincuenta veces sin un rojo
+- [ ] 1.2 Test del fixture, solo en Windows: con el candado sostenido por el
+  test el grabador no escribe, y escribe al soltarlo (design D2) — gates: el
+  test rojo con el `append.cmd` de antes y verde con el de 1.1
 
 ## 2. Cierre
 

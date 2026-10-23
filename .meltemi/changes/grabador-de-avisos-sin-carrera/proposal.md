@@ -33,10 +33,13 @@ el sistema la añade entera.
   añadir su línea: crea un directorio con `mkdir`, que se crea o falla de forma
   atómica, y reintenta hasta conseguirlo; añade la línea y borra el
   directorio. Con el candado, 0 de 500 rondas perdieron una línea.
-- Un test nuevo del fixture: dos lanzamientos simultáneos del grabador dejan
-  dos líneas, veinte rondas seguidas. Sin el candado falla casi siempre: con
-  una pérdida de una ronda de cada cuatro, veinte rondas sin pérdida son menos
-  de una vez en cien.
+- Un test nuevo del fixture, determinista: mientras otro sostiene el
+  candado, el grabador no escribe; cuando lo suelta, escribe su línea. Sin
+  el candado escribiría enseguida, así que el test falla siempre con el
+  script de antes. Un test de concurrencia no sirve de vigía: desde Rust la
+  carrera solo aparece con los `cmd` arrancando en frío o bajo carga (una
+  corrida roja de tres, en su primera ronda, y 0 pérdidas en 400 rondas en
+  caliente), que es justo lo que el CI pone y una máquina tranquila no.
 
 ## Capabilities
 

@@ -45,14 +45,20 @@ y la versión de Unix no se toca.
 - Esperar la primera línea antes de pedir el segundo aviso, dentro del test.
   Arregla este test, pero deja el fixture listo para la próxima carrera.
 
-### D2 — El fixture tiene su propio test
+### D2 — El fixture tiene su propio test, y es determinista
 
-`two_notices_launched_together_are_both_recorded` lanza el grabador dos veces
-a la vez, directamente y sin pasar por `send`, espera a los dos y cuenta dos
-líneas, veinte rondas seguidas. Corre en las dos plataformas. En Windows es el
-test que habría visto la carrera antes que el CI: con el script de antes, una
-ronda de cada cuatro pierde una línea, y veinte rondas limpias son menos de
-una vez en cien.
+`the_recorder_waits_while_another_holds_the_file` crea él mismo el
+directorio del candado, lanza el grabador y comprueba que, pasado un
+momento, no escribió nada; borra el directorio y espera su línea. Prueba el
+mecanismo de D1 y no depende de ganar una carrera: con el script de antes
+el grabador escribe enseguida y el test falla siempre. Solo existe en
+Windows, porque el grabador de Unix no necesita candado.
+
+*Alternativa descartada, medida.* Un test que lanza el grabador dos veces a
+la vez y cuenta dos líneas. Desde Rust la carrera solo aparece con los `cmd`
+arrancando en frío o bajo carga: de tres corridas de veinte rondas, una
+perdió una línea en su primera ronda, y 400 rondas en caliente no perdieron
+ninguna. Un vigía que casi nunca ve lo que vigila no vigila.
 
 ## Risks / Trade-offs
 
