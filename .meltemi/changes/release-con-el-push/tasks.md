@@ -44,7 +44,7 @@ cerrar sin ellas.
   listado solo lee la fecha del nombre y qué artefactos hay, así que una
   entrada sin `specs/` no rompe nada. `validate`, `validate
   release-con-el-push`, `dogfood.rs` y `migration.rs` en verde. -->
-- [ ] 1.4 Pinear por commit completo cada `uses:` de `ci.yml`, `build.yml` y
+- [x] 1.4 Pinear por commit completo cada `uses:` de `ci.yml`, `build.yml` y
   `release.yml`, con la versión como comentario, y declarar `permissions:
   contents: read` arriba de `ci.yml`; tests en `release.rs` que recorren todos
   los workflows (design D5) — escenarios «Acción sin pinear rechazada»,

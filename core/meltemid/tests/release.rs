@@ -851,3 +851,90 @@ fn the_reserved_crates_carry_namespace_metadata() {
         );
     }
 }
+
+/// Every workflow of the repository, as `(file name, text)`, sorted by name.
+fn workflows(root: &Path) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = std::fs::read_dir(root.join(".github").join("workflows"))
+        .expect("the workflows directory is readable")
+        .flatten()
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext == "yml" || ext == "yaml")
+        })
+        .map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let text = std::fs::read_to_string(entry.path()).expect("a workflow is readable");
+            (name, text)
+        })
+        .collect();
+    out.sort();
+    assert!(!out.is_empty(), "the repository has workflows to check");
+    out
+}
+
+#[test]
+fn every_action_is_pinned_by_a_full_commit_with_its_version_named() {
+    // Scenario: Acción sin pinear rechazada
+    // With no person between a version commit and a publication, an action
+    // referenced by a tag that somebody moves would publish whatever it now
+    // points at. A commit cannot be moved (release-con-el-push D5). The version
+    // rides along as a comment so a reader knows what was pinned.
+    let mut offenders = Vec::new();
+    for (name, text) in workflows(&repo_root()) {
+        for line in executable_lines(&text).lines() {
+            let Some(rest) = line
+                .trim_start()
+                .trim_start_matches("- ")
+                .strip_prefix("uses:")
+            else {
+                continue;
+            };
+            let reference = rest.split('#').next().unwrap_or("").trim();
+            if reference.starts_with("./") {
+                continue;
+            }
+            let pinned = reference.rsplit_once('@').is_some_and(|(_, at)| {
+                at.len() == 40
+                    && at
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+            });
+            let named = rest.contains("# v");
+            if !pinned || !named {
+                offenders.push(format!("{name}: {}", rest.trim()));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "every action is pinned by a full commit with its version as a comment; not so: {}",
+        offenders.join("; ")
+    );
+}
+
+#[test]
+fn every_workflow_declares_read_only_permissions_at_the_top() {
+    // Scenario: Workflow sin permisos declarados rechazado
+    // A workflow that declares nothing inherits the repository default, which
+    // was write; the jobs that publish raise their own (release-con-el-push D5).
+    for (name, text) in workflows(&repo_root()) {
+        assert!(
+            text.lines().any(|line| line.trim_end() == "permissions:"),
+            "{name} declares its permissions at the top"
+        );
+        let top: Vec<&str> = text
+            .lines()
+            .skip_while(|line| line.trim_end() != "permissions:")
+            .skip(1)
+            .take_while(|line| line.starts_with("  "))
+            .map(str::trim)
+            .collect();
+        assert_eq!(
+            top,
+            ["contents: read"],
+            "{name}'s top-level permissions are read-only and nothing else"
+        );
+    }
+}
