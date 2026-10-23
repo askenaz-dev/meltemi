@@ -1137,3 +1137,62 @@ fn every_workflow_declares_read_only_permissions_at_the_top() {
         );
     }
 }
+
+#[test]
+fn the_web_is_told_after_the_release_and_only_then() {
+    // Scenario: La web se redespliega tras publicar
+    // Scenario: Sin publicación no hay aviso
+    let notify = job_block(
+        &read(&repo_root(), ".github/workflows/release.yml"),
+        "notify-web",
+    );
+    assert!(
+        notify.contains("gh workflow run deploy.yml --repo askenaz-dev/meltemi-web --ref main"),
+        "the notice starts meltemi-web's deploy workflow"
+    );
+    let needs = notify
+        .lines()
+        .find(|line| line.trim_start().starts_with("needs:"))
+        .expect("the notice waits for something");
+    assert!(
+        needs.contains("publish"),
+        "the notice waits for the publication: {needs}"
+    );
+    for override_status in ["always()", "failure()", "cancelled()", "!cancelled()"] {
+        assert!(
+            !notify.contains(override_status),
+            "the notice runs only after a successful publication, never with `{override_status}`"
+        );
+    }
+    assert!(
+        notify.contains("environment: release") && notify.contains("secrets.WEB_DISPATCH_TOKEN"),
+        "its credential lives in the release environment"
+    );
+}
+
+#[test]
+fn a_failed_notice_cannot_touch_the_release_and_carries_no_data() {
+    // Scenario: Aviso fallido no deshace la release
+    // Scenario: El aviso no lleva datos
+    let wf = read(&repo_root(), ".github/workflows/release.yml");
+    let notify = executable_lines(&job_block(&wf, "notify-web"));
+    assert!(
+        !notify.contains("gh release"),
+        "the notice never touches the release it announces"
+    );
+    let publish = job_block(&wf, "publish");
+    assert!(
+        !publish.contains("notify-web"),
+        "the publication does not wait for the notice, so its failure undoes nothing"
+    );
+    let dispatch = notify
+        .lines()
+        .find(|line| line.contains("gh workflow run"))
+        .expect("the dispatch line");
+    for field in [" -f ", " -F ", "--field", "--raw-field", "--json"] {
+        assert!(
+            !dispatch.contains(field),
+            "the dispatch carries no data (`{field}`): {dispatch}"
+        );
+    }
+}

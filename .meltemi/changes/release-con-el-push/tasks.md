@@ -111,7 +111,7 @@ cerrar sin ellas.
   a mitad, el `gate` vuelve a abrir el camino y `publish` completa el
   borrador. El test viejo de la firma deja de exigirle `SHA256SUMS.minisig`
   al workflow; se reescribe entero en la 4.3. -->
-- [ ] 3.4 Job `notify-web` tras `publish`, en el entorno `release`: `gh
+- [x] 3.4 Job `notify-web` tras `publish`, en el entorno `release`: `gh
   workflow run deploy.yml --repo askenaz-dev/meltemi-web --ref main` con
   `WEB_DISPATCH_TOKEN`, sin entradas; un fallo deja la release intacta y se
   repite solo (design D7) — escenarios «La web se redespliega tras publicar»,

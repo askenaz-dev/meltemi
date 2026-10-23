@@ -505,3 +505,29 @@ jobs:
           done
           [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "false" ] || { echo "::error::$TAG is still a draft"; exit 1; }
           exit "$missing"
+
+  # Tells the web a release is out (release-con-el-push D7). It starts
+  # meltemi-web's deploy workflow and carries no data: the site reads the
+  # published release from GitHub, the source of truth, so a lost notice leaves
+  # the site late, never wrong. The token may start that repository's workflows
+  # and nothing else; it cannot write its code. This is a job of its own, after
+  # the publication and never before: a failure here leaves the release exactly
+  # as it is, and re-running this job alone repeats the notice.
+  notify-web:
+    name: tell the web
+    needs: [version, publish]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Start the site's deploy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.WEB_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::WEB_DISPATCH_TOKEN is not set in the release environment (design D7); the release is published, the web was not told"
+            exit 1
+          fi
+          gh workflow run deploy.yml --repo askenaz-dev/meltemi-web --ref main
+          echo "meltemi-web's deploy started for ${{ needs.version.outputs.tag }}"
