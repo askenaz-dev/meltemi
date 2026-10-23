@@ -15,7 +15,7 @@ cerrar sin ellas.
 
 ## 1. Precondiciones
 
-- [ ] 1.1 El motor: `validate_tree` deja de exigir escenario y verbo normativo
+- [x] 1.1 El motor: `validate_tree` deja de exigir escenario y verbo normativo
   a los bloques de una sección `## REMOVED Requirements` y les comprueba lo que
   el formato pide, **Reason** y **Migration**; test en `validate.rs` con un
   delta que solo elimina, y otro que confirma que un `REMOVED` sin
