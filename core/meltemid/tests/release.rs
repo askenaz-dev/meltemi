@@ -296,32 +296,69 @@ fn the_integration_build_cannot_create_or_sign_a_release() {
 }
 
 #[test]
-fn the_release_path_still_belongs_to_a_tag_alone() {
-    // Scenario: El camino de release sigue siendo solo de tag
-    // the job that creates the release is gated on a tag ref, and it is the only
-    // job in the repository that creates one.
+fn the_release_path_opens_only_where_the_gate_says_so() {
+    // Scenario: Tag empujado a mano no publica
+    // Nothing listens to tags: the workflow starts on a push to main or on a
+    // dispatch from main, its first job asks the gate, and every job that
+    // builds, packages or publishes runs only when the gate opens the path
+    // (release-con-el-push D1).
     let root = repo_root();
     let release_yml = read(&root, ".github/workflows/release.yml");
-    let tag_gate = "if: startsWith(github.ref, 'refs/tags/')";
+    let on: Vec<&str> = release_yml
+        .lines()
+        .skip_while(|line| line.trim_end() != "on:")
+        .skip(1)
+        .take_while(|line| line.starts_with(' '))
+        .collect();
+    let on = on.join(" ");
+    assert!(
+        !on.contains("tags"),
+        "no tag starts the release workflow: {on}"
+    );
+    assert!(
+        on.contains("branches: [\"main\"]") && on.contains("workflow_dispatch"),
+        "a push to main and a dispatch start it: {on}"
+    );
 
-    let draft = job_block(&release_yml, "release");
+    let version = job_block(&release_yml, "version");
     assert!(
-        draft.contains("gh release create"),
-        "the `release` job is the one that creates the release"
+        version.contains("meltemi-release -- gate --commit \"$GITHUB_SHA\" --main origin/main"),
+        "the first job asks the gate about this very commit"
     );
     assert!(
-        draft.contains(tag_gate),
-        "and it runs only from a version tag; without that condition a push to \
-         main would publish"
+        version.contains("if: github.ref == 'refs/heads/main'"),
+        "a dispatch is honoured from main only"
     );
-    // Its packaging inputs are gated the same way, so a main push cannot even
-    // assemble the set the draft would be built from.
-    for job in ["gates", "deny", "package", "package-gui"] {
+    assert!(
+        version.contains("fetch-depth: 0"),
+        "the gate sees every tag and origin/main"
+    );
+
+    let opened = "if: needs.version.outputs.release == 'true'";
+    for job in ["gates", "deny", "package", "package-gui", "release"] {
+        let block = job_block(&release_yml, job);
         assert!(
-            job_block(&release_yml, job).contains(tag_gate),
-            "the `{job}` job of the release path stays tag-only"
+            block.contains(opened),
+            "the `{job}` job runs only when the gate opens the path"
+        );
+        assert!(
+            block
+                .lines()
+                .any(|line| line.trim_start().starts_with("needs:") && line.contains("version")),
+            "the `{job}` job waits for the gate's answer"
         );
     }
+
+    // The tag is the pipeline's output, on the commit that passed the gates.
+    let draft = job_block(&release_yml, "release");
+    assert!(
+        draft.contains("--target \"$GITHUB_SHA\""),
+        "the release creates its tag on the commit that passed the gates"
+    );
+    assert!(
+        !draft.contains("--verify-tag"),
+        "no tag exists before the pipeline creates it"
+    );
 
     // No second publisher anywhere in .github/workflows.
     let dir = root.join(".github/workflows");
@@ -337,7 +374,7 @@ fn the_release_path_still_belongs_to_a_tag_alone() {
         let text = executable_lines(&std::fs::read_to_string(&path).expect("readable workflow"));
         assert!(
             !text.contains("gh release create"),
-            "{name} creates a release; the tagged path is the only one that may"
+            "{name} creates a release; the release workflow is the only one that may"
         );
     }
 }
@@ -453,7 +490,10 @@ fn the_release_pipeline_gates_and_budget_abort() {
     // Scenario: Presupuesto excedido aborta
     // the budget gate exits non-zero.
     let wf = read(&repo_root(), ".github/workflows/release.yml");
-    assert!(wf.contains("tags:"), "release originates from a tag");
+    assert!(
+        wf.contains("meltemi-release -- gate"),
+        "a release originates from the gate's answer, not from a tag"
+    );
     for gate in ["cargo fmt", "clippy", "cargo test", "cargo-deny"] {
         assert!(wf.contains(gate), "the pipeline runs the `{gate}` gate");
     }

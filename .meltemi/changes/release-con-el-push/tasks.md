@@ -80,12 +80,19 @@ cerrar sin ellas.
   decisión), «Push sin versión nueva no publica», «Versión ya publicada no se
   republica», «Versión menor no se publica», «Commit fuera de la rama
   principal no se publica»
-- [ ] 3.2 `release.yml`: disparadores `push` a `main` y `workflow_dispatch`
+- [x] 3.2 `release.yml`: disparadores `push` a `main` y `workflow_dispatch`
   limitado a `main`, sin tags; job `version` con el script; `gates`, `deny`,
   `package` y `package-gui` condicionados a `release == 'true'`; fuera
   `site-lint` y `publish-site`; tests de estructura en `release.rs` (design
   D1, D8) — escenarios «Tag empujado a mano no publica», «Presupuesto
   excedido aborta» (vigente)
+  <!-- 2026-10-23: el YAML parsea con seis jobs (`version`, `gates`, `deny`,
+  `package`, `package-gui`, `release`); el borrador se crea con `--target` sobre
+  el commit en vez de `--verify-tag`, y la 3.3 lo convierte en publicación.
+  El `gate` preguntado por el commit de esta rama contra `origin/main`
+  respondió `release=false` porque `v0.1.1` ya existe, que es la protección
+  del merge de la 7.1. Sale con el job el test de `publish-site`
+  (`scenarios_sitio.rs`), cuyo requisito retira esta change. -->
 - [ ] 3.3 Job `publish` en el entorno `release`: fusión de checksums,
   atestación con su bundle como asset `attestation.sigstore.json`, borrador
   con el tag en el commit, subida de todos los assets, publicación; cada paso

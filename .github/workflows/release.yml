@@ -1,19 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Release
 
-# Releases originate from a tag and its pipeline (docs/versionado.md). A red
-# gate aborts the release: no artifact is published (docs/release.md).
+# A release originates from a push to main that carries a new version
+# (release-con-el-push D1; docs/versionado.md). The `version` job asks
+# `meltemi-release gate` whether this commit opens the release path, and every
+# other job runs only when it says yes. The pipeline creates the tag on that
+# very commit; no tag starts this workflow, so a tag pushed by hand publishes
+# nothing. A red gate aborts the release: no artifact is published
+# (docs/release.md).
 #
-# A push to main republishes the SITE only (sitio-web-producto D7): the release
-# jobs are gated on a tag, the site lint stays a precondition, and the download
-# links are version-free — so republishing content never desynchronizes them from
-# the published release. (A path filter cannot be scoped per ref type in a single
-# `push` trigger, so main runs the cheap site path unconditionally rather than
-# risking a filtered tag.)
+# A dispatch re-runs a publication that failed half-way, and is honoured from
+# main only.
 on:
   push:
-    tags: ["v*.*.*"]
     branches: ["main"]
+  workflow_dispatch:
+
+# One release at a time: two pushes close together must not race to create the
+# same tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 # Read-only by default; the jobs that publish raise their own permissions and
 # no other job may (release-con-el-push D5).
@@ -38,10 +45,46 @@ env:
   MELTEMI_ADAPTER_BUDGET_BYTES: "6291456"
 
 jobs:
+  # The release gate (release-con-el-push D1, D5): this commit's version must
+  # agree in every carrier, have no tag, be newer than every version tag, and
+  # the commit must be on main. The answer is the condition of every other job.
+  # Carriers that disagree fail this job, so the run turns red instead of
+  # quietly publishing nothing.
+  version:
+    name: release gate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.gate.outputs.release }}
+      version: ${{ steps.gate.outputs.version }}
+      tag: ${{ steps.gate.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Every tag and origin/main: the gate compares against all of them.
+          fetch-depth: 0
+      - name: Show toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Ask the gate
+        id: gate
+        shell: bash
+        run: |
+          cargo run --quiet --locked -p meltemi-release -- gate --commit "$GITHUB_SHA" --main origin/main > gate.txt
+          cat gate.txt >> "$GITHUB_OUTPUT"
+          {
+            echo '### Release gate'
+            echo
+            echo '```'
+            cat gate.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat gate.txt
+
   gates:
     name: release gates (${{ matrix.os }})
-    # The release pipeline belongs to a tag; a site-only push skips it.
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: version
+    if: needs.version.outputs.release == 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -121,7 +164,8 @@ jobs:
 
   deny:
     name: cargo-deny
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: version
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -131,8 +175,8 @@ jobs:
 
   package:
     name: package & checksums (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [gates, deny]
+    if: needs.version.outputs.release == 'true'
+    needs: [version, gates, deny]
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -196,8 +240,8 @@ jobs:
 
   package-gui:
     name: GUI installers (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [gates, deny]
+    if: needs.version.outputs.release == 'true'
+    needs: [version, gates, deny]
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -305,8 +349,8 @@ jobs:
   # nothing is published, not even as a draft.
   release:
     name: draft release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [gates, deny, package, package-gui]
+    if: needs.version.outputs.release == 'true'
+    needs: [version, gates, deny, package, package-gui]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -358,68 +402,16 @@ jobs:
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        # The tag does not exist yet: the gate refused any version that has one.
+        # Creating the release creates the tag, on the commit that passed the
+        # gates.
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --draft \
-            --verify-tag \
-            --title "Meltemi $GITHUB_REF_NAME" \
+            --target "$GITHUB_SHA" \
+            --title "Meltemi $TAG" \
             --notes "Draft pending signature: the maintainer verifies these artifacts, signs SHA256SUMS with the project key and attaches SHA256SUMS.minisig before publishing. Checksums cover every asset, including the installer scripts. To verify a download, follow docs/release.md - it carries the public key and the three checks: checksum, signature, provenance." \
             release-assets/*
 
-  # The site lint is a precondition of publishing on both paths: a tagged
-  # release and a content-only push to main.
-  site-lint:
-    name: site lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - name: Site lint
-        run: cargo test -p meltemid --test site
-
-  # The product site is published only after the gates and the packaging have
-  # published their artifacts: the site must never announce a release whose
-  # artifacts were not published (sitio-web-producto D7). A red gate leaves the
-  # previous edition of the site untouched, because this condition is false.
-  publish-site:
-    name: publish site
-    needs: [site-lint, gates, deny, package, package-gui]
-    if: >-
-      !cancelled() &&
-      needs.site-lint.result == 'success' &&
-      (
-        !startsWith(github.ref, 'refs/tags/') ||
-        (needs.gates.result == 'success' &&
-         needs.deny.result == 'success' &&
-         needs.package.result == 'success' &&
-         needs['package-gui'].result == 'success')
-      )
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      # Marks come from brand/ (single source): they are staged into the
-      # artifact, never committed as copies under site/.
-      - name: Stage brand marks
-        run: |
-          mkdir -p site/media
-          cp brand/meltemi-mark-gradient.svg site/media/
-          cp brand/meltemi-lockup-dark.svg site/media/
-          cp brand/meltemi-lockup-light.svg site/media/
-      # `enablement` lets the workflow turn Pages on itself: without it the very
-      # first publication fails on a repository where nobody clicked the setting,
-      # which is a poor way to greet a fresh clone or a fork.
-      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
-        with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
-        with:
-          path: site
-      - id: deploy
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
