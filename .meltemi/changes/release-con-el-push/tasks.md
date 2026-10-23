@@ -254,7 +254,7 @@ cerrar sin ellas.
   39986769808: el job `release gate` respondió `release=false`, `version=0.1.1`,
   `tag=v0.1.1`, y los seis jobs restantes se saltaron; nada se publicó. CI run
   39986769755 verde en las tres plataformas y en cargo-deny; Build verde. -->
-- [ ] 7.2 *(mantenedor)* `cargo run -p meltemi-release -- set-version 0.2.0`,
+- [x] 7.2 *(mantenedor)* `cargo run -p meltemi-release -- set-version 0.2.0`,
   commit y push a `main`; seguir la corrida y anotar aquí la evidencia: el tag sobre el
   commit, los assets con el bundle, los comandos de verificación que
   funcionaron con red y sin ella, y la corrida de despliegue de la web;
@@ -284,7 +284,12 @@ cerrar sin ellas.
   El CI de `a6a67b5` falló en Windows por un test intermitente de avisos
   (`the_test_notice_ignores_the_floor_and_does_not_spend_it`) y pasó al
   relanzarlo. Queda abierto «La web se redespliega tras publicar»: se
-  cierra con la 6.2, relanzando solo el job fallido de la run 39993652547. -->
+  cierra con la 6.2, relanzando solo el job fallido de la run 39993652547.
+  Cerrado el mismo día: con la 6.2 resuelta, el intento 2 de la run
+  39993652547 relanzó solo `tell the web`, que respondió «meltemi-web's
+  deploy started for v0.2.0» a las 18:56:36Z; el deploy 40007435237 de la web
+  nació en ese segundo como `workflow_dispatch`, terminó verde y /ide/ sigue
+  diciendo «v0.2.0». -->
 - [ ] 7.3 *(mantenedor)* Con `main` ya en 0.2.0: borrar el borrador v0.1.1 y su
   tag, apagar GitHub Pages en este repositorio y borrar su entorno
   `github-pages` (design D8, D10)
