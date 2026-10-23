@@ -37,5 +37,9 @@
   y se empujó. CI run 40017940745 verde en las tres plataformas y en
   cargo-deny: el test del aviso de prueba pasó en las tres, y el del
   candado en Windows. Build verde; la Release respondió `release=false`. -->
-- [ ] 2.2 `meltemi archive grabador-de-avisos-sin-carrera` y la entrada en
+- [x] 2.2 `meltemi archive grabador-de-avisos-sin-carrera` y la entrada en
   `docs/plan-de-cambios.md`
+  <!-- 2026-10-23: entrada «12º ter» en la tanda 1 del plan. `meltemi archive`
+  rehúsa una change sin deltas («[4005] … declares no capability deltas»),
+  así que se movió a mano al histórico fechado, como `procedencia-de-release`;
+  no funde nada en la verdad viva porque no trae nada que fundir. -->
