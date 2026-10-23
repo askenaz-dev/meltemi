@@ -203,21 +203,28 @@ cerrar sin ellas.
 
 - [ ] 6.1 *(meltemi-web)* `packages/infra/github.tf`: para
   `askenaz-dev/meltemi`, el ruleset de `main` (sin borrado ni push forzado),
-  el de tags `v*` (sin movimiento ni borrado; creación restringida a GitHub
-  Actions solo si el ruleset lo admite), el entorno `release` con política de
+  el de tags `v*` (sin movimiento ni borrado; creación libre), el entorno
+  `release` con política de
   rama `main`, los permisos por defecto de los workflows en lectura y el
   secreto `WEB_DISPATCH_TOKEN`, todo sin importar `github_repository`; plan
   comentado en su pull request y aplicado (design D5, D6) — resolver los «sin
   verificar» de los rulesets y del proveedor
+  <!-- 2026-10-23: implementado en la change `ide-releases` de meltemi-web,
+  rama `ide-releases`, pull request
+  https://github.com/askenaz-dev/meltemi-web/pull/1; los dos «sin verificar»
+  quedan resueltos en el design. Se marca cuando su merge lo aplique. -->
 - [ ] 6.2 *(mantenedor)* Crear el token de grano fino —propietario
   `askenaz-dev`, acceso solo a `meltemi-web`, permiso Actions: lectura y
   escritura— y dejarlo en el entorno `infrastructure` de meltemi-web con
   `pnpm infra:bootstrap` (design D7) — resolver el «sin verificar» de la
   política de tokens de la organización
-- [ ] 6.3 *(meltemi-web)* Change hermana: `/ide/` muestra la versión, la fecha
-  y las notas de la última release, leídas de GitHub, y un horario propio
-  repara un aviso perdido (design D7); no bloquea el merge, porque el
-  `deploy.yml` de hoy ya acepta el disparo
+- [ ] 6.3 *(meltemi-web)* Change hermana: `/ide/` muestra la versión y la fecha
+  de la última release, leídas de GitHub, sin horario de reparación (lo
+  decidió su design) (design D7); no bloquea el merge, porque el `deploy.yml`
+  de hoy ya acepta el disparo
+  <!-- 2026-10-23: implementado en la misma change `ide-releases` de
+  meltemi-web (pull request #1), junto con las páginas de descargas que ya
+  describen la verificación en dos pasos. Se marca cuando su merge despliegue. -->
 
 ## 7. Merge y primera release, en este orden (design D10)
 

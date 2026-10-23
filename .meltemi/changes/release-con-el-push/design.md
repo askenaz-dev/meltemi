@@ -199,11 +199,12 @@ proponía colgar de ese evento; su design lo recogerá cuando le toque.
    únicos que ven la credencial del aviso.
 4. **Las negativas de D1**, probadas.
 5. **Rulesets.** En `main`: sin borrado ni push forzado. En los tags `v*`:
-   sin movimiento ni borrado para nadie. La creación de tags `v*` se restringe
-   a GitHub Actions solo si un ruleset admite esa integración como excepción,
-   cosa sin verificar. Si no lo admite, la creación queda libre: ningún
-   workflow escucha tags, así que un tag empujado a mano no publica nada, y
-   las releases inmutables ya bloquean el tag de toda release publicada.
+   sin movimiento ni borrado para nadie. La creación de tags `v*` queda libre,
+   decidido en la change `ide-releases` de meltemi-web: restringirla exigiría
+   a GitHub Actions como excepción del ruleset, cosa sin verificar, y no hace
+   falta, porque ningún workflow escucha tags, así que un tag empujado a mano
+   no publica nada, y las releases inmutables ya bloquean el tag de toda
+   release publicada.
 6. **Repudio de una release en vez de repudio de una clave.** Una release
    publicada no se corrige en el sitio. Se publica la versión siguiente y se
    declara la mala, con fecha, en sus notas y en `docs/release.md`. El log de
@@ -239,8 +240,9 @@ código a la web. `workflow_dispatch` solo pide poder lanzar workflows.
 
 El disparo no lleva datos. La web lee la última release de la API pública de
 GitHub, que es la fuente de verdad, así que un aviso perdido no deja una
-versión equivocada, solo una tardía. Un horario propio de la web lo repara;
-eso lo decide la change hermana. El `deploy.yml` de hoy ya acepta el
+versión equivocada, solo una tardía. La change hermana de la web
+(`ide-releases`) decidió no añadirle horario: volver a correr el job del
+aviso, o cualquier despliegue posterior, lo repara. El `deploy.yml` de hoy ya acepta el
 disparo, así que funciona antes de que esa change aterrice: redespliega un
 sitio igual.
 
@@ -380,10 +382,14 @@ afirmación antes:
   referencia a cada uno, serializada como bundle de Sigstore en JSON. Eso
   confirma también la sospecha del primer punto: los sujetos son los
   artefactos, no `SHA256SUMS`;
-- si un ruleset admite a GitHub Actions como excepción para crear tags `v*`;
-- el recurso del proveedor de GitHub para los permisos por defecto de los
-  workflows y los campos de política de rama del entorno, en la versión
-  pineada en meltemi-web;
+- ~~si un ruleset admite a GitHub Actions como excepción para crear tags
+  `v*`~~. **Resuelto por decisión** en `ide-releases` de meltemi-web: la
+  creación queda libre, sin excepción para Actions;
+- ~~el recurso del proveedor de GitHub para los permisos por defecto de los
+  workflows y los campos de política de rama del entorno~~. **Resuelto el
+  2026-10-23** contra el esquema del proveedor 6.13 pineado en meltemi-web:
+  existen `github_workflow_repository_permissions` y
+  `github_repository_environment_deployment_policy` con `branch_pattern`;
 - si la organización admite tokens de grano fino sobre sus repositorios y con
   qué caducidad máxima;
 - si una release inmutable publicada puede borrarse y si su tag se puede
