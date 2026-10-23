@@ -34,12 +34,16 @@ cerrar sin ellas.
   Hecho el mismo día con los binarios de esta rama: `verify` 9/9, `archive`
   la preservó en `archive/2026-10-23-artefactos-de-cada-push` y regeneró la
   proyección; `validate release-con-el-push` y `validate` limpios. -->
-- [ ] 1.3 Retirar `procedencia-de-release` sin fundir: su carpeta pasa a
+- [x] 1.3 Retirar `procedencia-de-release` sin fundir: su carpeta pasa a
   `.meltemi/changes/archive/<fecha>-procedencia-de-release/` sin `specs/`, con
   la cabecera «Retirada sin fundir — absorbida por `release-con-el-push`» en
   su `proposal.md`; comprobar que `meltemi` lista el histórico y que
   `dogfood.rs` y `migration.rs` lo aceptan, y resolver aquí lo que no (design
   D9) — gates: `cargo test -p meltemi-spec`
+  <!-- 2026-10-23: `meltemi changes` la lista como `archived 2026-10-23`; el
+  listado solo lee la fecha del nombre y qué artefactos hay, así que una
+  entrada sin `specs/` no rompe nada. `validate`, `validate
+  release-con-el-push`, `dogfood.rs` y `migration.rs` en verde. -->
 - [ ] 1.4 Pinear por commit completo cada `uses:` de `ci.yml`, `build.yml` y
   `release.yml`, con la versión como comentario, y declarar `permissions:
   contents: read` arriba de `ci.yml`; tests en `release.rs` que recorren todos
