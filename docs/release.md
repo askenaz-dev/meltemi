@@ -229,14 +229,17 @@ After `publish`, the `notify-web` job starts the deploy workflow of
 meltemi.dev. The notice carries no data: the site reads the published release
 from GitHub, so a lost notice leaves the site late, never wrong.
 
-Its credential, `WEB_DISPATCH_TOKEN`, is a fine-grained token owned by the
+Its credential is the `WEB_DISPATCH_TOKEN` secret of this repository's
+`release` environment, where only jobs on `main` can read it and only the
+notice step names it. The design calls for a fine-grained token owned by the
 `askenaz-dev` organisation, with access to `meltemi-web` only and the single
-permission **Actions: read and write** — it can start that repository's
-workflows and cannot write its code. The maintainer creates it and leaves it in
-meltemi-web's `infrastructure` environment; Terraform places it in this
-repository's `release` environment. It expires: when it does, the notice fails
-in red with the release already published, and the value is replaced and
-applied again.
+permission **Actions: read and write**, which can start that repository's
+workflows and cannot write its code. Until one exists, the maintainer chose on
+2026-10-23 to fill it with the organisation's Terraform admin token, which can
+do far more; a narrow token stored later in meltemi-web's `infrastructure`
+environment takes its place with no other change, and Terraform places either
+value here. The token expires: when it does, the notice fails in red with the
+release already published, and the value is replaced and applied again.
 
 ## Platform signing
 

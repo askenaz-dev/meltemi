@@ -256,6 +256,19 @@ deja en el entorno `infrastructure` de meltemi-web; Terraform lo coloca en
 el entorno `release` de este repositorio, como ya hace con los tokens de
 publicación de npm. Rotarlo es cambiar el valor y aplicar.
 
+**Enmienda del 2026-10-23, decisión del mantenedor.** El token estrecho no se
+creó: el mantenedor eligió que el aviso use `GH_ADMIN_TOKEN`, el token con el
+que el Terraform de meltemi-web ya administra la organización (change
+`ide-releases`, tarea 1.6, pull request askenaz-dev/meltemi-web#2). Los
+workflows de infraestructura pasan `WEB_DISPATCH_TOKEN` si existe y
+`GH_ADMIN_TOKEN` si no, así que el secreto de este repositorio conserva su
+nombre y un token estrecho creado después ocupa su lugar sin más cambios. El
+costo queda escrito como costo: el entorno `release` guarda un token que
+administra todos los repositorios de la organización, no uno que solo lanza
+los workflows de la web. Lo leen solo los jobs de `main` y solo lo nombra el
+paso del aviso; una fuga ahí sería de la organización entera, no un
+redespliegue.
+
 *Alternativas.* Una GitHub App de la organización: sin caducidad personal y
 la mejor opción a largo plazo, pero con más montaje del que este paso
 necesita hoy; queda anotada. Solo sondeo desde la web: ninguna credencial,
@@ -397,8 +410,9 @@ afirmación antes:
   2026-10-23** contra el esquema del proveedor 6.13 pineado en meltemi-web:
   existen `github_workflow_repository_permissions` y
   `github_repository_environment_deployment_policy` con `branch_pattern`;
-- si la organización admite tokens de grano fino sobre sus repositorios y con
-  qué caducidad máxima;
+- ~~si la organización admite tokens de grano fino sobre sus repositorios~~:
+  **resuelto el 2026-10-23**, los admite, porque `GH_ADMIN_TOKEN` es uno y
+  lanza el deploy de la web; sigue sin verificar con qué caducidad máxima;
 - si una release inmutable publicada puede borrarse y si su tag se puede
   reutilizar, que afecta al procedimiento de repudio;
 - cómo tratan `meltemi` y los guardianes una change retirada en el histórico

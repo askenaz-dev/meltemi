@@ -221,11 +221,18 @@ cerrar sin ellas.
   cambios son el ruido de D1 y la observabilidad de los Workers, ya anotados
   en el pull request. El secreto `WEB_DISPATCH_TOKEN` tiene su recurso con
   `count` sobre la variable: no existe hasta que la 6.2 deje el token. -->
-- [ ] 6.2 *(mantenedor)* Crear el token de grano fino —propietario
+- [x] 6.2 *(mantenedor)* ~~Crear el token de grano fino —propietario
   `askenaz-dev`, acceso solo a `meltemi-web`, permiso Actions: lectura y
   escritura— y dejarlo en el entorno `infrastructure` de meltemi-web con
-  `pnpm infra:bootstrap` (design D7) — resolver el «sin verificar» de la
+  `pnpm infra:bootstrap`~~ (design D7) — resolver el «sin verificar» de la
   política de tokens de la organización
+  <!-- 2026-10-23: el mantenedor eligió usar `GH_ADMIN_TOKEN` en vez de crear
+  el token estrecho (enmienda de D7). meltemi-web `ide-releases` 1.6, pull
+  request #2, merge `ae1fa63`: los workflows de infraestructura pasan
+  `WEB_DISPATCH_TOKEN || GH_ADMIN_TOKEN`. Apply run 40007292733: «1 added, 4
+  changed, 0 destroyed»; el secreto `WEB_DISPATCH_TOKEN` existe en el entorno
+  `release` desde el 2026-10-23T18:56:01Z. La política de tokens queda
+  resuelta en el design: la organización los admite. -->
 - [x] 6.3 *(meltemi-web)* Change hermana: `/ide/` muestra la versión y la fecha
   de la última release, leídas de GitHub, sin horario de reparación (lo
   decidió su design) (design D7); no bloquea el merge, porque el `deploy.yml`
