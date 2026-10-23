@@ -117,7 +117,7 @@ cerrar sin ellas.
   repite solo (design D7) — escenarios «La web se redespliega tras publicar»,
   «Sin publicación no hay aviso», «Aviso fallido no deshace la release», «El
   aviso no lleva datos»
-- [ ] 3.5 `build.yml` y `scripts/unsigned-build-notice.txt`: el aviso deja de
+- [x] 3.5 `build.yml` y `scripts/unsigned-build-notice.txt`: el aviso deja de
   hablar de minisign y distingue el build de integración por lo que de verdad
   le falta, atestación y publicación; test de que `build.yml` no concede
   `contents: write` a ningún job (design D3) — escenarios «La última release

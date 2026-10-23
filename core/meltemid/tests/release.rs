@@ -253,6 +253,7 @@ fn job_block(workflow: &str, job: &str) -> String {
 #[test]
 fn the_integration_build_cannot_create_or_sign_a_release() {
     // Scenario: El build de integración no crea release
+    // Scenario: La ruta de integración no puede publicar
     // nothing on this path creates, signs or attests anything — and the token it
     // runs with could not, even if a step tried.
     let wf = executable_lines(&read(&repo_root(), ".github/workflows/build.yml"));
@@ -380,11 +381,11 @@ fn the_release_path_opens_only_where_the_gate_says_so() {
 }
 
 #[test]
-fn the_version_free_download_urls_still_answer_from_the_signed_release() {
-    // Scenario: La última release firmada sigue resolviendo
+fn the_version_free_download_urls_still_answer_from_the_published_release() {
+    // Scenario: La última release publicada sigue resolviendo
     // the published surfaces link `releases/latest/download/<stable-name>`, and
-    // the only path that can move what that URL resolves to is the tagged one:
-    // a workflow artifact has no stable URL and never enters a release.
+    // the only path that can move what that URL resolves to is the release
+    // workflow: a workflow artifact has no stable URL and never enters a release.
     let root = repo_root();
     let build = executable_lines(&read(&root, ".github/workflows/build.yml"));
     assert!(

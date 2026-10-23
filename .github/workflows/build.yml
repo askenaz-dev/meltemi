@@ -6,13 +6,12 @@ name: Build
 # the run page. It creates NO release, mints NO attestation, emits NO signature.
 #
 # That boundary is not a convention here, it is the shape of the file. A release
-# is signed on the maintainer's own machine with a key CI never holds
-# (procedencia-de-release; docs/release.md, "Key custody"), because a compromised
-# account can push a tag and get a build attestation that verifies perfectly —
-# the manual signature is the one step it cannot complete. So no automated path
-# can produce a signed artifact, and `permissions: contents: read` below makes
-# that structural: a step that tried `gh release create` would fail on the token
-# rather than on somebody noticing it in review.
+# is published, and signed by the attestation it carries, by release.yml alone,
+# and only when its gate opens the path for a new version on main
+# (release-con-el-push D1, D3). This workflow holds `permissions: contents:
+# read` below, which makes the boundary structural: a step that tried `gh
+# release create` would fail on the token rather than on somebody noticing it in
+# review.
 #
 # The gates are deliberately absent: ci.yml already runs fmt, clippy, the full
 # suite and cargo-deny on this same commit, on these same three platforms
