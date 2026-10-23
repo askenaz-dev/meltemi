@@ -103,7 +103,10 @@ tauri-plugin-dialog = "=2.7.2"
 # confined to the GUI client; the daemon links neither.
 tauri-plugin-notification = "=2.3.3"
 thiserror = "=2.0.18"
-tokio = "=1.52.3"
+# 1.53.3 and not 1.52.3: RUSTSEC-2026-0386, `AsyncFd::new` and its siblings
+# violated I/O safety; fixed in >=1.53.3 (and backported to 1.51.6). The
+# workspace does not call AsyncFd itself, but cargo-deny gates on the crate.
+tokio = "=1.53.3"
 toml = "=1.1.2"
 tracing = "=0.1.44"
 tracing-appender = "=0.2.5"
