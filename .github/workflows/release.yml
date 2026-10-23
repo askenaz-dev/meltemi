@@ -58,6 +58,7 @@ jobs:
       release: ${{ steps.gate.outputs.release }}
       version: ${{ steps.gate.outputs.version }}
       tag: ${{ steps.gate.outputs.tag }}
+      notes: ${{ steps.notes.outputs.notes }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -80,6 +81,35 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           cat gate.txt
+      # The release's notes are the version's section of CHANGELOG.md when it
+      # has one, and generated otherwise (release-con-el-push D4). Taken here,
+      # where the toolchain already is, and handed to the publish job.
+      - name: The release notes
+        id: notes
+        if: steps.gate.outputs.release == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.gate.outputs.version }}
+        run: |
+          set +e
+          cargo run --quiet --locked -p meltemi-release -- notes "$VERSION" > release-notes.md
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "notes=changelog" >> "$GITHUB_OUTPUT"
+          elif [ "$code" -eq 3 ]; then
+            echo "CHANGELOG.md has no section for $VERSION: the notes will be generated"
+            echo "notes=generated" >> "$GITHUB_OUTPUT"
+          else
+            exit "$code"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.notes.outputs.notes == 'changelog'
+        with:
+          name: release-notes
+          path: release-notes.md
+          retention-days: 7
+          if-no-files-found: error
 
   gates:
     name: release gates (${{ matrix.os }})
@@ -340,30 +370,45 @@ jobs:
           name: meltemi-gui-${{ runner.os }}
           path: dist-gui/
 
-  # Assembles the DRAFT release: every artifact of the six packaging jobs under
-  # ONE merged SHA256SUMS, so the stable-name URLs the site and the README
-  # promise (`releases/latest/download/<asset>`) have something to resolve to.
-  # It stays a draft on purpose: the maintainer downloads SHA256SUMS, signs it
-  # with the key CI never holds, uploads `SHA256SUMS.minisig` and publishes
-  # (docs/release.md) — a red gate upstream means this job never runs and
-  # nothing is published, not even as a draft.
-  release:
-    name: draft release
+  # Publishes the release, with nobody in between (release-con-el-push D3,
+  # D4). The artifacts of the six packaging jobs go under ONE merged
+  # SHA256SUMS; the attestation over its entries is the release's signature,
+  # and its bundle travels as an asset so a download can be verified offline.
+  # Immutable releases accept no asset once published, so everything is
+  # uploaded to a draft first and the draft is published last. A draft does not
+  # create its tag: if this job fails half-way the tag does not exist yet, and a
+  # dispatch, or a re-run, finds the draft and finishes it.
+  publish:
+    name: publish the release
     if: needs.version.outputs.release == 'true'
     needs: [version, gates, deny, package, package-gui]
     runs-on: ubuntu-latest
+    # The only jobs that may see a publication credential run in this
+    # environment, and it admits main only (release-con-el-push D5).
+    environment: release
     permissions:
       contents: write
-      # The provenance mint (procedencia-de-release): id-token for the OIDC
-      # token behind the Sigstore signing certificate, attestations to persist
-      # the attestation, artifact-metadata for the artifact storage record.
+      # The provenance mint: id-token for the OIDC token behind the Sigstore
+      # signing certificate, attestations to persist the attestation,
+      # artifact-metadata for the artifact storage record.
       id-token: write
       attestations: write
       artifact-metadata: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
+          # The packaging jobs' artifacts only: meltemi-<os> and meltemi-gui-<os>.
+          pattern: meltemi-*
           path: collected
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.version.outputs.notes == 'changelog'
+        with:
+          name: release-notes
+          path: notes
       - name: Merge artifacts under one checksum file
         shell: bash
         # The per-OS SHA256SUMS are working files of their packaging jobs; the
@@ -387,31 +432,76 @@ jobs:
           cd release-assets
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
-      # Build provenance over the same file the maintainer signs: the subjects
-      # are the entries of the merged SHA256SUMS, so one attestation covers
-      # every published asset exactly as the one detached signature does. This
-      # job only aggregates what the packaging jobs built, so the attestation
-      # ties the published set to this workflow and commit — it does not attest
-      # each build step (docs/release.md says so too, in the same words).
-      # Pinned by commit, not by a floating tag (§10): this step mints with the
-      # job's OIDC identity, and a moved tag must not be able to move it.
+      # The signature of the release: one attestation whose subjects are the
+      # entries of the merged SHA256SUMS, so it covers every published asset.
+      # This job only aggregates what the packaging jobs built, so it ties the
+      # published set to this workflow and commit; it does not attest each
+      # build step (docs/release.md says so in the same words). Pinned by
+      # commit: this step mints with the job's OIDC identity.
       - name: Attest provenance of the merged checksums
+        id: attest
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-checksums: release-assets/SHA256SUMS
-      - name: Create the draft release
+      # The bundle verifies itself against the public log, so it sits beside
+      # the assets it attests rather than inside SHA256SUMS.
+      - name: Keep the attestation bundle as an asset
+        shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.version.outputs.tag }}
-        # The tag does not exist yet: the gate refused any version that has one.
-        # Creating the release creates the tag, on the commit that passed the
-        # gates.
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: cp "$BUNDLE" release-assets/attestation.sigstore.json
+      - name: Create or reuse the draft
+        id: draft
+        shell: bash
+        # The tag does not exist yet: the gate refused any version that has one,
+        # and a draft does not create it. The release is created on the commit
+        # that passed the gates; a draft left by a failed run is reused.
         run: |
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --draft \
-            --target "$GITHUB_SHA" \
-            --title "Meltemi $TAG" \
-            --notes "Draft pending signature: the maintainer verifies these artifacts, signs SHA256SUMS with the project key and attaches SHA256SUMS.minisig before publishing. Checksums cover every asset, including the installer scripts. To verify a download, follow docs/release.md - it carries the public key and the three checks: checksum, signature, provenance." \
-            release-assets/*
-
+          state="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+          case "$state" in
+            false)
+              echo "$TAG is already published: nothing to upload"
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              ;;
+            true)
+              echo "a draft of $TAG exists: it is completed"
+              ;;
+            missing)
+              if [ -s notes/release-notes.md ]; then
+                notes=(--notes-file notes/release-notes.md)
+              else
+                notes=(--generate-notes)
+              fi
+              gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Meltemi $TAG" "${notes[@]}"
+              ;;
+            *)
+              echo "::error::unexpected state of $TAG: $state"
+              exit 1
+              ;;
+          esac
+      - name: Upload every asset to the draft
+        if: steps.draft.outputs.published != 'true'
+        shell: bash
+        # --clobber makes a re-run idempotent: an asset a failed upload left
+        # half-written is replaced. Allowed on a draft, refused once published.
+        run: gh release upload "$TAG" release-assets/* --clobber
+      - name: Publish the draft
+        if: steps.draft.outputs.published != 'true'
+        shell: bash
+        run: gh release edit "$TAG" --draft=false --latest
+      - name: Check what was published
+        shell: bash
+        # Nothing may be missing once published: immutable releases would never
+        # accept it afterwards.
+        run: |
+          published="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          missing=0
+          for file in release-assets/*; do
+            name="$(basename "$file")"
+            if ! grep -qxF "$name" <<< "$published"; then
+              echo "::error::$TAG was published without $name"
+              missing=1
+            fi
+          done
+          [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "false" ] || { echo "::error::$TAG is still a draft"; exit 1; }
+          exit "$missing"

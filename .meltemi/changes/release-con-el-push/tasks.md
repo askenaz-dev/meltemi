@@ -93,7 +93,7 @@ cerrar sin ellas.
   respondió `release=false` porque `v0.1.1` ya existe, que es la protección
   del merge de la 7.1. Sale con el job el test de `publish-site`
   (`scenarios_sitio.rs`), cuyo requisito retira esta change. -->
-- [ ] 3.3 Job `publish` en el entorno `release`: fusión de checksums,
+- [x] 3.3 Job `publish` en el entorno `release`: fusión de checksums,
   atestación con su bundle como asset `attestation.sigstore.json`, borrador
   con el tag en el commit, subida de todos los assets, publicación; cada paso
   salta lo hecho; notas desde la sección de `CHANGELOG.md` o generadas (design
@@ -103,6 +103,14 @@ cerrar sin ellas.
   instalador publicado y atestiguado», «Credenciales solo en el entorno de
   publicación» — resolver el «sin verificar» de la salida del bundle en la
   versión pineada de `actions/attest`
+  <!-- 2026-10-23: la salida es `bundle-path` (action.yml del commit pineado).
+  Las notas las toma el job `version` con `meltemi-release notes`, que sale
+  con 3 si `CHANGELOG.md` no tiene la sección; este repositorio no tiene
+  `CHANGELOG.md` todavía, así que la 0.2.0 llevará notas generadas salvo que
+  `antes-de-anunciar` llegue antes. Un borrador no crea su tag: tras un fallo
+  a mitad, el `gate` vuelve a abrir el camino y `publish` completa el
+  borrador. El test viejo de la firma deja de exigirle `SHA256SUMS.minisig`
+  al workflow; se reescribe entero en la 4.3. -->
 - [ ] 3.4 Job `notify-web` tras `publish`, en el entorno `release`: `gh
   workflow run deploy.yml --repo askenaz-dev/meltemi-web --ref main` con
   `WEB_DISPATCH_TOKEN`, sin entradas; un fallo deja la release intacta y se

@@ -372,8 +372,14 @@ Se comprueban al implementar o en la primera corrida, y no se convierten en
 afirmación antes:
 
 - qué forma verifica con `subject-checksums`: `gh attestation verify
-  SHA256SUMS`, como dice hoy la documentación, o cada artefacto;
-- el nombre de la salida del bundle en la versión pineada de `actions/attest`;
+  SHA256SUMS`, como dice hoy la documentación, o cada artefacto (el README de
+  `actions/attest` apunta a cada artefacto; la primera corrida lo confirma);
+- ~~el nombre de la salida del bundle en la versión pineada de `actions/attest`~~.
+  **Resuelto el 2026-10-23** en el `action.yml` de ese commit: `bundle-path`,
+  y su README dice que varios sujetos dan **una** atestación con una
+  referencia a cada uno, serializada como bundle de Sigstore en JSON. Eso
+  confirma también la sospecha del primer punto: los sujetos son los
+  artefactos, no `SHA256SUMS`;
 - si un ruleset admite a GitHub Actions como excepción para crear tags `v*`;
 - el recurso del proveedor de GitHub para los permisos por defecto de los
   workflows y los campos de política de rama del entorno, en la versión

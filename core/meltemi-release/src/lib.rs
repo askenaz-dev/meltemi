@@ -389,6 +389,35 @@ pub fn gate(repo: &Path, commit: &str, main_ref: &str) -> Result<Decision, Strin
     })
 }
 
+/// The section of a changelog for `version`: what follows its `## ` heading up
+/// to the next `## ` heading, trimmed (release-con-el-push D4).
+///
+/// The heading names the version first, with or without a leading `v`, and
+/// may carry anything after it, such as a date: `## 0.2.0`, `## v0.2.0`,
+/// `## 0.2.0 (2026-10-23)`. `None` when no heading names the version or its
+/// section is empty, so the pipeline knows to generate notes instead.
+#[must_use]
+pub fn changelog_section(changelog: &str, version: Version) -> Option<String> {
+    let wanted = version.to_string();
+    let mut inside = false;
+    let mut body: Vec<&str> = Vec::new();
+    for line in changelog.lines() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            if inside {
+                break;
+            }
+            let first = heading.split_whitespace().next().unwrap_or("");
+            inside = first.strip_prefix('v').unwrap_or(first) == wanted;
+            continue;
+        }
+        if inside {
+            body.push(line);
+        }
+    }
+    let text = body.join("\n").trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
 /// One `[[package]]` entry of a `Cargo.lock`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct LockEntry {
@@ -517,6 +546,40 @@ mod tests {
         assert_eq!(
             locate(lock, Locator::LockfileRootPackage),
             Some((6, "0.1.1".into()))
+        );
+    }
+
+    #[test]
+    fn the_notes_are_the_changelog_section_of_the_version() {
+        // Scenario: Notas desde el changelog
+        let changelog = "# Changelog\n\n## 0.2.0 (2026-10-23)\n\n### Added\n\n- The release leaves on the push.\n\n## 0.1.1\n\n- Older.\n";
+        let v = |s| Version::parse(s).expect("valid");
+        assert_eq!(
+            changelog_section(changelog, v("0.2.0")).as_deref(),
+            Some("### Added\n\n- The release leaves on the push.")
+        );
+        assert_eq!(
+            changelog_section(changelog, v("0.1.1")).as_deref(),
+            Some("- Older.")
+        );
+        assert_eq!(
+            changelog_section("## v0.3.0\n\nWith a v.\n", v("0.3.0")).as_deref(),
+            Some("With a v.")
+        );
+        assert_eq!(
+            changelog_section(changelog, v("0.9.0")),
+            None,
+            "no heading, no notes"
+        );
+        assert_eq!(
+            changelog_section("## 0.4.0\n\n## 0.3.0\n- x\n", v("0.4.0")),
+            None,
+            "an empty section is no notes"
+        );
+        assert_eq!(
+            changelog_section("## 0.2.00\n- x\n", v("0.2.0")),
+            None,
+            "the heading names this version, not one that looks like it"
         );
     }
 

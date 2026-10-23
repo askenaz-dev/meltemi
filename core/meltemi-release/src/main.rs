@@ -6,6 +6,7 @@
 //! meltemi-release version [--root <dir>]
 //! meltemi-release set-version <x.y.z> [--root <dir>]
 //! meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]
+//! meltemi-release notes <x.y.z> [--root <dir>]
 //! ```
 //!
 //! `version` prints the version every carrier agrees on. `set-version` is the
@@ -21,17 +22,21 @@
 //! ready to append to `$GITHUB_OUTPUT`. A "no" exits 0; carriers that disagree
 //! exit 1, so the run turns red instead of quietly publishing nothing.
 //!
-//! Exit codes: 0 done, 1 refused or failed, 2 usage.
+//! `notes` prints the section of `CHANGELOG.md` for a version, which becomes
+//! the release's notes (release-con-el-push D4).
+//!
+//! Exit codes: 0 done, 1 refused or failed, 2 usage, 3 no notes for that
+//! version (the pipeline then generates them).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use meltemi_release::{
-    CARRIERS, Version, agreed_version, gate, lock_moved_only_the_workspace, read_from_tree,
-    set_version,
+    CARRIERS, Version, agreed_version, changelog_section, gate, lock_moved_only_the_workspace,
+    read_from_tree, set_version,
 };
 
-const USAGE: &str = "usage: meltemi-release version [--root <dir>]\n       meltemi-release set-version <x.y.z> [--root <dir>]\n       meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]";
+const USAGE: &str = "usage: meltemi-release version [--root <dir>]\n       meltemi-release set-version <x.y.z> [--root <dir>]\n       meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]\n       meltemi-release notes <x.y.z> [--root <dir>]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -49,6 +54,10 @@ fn main() -> ExitCode {
         ["gate", "--commit", commit] => decide(&root, commit, "origin/main"),
         ["gate", "--commit", commit, "--main", main]
         | ["gate", "--main", main, "--commit", commit] => decide(&root, commit, main),
+        ["notes", version] => match Version::parse(version) {
+            Some(version) => return notes(&root, version),
+            None => return usage(&format!("`{version}` is not a version of the form x.y.z")),
+        },
         _ => return usage("unknown command"),
     };
     match outcome {
@@ -82,6 +91,21 @@ fn split_root(args: &[String]) -> Result<(PathBuf, Vec<String>), String> {
         }
     }
     Ok((root, rest))
+}
+
+/// Prints the changelog section of `version`, or exits 3 when there is none.
+fn notes(root: &Path, version: Version) -> ExitCode {
+    let changelog = std::fs::read_to_string(root.join("CHANGELOG.md")).unwrap_or_default();
+    match changelog_section(&changelog, version) {
+        Some(section) => {
+            println!("{section}");
+            ExitCode::SUCCESS
+        }
+        None => {
+            eprintln!("meltemi-release: CHANGELOG.md has no section for {version}");
+            ExitCode::from(3)
+        }
+    }
 }
 
 /// Prints the gate's decision as `key=value` lines.
