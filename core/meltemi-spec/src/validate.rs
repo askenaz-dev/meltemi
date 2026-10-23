@@ -7,6 +7,7 @@
 //! requirement has a scenario, delta headers are canonical, capability names
 //! are kebab-case, and rumbo front-matter is present and well-formed.
 
+use crate::delta::{DeltaOp, DeltaSpec};
 use crate::diagnostic::{Diagnostic, Rule};
 use crate::model::{Inclusion, MeltemiTree, RumboFile, Spec};
 
@@ -71,6 +72,33 @@ pub fn validate_spec(spec: &Spec) -> Vec<Diagnostic> {
     crate::ears::validate_ears(spec, &mut out);
 
     out
+}
+
+/// Validates the requirement blocks a change's delta brings — its ADDED and
+/// MODIFIED ones — by the rules of a requirement. Each must be a complete
+/// block, so a fragment without its normative statement or without its
+/// scenarios is reported (`artifact-format`, «Reglas de contenido de delta»).
+/// REMOVED and RENAMED entries are not requirements: the merge checks them.
+///
+/// This is what `meltemi validate <change>` runs before the dry-run merge.
+#[must_use]
+pub fn validate_delta_blocks(delta: &DeltaSpec) -> Vec<Diagnostic> {
+    let requirements = delta
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            DeltaOp::Added(requirement) | DeltaOp::Modified(requirement) => {
+                Some(requirement.clone())
+            }
+            DeltaOp::Removed { .. } | DeltaOp::Renamed { .. } => None,
+        })
+        .collect();
+    validate_spec(&Spec {
+        capability: delta.capability.clone(),
+        requirements,
+        deltas: Vec::new(),
+        source: delta.source.clone(),
+    })
 }
 
 /// Validates a single rumbo file's front-matter.
@@ -233,6 +261,53 @@ mod tests {
         assert_eq!(diags.len(), 1, "{diags:?}");
         assert_eq!(diags[0].rule, Rule::RequirementWithoutScenario);
         assert_eq!(diags[0].line, 2);
+    }
+
+    #[test]
+    fn a_modified_fragment_is_reported_as_an_invalid_delta() {
+        // Scenario: Requisito modificado con bloque parcial
+        // A MODIFIED block replaces the whole requirement, so a fragment would
+        // silently drop what it left out. The change's validation holds every
+        // modified block to the rules of a requirement: a statement without its
+        // scenarios, or scenarios without their statement, is reported. A
+        // fragment that keeps some scenarios and drops others is not caught
+        // here; that one is the review's (release-con-el-push 4.3).
+        use crate::delta::parse_delta;
+        let statement_only = parse_delta(
+            "my-cap",
+            "## MODIFIED Requirements\n### Requirement: R\nThe system SHALL do it differently.\n",
+            "spec.md",
+        );
+        let diags = validate_delta_blocks(&statement_only);
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule == Rule::RequirementWithoutScenario),
+            "{diags:?}"
+        );
+
+        let scenarios_only = parse_delta(
+            "my-cap",
+            "## MODIFIED Requirements\n### Requirement: R\n#### Scenario: S\n- **WHEN** a\n- **THEN** b\n",
+            "spec.md",
+        );
+        let diags = validate_delta_blocks(&scenarios_only);
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule == Rule::RequirementWithoutNormativeVerb),
+            "{diags:?}"
+        );
+
+        let complete = parse_delta(
+            "my-cap",
+            "## MODIFIED Requirements\n### Requirement: R\nThe system SHALL do it differently.\n#### Scenario: S\n- **WHEN** a\n- **THEN** b\n\n## REMOVED Requirements\n### Requirement: Old\n**Reason**: superseded.\n**Migration**: use R.\n",
+            "spec.md",
+        );
+        assert!(
+            validate_delta_blocks(&complete).is_empty(),
+            "a complete block, and a removed entry the merge checks, pass"
+        );
     }
 
     #[test]

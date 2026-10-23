@@ -132,7 +132,7 @@ fn the_installer_size_budget_is_a_blocking_pipeline_gate() {
     );
 }
 
-// Scenario: Instalador firmado por plataforma
+// Scenario: Instalador atestiguado por plataforma
 #[test]
 fn the_pipeline_builds_and_checksums_an_installer_per_platform() {
     let release = read(".github/workflows/release.yml");
@@ -148,7 +148,7 @@ fn the_pipeline_builds_and_checksums_an_installer_per_platform() {
     }
     assert!(
         job.contains("SHA256SUMS"),
-        "installers are checksummed under the release custody"
+        "installers are checksummed into what the release's attestation covers"
     );
     assert!(
         job.contains("ubuntu-latest")

@@ -143,7 +143,7 @@ cerrar sin ellas.
   (secciones 2 y 4, que describían la firma con minisign) y el comentario del
   paso de checksums de `build.yml`. La sección 1 de la checklist, el dominio en
   GitHub Pages, sale con el sitio en la 5.2. -->
-- [ ] 4.3 `core/meltemid/tests/release.rs`: los tests que afirman la firma
+- [x] 4.3 `core/meltemid/tests/release.rs`: los tests que afirman la firma
   manual y el camino de tag —`signed_artifacts_and_verification_are_documented`,
   `the_trust_anchor_is_never_sourced_from_the_release_page`,
   `the_signing_tools_limits_are_declared_not_promised_away`,
@@ -157,6 +157,15 @@ cerrar sin ellas.
   siguen vinculados — escenarios «Presupuesto de tamaño como gate», «Formato
   autocontenido no se publica», «El paquete declara el motor del sistema»,
   «Push a main deja el build descargable» (vigentes)
+  <!-- 2026-10-23: `meltemi verify release-con-el-push` 41/41 con los binarios
+  de esta rama. Las seis funciones se reescribieron o renombraron en 3.2, 3.5
+  y 4.1. El único escenario sin test era uno vigente de `artifact-format`,
+  «Requisito modificado con bloque parcial», que nunca lo tuvo: la validación
+  estructural de los bloques de un delta sale de `navigate.rs` a
+  `meltemi_spec::validate_delta_blocks`, que el daemon llama, y su test
+  ejercita ese código. Límite escrito en el test: un fragmento que conserva
+  algunos escenarios y pierde otros no se detecta. Los vínculos del pipeline
+  son tests de estructura; la evidencia de una publicación real es la 7.2. -->
 
 ## 5. El sitio sale
 
