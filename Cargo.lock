@@ -2936,6 +2936,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "meltemi-release"
+version = "0.1.1"
+
+[[package]]
 name = "meltemi-spec"
 version = "0.1.1"
 

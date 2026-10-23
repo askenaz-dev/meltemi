@@ -70,8 +70,8 @@ fallida. Deja de escuchar tags. Su primer job, `version`, decide:
 Si las cuatro pasan, sale `release=true` y corren los gates, el empaquetado,
 la publicación (D4) y el aviso a la web (D7). Si no, el workflow termina sin
 hacer nada más, y el build de integración de `build.yml` sigue siendo lo que
-deja cada push. La lógica vive en `scripts/release-gate.sh`, que el job
-ejecuta y que `release.rs` prueba contra repositorios git temporales, porque
+deja cada push. La lógica vive en `meltemi-release gate` (D2), que el job
+ejecuta y que sus tests prueban contra repositorios git temporales, porque
 las cuatro negativas son escenarios y un `if:` de YAML no se puede probar.
 
 El gesto del mantenedor pasa a ser un commit: un diff con autor y fecha que
@@ -90,13 +90,24 @@ nadie haya dicho «esta es una versión».
 
 ### D2 — La versión vive en cinco archivos, un script la fija en todos y un guardián falla si divergen
 
-`scripts/set-version.ps1` y `scripts/set-version.sh`, con el mismo
-comportamiento porque Windows es de primera clase: rehúsan lo que no sea
-`x.y.z` o no sea mayor que la versión actual, reescriben los cinco
-portadores, refrescan las entradas del workspace en `Cargo.lock` con
-`cargo update --workspace` y fallan si el lockfile cambió algo más que esas
-entradas. Un test de `release.rs` exige que los cinco portadores digan lo
-mismo y nombra los que no.
+`meltemi-release set-version <x.y.z>`, un crate del workspace sin
+dependencias (`core/meltemi-release`): rehúsa lo que no sea `x.y.z` o no sea
+mayor que la versión actual, reescribe los cinco portadores, refresca las
+entradas del workspace en `Cargo.lock` con `cargo update --workspace` y, si el
+lockfile movió algo más que esas entradas, devuelve todos los archivos a como
+estaban. Un test del crate exige que los portadores de este repositorio digan
+lo mismo y nombra los que no.
+
+*Desviación al implementar (2026-10-23).* El plan decía dos scripts gemelos,
+`set-version.ps1` y `set-version.sh`, y un `release-gate.sh` probado desde
+`release.rs`. Probar un script de bash desde los tests en Windows depende de
+qué `bash` resuelva el PATH, que puede ser el de WSL y no el de Git, y dos
+scripts gemelos son dos implementaciones que divergen. Una herramienta en
+Rust, sin dependencias fuera de la biblioteca estándar, es una sola
+implementación, se prueba igual en las tres plataformas y es el lenguaje
+único del producto. Vive en `core/` con los demás crates para no abrir un
+directorio que `rumbo/structure.md` no declara, y no viaja en ningún
+archivo publicado.
 
 Una regla nueva en la parte operativa de `AGENTS.md`: un agente no cambia la
 versión salvo que el mantenedor lo pida con palabras, porque desde esta
@@ -373,5 +384,7 @@ afirmación antes:
   reutilizar, que afecta al procedimiento de repudio;
 - cómo tratan `meltemi` y los guardianes una change retirada en el histórico
   sin delta;
-- si `cargo update --workspace` refresca las versiones del workspace en
-  `Cargo.lock` sin tocar dependencias de terceros.
+- ~~si `cargo update --workspace` refresca las versiones del workspace en
+  `Cargo.lock` sin tocar dependencias de terceros~~. **Resuelto el
+  2026-10-23**: `set-version 0.2.0` sobre un worktree desechable movió los doce
+  crates del workspace y ninguna de las 168 dependencias de terceros.

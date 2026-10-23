@@ -4,6 +4,7 @@ members = [
     "core/meltemi-adapters",
     "core/meltemi-client",
     "core/meltemi-process",
+    "core/meltemi-release",
     "core/meltemid",
     "core/meltemi-spec",
     "core/mock-agent",

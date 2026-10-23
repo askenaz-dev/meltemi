@@ -170,13 +170,13 @@ deltas y conserva, reescrito, lo que sigue siendo cierto (design D9):
 
 - Archivos: `.github/workflows/release.yml` (reescrito), `build.yml` (el
   caso «sin cambio de versión»), `scripts/sign-release.ps1` (retirado),
-  `scripts/unsigned-build-notice.txt`, `scripts/set-version.{ps1,sh}`
-  (nuevo), `docs/release.md`, `docs/versionado.md`, `README.md`, `LEEME.md`,
+  `scripts/unsigned-build-notice.txt`, `core/meltemi-release` (nuevo:
+  la versión, el gate de release y las notas), `docs/release.md`, `docs/versionado.md`, `README.md`, `LEEME.md`,
   `core/meltemid/tests/release.rs` (los guardianes que afirman la firma
   manual cambian con sus escenarios), `core/meltemid/tests/{site.rs,
   scenarios_sitio.rs}` (retirados), `site/` (retirado),
   `scripts/capture-desktop.ps1`, `tui/examples/capture_svg.rs`,
-  `scripts/release-gate.sh` (nuevo), `Cargo.toml` (versión y `repository`,
+  `Cargo.toml` (versión y `repository`,
   que hoy apunta a una organización que no es la nuestra), `Cargo.lock`,
   `desktop/tauri.conf.json`, `mobile/tauri.conf.json`,
   `desktop/ui/package.json`, `desktop/ui/package-lock.json`, `AGENTS.md`

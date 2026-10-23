@@ -53,13 +53,18 @@ cerrar sin ellas.
 
 ## 2. La versión
 
-- [ ] 2.1 `scripts/set-version.ps1` y `scripts/set-version.sh`, con el mismo
-  comportamiento: rehúsan lo que no sea `x.y.z` o no sea mayor que la actual,
-  reescriben los cinco portadores, refrescan las entradas del workspace en
-  `Cargo.lock` y fallan si el lockfile cambió algo ajeno; tests en
-  `release.rs` de que los cinco portadores coinciden y de que el script rehúsa
-  una versión menor (design D2) — escenario «Versión divergente entre
-  portadores» — resolver el «sin verificar» de `cargo update --workspace`
+- [x] 2.1 `core/meltemi-release`, crate sin dependencias, con `version` y
+  `set-version <x.y.z>`: rehúsa lo que no sea `x.y.z` o no sea mayor que la
+  actual, reescribe los cinco portadores, refresca las entradas del workspace
+  en `Cargo.lock` y, si el lockfile movió algo ajeno, devuelve todo a como
+  estaba; tests de que los portadores de este repositorio coinciden y de que
+  una versión menor se rehúsa sin escribir nada (design D2, con su desviación)
+  — escenario «Versión divergente entre portadores» — resolver el «sin
+  verificar» de `cargo update --workspace`
+  <!-- 2026-10-23: `set-version 0.2.0` sobre un worktree desechable reescribió
+  los cinco portadores; `cargo update --workspace` movió los doce crates del
+  workspace y ninguna dependencia de terceros; repetirlo se rehusó con salida
+  1. Nueve tests; clippy limpio en Windows y para `x86_64-linux-android`. -->
 - [ ] 2.2 `AGENTS.md`, en su parte operativa y fuera del bloque gestionado: un
   agente no cambia la versión salvo que el mantenedor lo pida con palabras, y
   por qué; `docs/versionado.md`: la release nace de un commit de versión en
@@ -68,10 +73,10 @@ cerrar sin ellas.
 
 ## 3. El pipeline
 
-- [ ] 3.1 `scripts/release-gate.sh`: las cuatro comprobaciones de D1, con
-  salida `release=true|false` y el motivo; tests en `release.rs` contra
-  repositorios git temporales, uno por negativa y uno por la positiva (design
-  D1, D5) — escenarios «Versión nueva en la rama principal publica» (la
+- [ ] 3.1 `meltemi-release gate --commit <sha>`: las cuatro comprobaciones de
+  D1, con salida `release=true|false`, la versión y el motivo; tests en
+  `core/meltemi-release/tests/` contra repositorios git temporales, uno por
+  negativa y uno por la positiva (design D1, D5) — escenarios «Versión nueva en la rama principal publica» (la
   decisión), «Push sin versión nueva no publica», «Versión ya publicada no se
   republica», «Versión menor no se publica», «Commit fuera de la rama
   principal no se publica»
