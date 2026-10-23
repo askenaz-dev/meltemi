@@ -9,7 +9,7 @@
 //! mockup — regenerate it and the current UI is what appears. It carries no
 //! personal path, no identity and no third-party product name (design D5).
 //!
-//! Usage: `cargo run -p meltemi --example capture_svg > site/media/tui-sessions.svg`
+//! Usage: `cargo run -p meltemi --example capture_svg > docs/media/tui-sessions.svg`
 
 use meltemi::shell::live::{LiveData, ProjectRow, SessionRow, Update};
 use meltemi::shell::messages::Lang;

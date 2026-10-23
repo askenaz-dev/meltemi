@@ -16,8 +16,10 @@ _Resumen en español al final._
 ## Canonical download base
 
 Every download resolves against **one** base, declared here once and nowhere
-else. The site, the installer scripts and this document must all name it, and
-`core/meltemid/tests/site.rs` fails the build if they diverge:
+else. The installer scripts, the workspace manifest and this document must all
+name it, and `core/meltemid/tests/release.rs` fails the build if they diverge;
+the site, which lives in [meltemi-web](https://github.com/askenaz-dev/meltemi-web),
+links the same base:
 
 ```
 CANONICAL_DOWNLOAD_BASE=https://github.com/askenaz-dev/meltemi/releases

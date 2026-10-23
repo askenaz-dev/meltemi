@@ -115,7 +115,7 @@ notepad install.ps1
 
 El equivalente manual está escrito al inicio de cada script y en
 [`docs/release.md`](docs/release.md). En el navegador, todo lo anterior está en
-[meltemi.dev/es/downloads.html](https://meltemi.dev/es/downloads.html).
+[meltemi.dev/es/ide/downloads](https://meltemi.dev/es/ide/downloads/).
 
 ### Opción B — desde el código
 

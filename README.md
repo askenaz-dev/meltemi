@@ -158,7 +158,7 @@ the exact command that installs it — start there, or read
 ### Option B — from source
 
 Prefer a browser? Every artifact above is also listed on
-[meltemi.dev/downloads](https://meltemi.dev/downloads.html).
+[meltemi.dev/ide/downloads](https://meltemi.dev/ide/downloads/).
 
 You need the pinned Rust toolchain (`rust-toolchain.toml` selects it
 automatically) and, for the desktop app, Node 24+.

@@ -182,11 +182,16 @@ cerrar sin ellas.
   `repository` de `Cargo.toml`, que apuntaba a `github.com/meltemi/meltemi`,
   una organización que no es la del proyecto: la propuesta lo nombraba y
   ninguna tarea lo recogía. -->
-- [ ] 5.2 Retirar `site/`, `core/meltemid/tests/site.rs` y
+- [x] 5.2 Retirar `site/`, `core/meltemid/tests/site.rs` y
   `core/meltemid/tests/scenarios_sitio.rs`; `scripts/capture-desktop.ps1` y
   `tui/examples/capture_svg.rs` escriben en `docs/media/`; actualizar las
   referencias a `site/` en `docs/` (design D8) — gates: la suite completa
   con `--no-fail-fast`
+  <!-- 2026-10-23: también el paso «Site lint» de `ci.yml`, las dos entradas
+  del sitio en `desktop/tests/surface.rs`, la sección del dominio de la
+  checklist de lanzamiento y los enlaces de descargas de los dos README, que
+  pasan a `/ide/downloads/`. Las capturas actuales se movieron con `git mv` a
+  `docs/media/`. Suite completa: 1470 tests, cero fallos. -->
 - [ ] 5.3 Al archivar, si el motor deja vacío `.meltemi/specs/product-site/`,
   borrar la carpeta en el mismo commit y comprobar que `dogfood.rs` sigue
   verde (design D8)

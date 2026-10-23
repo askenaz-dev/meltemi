@@ -187,8 +187,6 @@ fn no_self_contained_installer_format_is_built_or_named() {
         ),
         ("README.md", read("README.md")),
         ("LEEME.md", read("LEEME.md")),
-        ("site/downloads.html", read("site/downloads.html")),
-        ("site/es/downloads.html", read("site/es/downloads.html")),
         ("docs/release.md", read("docs/release.md")),
     ] {
         assert!(
