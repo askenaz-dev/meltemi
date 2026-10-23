@@ -247,14 +247,37 @@ cerrar sin ellas.
   39986769808: el job `release gate` respondió `release=false`, `version=0.1.1`,
   `tag=v0.1.1`, y los seis jobs restantes se saltaron; nada se publicó. CI run
   39986769755 verde en las tres plataformas y en cargo-deny; Build verde. -->
-- [ ] 7.2 *(mantenedor)* `scripts/set-version.ps1 0.2.0`, commit y push a
-  `main`; seguir la corrida y anotar aquí la evidencia: el tag sobre el
+- [ ] 7.2 *(mantenedor)* `cargo run -p meltemi-release -- set-version 0.2.0`,
+  commit y push a `main`; seguir la corrida y anotar aquí la evidencia: el tag sobre el
   commit, los assets con el bundle, los comandos de verificación que
   funcionaron con red y sin ella, y la corrida de despliegue de la web;
   resolver en el design cada punto de «Sin verificar» que siga abierto —
   escenarios «Versión nueva en la rama principal publica», «Procedencia
   publicada con la release», «Verificación sin red con el bundle publicado»,
   «La web se redespliega tras publicar» (evidencia real)
+  <!-- 2026-10-23: el mantenedor pidió la 0.2.0 con palabras. `set-version
+  0.2.0` en `a6a67b5`, empujado (`8037fbc..a6a67b5`) tras la suite completa
+  en Windows: 1470 pasan, 0 fallan. Release run 39993652547: el gate
+  respondió `release=true`, `version=0.2.0`; verdes los gates de las tres
+  plataformas, cargo-deny, el empaquetado, los instaladores y `publish`.
+  v0.2.0 quedó publicada el 2026-10-23T18:03:44Z como `latest`, con el tag
+  sobre `a6a67b5` y diez assets, entre ellos `SHA256SUMS` y
+  `attestation.sigstore.json`; las notas son generadas, porque no hay
+  `CHANGELOG.md`. Sobre los assets descargados: el checksum cuadra en
+  `meltemi-Windows.zip`, `meltemi-Linux.tar.gz`, `meltemi-desktop-Windows.msi`
+  e `install.ps1`. `gh attestation verify` con `--repo` y `--signer-workflow`
+  verifica con red los tres primeros: una atestación de ocho sujetos,
+  firmada por `release.yml@refs/heads/main` sobre `a6a67b5` y disparada por
+  `push`. Sin red, con `--bundle attestation.sigstore.json` y
+  `--custom-trusted-root`, verifica el zip. `gh attestation verify
+  SHA256SUMS` responde 404, porque no es sujeto. El `meltemi` del zip dice
+  `meltemi 0.2.0`. El job `tell the web` falló como manda D7, porque
+  `WEB_DISPATCH_TOKEN` no existe hasta la 6.2; el deploy de la web se lanzó
+  a mano (run 40001194406, verde) y /ide/ dice «v0.2.0», del 2026-10-23.
+  El CI de `a6a67b5` falló en Windows por un test intermitente de avisos
+  (`the_test_notice_ignores_the_floor_and_does_not_spend_it`) y pasó al
+  relanzarlo. Queda abierto «La web se redespliega tras publicar»: se
+  cierra con la 6.2, relanzando solo el job fallido de la run 39993652547. -->
 - [ ] 7.3 *(mantenedor)* Con `main` ya en 0.2.0: borrar el borrador v0.1.1 y su
   tag, apagar GitHub Pages en este repositorio y borrar su entorno
   `github-pages` (design D8, D10)

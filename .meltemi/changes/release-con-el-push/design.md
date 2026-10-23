@@ -140,6 +140,8 @@ variante sin red (`--bundle` y `--custom-trusted-root`). La documentación de
 hoy dice `gh attestation verify SHA256SUMS`; con `subject-checksums` el
 archivo de checksums no es sujeto, así que esa forma probablemente no
 verifica. Queda en «Sin verificar» y se resuelve en la primera corrida.
+**Resuelto el 2026-10-23** en v0.2.0: `SHA256SUMS` responde 404, porque no
+es sujeto, y cada artefacto verifica, con red y sin ella.
 
 **El límite, escrito como límite y no como riesgo escondido**: una cuenta con
 permiso de escritura puede publicar una release que verifica perfectamente,
@@ -373,9 +375,11 @@ esta rama**, y solo en ella: `main` no tiene el delta.
 Se comprueban al implementar o en la primera corrida, y no se convierten en
 afirmación antes:
 
-- qué forma verifica con `subject-checksums`: `gh attestation verify
+- ~~qué forma verifica con `subject-checksums`: `gh attestation verify
   SHA256SUMS`, como dice hoy la documentación, o cada artefacto (el README de
-  `actions/attest` apunta a cada artefacto; la primera corrida lo confirma);
+  `actions/attest` apunta a cada artefacto; la primera corrida lo confirma)~~.
+  **Resuelto el 2026-10-23** en la release v0.2.0: cada artefacto verifica,
+  con red y sin ella, y `SHA256SUMS` responde 404 porque no es sujeto;
 - ~~el nombre de la salida del bundle en la versión pineada de `actions/attest`~~.
   **Resuelto el 2026-10-23** en el `action.yml` de ese commit: `bundle-path`,
   y su README dice que varios sujetos dan **una** atestación con una
