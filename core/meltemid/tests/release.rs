@@ -1237,3 +1237,161 @@ fn no_signing_key_is_kept_or_asked_for() {
         }
     }
 }
+
+// Scenario: Instalador de escritorio normalizado antes de publicar
+// Scenario: Descarga sin conocer la versión
+#[test]
+fn the_desktop_installers_are_renamed_to_stable_names_before_publishing() {
+    let yml = read(&repo_root(), ".github/workflows/release.yml");
+    let step = yml
+        .split("Collect, normalize names and checksum")
+        .nth(1)
+        .expect("the normalization step exists");
+    let body = step.split("upload-artifact").next().expect("step body");
+    for stable in [
+        "meltemi-desktop-Windows.msi",
+        "meltemi-desktop-macOS.dmg",
+        "meltemi-desktop-Linux.deb",
+    ] {
+        assert!(
+            body.contains(stable),
+            "the pipeline renames to `{stable}`: {body}"
+        );
+    }
+    // The checksum is computed AFTER the rename, so it belongs to the stable name.
+    let rename_at = body.find("normalize").expect("the rename happens");
+    let sum_at = body.find("SHA256SUMS").expect("the checksum is computed");
+    assert!(
+        rename_at < sum_at,
+        "the published checksum is the one of the stable name"
+    );
+    // And the core archives are named without a version too.
+    let core = yml
+        .split("Package and checksum")
+        .nth(1)
+        .expect("the packaging step")
+        .split("upload-artifact")
+        .next()
+        .expect("step body");
+    for stable in [
+        "meltemi-Windows.zip",
+        "meltemi-macOS.tar.gz",
+        "meltemi-Linux.tar.gz",
+    ] {
+        assert!(
+            core.contains(stable),
+            "the core archive `{stable}` is stable"
+        );
+    }
+    assert!(
+        !core.contains("${{ github.ref_name }}") && !core.contains("$VERSION"),
+        "no version is interpolated into an artifact name: {core}"
+    );
+}
+
+// Scenario: Script instalador publicado y atestiguado
+// Scenario: Instalación con alias
+#[test]
+fn the_installer_scripts_ship_as_attested_assets_and_create_the_alias() {
+    let yml = read(&repo_root(), ".github/workflows/release.yml");
+    let step = yml
+        .split("Package and checksum")
+        .nth(1)
+        .expect("the packaging step")
+        .split("upload-artifact")
+        .next()
+        .expect("step body");
+    assert!(
+        step.contains("cp scripts/install.sh scripts/install.ps1 dist/"),
+        "both scripts are published as release assets: {step}"
+    );
+    let copy_at = step.find("cp scripts/install.sh").expect("the copy");
+    let sum_at = step
+        .find("sha256sum * > SHA256SUMS")
+        .or_else(|| step.find("> SHA256SUMS"))
+        .expect("the checksum is computed in this step");
+    assert!(
+        copy_at < sum_at,
+        "their checksums land inside the SHA256SUMS the attestation covers (copy at {copy_at}, sum at {sum_at})"
+    );
+    // The alias is created by both scripts.
+    let sh = read(&repo_root(), "scripts/install.sh");
+    assert!(
+        sh.contains("ln -sf \"$INSTALL_DIR/meltemi\" \"$INSTALL_DIR/mel\""),
+        "install.sh creates the `mel` alias"
+    );
+    let ps1 = read(&repo_root(), "scripts/install.ps1");
+    assert!(
+        ps1.to_lowercase().contains("mel"),
+        "install.ps1 creates the `mel` alias too"
+    );
+    for (name, script) in [("install.sh", &sh), ("install.ps1", &ps1)] {
+        assert!(
+            script.contains("meltemi") && script.contains("meltemid"),
+            "{name} installs both binaries"
+        );
+        assert!(
+            script.to_lowercase().contains("sha256"),
+            "{name} verifies what it downloaded"
+        );
+    }
+}
+
+/// The canonical download base, declared once in `docs/release.md`.
+fn canonical_base() -> String {
+    let doc = read(&repo_root(), "docs/release.md");
+    let line = doc
+        .lines()
+        .find(|line| line.starts_with("CANONICAL_DOWNLOAD_BASE="))
+        .expect("docs/release.md declares CANONICAL_DOWNLOAD_BASE=<url>");
+    line.trim_start_matches("CANONICAL_DOWNLOAD_BASE=")
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn one_canonical_base_names_the_repository_everywhere_a_download_starts() {
+    // Scenario: Descarga sin conocer la versión
+    // One base, one repository: the installers download from it, through the
+    // latest-release redirector unless a version is pinned, and the crates'
+    // manifest names the same repository.
+    let root = repo_root();
+    let base = canonical_base();
+    let repository = base.trim_end_matches("/releases").to_string();
+    assert_eq!(
+        repository, "https://github.com/askenaz-dev/meltemi",
+        "the canonical base is the project's own repository"
+    );
+    for script in ["scripts/install.sh", "scripts/install.ps1"] {
+        let body = read(&root, script);
+        assert!(
+            body.contains(&format!("{repository}/releases")),
+            "{script} must download from the canonical base `{base}`"
+        );
+        // `latest` is not a tag: the version-free download resolves through the
+        // redirector, and only a pinned version uses the tagged path. Getting
+        // this backwards 404s the advertised one-line install.
+        assert!(
+            body.contains("/latest/download"),
+            "{script} must use the latest-release redirector for the default install"
+        );
+        assert!(
+            body.contains("download/$VERSION") || body.contains("download/$version"),
+            "{script} must use the tagged path only for a pinned version"
+        );
+        // A stale second base would silently resolve elsewhere.
+        assert!(
+            !body.contains("github.com/meltemi/meltemi"),
+            "{script} still names a non-canonical repository"
+        );
+    }
+    let manifest = read(&root, "Cargo.toml");
+    assert!(
+        manifest.contains(&format!("repository = \"{repository}\"")),
+        "the workspace manifest names the canonical repository"
+    );
+    assert!(
+        !manifest.contains("github.com/meltemi/meltemi"),
+        "the workspace manifest still names a repository that is not the project's"
+    );
+}

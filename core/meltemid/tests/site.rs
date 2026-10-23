@@ -382,43 +382,6 @@ fn downloads_are_version_free_and_name_real_artifacts() {
     }
 }
 
-#[test]
-fn the_canonical_base_is_the_only_one_the_installers_use() {
-    // Scenario: Descarga sin conocer la versión (one base, one repository).
-    let base = canonical_base();
-    let repository = base.trim_end_matches("/releases").to_string();
-    for script in ["scripts/install.sh", "scripts/install.ps1"] {
-        let body = read(&repo_root().join(script));
-        assert!(
-            body.contains(&format!("{repository}/releases")),
-            "{script} must download from the canonical base `{base}`"
-        );
-        // `latest` is not a tag: the version-free download resolves through the
-        // redirector, and only a pinned version uses the tagged path. Getting
-        // this backwards 404s the advertised one-line install.
-        assert!(
-            body.contains("/latest/download"),
-            "{script} must use the latest-release redirector for the default install"
-        );
-        assert!(
-            body.contains("download/$VERSION") || body.contains("download/$version"),
-            "{script} must use the tagged path only for a pinned version"
-        );
-        // A stale second base would silently resolve elsewhere.
-        assert!(
-            !body.contains("github.com/meltemi/meltemi"),
-            "{script} still names a non-canonical repository"
-        );
-    }
-    for page in ["downloads.html", "es/downloads.html"] {
-        let html = read(&site_dir().join(page));
-        assert!(
-            html.contains(&repository),
-            "site/{page} must name the canonical repository"
-        );
-    }
-}
-
 // Scenario: Token divergente rehusado
 #[test]
 fn site_tokens_match_the_desktop_client_token_for_token() {

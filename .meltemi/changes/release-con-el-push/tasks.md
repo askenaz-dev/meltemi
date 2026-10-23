@@ -169,13 +169,19 @@ cerrar sin ellas.
 
 ## 5. El sitio sale
 
-- [ ] 5.1 Trasladar a `release.rs`, antes de borrar nada, los tests de
+- [x] 5.1 Trasladar a `release.rs`, antes de borrar nada, los tests de
   `scenarios_sitio.rs` y `site.rs` que cubren requisitos que se quedan: la
   normalización de nombres de instaladores, los scripts de instalación como
   assets con su alias y la base canónica única entre instaladores y
   `docs/release.md` (design D8) — escenarios «Instalador de escritorio
   normalizado antes de publicar», «Descarga sin conocer la versión»,
   «Instalación con alias» (vigentes)
+  <!-- 2026-10-23: cada test sale de su origen al trasladarse, así que vive en
+  un solo sitio; el de los scripts lleva el nombre nuevo del escenario. El de
+  la base canónica pierde su mitad sobre las páginas del sitio y gana el
+  `repository` de `Cargo.toml`, que apuntaba a `github.com/meltemi/meltemi`,
+  una organización que no es la del proyecto: la propuesta lo nombraba y
+  ninguna tarea lo recogía. -->
 - [ ] 5.2 Retirar `site/`, `core/meltemid/tests/site.rs` y
   `core/meltemid/tests/scenarios_sitio.rs`; `scripts/capture-desktop.ps1` y
   `tui/examples/capture_svg.rs` escriben en `docs/media/`; actualizar las

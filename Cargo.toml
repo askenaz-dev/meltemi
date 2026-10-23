@@ -20,7 +20,7 @@ members = [
 version = "0.1.1"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/meltemi/meltemi"
+repository = "https://github.com/askenaz-dev/meltemi"
 rust-version = "1.97"
 
 [workspace.dependencies]
