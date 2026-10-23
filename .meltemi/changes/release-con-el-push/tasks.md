@@ -65,7 +65,7 @@ cerrar sin ellas.
   los cinco portadores; `cargo update --workspace` movió los doce crates del
   workspace y ninguna dependencia de terceros; repetirlo se rehusó con salida
   1. Nueve tests; clippy limpio en Windows y para `x86_64-linux-android`. -->
-- [ ] 2.2 `AGENTS.md`, en su parte operativa y fuera del bloque gestionado: un
+- [x] 2.2 `AGENTS.md`, en su parte operativa y fuera del bloque gestionado: un
   agente no cambia la versión salvo que el mantenedor lo pida con palabras, y
   por qué; `docs/versionado.md`: la release nace de un commit de versión en
   `main` y el tag es su resultado (design D1, D2) — escenarios «Ruptura exige

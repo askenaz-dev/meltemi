@@ -21,6 +21,7 @@ Workspace Cargo en la raíz: `core/meltemid` (daemon), `core/meltemi-spec` (moto
 
 - **Idiomas**: artefactos del método en español neutro; código, identificadores, strings del contrato `proto/` y mensajes de commit en inglés.
 - **Commits**: atómicos, uno por tarea, con referencia `(<change> <tarea>)`. **Sin trailers de co-autoría.**
+- **Versión**: un commit que cambia la versión y llega a `main` **publica una release**, sin paso humano en medio (`release-con-el-push`). Un agente no cambia la versión —ni con `cargo run -p meltemi-release -- set-version` ni a mano— salvo que el mantenedor lo pida con palabras.
 - **Dependencias**: mínimas, pineadas, justificadas en el design de su change (auditoría con cargo-deny en CI).
 - **Licencia**: Apache-2.0; todo archivo fuente lleva cabecera SPDX (`docs/politica-spdx.md`).
 - **Tests e2e**: siempre contra repos fixture temporales, nunca contra la raíz de este repo. En CI se usa `mock-agent`, nunca agentes reales ni red.

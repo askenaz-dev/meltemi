@@ -3,8 +3,9 @@
 
 Meltemi versions with **SemVer, pre-1.0**. The workspace carries a **single
 version** (`[workspace.package] version` in the root `Cargo.toml`); every crate
-inherits it, and every release originates from a git **tag** and its release
-pipeline — never a manual upload.
+inherits it, and every release originates from a commit of a new version on
+`main` and its release pipeline, which creates the tag — never a manual
+upload, and never a tag pushed by hand.
 
 _Resumen en español al final._
 
@@ -34,14 +35,23 @@ event kind) are **not** breaking and bump the patch.
 
 ## Release provenance
 
-- Releases are cut from an annotated tag `vX.Y.Z`.
-- The tag triggers the release pipeline (`.github/workflows/release.yml`), which
-  re-runs every gate on the three platforms before any artifact is published.
+- A release originates from a commit on `main` whose version has no release
+  yet. The release pipeline (`.github/workflows/release.yml`) re-runs every
+  gate on the three platforms and only then creates the tag `vX.Y.Z` on that
+  very commit and publishes the release.
+- The tag is the pipeline's output, never its input: a tag pushed by a person
+  starts nothing.
+- The version is written with `cargo run -p meltemi-release -- set-version
+  X.Y.Z`, which keeps every file that carries it in step and refuses a version
+  that does not move forward. Since a version commit on `main` is a
+  publication, it is the maintainer's gesture; an agent makes it only when the
+  maintainer asks in words.
 - A red gate aborts the release; nothing is published.
 
 ## Summary (español)
 
 Versionado SemVer pre-1.0 con versión única de workspace; los releases nacen de
-un tag. Ruptura (sube minor): contrato `proto/`, gramática CLI o formato de
+un commit de versión nueva en `main`, y el tag lo crea el pipeline: un tag
+empujado a mano no publica nada. Ruptura (sube minor): contrato `proto/`, gramática CLI o formato de
 artefactos `.meltemi/`. Lo aditivo sube patch. Todo release corre sus gates en
 las tres plataformas antes de publicar; un gate rojo aborta sin publicar nada.
