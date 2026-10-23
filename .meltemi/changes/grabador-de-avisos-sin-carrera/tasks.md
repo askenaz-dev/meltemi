@@ -24,10 +24,18 @@
 
 ## 2. Cierre
 
-- [ ] 2.1 `meltemi validate grabador-de-avisos-sin-carrera` limpio; `cargo fmt
+- [x] 2.1 `meltemi validate grabador-de-avisos-sin-carrera` limpio; `cargo fmt
   --check`, clippy `-D warnings` en Windows y como Unix (`--target
   x86_64-linux-android`), y la suite de `meltemi-client`; la rama aterriza en
   `main` con `meltemi land grabador-de-avisos-sin-carrera confirm`, se empuja,
   y el CI de `main` queda verde en las tres plataformas
+  <!-- 2026-10-23: `validate` limpio y `verify` 0/0 (sin deltas, nada que
+  enlazar), con daemon aislado. Suite completa del workspace en la rama:
+  1471 pasan, 0 fallan, 1 ignorado. `meltemi land` no sirvió: aterriza solo
+  talleres que gestiona Meltemi, y esta rama es una rama git sin taller; se
+  aterrizó con `git merge --no-ff` (`76c2571`), como `release-con-el-push`,
+  y se empujó. CI run 40017940745 verde en las tres plataformas y en
+  cargo-deny: el test del aviso de prueba pasó en las tres, y el del
+  candado en Windows. Build verde; la Release respondió `release=false`. -->
 - [ ] 2.2 `meltemi archive grabador-de-avisos-sin-carrera` y la entrada en
   `docs/plan-de-cambios.md`
