@@ -34,6 +34,16 @@ ignore = [
     "RUSTSEC-2025-0081",
     "RUSTSEC-2025-0098",
     "RUSTSEC-2025-0100",
+    # zbus_names, zvariant, zvariant_derive: unmaintained as standalone crates
+    # since zbus 6 folded them in as modules (z-galaxy/zbus#2043). None is a
+    # vulnerability. They arrive through notify-rust, which still requires
+    # zbus 5 at its latest release (4.18.2), under tauri-plugin-notification
+    # 2.3.3, the latest stable, which the desktop links for its OS notices
+    # (avisos-de-escritorio design D1). D-Bus is the Linux notification path
+    # only. Revisited when the plugin or notify-rust moves to zbus 6.
+    "RUSTSEC-2026-0370",
+    "RUSTSEC-2026-0371",
+    "RUSTSEC-2026-0372",
 ]
 
 [licenses]
