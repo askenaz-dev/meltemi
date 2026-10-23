@@ -2848,7 +2848,7 @@ checksum = "7ebb8d8732c6a6df3d8f032a82911cfc747e00efb95cc46e8d0acd5b5b88570c"
 
 [[package]]
 name = "meltemi"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "meltemi-client",
  "meltemi-proto",
@@ -2860,7 +2860,7 @@ dependencies = [
 
 [[package]]
 name = "meltemi-adapters"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "agent-client-protocol",
  "jsonschema",
@@ -2874,7 +2874,7 @@ dependencies = [
 
 [[package]]
 name = "meltemi-client"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "directories",
  "meltemi-process",
@@ -2889,7 +2889,7 @@ dependencies = [
 
 [[package]]
 name = "meltemi-desktop"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "ignore",
  "meltemi-client",
@@ -2906,7 +2906,7 @@ dependencies = [
 
 [[package]]
 name = "meltemi-mobile"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "meltemi-client",
  "meltemi-proto",
@@ -2921,14 +2921,14 @@ dependencies = [
 
 [[package]]
 name = "meltemi-process"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "meltemi-proto"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "jsonschema",
  "serde",
@@ -2937,15 +2937,15 @@ dependencies = [
 
 [[package]]
 name = "meltemi-release"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "meltemi-spec"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "meltemid"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -3035,7 +3035,7 @@ dependencies = [
 
 [[package]]
 name = "mock-agent"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "agent-client-protocol",
  "serde_json",
@@ -3044,11 +3044,11 @@ dependencies = [
 
 [[package]]
 name = "mock-headless"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "mock-provider"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "serde_json",
 ]
