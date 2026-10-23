@@ -73,7 +73,7 @@ cerrar sin ellas.
 
 ## 3. El pipeline
 
-- [ ] 3.1 `meltemi-release gate --commit <sha>`: las cuatro comprobaciones de
+- [x] 3.1 `meltemi-release gate --commit <sha>`: las cuatro comprobaciones de
   D1, con salida `release=true|false`, la versión y el motivo; tests en
   `core/meltemi-release/tests/` contra repositorios git temporales, uno por
   negativa y uno por la positiva (design D1, D5) — escenarios «Versión nueva en la rama principal publica» (la

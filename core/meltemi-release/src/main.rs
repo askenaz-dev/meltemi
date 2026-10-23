@@ -5,6 +5,7 @@
 //! ```text
 //! meltemi-release version [--root <dir>]
 //! meltemi-release set-version <x.y.z> [--root <dir>]
+//! meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]
 //! ```
 //!
 //! `version` prints the version every carrier agrees on. `set-version` is the
@@ -15,16 +16,22 @@
 //! deliberately, and never by an agent unless the maintainer says so in words
 //! (AGENTS.md).
 //!
+//! `gate` is the first job of the release pipeline (release-con-el-push D1):
+//! it prints `release`, `version`, `tag` and `reason` as `key=value` lines,
+//! ready to append to `$GITHUB_OUTPUT`. A "no" exits 0; carriers that disagree
+//! exit 1, so the run turns red instead of quietly publishing nothing.
+//!
 //! Exit codes: 0 done, 1 refused or failed, 2 usage.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use meltemi_release::{
-    CARRIERS, Version, agreed_version, lock_moved_only_the_workspace, read_from_tree, set_version,
+    CARRIERS, Version, agreed_version, gate, lock_moved_only_the_workspace, read_from_tree,
+    set_version,
 };
 
-const USAGE: &str = "usage: meltemi-release version [--root <dir>]\n       meltemi-release set-version <x.y.z> [--root <dir>]";
+const USAGE: &str = "usage: meltemi-release version [--root <dir>]\n       meltemi-release set-version <x.y.z> [--root <dir>]\n       meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -39,6 +46,9 @@ fn main() -> ExitCode {
             Some(new) => set(&root, new),
             None => return usage(&format!("`{new}` is not a version of the form x.y.z")),
         },
+        ["gate", "--commit", commit] => decide(&root, commit, "origin/main"),
+        ["gate", "--commit", commit, "--main", main]
+        | ["gate", "--main", main, "--commit", commit] => decide(&root, commit, main),
         _ => return usage("unknown command"),
     };
     match outcome {
@@ -72,6 +82,16 @@ fn split_root(args: &[String]) -> Result<(PathBuf, Vec<String>), String> {
         }
     }
     Ok((root, rest))
+}
+
+/// Prints the gate's decision as `key=value` lines.
+fn decide(root: &Path, commit: &str, main: &str) -> Result<(), String> {
+    let decision = gate(root, commit, main)?;
+    println!("release={}", decision.release);
+    println!("version={}", decision.version);
+    println!("tag={}", decision.version.tag());
+    println!("reason={}", decision.reason);
+    Ok(())
 }
 
 /// Sets the version and refreshes the lockfile, or leaves the tree exactly as

@@ -282,6 +282,113 @@ pub fn set_version(root: &Path, new: Version) -> Result<Vec<PathBuf>, String> {
     Ok(changed)
 }
 
+/// What the release gate decided about one commit (release-con-el-push D1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Decision {
+    /// Whether the commit opens the release path.
+    pub release: bool,
+    /// The version the commit's carriers agree on.
+    pub version: Version,
+    /// Why, in one sentence a person can act on.
+    pub reason: String,
+}
+
+/// Runs `git` inside `repo`.
+fn git(repo: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .map_err(|e| format!("git {}: {e}", args.join(" ")))
+}
+
+/// The text of `path` as it is in `commit`, or `None` when the commit has no
+/// such file.
+fn file_at(repo: &Path, commit: &str, path: &str) -> Option<String> {
+    let output = git(repo, &["show", &format!("{commit}:{path}")]).ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Decides whether `commit` opens the release path.
+///
+/// The commit, not the working tree, is what is judged: its carriers are read
+/// from the commit itself. In order, the commit is refused when its version
+/// already has a tag, when it is not greater than the newest version tag, and
+/// when it is not reachable from `main_ref`. Tags count whether or not their
+/// release was published: a draft's tag is a version that was claimed.
+///
+/// # Errors
+///
+/// When the carriers of the commit disagree or cannot be read, or `git` cannot
+/// answer. Those are not a "no": they fail the pipeline loudly, so that a red
+/// run says what to fix instead of a green one that published nothing.
+pub fn gate(repo: &Path, commit: &str, main_ref: &str) -> Result<Decision, String> {
+    let version = agreed_version(|path| file_at(repo, commit, path))?;
+    let no = |reason: String| {
+        Ok(Decision {
+            release: false,
+            version,
+            reason,
+        })
+    };
+
+    let listed = git(repo, &["tag", "--list", "v*"])?;
+    if !listed.status.success() {
+        return Err(format!(
+            "git tag --list failed: {}",
+            String::from_utf8_lossy(&listed.stderr).trim()
+        ));
+    }
+    let tags: Vec<Version> = String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter_map(|line| Version::from_tag(line.trim()))
+        .collect();
+    if tags.contains(&version) {
+        return no(format!(
+            "{} already exists: this version was released, or claimed by a draft",
+            version.tag()
+        ));
+    }
+    let newest = tags.iter().max().copied();
+    if let Some(newest) = newest
+        && version < newest
+    {
+        return no(format!(
+            "{version} is not greater than the newest version tag {}: a release only moves forward",
+            newest.tag()
+        ));
+    }
+
+    let reachable = git(repo, &["merge-base", "--is-ancestor", commit, main_ref])?;
+    match reachable.status.code() {
+        Some(0) => {}
+        Some(1) => return no(format!("{commit} is not reachable from {main_ref}")),
+        _ => {
+            return Err(format!(
+                "git merge-base --is-ancestor {commit} {main_ref} failed: {}",
+                String::from_utf8_lossy(&reachable.stderr).trim()
+            ));
+        }
+    }
+
+    let over = newest.map_or_else(
+        || "it is the first version tag".to_string(),
+        |newest| format!("it is newer than {}", newest.tag()),
+    );
+    Ok(Decision {
+        release: true,
+        version,
+        reason: format!(
+            "{} has no tag, {over}, and the commit is on {main_ref}",
+            version.tag()
+        ),
+    })
+}
+
 /// One `[[package]]` entry of a `Cargo.lock`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct LockEntry {

@@ -3,6 +3,8 @@
 //! The version and its carriers (release-con-el-push D2), over fixture trees
 //! and over this repository itself.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use meltemi_release::{CARRIERS, Version, agreed_version, read_from_tree, set_version};
@@ -16,35 +18,8 @@ fn repo_root() -> PathBuf {
 
 /// A tree holding the five carrier files, every one at `version`.
 fn fixture(name: &str, version: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!("meltemi-release-{}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    let write = |path: &str, text: String| {
-        let file = root.join(path);
-        std::fs::create_dir_all(file.parent().expect("has a parent")).expect("fixture dir");
-        std::fs::write(file, text).expect("fixture file");
-    };
-    write(
-        "Cargo.toml",
-        format!(
-            "[workspace]\nmembers = []\n\n[workspace.package]\nversion = \"{version}\"\nedition = \"2024\"\n"
-        ),
-    );
-    for json in [
-        "desktop/tauri.conf.json",
-        "mobile/tauri.conf.json",
-        "desktop/ui/package.json",
-    ] {
-        write(
-            json,
-            format!("{{\n  \"name\": \"x\",\n  \"version\": \"{version}\"\n}}\n"),
-        );
-    }
-    write(
-        "desktop/ui/package-lock.json",
-        format!(
-            "{{\n  \"name\": \"ui\",\n  \"version\": \"{version}\",\n  \"packages\": {{\n    \"\": {{\n      \"name\": \"ui\",\n      \"version\": \"{version}\"\n    }},\n    \"node_modules/x\": {{\n      \"version\": \"9.9.9\"\n    }}\n  }}\n}}\n"
-        ),
-    );
+    let root = common::scratch(name);
+    common::write_carriers(&root, version);
     root
 }
 
