@@ -529,6 +529,57 @@ echo \"$MELTEMI_WAITING $MELTEMI_SESSION $MELTEMI_COUNT $MELTEMI_MACHINE\" > '{}
         arrived(seen)
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn the_recorder_waits_while_another_holds_the_file() {
+        // The lock's own mechanism, with no race to win: the test holds the
+        // lock, so the recorder has to wait, and it writes once the lock is let
+        // go. A recorder without the lock writes at once and fails here every
+        // time (change grabador-de-avisos-sin-carrera, design D2).
+        let dir = temp_dir("held");
+        let seen = dir.join("seen.txt");
+        let script = write_appender(&dir, &seen);
+        let lock = dir.join(APPEND_LOCK);
+        std::fs::create_dir(&lock).expect("hold the lock");
+
+        let mut recorder = std::process::Command::new(&script)
+            .env("MELTEMI_WAITING", "test")
+            .env("MELTEMI_COUNT", "0")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("launch the recorder");
+        std::thread::sleep(Duration::from_millis(500));
+        let while_held = arrived(&seen);
+
+        std::fs::remove_dir(&lock).expect("let the lock go");
+        let once_released = wait_for(&seen, 1);
+        // Bounded like `send` bounds a notice: a recorder that never ends is a
+        // red test, not a hung one.
+        let deadline = std::time::Instant::now() + BUDGET;
+        while recorder.try_wait().expect("ask the recorder").is_none()
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let ended = recorder.try_wait().expect("ask the recorder").is_some();
+        if !ended {
+            let _ = recorder.kill();
+            let _ = recorder.wait();
+        }
+
+        assert_eq!(
+            while_held, 0,
+            "nothing is written while another holds the lock"
+        );
+        assert_eq!(once_released, 1, "the line arrives once the lock is let go");
+        assert!(ended, "the recorder ends once it has written");
+        assert!(!lock.exists(), "and it lets its own lock go");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // Scenario: Una ráfaga de esperas produce un aviso con su cuenta
     // Scenario: Resolver la espera no avisa
     #[test]

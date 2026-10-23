@@ -13,9 +13,14 @@
   paralelo, solo con `the_test_notice_ignores_the_floor_and_does_not_spend_it`,
   falló 12 de 480 corridas con el script de antes y 0 de 480 con el
   candado. -->
-- [ ] 1.2 Test del fixture, solo en Windows: con el candado sostenido por el
+- [x] 1.2 Test del fixture, solo en Windows: con el candado sostenido por el
   test el grabador no escribe, y escribe al soltarlo (design D2) — gates: el
   test rojo con el `append.cmd` de antes y verde con el de 1.1
+  <!-- 2026-10-23: `the_recorder_waits_while_another_holds_the_file`. Con el
+  script de antes, puesto solo en local, falla con «nothing is written while
+  another holds the lock» (`left: 1, right: 0`); con el candado pasa tres de
+  tres en medio segundo. Suite de `meltemi-client` 52/52; fmt, clippy `-D
+  warnings` en Windows y con `--target x86_64-linux-android` limpios. -->
 
 ## 2. Cierre
 
