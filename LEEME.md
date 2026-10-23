@@ -53,7 +53,7 @@ sin telemetría.
 ### Opción A — los instaladores de la release (recomendado)
 
 Los nombres de artefacto son estables y libres de versión, así que cada enlace
-resuelve siempre a la **última release firmada**: nunca tienes que conocer un
+resuelve siempre a la **última release publicada**: nunca tienes que conocer un
 número de versión.
 
 | Plataforma | App de escritorio | Núcleo (daemon + terminal) |
@@ -75,24 +75,24 @@ escritorio. El cliente de terminal y el daemon funcionan en cualquiera desde el
 archivo de arriba, y la app de escritorio se compila desde el código (más abajo).
 Un `.rpm` es el siguiente paso.
 
-Cada release publica `SHA256SUMS` con firma separada de minisign y una
-atestación de build acuñada por el workflow de release. Tres comprobaciones,
-ordenadas por lo que cada una compra — detente en la garantía que necesites:
+Cada release publica `SHA256SUMS` y la firma la atestación que acuña su propio
+workflow de release al publicarla; no la firma ninguna persona ni ninguna clave
+de largo plazo. Dos comprobaciones, ordenadas por lo que cada una compra —
+detente en la garantía que necesites:
 
 ```bash
-sha256sum --check SHA256SUMS                                      # 1. intacto
-minisign -Vm SHA256SUMS -P <la clave pública de docs/release.md>  # 2. avalado
-gh attestation verify SHA256SUMS --repo askenaz-dev/meltemi       # 3. procedencia
+sha256sum --check --ignore-missing SHA256SUMS                     # 1. intacto
+gh attestation verify meltemi-Linux.tar.gz --repo askenaz-dev/meltemi \
+  --signer-workflow askenaz-dev/meltemi/.github/workflows/release.yml   # 2. firmado
 ```
 
 (`shasum -a 256` en macOS; `Get-FileHash` en Windows.) El checksum prueba que el
-archivo llegó intacto; la firma prueba que el mantenedor lo avaló; la atestación
-prueba de qué repositorio, commit y workflow salió. Los scripts instaladores
-hacen el primer paso por ti, no los otros dos — `minisign` y `gh` no vienen con
-ningún sistema operativo, y un instalador de una línea que primero exige
-instalar un paquete no es de una línea. La clave, el comando completo de
-procedencia y qué prueba (y qué no) cada comprobación están en
-[`docs/release.md`](docs/release.md).
+archivo llegó intacto; la atestación prueba de qué repositorio, commit y
+workflow salió ese mismo archivo. Los scripts instaladores hacen el primer paso
+por ti, no el segundo — `gh` no viene con ningún sistema operativo, y un
+instalador de una línea que primero exige instalar un paquete no es de una
+línea. La variante sin red, con el bundle que trae cada release, y qué prueba
+(y qué no) cada comprobación están en [`docs/release.md`](docs/release.md).
 
 Los scripts instaladores colocan `meltemi`, `meltemid` y el alias corto `mel` en
 tu `PATH`. Son cortos y auditables, publican su hash dentro del `SHA256SUMS`

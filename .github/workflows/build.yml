@@ -222,9 +222,9 @@ jobs:
 
       - name: Checksums
         shell: bash
-        # A manifest of what this run built, and nothing more. There is no
-        # SHA256SUMS.minisig beside it and there never will be on this path:
-        # signing happens off CI, which is the entire point (docs/release.md).
+        # A manifest of what this run built, and nothing more. No attestation
+        # covers it and none ever will on this path: a release is signed by the
+        # attestation release.yml mints when it publishes (docs/release.md).
         # UNSIGNED-BUILD.txt says so in those words, and is written after this
         # step so the manifest covers build outputs only.
         run: |

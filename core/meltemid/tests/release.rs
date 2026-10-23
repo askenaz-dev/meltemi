@@ -1204,3 +1204,36 @@ fn a_failed_notice_cannot_touch_the_release_and_carries_no_data() {
         );
     }
 }
+
+#[test]
+fn no_signing_key_is_kept_or_asked_for() {
+    // Scenario: Ninguna clave de firma que custodiar
+    // The release is signed by its workflow's attestation; no surface keeps a
+    // key, asks for one, or tells anybody to sign by hand (release-con-el-push
+    // D3).
+    let root = repo_root();
+    assert!(
+        !root.join("scripts").join("sign-release.ps1").exists(),
+        "the hand-signing script is gone"
+    );
+    for file in [
+        "docs/release.md",
+        "README.md",
+        "LEEME.md",
+        "scripts/install.sh",
+        "scripts/install.ps1",
+        "scripts/unsigned-build-notice.txt",
+        "docs/operaciones/checklist-lanzamiento.md",
+        ".github/workflows/release.yml",
+        ".github/workflows/build.yml",
+        ".github/workflows/ci.yml",
+    ] {
+        let text = read(&root, file).to_ascii_lowercase();
+        for asked in ["minisign", ".minisig", "public key in docs/release.md"] {
+            assert!(
+                !text.contains(asked),
+                "{file} still asks for a signing key (`{asked}`)"
+            );
+        }
+    }
+}

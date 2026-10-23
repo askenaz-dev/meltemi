@@ -113,14 +113,21 @@ no es un fallo del repositorio.
 Mientras el DNS no apunte, el sitio sigue sirviéndose en
 `https://askenaz-dev.github.io/meltemi/`.
 
-## 2. Firma de la primera release
+## 2. La primera release por el camino del push
 
-Procedimiento completo en [`docs/release.md`](../release.md) («Signing a
-release»). Resumen del orden: generar la clave minisign una vez, firmar el
-`SHA256SUMS` del draft, verificar la firma uno mismo, subir el `.minisig`,
-pegar la clave pública en las notas y publicar el draft.
+Desde `release-con-el-push` nadie firma a mano: la release la publica el
+pipeline, firmada por la atestación de su workflow, cuando un commit trae una
+versión nueva a `main`. Procedimiento completo en
+[`docs/release.md`](../release.md) («Making a release»). Antes de la primera,
+en este orden:
 
-La clave privada no entra en este repositorio ni en CI, nunca.
+1. El entorno `release` de este repositorio, su secreto `WEB_DISPATCH_TOKEN` y
+   los rulesets aplicados desde el Terraform de meltemi-web.
+2. `cargo run -p meltemi-release -- set-version 0.2.0`, commit y push a `main`.
+3. Con `main` ya en 0.2.0, borrar el borrador v0.1.1 y su tag: mientras ese tag
+   existe, un push con la versión 0.1.1 no puede publicarse solo.
+
+No existe clave de firma que generar, guardar ni rotar, y no debe crearse una.
 
 ## 3. Namespaces
 
@@ -138,10 +145,11 @@ añadir, cambiar ni borrar, y el tag queda fijo a su commit — cierra el hueco 
 ni los checksums ni la firma cierran, porque hasta ahora nada impedía reemplazar
 un artefacto ya publicado.
 
-Consecuencia operativa que hay que tener presente: **firmar antes de publicar es
-obligatorio**. Si publicas primero, esa versión ya no admite el `.minisig` y el
-único remedio es cortar otra. `scripts/sign-release.ps1` lo comprueba antes de
-pedirte la passphrase.
+Consecuencia operativa que hay que tener presente: una release publicada **no
+se corrige**, solo se sustituye por la siguiente. Por eso el pipeline sube todo
+a un borrador y lo publica al final, y comprueba que no falte nada; una
+release defectuosa se repudia publicando la versión siguiente y declarándola
+con fecha (`docs/release.md`, «Repudiating a release»).
 
 ## 5. Deuda de firma de instaladores
 

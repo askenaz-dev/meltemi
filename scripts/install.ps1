@@ -7,7 +7,8 @@
 # Manual equivalent (if you prefer not to run this):
 #   1. Download meltemi-Windows.zip and SHA256SUMS from the release page.
 #   2. Verify: Get-FileHash meltemi-Windows.zip -Algorithm SHA256 against SHA256SUMS.
-#   3. Verify the signature of SHA256SUMS with the published signing key.
+#   3. Verify its signature: gh attestation verify meltemi-Windows.zip --repo askenaz-dev/meltemi
+#      --signer-workflow askenaz-dev/meltemi/.github/workflows/release.yml (docs/release.md).
 #   4. Extract meltemi.exe, meltemid.exe and the two meltemi-*-acp.exe adapters
 #      into a directory on your PATH. Keep the adapters BESIDE the daemon: that
 #      is where it looks for them.

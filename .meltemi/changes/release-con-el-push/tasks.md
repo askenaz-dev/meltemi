@@ -135,10 +135,14 @@ cerrar sin ellas.
   firma que custodiar», «Repudio de una release», «Alcance de la atestación
   declarado sin exagerar», «Registro público de la atestación declarado»,
   «Verificación sin red con el bundle publicado»
-- [ ] 4.2 `README.md`, `LEEME.md` y las cabeceras de `scripts/install.ps1` y
+- [x] 4.2 `README.md`, `LEEME.md` y las cabeceras de `scripts/install.ps1` y
   `scripts/install.sh`: los dos pasos de verificación y ningún minisign;
   retirar `scripts/sign-release.ps1` (design D3) — escenario «Ninguna clave de
   firma que custodiar»
+  <!-- 2026-10-23: también `docs/operaciones/checklist-lanzamiento.md`
+  (secciones 2 y 4, que describían la firma con minisign) y el comentario del
+  paso de checksums de `build.yml`. La sección 1 de la checklist, el dominio en
+  GitHub Pages, sale con el sitio en la 5.2. -->
 - [ ] 4.3 `core/meltemid/tests/release.rs`: los tests que afirman la firma
   manual y el camino de tag —`signed_artifacts_and_verification_are_documented`,
   `the_trust_anchor_is_never_sourced_from_the_release_page`,
