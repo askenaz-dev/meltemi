@@ -23,6 +23,28 @@ pub struct Spec {
     pub source: PathBuf,
 }
 
+impl Spec {
+    /// The delta operation of the section that contains `line`: the nearest
+    /// `## <OP> Requirements` header above it. `None` in a living-truth spec,
+    /// above the first header, or under a header outside the canon.
+    #[must_use]
+    pub fn operation_at(&self, line: usize) -> Option<DeltaOperation> {
+        self.deltas
+            .iter()
+            .filter(|section| section.line < line)
+            .max_by_key(|section| section.line)
+            .and_then(|section| section.operation)
+    }
+
+    /// Whether `requirement` is an entry of a `## REMOVED Requirements`
+    /// section: it names a requirement that ceases to exist, and is not one
+    /// (`artifact-format`, «Reglas de contenido de delta»).
+    #[must_use]
+    pub fn is_removed_entry(&self, requirement: &Requirement) -> bool {
+        self.operation_at(requirement.line) == Some(DeltaOperation::Removed)
+    }
+}
+
 /// A `## <OP> Requirements` section header inside a delta spec.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeltaSection {

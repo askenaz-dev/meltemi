@@ -1,3 +1,11 @@
+> **Retirada sin fundir — 2026-10-23.** Absorbida por `release-con-el-push`
+> (design D9). Sus deltas no entraron a la verdad viva: la atestación, su
+> alcance declarado y el log público entran por aquella change, reescritos;
+> la clave pública en el árbol y su custodia no entran nunca, porque la
+> release deja de firmarse a mano. Su tarea 1.2 la cumple la primera release
+> de ese camino y la 2.2 se retira. El delta retirado sigue en la historia
+> de git, en el commit anterior a este.
+
 ## Why
 
 Firmar la v0.1.0 a mano dejó una pregunta legítima del mantenedor: las

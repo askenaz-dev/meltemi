@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only unless a job says otherwise. Nothing here publishes, and a
+# workflow that does not declare its permissions inherits the repository's
+# default, which was write (release-con-el-push D5).
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
@@ -18,14 +24,14 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # rustup picks up the pinned toolchain from rust-toolchain.toml
       # automatically on first cargo invocation.
       - name: Show toolchain
         run: rustup show
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # The desktop client (Tauri) needs the platform webview stack on Linux;
       # cargo --workspace gates compile it, so the deps live in this job.
@@ -37,7 +43,7 @@ jobs:
             wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -86,18 +92,11 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-      # Named explicitly so a red site lint is legible in the checks list; it is
-      # part of the workspace suite above and runs on all three platforms
-      # (sitio-web-producto 5.5). Its failure blocks the merge and, with it, the
-      # publication of the site.
-      - name: Site lint
-        run: cargo test -p meltemid --test site
-
   deny:
     name: cargo-deny (licenses & advisories)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check licenses advisories sources bans

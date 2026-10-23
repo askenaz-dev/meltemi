@@ -253,6 +253,7 @@ fn job_block(workflow: &str, job: &str) -> String {
 #[test]
 fn the_integration_build_cannot_create_or_sign_a_release() {
     // Scenario: El build de integración no crea release
+    // Scenario: La ruta de integración no puede publicar
     // nothing on this path creates, signs or attests anything — and the token it
     // runs with could not, even if a step tried.
     let wf = executable_lines(&read(&repo_root(), ".github/workflows/build.yml"));
@@ -296,32 +297,69 @@ fn the_integration_build_cannot_create_or_sign_a_release() {
 }
 
 #[test]
-fn the_release_path_still_belongs_to_a_tag_alone() {
-    // Scenario: El camino de release sigue siendo solo de tag
-    // the job that creates the release is gated on a tag ref, and it is the only
-    // job in the repository that creates one.
+fn the_release_path_opens_only_where_the_gate_says_so() {
+    // Scenario: Tag empujado a mano no publica
+    // Nothing listens to tags: the workflow starts on a push to main or on a
+    // dispatch from main, its first job asks the gate, and every job that
+    // builds, packages or publishes runs only when the gate opens the path
+    // (release-con-el-push D1).
     let root = repo_root();
     let release_yml = read(&root, ".github/workflows/release.yml");
-    let tag_gate = "if: startsWith(github.ref, 'refs/tags/')";
+    let on: Vec<&str> = release_yml
+        .lines()
+        .skip_while(|line| line.trim_end() != "on:")
+        .skip(1)
+        .take_while(|line| line.starts_with(' '))
+        .collect();
+    let on = on.join(" ");
+    assert!(
+        !on.contains("tags"),
+        "no tag starts the release workflow: {on}"
+    );
+    assert!(
+        on.contains("branches: [\"main\"]") && on.contains("workflow_dispatch"),
+        "a push to main and a dispatch start it: {on}"
+    );
 
-    let draft = job_block(&release_yml, "release");
+    let version = job_block(&release_yml, "version");
     assert!(
-        draft.contains("gh release create"),
-        "the `release` job is the one that creates the release"
+        version.contains("meltemi-release -- gate --commit \"$GITHUB_SHA\" --main origin/main"),
+        "the first job asks the gate about this very commit"
     );
     assert!(
-        draft.contains(tag_gate),
-        "and it runs only from a version tag; without that condition a push to \
-         main would publish"
+        version.contains("if: github.ref == 'refs/heads/main'"),
+        "a dispatch is honoured from main only"
     );
-    // Its packaging inputs are gated the same way, so a main push cannot even
-    // assemble the set the draft would be built from.
-    for job in ["gates", "deny", "package", "package-gui"] {
+    assert!(
+        version.contains("fetch-depth: 0"),
+        "the gate sees every tag and origin/main"
+    );
+
+    let opened = "if: needs.version.outputs.release == 'true'";
+    for job in ["gates", "deny", "package", "package-gui", "publish"] {
+        let block = job_block(&release_yml, job);
         assert!(
-            job_block(&release_yml, job).contains(tag_gate),
-            "the `{job}` job of the release path stays tag-only"
+            block.contains(opened),
+            "the `{job}` job runs only when the gate opens the path"
+        );
+        assert!(
+            block
+                .lines()
+                .any(|line| line.trim_start().starts_with("needs:") && line.contains("version")),
+            "the `{job}` job waits for the gate's answer"
         );
     }
+
+    // The tag is the pipeline's output, on the commit that passed the gates.
+    let draft = job_block(&release_yml, "publish");
+    assert!(
+        draft.contains("--target \"$GITHUB_SHA\""),
+        "the release creates its tag on the commit that passed the gates"
+    );
+    assert!(
+        !draft.contains("--verify-tag"),
+        "no tag exists before the pipeline creates it"
+    );
 
     // No second publisher anywhere in .github/workflows.
     let dir = root.join(".github/workflows");
@@ -337,17 +375,17 @@ fn the_release_path_still_belongs_to_a_tag_alone() {
         let text = executable_lines(&std::fs::read_to_string(&path).expect("readable workflow"));
         assert!(
             !text.contains("gh release create"),
-            "{name} creates a release; the tagged path is the only one that may"
+            "{name} creates a release; the release workflow is the only one that may"
         );
     }
 }
 
 #[test]
-fn the_version_free_download_urls_still_answer_from_the_signed_release() {
-    // Scenario: La última release firmada sigue resolviendo
+fn the_version_free_download_urls_still_answer_from_the_published_release() {
+    // Scenario: La última release publicada sigue resolviendo
     // the published surfaces link `releases/latest/download/<stable-name>`, and
-    // the only path that can move what that URL resolves to is the tagged one:
-    // a workflow artifact has no stable URL and never enters a release.
+    // the only path that can move what that URL resolves to is the release
+    // workflow: a workflow artifact has no stable URL and never enters a release.
     let root = repo_root();
     let build = executable_lines(&read(&root, ".github/workflows/build.yml"));
     assert!(
@@ -453,7 +491,10 @@ fn the_release_pipeline_gates_and_budget_abort() {
     // Scenario: Presupuesto excedido aborta
     // the budget gate exits non-zero.
     let wf = read(&repo_root(), ".github/workflows/release.yml");
-    assert!(wf.contains("tags:"), "release originates from a tag");
+    assert!(
+        wf.contains("meltemi-release -- gate"),
+        "a release originates from the gate's answer, not from a tag"
+    );
     for gate in ["cargo fmt", "clippy", "cargo test", "cargo-deny"] {
         assert!(wf.contains(gate), "the pipeline runs the `{gate}` gate");
     }
@@ -516,101 +557,97 @@ fn every_workflow_script_stays_inside_its_block() {
 }
 
 #[test]
-fn signed_artifacts_and_verification_are_documented() {
+fn a_download_is_verified_by_its_checksum_and_the_workflow_that_published_it() {
     // Scenario: Verificación por el usuario
-    // checksum and signature verifiable.
+    // Two steps: the checksum, and the attestation of an artifact pinned to the
+    // release workflow. The anchor is the workflow's identity, never the text of
+    // a release page (release-con-el-push D3).
     let doc = read(&repo_root(), "docs/release.md");
-    assert!(doc.contains("SHA256SUMS"), "checksums are published");
+    let flat = doc.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(doc.contains("sha256sum --check"), "step 1 is the checksum");
     assert!(
-        doc.to_ascii_lowercase().contains("signature"),
-        "signature verification is documented"
+        doc.contains("gh attestation verify meltemi-Linux.tar.gz --repo askenaz-dev/meltemi"),
+        "step 2 verifies an artifact"
     );
     assert!(
-        doc.to_ascii_lowercase().contains("custody"),
-        "key custody procedure is documented (maintainer's)"
+        doc.contains("--signer-workflow askenaz-dev/meltemi/.github/workflows/release.yml"),
+        "step 2 pins the release workflow as the signer"
     );
-    // One name for the signature asset, everywhere. The pipeline's release notes
-    // said `SHA256SUMS.sig` while the documented procedure and the signing script
-    // produced `SHA256SUMS.minisig`, so the notes every downloader reads pointed
-    // at a file that was never published — and nothing failed, because nothing
-    // was checking.
-    let root = repo_root();
-    let signature = "SHA256SUMS.minisig";
-    for file in [
-        "docs/release.md",
-        "scripts/sign-release.ps1",
-        ".github/workflows/release.yml",
-    ] {
-        let text = read(&root, file);
-        assert!(
-            text.contains(signature),
-            "{file} names the signature asset `{signature}`"
-        );
-        // `.sig` alone would be a second, wrong name for the same thing.
-        assert!(
-            !text.contains("SHA256SUMS.sig"),
-            "{file} still uses the old `SHA256SUMS.sig` name"
-        );
-    }
-    // The trust anchor lives in the repository, not on the release page: whoever
-    // can publish a release can edit the text beside it, so a key printed only
-    // there proves nothing.
     assert!(
-        !doc.contains("public key printed on every release page"),
-        "the public key must not be sourced from the release page it authenticates"
+        !doc.contains("gh attestation verify SHA256SUMS"),
+        "the checksums file is not a subject of the attestation, so it is not what is verified"
+    );
+    assert!(
+        flat.contains("The trust anchor is the identity of the workflow")
+            && flat.contains("Never take the anchor, or any key, from the text of a release page"),
+        "the anchor is the workflow identity, and never comes from the page it authenticates"
     );
 }
 
 #[test]
-fn the_pipeline_attests_its_checksums_and_the_command_is_published() {
+fn the_release_is_attested_and_published_with_nothing_attached_afterwards() {
     // Scenario: Procedencia publicada con la release
-    // the mint over the merged checksums, and the documented verify command.
+    // Scenario: Nada se adjunta tras publicar
+    // One attestation over the merged SHA256SUMS, its bundle kept as an asset,
+    // everything uploaded to a draft, and the draft published last: with
+    // immutable releases nothing can be attached afterwards (release-con-el-push
+    // D3, D4).
     let root = repo_root();
     let wf = read(&root, ".github/workflows/release.yml");
-    let attest_line = wf
+    let publish = job_block(&wf, "publish");
+    let attest_line = publish
         .lines()
         .find(|line| line.contains("uses: actions/attest@"))
-        .expect("the release job carries the actions/attest step");
-    // Pinned by full commit SHA (§10): a step that mints with the job's OIDC
-    // identity must not be movable by a floating tag.
+        .expect("the publish job carries the actions/attest step");
     let pin = attest_line
         .split('@')
         .nth(1)
-        .expect("a ref after the @")
-        .split_whitespace()
-        .next()
-        .expect("the ref itself");
+        .and_then(|rest| rest.split_whitespace().next())
+        .expect("a ref after the @");
     assert!(
         pin.len() == 40 && pin.chars().all(|c| c.is_ascii_hexdigit()),
-        "actions/attest must be pinned to a full commit SHA, found `{pin}`"
+        "actions/attest is pinned to a full commit, found `{pin}`"
     );
-    // The subjects are the entries of the merged SHA256SUMS — the same single
-    // file the maintainer signs — and the mint sits between the merge and the
-    // draft, so a failed attestation aborts before anything is published.
     assert!(
-        wf.contains("subject-checksums: release-assets/SHA256SUMS"),
-        "the attestation subjects come from the merged SHA256SUMS"
+        publish.contains("subject-checksums: release-assets/SHA256SUMS"),
+        "the attestation subjects are the entries of the merged SHA256SUMS"
     );
-    let merge = wf
-        .find("Merge artifacts under one checksum file")
-        .expect("the merge step exists");
-    let attest = wf.find("uses: actions/attest@").expect("the attest step");
-    let draft = wf
-        .find("Create the draft release")
-        .expect("the draft step exists");
     assert!(
-        merge < attest && attest < draft,
-        "the mint must sit between the checksum merge and the draft creation"
+        publish.contains("cp \"$BUNDLE\" release-assets/attestation.sigstore.json")
+            && publish.contains("${{ steps.attest.outputs.bundle-path }}"),
+        "the attestation bundle is kept as an asset of the release"
     );
-    // The three permissions of the mint, granted where the mint happens.
+    let at = |needle: &str| {
+        publish
+            .find(needle)
+            .unwrap_or_else(|| panic!("the publish job has `{needle}`"))
+    };
+    let order = [
+        at("Merge artifacts under one checksum file"),
+        at("uses: actions/attest@"),
+        at("Keep the attestation bundle as an asset"),
+        at("gh release create \"$TAG\" --draft --target \"$GITHUB_SHA\""),
+        at("gh release upload \"$TAG\" release-assets/* --clobber"),
+        at("gh release edit \"$TAG\" --draft=false"),
+    ];
+    assert!(
+        order.windows(2).all(|pair| pair[0] < pair[1]),
+        "merge, attest, keep the bundle, create the draft, upload, publish: in that order {order:?}"
+    );
+    let after_publish = &publish[at("gh release edit \"$TAG\" --draft=false")..];
+    assert!(
+        !after_publish.contains("gh release upload"),
+        "nothing is uploaded after the release is published"
+    );
     for permission in [
+        "contents: write",
         "id-token: write",
         "attestations: write",
         "artifact-metadata: write",
     ] {
         assert!(
-            wf.contains(permission),
-            "the release job grants `{permission}`"
+            publish.contains(permission),
+            "the publish job grants `{permission}`"
         );
     }
     // The published verification command pins the workflow identity.
@@ -618,6 +655,152 @@ fn the_pipeline_attests_its_checksums_and_the_command_is_published() {
     assert!(
         doc.contains("gh attestation verify") && doc.contains("--signer-workflow"),
         "docs/release.md publishes the provenance verification command"
+    );
+}
+
+#[test]
+fn a_rerun_finishes_a_half_published_release_instead_of_starting_another() {
+    // Scenario: Re-ejecución tras fallo parcial termina lo que falta
+    // A draft does not create its tag, so after a failure half-way the gate
+    // opens the path again and the publish job finds the draft: it completes
+    // it, and a published release is left alone (release-con-el-push D4).
+    let publish = job_block(
+        &read(&repo_root(), ".github/workflows/release.yml"),
+        "publish",
+    );
+    assert!(
+        publish.contains("gh release view \"$TAG\" --json isDraft"),
+        "the publish job asks what state the release is in before acting"
+    );
+    for (state, deed) in [
+        (
+            "            false)",
+            "is already published: nothing to upload",
+        ),
+        (
+            "            true)",
+            "a draft of $TAG exists: it is completed",
+        ),
+        ("            missing)", "gh release create \"$TAG\" --draft"),
+    ] {
+        let branch = publish
+            .split(state)
+            .nth(1)
+            .unwrap_or_else(|| panic!("the publish job handles the state {state}"));
+        assert!(
+            branch
+                .split(";;")
+                .next()
+                .is_some_and(|body| body.contains(deed)),
+            "state {state} leads to: {deed}"
+        );
+    }
+    assert_eq!(
+        publish.matches("gh release create").count(),
+        1,
+        "one place creates a release, and only when none exists"
+    );
+    for step in ["Upload every asset to the draft", "Publish the draft"] {
+        let header = publish
+            .split(step)
+            .nth(1)
+            .expect("the step exists")
+            .split("run:")
+            .next()
+            .expect("its header");
+        assert!(
+            header.contains("if: steps.draft.outputs.published != 'true'"),
+            "`{step}` is skipped for a release already published"
+        );
+    }
+}
+
+#[test]
+fn the_notes_come_from_the_changelog_when_it_has_the_version() {
+    // Scenario: Notas desde el changelog
+    let wf = read(&repo_root(), ".github/workflows/release.yml");
+    let version = job_block(&wf, "version");
+    assert!(
+        version.contains("meltemi-release -- notes \"$VERSION\" > release-notes.md"),
+        "the version job takes the version's section of CHANGELOG.md"
+    );
+    assert!(
+        version.contains("notes=changelog") && version.contains("notes=generated"),
+        "and says whether the notes were found or will be generated"
+    );
+    let publish = job_block(&wf, "publish");
+    assert!(
+        publish.contains("--notes-file notes/release-notes.md")
+            && publish.contains("--generate-notes"),
+        "the release carries the changelog's section, or generated notes when there is none"
+    );
+}
+
+#[test]
+fn publication_credentials_live_only_in_the_release_environment() {
+    // Scenario: Credenciales solo en el entorno de publicación
+    // A job that reads a secret runs in the `release` environment, which admits
+    // main only; no other job of any workflow names a secret
+    // (release-con-el-push D5).
+    for (name, text) in workflows(&repo_root()) {
+        let jobs: Vec<String> = text
+            .lines()
+            .skip_while(|line| line.trim_end() != "jobs:")
+            .skip(1)
+            .filter(|line| {
+                line.starts_with("  ")
+                    && !line.starts_with("   ")
+                    && !line.trim_start().starts_with('#')
+                    && line.trim_end().ends_with(':')
+            })
+            .map(|line| line.trim().trim_end_matches(':').to_string())
+            .collect();
+        for job in jobs {
+            let block = executable_lines(&job_block(&text, &job));
+            if block.contains("secrets.") {
+                assert!(
+                    block.contains("environment: release"),
+                    "{name}: the `{job}` job reads a secret outside the release environment"
+                );
+            }
+        }
+    }
+    let publish = job_block(
+        &read(&repo_root(), ".github/workflows/release.yml"),
+        "publish",
+    );
+    assert!(
+        publish.contains("environment: release"),
+        "the publish job runs in the release environment"
+    );
+}
+
+#[test]
+fn installers_and_scripts_are_inside_what_the_attestation_covers() {
+    // Scenario: Instalador atestiguado por plataforma
+    // Scenario: Script instalador publicado y atestiguado
+    // The packaging jobs upload the installers and the scripts as meltemi-*
+    // artifacts, the publish job takes every meltemi-* artifact into the merged
+    // SHA256SUMS, and the attestation's subjects are that file's entries.
+    let wf = read(&repo_root(), ".github/workflows/release.yml");
+    let core = job_block(&wf, "package");
+    assert!(
+        core.contains("cp scripts/install.sh scripts/install.ps1 dist/")
+            && core.contains("name: meltemi-${{ runner.os }}"),
+        "the core packaging job ships both installer scripts as a meltemi-* artifact"
+    );
+    let gui = job_block(&wf, "package-gui");
+    assert!(
+        gui.contains("name: meltemi-gui-${{ runner.os }}"),
+        "the GUI job ships each platform's installer as a meltemi-* artifact"
+    );
+    let publish = job_block(&wf, "publish");
+    assert!(
+        publish.contains("pattern: meltemi-*")
+            && publish.contains("find collected -type f ! -name 'SHA256SUMS'")
+            && publish.contains("sha256sum * > SHA256SUMS")
+            && publish.contains("subject-checksums: release-assets/SHA256SUMS"),
+        "every meltemi-* artifact enters the SHA256SUMS whose entries the attestation covers"
     );
 }
 
@@ -632,7 +815,7 @@ fn the_attestation_scope_is_declared_without_overclaiming() {
         .collect::<Vec<_>>()
         .join(" ");
     assert!(
-        doc.contains("`release` job"),
+        doc.contains("`publish` job"),
         "docs/release.md names the job that mints the attestation"
     );
     assert!(
@@ -644,8 +827,8 @@ fn the_attestation_scope_is_declared_without_overclaiming() {
         "docs/release.md denies the per-artifact build claim in so many words"
     );
     assert!(
-        doc.contains("not a substitute for the maintainer's signature"),
-        "the attestation must never be presented as replacing the signature"
+        doc.contains("is the signature of the release"),
+        "the attestation is presented as what it now is: the release's signature"
     );
 }
 
@@ -673,55 +856,79 @@ fn the_transparency_log_is_declared_and_is_not_telemetry() {
 }
 
 #[test]
-fn the_trust_anchor_is_never_sourced_from_the_release_page() {
-    // Scenario: Ancla de confianza fuera de la página que autentica
-    // the key's documented home is the tree; no instruction says otherwise.
-    let root = repo_root();
-    let doc = read(&root, "docs/release.md");
+fn the_limit_of_a_workflow_signature_is_declared_with_its_controls() {
+    // Scenario: Límite de la firma del workflow declarado
+    // The door the manual signature used to close is named as open, and the
+    // controls around it are named beside it (release-con-el-push D3, D5).
+    let flat = read(&repo_root(), "docs/release.md")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     assert!(
-        doc.contains("here, in the repository"),
-        "docs/release.md declares the repository as the key's home"
+        flat.contains(
+            "An account with write access to this repository can publish a release that verifies"
+        ),
+        "the limit is written as a limit"
     );
-    // The signing walkthrough must not send the key to the page a publisher
-    // controls: notes and site point at the anchor, never carry it.
+    for control in [
+        "pinned by full commit",
+        "read-only",
+        "`release` environment",
+        "not on `main`",
+        "already has a tag",
+        "rulesets",
+    ] {
+        assert!(
+            flat.contains(control),
+            "docs/release.md names the control `{control}`"
+        );
+    }
     assert!(
-        !doc.contains("paste the public key into the release notes")
-            && !doc.contains("goes in the release notes"),
-        "docs/release.md must not direct the key to the release notes"
-    );
-    // Both readmes source the key from the repository file.
-    let readme = read(&root, "README.md");
-    assert!(
-        readme.contains("the public key in docs/release.md"),
-        "README.md sources the public key from docs/release.md"
-    );
-    let leeme = read(&root, "LEEME.md");
-    assert!(
-        leeme.contains("la clave pública de docs/release.md"),
-        "LEEME.md sources the public key from docs/release.md"
+        flat.contains("The way back to a human step"),
+        "and the way back, should the trade be revisited"
     );
 }
 
 #[test]
-fn the_signing_tools_limits_are_declared_not_promised_away() {
-    // Scenario: Límites de la herramienta declarados
-    // offline, not hardware-backed; repudiation defined without revocation.
+fn a_bad_release_is_repudiated_by_the_next_one() {
+    // Scenario: Repudio de una release
+    // Immutable releases cannot be corrected in place; the procedure is the
+    // next version plus a dated declaration (release-con-el-push D5).
     let doc = read(&repo_root(), "docs/release.md");
+    let flat = doc.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        doc.contains("offline, not hardware-backed"),
-        "custody promises offline storage, not a hardware token minisign lacks"
+        doc.contains("## Repudiating a release"),
+        "docs/release.md has the repudiation procedure"
     );
     assert!(
-        doc.contains("no revocation mechanism"),
-        "custody states that minisign cannot revoke a signature"
+        flat.contains("publish the next version and to declare the bad one, with its date"),
+        "repudiating is the next version plus a dated declaration"
     );
     assert!(
-        doc.contains("repudiated from a given date"),
-        "repudiation is defined as a new key in the tree plus a dated statement"
+        doc.contains("Repudiated releases:"),
+        "and keeps the list where a repudiation is declared"
+    );
+}
+
+#[test]
+fn a_download_verifies_offline_with_the_published_bundle() {
+    // Scenario: Verificación sin red con el bundle publicado
+    // The bundle travels with the release; only the trusted root comes from
+    // the network, once (release-con-el-push D3).
+    let root = repo_root();
+    let doc = read(&root, "docs/release.md");
+    assert!(
+        doc.contains("gh attestation trusted-root > trusted_root.jsonl"),
+        "the trusted root is downloaded once"
     );
     assert!(
-        !doc.contains("hardware-backed storage"),
-        "the doc must not promise hardware-backed custody"
+        doc.contains("--bundle attestation.sigstore.json --custom-trusted-root trusted_root.jsonl"),
+        "the offline command uses the published bundle and that root"
+    );
+    let publish = job_block(&read(&root, ".github/workflows/release.yml"), "publish");
+    assert!(
+        publish.contains("release-assets/attestation.sigstore.json"),
+        "and the pipeline publishes the bundle under the name the documentation uses"
     );
 }
 
@@ -850,4 +1057,341 @@ fn the_reserved_crates_carry_namespace_metadata() {
             "{crate_manifest} points at the project repository"
         );
     }
+}
+
+/// Every workflow of the repository, as `(file name, text)`, sorted by name.
+fn workflows(root: &Path) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = std::fs::read_dir(root.join(".github").join("workflows"))
+        .expect("the workflows directory is readable")
+        .flatten()
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext == "yml" || ext == "yaml")
+        })
+        .map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let text = std::fs::read_to_string(entry.path()).expect("a workflow is readable");
+            (name, text)
+        })
+        .collect();
+    out.sort();
+    assert!(!out.is_empty(), "the repository has workflows to check");
+    out
+}
+
+#[test]
+fn every_action_is_pinned_by_a_full_commit_with_its_version_named() {
+    // Scenario: Acción sin pinear rechazada
+    // With no person between a version commit and a publication, an action
+    // referenced by a tag that somebody moves would publish whatever it now
+    // points at. A commit cannot be moved (release-con-el-push D5). The version
+    // rides along as a comment so a reader knows what was pinned.
+    let mut offenders = Vec::new();
+    for (name, text) in workflows(&repo_root()) {
+        for line in executable_lines(&text).lines() {
+            let Some(rest) = line
+                .trim_start()
+                .trim_start_matches("- ")
+                .strip_prefix("uses:")
+            else {
+                continue;
+            };
+            let reference = rest.split('#').next().unwrap_or("").trim();
+            if reference.starts_with("./") {
+                continue;
+            }
+            let pinned = reference.rsplit_once('@').is_some_and(|(_, at)| {
+                at.len() == 40
+                    && at
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+            });
+            let named = rest.contains("# v");
+            if !pinned || !named {
+                offenders.push(format!("{name}: {}", rest.trim()));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "every action is pinned by a full commit with its version as a comment; not so: {}",
+        offenders.join("; ")
+    );
+}
+
+#[test]
+fn every_workflow_declares_read_only_permissions_at_the_top() {
+    // Scenario: Workflow sin permisos declarados rechazado
+    // A workflow that declares nothing inherits the repository default, which
+    // was write; the jobs that publish raise their own (release-con-el-push D5).
+    for (name, text) in workflows(&repo_root()) {
+        assert!(
+            text.lines().any(|line| line.trim_end() == "permissions:"),
+            "{name} declares its permissions at the top"
+        );
+        let top: Vec<&str> = text
+            .lines()
+            .skip_while(|line| line.trim_end() != "permissions:")
+            .skip(1)
+            .take_while(|line| line.starts_with("  "))
+            .map(str::trim)
+            .collect();
+        assert_eq!(
+            top,
+            ["contents: read"],
+            "{name}'s top-level permissions are read-only and nothing else"
+        );
+    }
+}
+
+#[test]
+fn the_web_is_told_after_the_release_and_only_then() {
+    // Scenario: La web se redespliega tras publicar
+    // Scenario: Sin publicación no hay aviso
+    let notify = job_block(
+        &read(&repo_root(), ".github/workflows/release.yml"),
+        "notify-web",
+    );
+    assert!(
+        notify.contains("gh workflow run deploy.yml --repo askenaz-dev/meltemi-web --ref main"),
+        "the notice starts meltemi-web's deploy workflow"
+    );
+    let needs = notify
+        .lines()
+        .find(|line| line.trim_start().starts_with("needs:"))
+        .expect("the notice waits for something");
+    assert!(
+        needs.contains("publish"),
+        "the notice waits for the publication: {needs}"
+    );
+    for override_status in ["always()", "failure()", "cancelled()", "!cancelled()"] {
+        assert!(
+            !notify.contains(override_status),
+            "the notice runs only after a successful publication, never with `{override_status}`"
+        );
+    }
+    assert!(
+        notify.contains("environment: release") && notify.contains("secrets.WEB_DISPATCH_TOKEN"),
+        "its credential lives in the release environment"
+    );
+}
+
+#[test]
+fn a_failed_notice_cannot_touch_the_release_and_carries_no_data() {
+    // Scenario: Aviso fallido no deshace la release
+    // Scenario: El aviso no lleva datos
+    let wf = read(&repo_root(), ".github/workflows/release.yml");
+    let notify = executable_lines(&job_block(&wf, "notify-web"));
+    assert!(
+        !notify.contains("gh release"),
+        "the notice never touches the release it announces"
+    );
+    let publish = job_block(&wf, "publish");
+    assert!(
+        !publish.contains("notify-web"),
+        "the publication does not wait for the notice, so its failure undoes nothing"
+    );
+    let dispatch = notify
+        .lines()
+        .find(|line| line.contains("gh workflow run"))
+        .expect("the dispatch line");
+    for field in [" -f ", " -F ", "--field", "--raw-field", "--json"] {
+        assert!(
+            !dispatch.contains(field),
+            "the dispatch carries no data (`{field}`): {dispatch}"
+        );
+    }
+}
+
+#[test]
+fn no_signing_key_is_kept_or_asked_for() {
+    // Scenario: Ninguna clave de firma que custodiar
+    // The release is signed by its workflow's attestation; no surface keeps a
+    // key, asks for one, or tells anybody to sign by hand (release-con-el-push
+    // D3).
+    let root = repo_root();
+    assert!(
+        !root.join("scripts").join("sign-release.ps1").exists(),
+        "the hand-signing script is gone"
+    );
+    for file in [
+        "docs/release.md",
+        "README.md",
+        "LEEME.md",
+        "scripts/install.sh",
+        "scripts/install.ps1",
+        "scripts/unsigned-build-notice.txt",
+        "docs/operaciones/checklist-lanzamiento.md",
+        ".github/workflows/release.yml",
+        ".github/workflows/build.yml",
+        ".github/workflows/ci.yml",
+    ] {
+        let text = read(&root, file).to_ascii_lowercase();
+        for asked in ["minisign", ".minisig", "public key in docs/release.md"] {
+            assert!(
+                !text.contains(asked),
+                "{file} still asks for a signing key (`{asked}`)"
+            );
+        }
+    }
+}
+
+// Scenario: Instalador de escritorio normalizado antes de publicar
+// Scenario: Descarga sin conocer la versión
+#[test]
+fn the_desktop_installers_are_renamed_to_stable_names_before_publishing() {
+    let yml = read(&repo_root(), ".github/workflows/release.yml");
+    let step = yml
+        .split("Collect, normalize names and checksum")
+        .nth(1)
+        .expect("the normalization step exists");
+    let body = step.split("upload-artifact").next().expect("step body");
+    for stable in [
+        "meltemi-desktop-Windows.msi",
+        "meltemi-desktop-macOS.dmg",
+        "meltemi-desktop-Linux.deb",
+    ] {
+        assert!(
+            body.contains(stable),
+            "the pipeline renames to `{stable}`: {body}"
+        );
+    }
+    // The checksum is computed AFTER the rename, so it belongs to the stable name.
+    let rename_at = body.find("normalize").expect("the rename happens");
+    let sum_at = body.find("SHA256SUMS").expect("the checksum is computed");
+    assert!(
+        rename_at < sum_at,
+        "the published checksum is the one of the stable name"
+    );
+    // And the core archives are named without a version too.
+    let core = yml
+        .split("Package and checksum")
+        .nth(1)
+        .expect("the packaging step")
+        .split("upload-artifact")
+        .next()
+        .expect("step body");
+    for stable in [
+        "meltemi-Windows.zip",
+        "meltemi-macOS.tar.gz",
+        "meltemi-Linux.tar.gz",
+    ] {
+        assert!(
+            core.contains(stable),
+            "the core archive `{stable}` is stable"
+        );
+    }
+    assert!(
+        !core.contains("${{ github.ref_name }}") && !core.contains("$VERSION"),
+        "no version is interpolated into an artifact name: {core}"
+    );
+}
+
+// Scenario: Script instalador publicado y atestiguado
+// Scenario: Instalación con alias
+#[test]
+fn the_installer_scripts_ship_as_attested_assets_and_create_the_alias() {
+    let yml = read(&repo_root(), ".github/workflows/release.yml");
+    let step = yml
+        .split("Package and checksum")
+        .nth(1)
+        .expect("the packaging step")
+        .split("upload-artifact")
+        .next()
+        .expect("step body");
+    assert!(
+        step.contains("cp scripts/install.sh scripts/install.ps1 dist/"),
+        "both scripts are published as release assets: {step}"
+    );
+    let copy_at = step.find("cp scripts/install.sh").expect("the copy");
+    let sum_at = step
+        .find("sha256sum * > SHA256SUMS")
+        .or_else(|| step.find("> SHA256SUMS"))
+        .expect("the checksum is computed in this step");
+    assert!(
+        copy_at < sum_at,
+        "their checksums land inside the SHA256SUMS the attestation covers (copy at {copy_at}, sum at {sum_at})"
+    );
+    // The alias is created by both scripts.
+    let sh = read(&repo_root(), "scripts/install.sh");
+    assert!(
+        sh.contains("ln -sf \"$INSTALL_DIR/meltemi\" \"$INSTALL_DIR/mel\""),
+        "install.sh creates the `mel` alias"
+    );
+    let ps1 = read(&repo_root(), "scripts/install.ps1");
+    assert!(
+        ps1.to_lowercase().contains("mel"),
+        "install.ps1 creates the `mel` alias too"
+    );
+    for (name, script) in [("install.sh", &sh), ("install.ps1", &ps1)] {
+        assert!(
+            script.contains("meltemi") && script.contains("meltemid"),
+            "{name} installs both binaries"
+        );
+        assert!(
+            script.to_lowercase().contains("sha256"),
+            "{name} verifies what it downloaded"
+        );
+    }
+}
+
+/// The canonical download base, declared once in `docs/release.md`.
+fn canonical_base() -> String {
+    let doc = read(&repo_root(), "docs/release.md");
+    let line = doc
+        .lines()
+        .find(|line| line.starts_with("CANONICAL_DOWNLOAD_BASE="))
+        .expect("docs/release.md declares CANONICAL_DOWNLOAD_BASE=<url>");
+    line.trim_start_matches("CANONICAL_DOWNLOAD_BASE=")
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn one_canonical_base_names_the_repository_everywhere_a_download_starts() {
+    // Scenario: Descarga sin conocer la versión
+    // One base, one repository: the installers download from it, through the
+    // latest-release redirector unless a version is pinned, and the crates'
+    // manifest names the same repository.
+    let root = repo_root();
+    let base = canonical_base();
+    let repository = base.trim_end_matches("/releases").to_string();
+    assert_eq!(
+        repository, "https://github.com/askenaz-dev/meltemi",
+        "the canonical base is the project's own repository"
+    );
+    for script in ["scripts/install.sh", "scripts/install.ps1"] {
+        let body = read(&root, script);
+        assert!(
+            body.contains(&format!("{repository}/releases")),
+            "{script} must download from the canonical base `{base}`"
+        );
+        // `latest` is not a tag: the version-free download resolves through the
+        // redirector, and only a pinned version uses the tagged path. Getting
+        // this backwards 404s the advertised one-line install.
+        assert!(
+            body.contains("/latest/download"),
+            "{script} must use the latest-release redirector for the default install"
+        );
+        assert!(
+            body.contains("download/$VERSION") || body.contains("download/$version"),
+            "{script} must use the tagged path only for a pinned version"
+        );
+        // A stale second base would silently resolve elsewhere.
+        assert!(
+            !body.contains("github.com/meltemi/meltemi"),
+            "{script} still names a non-canonical repository"
+        );
+    }
+    let manifest = read(&root, "Cargo.toml");
+    assert!(
+        manifest.contains(&format!("repository = \"{repository}\"")),
+        "the workspace manifest names the canonical repository"
+    );
+    assert!(
+        !manifest.contains("github.com/meltemi/meltemi"),
+        "the workspace manifest still names a repository that is not the project's"
+    );
 }

@@ -7,7 +7,11 @@ project and never under a real agent account (`sitio-web-producto` design D5).
 No image may leak a personal path, an identity, a third-party product name or
 any credential material.
 
-Every figure carries two things the lint enforces: descriptive alternative text
+The captures are made here and written to `docs/media/`. The product site has
+lived in [meltemi-web](https://github.com/askenaz-dev/meltemi-web) since
+2026-10-21 and copies them from there (release-con-el-push D8).
+
+Every figure carries two things the site's lint, in meltemi-web, enforces: descriptive alternative text
 and its provenance (surface, capture source and product state). What is inside
 the pixels is the human's judgement; the lint cannot inspect a raster.
 
@@ -17,7 +21,7 @@ The terminal capture is generated from the renderer itself, so it can never
 drift into a mockup:
 
 ```bash
-cargo run -p meltemi --example capture_svg > site/media/tui-sessions.svg
+cargo run -p meltemi --example capture_svg > docs/media/tui-sessions.svg
 ```
 
 The example builds a fixture session set (two generic project roots, the
@@ -42,7 +46,7 @@ the simulated agent, dispatches four tasks and one proposal so the views have
 content, seeds the window geometry for the machine's display scale, captures the
 window with `PrintWindow`/`PW_RENDERFULLCONTENT` (a WebView2 surface comes out
 blank without it), downscales to 1600 px wide and writes
-`site/media/desktop-sessions.png`. Its endpoint, data directory and config
+`docs/media/desktop-sessions.png`. Its endpoint, data directory and config
 directory are its own: it never touches the maintainer's daemon, projects or
 agents. No real agent, no network.
 
@@ -52,9 +56,10 @@ the equivalent is a manual capture of the same fixture; the caption must then
 name that platform.
 
 Before committing the image, check it: no user name in a path, no real project
-name, no third-party product name, no e-mail, no token. Then add the figure to
-both language trees with alt text and a caption declaring surface, fixture
-origin, product version and platform. The lint requires both.
+name, no third-party product name, no e-mail, no token. Then commit it under
+`docs/media/`; meltemi-web copies it into both language trees of the site, with
+alt text and a caption declaring surface, fixture origin, product version and
+platform, and its lint requires both.
 
 ## Refreshing
 

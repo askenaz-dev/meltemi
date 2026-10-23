@@ -1,19 +1,31 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Release
 
-# Releases originate from a tag and its pipeline (docs/versionado.md). A red
-# gate aborts the release: no artifact is published (docs/release.md).
+# A release originates from a push to main that carries a new version
+# (release-con-el-push D1; docs/versionado.md). The `version` job asks
+# `meltemi-release gate` whether this commit opens the release path, and every
+# other job runs only when it says yes. The pipeline creates the tag on that
+# very commit; no tag starts this workflow, so a tag pushed by hand publishes
+# nothing. A red gate aborts the release: no artifact is published
+# (docs/release.md).
 #
-# A push to main republishes the SITE only (sitio-web-producto D7): the release
-# jobs are gated on a tag, the site lint stays a precondition, and the download
-# links are version-free — so republishing content never desynchronizes them from
-# the published release. (A path filter cannot be scoped per ref type in a single
-# `push` trigger, so main runs the cheap site path unconditionally rather than
-# risking a filtered tag.)
+# A dispatch re-runs a publication that failed half-way, and is honoured from
+# main only.
 on:
   push:
-    tags: ["v*.*.*"]
     branches: ["main"]
+  workflow_dispatch:
+
+# One release at a time: two pushes close together must not race to create the
+# same tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# Read-only by default; the jobs that publish raise their own permissions and
+# no other job may (release-con-el-push D5).
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,20 +45,86 @@ env:
   MELTEMI_ADAPTER_BUDGET_BYTES: "6291456"
 
 jobs:
+  # The release gate (release-con-el-push D1, D5): this commit's version must
+  # agree in every carrier, have no tag, be newer than every version tag, and
+  # the commit must be on main. The answer is the condition of every other job.
+  # Carriers that disagree fail this job, so the run turns red instead of
+  # quietly publishing nothing.
+  version:
+    name: release gate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.gate.outputs.release }}
+      version: ${{ steps.gate.outputs.version }}
+      tag: ${{ steps.gate.outputs.tag }}
+      notes: ${{ steps.notes.outputs.notes }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Every tag and origin/main: the gate compares against all of them.
+          fetch-depth: 0
+      - name: Show toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Ask the gate
+        id: gate
+        shell: bash
+        run: |
+          cargo run --quiet --locked -p meltemi-release -- gate --commit "$GITHUB_SHA" --main origin/main > gate.txt
+          cat gate.txt >> "$GITHUB_OUTPUT"
+          {
+            echo '### Release gate'
+            echo
+            echo '```'
+            cat gate.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat gate.txt
+      # The release's notes are the version's section of CHANGELOG.md when it
+      # has one, and generated otherwise (release-con-el-push D4). Taken here,
+      # where the toolchain already is, and handed to the publish job.
+      - name: The release notes
+        id: notes
+        if: steps.gate.outputs.release == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.gate.outputs.version }}
+        run: |
+          set +e
+          cargo run --quiet --locked -p meltemi-release -- notes "$VERSION" > release-notes.md
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "notes=changelog" >> "$GITHUB_OUTPUT"
+          elif [ "$code" -eq 3 ]; then
+            echo "CHANGELOG.md has no section for $VERSION: the notes will be generated"
+            echo "notes=generated" >> "$GITHUB_OUTPUT"
+          else
+            exit "$code"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.notes.outputs.notes == 'changelog'
+        with:
+          name: release-notes
+          path: release-notes.md
+          retention-days: 7
+          if-no-files-found: error
+
   gates:
     name: release gates (${{ matrix.os }})
-    # The release pipeline belongs to a tag; a site-only push skips it.
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: version
+    if: needs.version.outputs.release == 'true'
     strategy:
       fail-fast: true
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Show toolchain
         run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Desktop system dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -54,7 +132,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl \
             wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
             librsvg2-dev
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -116,25 +194,26 @@ jobs:
 
   deny:
     name: cargo-deny
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: version
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check licenses advisories sources bans
 
   package:
     name: package & checksums (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [gates, deny]
+    if: needs.version.outputs.release == 'true'
+    needs: [version, gates, deny]
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Desktop system dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -142,7 +221,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl \
             wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
             librsvg2-dev
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -184,22 +263,22 @@ jobs:
           # that signing step runs with the release secrets, not in this file.
           if command -v sha256sum >/dev/null; then sha256sum * > SHA256SUMS; else shasum -a 256 * > SHA256SUMS; fi
           cat SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: meltemi-${{ runner.os }}
           path: dist/
 
   package-gui:
     name: GUI installers (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [gates, deny]
+    if: needs.version.outputs.release == 'true'
+    needs: [version, gates, deny]
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Desktop system dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -207,7 +286,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl \
             wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
             librsvg2-dev
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -286,35 +365,50 @@ jobs:
           # key outside this file (docs/release.md).
           if command -v sha256sum >/dev/null; then sha256sum * > SHA256SUMS; else shasum -a 256 * > SHA256SUMS; fi
           cat SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: meltemi-gui-${{ runner.os }}
           path: dist-gui/
 
-  # Assembles the DRAFT release: every artifact of the six packaging jobs under
-  # ONE merged SHA256SUMS, so the stable-name URLs the site and the README
-  # promise (`releases/latest/download/<asset>`) have something to resolve to.
-  # It stays a draft on purpose: the maintainer downloads SHA256SUMS, signs it
-  # with the key CI never holds, uploads `SHA256SUMS.minisig` and publishes
-  # (docs/release.md) — a red gate upstream means this job never runs and
-  # nothing is published, not even as a draft.
-  release:
-    name: draft release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [gates, deny, package, package-gui]
+  # Publishes the release, with nobody in between (release-con-el-push D3,
+  # D4). The artifacts of the six packaging jobs go under ONE merged
+  # SHA256SUMS; the attestation over its entries is the release's signature,
+  # and its bundle travels as an asset so a download can be verified offline.
+  # Immutable releases accept no asset once published, so everything is
+  # uploaded to a draft first and the draft is published last. A draft does not
+  # create its tag: if this job fails half-way the tag does not exist yet, and a
+  # dispatch, or a re-run, finds the draft and finishes it.
+  publish:
+    name: publish the release
+    if: needs.version.outputs.release == 'true'
+    needs: [version, gates, deny, package, package-gui]
     runs-on: ubuntu-latest
+    # The only jobs that may see a publication credential run in this
+    # environment, and it admits main only (release-con-el-push D5).
+    environment: release
     permissions:
       contents: write
-      # The provenance mint (procedencia-de-release): id-token for the OIDC
-      # token behind the Sigstore signing certificate, attestations to persist
-      # the attestation, artifact-metadata for the artifact storage record.
+      # The provenance mint: id-token for the OIDC token behind the Sigstore
+      # signing certificate, attestations to persist the attestation,
+      # artifact-metadata for the artifact storage record.
       id-token: write
       attestations: write
       artifact-metadata: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.version.outputs.tag }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
+          # The packaging jobs' artifacts only: meltemi-<os> and meltemi-gui-<os>.
+          pattern: meltemi-*
           path: collected
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.version.outputs.notes == 'changelog'
+        with:
+          name: release-notes
+          path: notes
       - name: Merge artifacts under one checksum file
         shell: bash
         # The per-OS SHA256SUMS are working files of their packaging jobs; the
@@ -338,83 +432,102 @@ jobs:
           cd release-assets
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
-      # Build provenance over the same file the maintainer signs: the subjects
-      # are the entries of the merged SHA256SUMS, so one attestation covers
-      # every published asset exactly as the one detached signature does. This
-      # job only aggregates what the packaging jobs built, so the attestation
-      # ties the published set to this workflow and commit — it does not attest
-      # each build step (docs/release.md says so too, in the same words).
-      # Pinned by commit, not by a floating tag (§10): this step mints with the
-      # job's OIDC identity, and a moved tag must not be able to move it.
+      # The signature of the release: one attestation whose subjects are the
+      # entries of the merged SHA256SUMS, so it covers every published asset.
+      # This job only aggregates what the packaging jobs built, so it ties the
+      # published set to this workflow and commit; it does not attest each
+      # build step (docs/release.md says so in the same words). Pinned by
+      # commit: this step mints with the job's OIDC identity.
       - name: Attest provenance of the merged checksums
+        id: attest
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-checksums: release-assets/SHA256SUMS
-      - name: Create the draft release
+      # The bundle verifies itself against the public log, so it sits beside
+      # the assets it attests rather than inside SHA256SUMS.
+      - name: Keep the attestation bundle as an asset
+        shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: cp "$BUNDLE" release-assets/attestation.sigstore.json
+      - name: Create or reuse the draft
+        id: draft
+        shell: bash
+        # The tag does not exist yet: the gate refused any version that has one,
+        # and a draft does not create it. The release is created on the commit
+        # that passed the gates; a draft left by a failed run is reused.
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --draft \
-            --verify-tag \
-            --title "Meltemi $GITHUB_REF_NAME" \
-            --notes "Draft pending signature: the maintainer verifies these artifacts, signs SHA256SUMS with the project key and attaches SHA256SUMS.minisig before publishing. Checksums cover every asset, including the installer scripts. To verify a download, follow docs/release.md - it carries the public key and the three checks: checksum, signature, provenance." \
-            release-assets/*
-
-  # The site lint is a precondition of publishing on both paths: a tagged
-  # release and a content-only push to main.
-  site-lint:
-    name: site lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Site lint
-        run: cargo test -p meltemid --test site
-
-  # The product site is published only after the gates and the packaging have
-  # published their artifacts: the site must never announce a release whose
-  # artifacts were not published (sitio-web-producto D7). A red gate leaves the
-  # previous edition of the site untouched, because this condition is false.
-  publish-site:
-    name: publish site
-    needs: [site-lint, gates, deny, package, package-gui]
-    if: >-
-      !cancelled() &&
-      needs.site-lint.result == 'success' &&
-      (
-        !startsWith(github.ref, 'refs/tags/') ||
-        (needs.gates.result == 'success' &&
-         needs.deny.result == 'success' &&
-         needs.package.result == 'success' &&
-         needs['package-gui'].result == 'success')
-      )
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      # Marks come from brand/ (single source): they are staged into the
-      # artifact, never committed as copies under site/.
-      - name: Stage brand marks
+          state="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+          case "$state" in
+            false)
+              echo "$TAG is already published: nothing to upload"
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              ;;
+            true)
+              echo "a draft of $TAG exists: it is completed"
+              ;;
+            missing)
+              if [ -s notes/release-notes.md ]; then
+                notes=(--notes-file notes/release-notes.md)
+              else
+                notes=(--generate-notes)
+              fi
+              gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Meltemi $TAG" "${notes[@]}"
+              ;;
+            *)
+              echo "::error::unexpected state of $TAG: $state"
+              exit 1
+              ;;
+          esac
+      - name: Upload every asset to the draft
+        if: steps.draft.outputs.published != 'true'
+        shell: bash
+        # --clobber makes a re-run idempotent: an asset a failed upload left
+        # half-written is replaced. Allowed on a draft, refused once published.
+        run: gh release upload "$TAG" release-assets/* --clobber
+      - name: Publish the draft
+        if: steps.draft.outputs.published != 'true'
+        shell: bash
+        run: gh release edit "$TAG" --draft=false --latest
+      - name: Check what was published
+        shell: bash
+        # Nothing may be missing once published: immutable releases would never
+        # accept it afterwards.
         run: |
-          mkdir -p site/media
-          cp brand/meltemi-mark-gradient.svg site/media/
-          cp brand/meltemi-lockup-dark.svg site/media/
-          cp brand/meltemi-lockup-light.svg site/media/
-      # `enablement` lets the workflow turn Pages on itself: without it the very
-      # first publication fails on a repository where nobody clicked the setting,
-      # which is a poor way to greet a fresh clone or a fork.
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-      - id: deploy
-        uses: actions/deploy-pages@v4
+          published="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          missing=0
+          for file in release-assets/*; do
+            name="$(basename "$file")"
+            if ! grep -qxF "$name" <<< "$published"; then
+              echo "::error::$TAG was published without $name"
+              missing=1
+            fi
+          done
+          [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "false" ] || { echo "::error::$TAG is still a draft"; exit 1; }
+          exit "$missing"
+
+  # Tells the web a release is out (release-con-el-push D7). It starts
+  # meltemi-web's deploy workflow and carries no data: the site reads the
+  # published release from GitHub, the source of truth, so a lost notice leaves
+  # the site late, never wrong. The token may start that repository's workflows
+  # and nothing else; it cannot write its code. This is a job of its own, after
+  # the publication and never before: a failure here leaves the release exactly
+  # as it is, and re-running this job alone repeats the notice.
+  notify-web:
+    name: tell the web
+    needs: [version, publish]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Start the site's deploy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.WEB_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::WEB_DISPATCH_TOKEN is not set in the release environment (design D7); the release is published, the web was not told"
+            exit 1
+          fi
+          gh workflow run deploy.yml --repo askenaz-dev/meltemi-web --ref main
+          echo "meltemi-web's deploy started for ${{ needs.version.outputs.tag }}"

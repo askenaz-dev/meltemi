@@ -35,4 +35,4 @@ pub use model::{
 pub use project::{ActiveChange, ProjectedRule, ProjectionSources, project, project_user_rules};
 pub use review::{normalize_name, review_diagnostics};
 pub use spec_parser::{parse_spec, parse_spec_file};
-pub use validate::{validate_rumbo, validate_spec, validate_tree};
+pub use validate::{validate_delta_blocks, validate_rumbo, validate_spec, validate_tree};

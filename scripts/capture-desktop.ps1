@@ -12,14 +12,14 @@
 # does not embed the frontend.
 #
 # Usage (from the repository root):
-#   pwsh -NoProfile -File scripts/capture-desktop.ps1 [-Scale 250] [-Out site/media/desktop-sessions.png]
+#   pwsh -NoProfile -File scripts/capture-desktop.ps1 [-Scale 250] [-Out docs/media/desktop-sessions.png]
 
 param(
   # The display scale of the capture machine, in percent; 0 reads it from the
   # system. The persisted window geometry is in PHYSICAL pixels, so the logical
   # viewport the shell was designed for (1280x800) needs this factor applied.
   [int]$Scale = 0,
-  [string]$Out = "site/media/desktop-sessions.png",
+  [string]$Out = "docs/media/desktop-sessions.png",
   # Width of the published PNG. 1600 is 2x the site's display width: crisp on a
   # retina screen, and a few hundred kilobytes rather than several megabytes.
   [int]$Width = 1600

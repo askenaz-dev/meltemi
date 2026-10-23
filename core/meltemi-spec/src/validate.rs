@@ -7,6 +7,7 @@
 //! requirement has a scenario, delta headers are canonical, capability names
 //! are kebab-case, and rumbo front-matter is present and well-formed.
 
+use crate::delta::{DeltaOp, DeltaSpec};
 use crate::diagnostic::{Diagnostic, Rule};
 use crate::model::{Inclusion, MeltemiTree, RumboFile, Spec};
 
@@ -39,6 +40,24 @@ pub fn validate_spec(spec: &Spec) -> Vec<Diagnostic> {
     }
 
     for req in &spec.requirements {
+        // A REMOVED entry names a requirement that ceases to exist. It is held
+        // to what the format asks of it, its Reason and its Migration, and not
+        // to the rules of a requirement: asking it for a scenario would ask the
+        // delta to prove what it is withdrawing (release-con-el-push D11).
+        if spec.is_removed_entry(req) {
+            if !has_field(&req.description, "Reason") || !has_field(&req.description, "Migration") {
+                out.push(Diagnostic::new(
+                    spec.source.clone(),
+                    req.line,
+                    Rule::RemovedWithoutReasonOrMigration,
+                    format!(
+                        "removed requirement `{}` lacks Reason or Migration",
+                        req.name
+                    ),
+                ));
+            }
+            continue;
+        }
         if req.scenarios.is_empty() {
             out.push(Diagnostic::new(
                 spec.source.clone(),
@@ -53,6 +72,33 @@ pub fn validate_spec(spec: &Spec) -> Vec<Diagnostic> {
     crate::ears::validate_ears(spec, &mut out);
 
     out
+}
+
+/// Validates the requirement blocks a change's delta brings — its ADDED and
+/// MODIFIED ones — by the rules of a requirement. Each must be a complete
+/// block, so a fragment without its normative statement or without its
+/// scenarios is reported (`artifact-format`, «Reglas de contenido de delta»).
+/// REMOVED and RENAMED entries are not requirements: the merge checks them.
+///
+/// This is what `meltemi validate <change>` runs before the dry-run merge.
+#[must_use]
+pub fn validate_delta_blocks(delta: &DeltaSpec) -> Vec<Diagnostic> {
+    let requirements = delta
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            DeltaOp::Added(requirement) | DeltaOp::Modified(requirement) => {
+                Some(requirement.clone())
+            }
+            DeltaOp::Removed { .. } | DeltaOp::Renamed { .. } => None,
+        })
+        .collect();
+    validate_spec(&Spec {
+        capability: delta.capability.clone(),
+        requirements,
+        deltas: Vec::new(),
+        source: delta.source.clone(),
+    })
 }
 
 /// Validates a single rumbo file's front-matter.
@@ -95,6 +141,22 @@ pub fn validate_tree(tree: &MeltemiTree) -> Vec<Diagnostic> {
         }
     }
     out
+}
+
+/// Whether a requirement's description carries the field `name`, in any of
+/// the three spellings `delta::field` accepts. The parser joins a
+/// description's lines with spaces, so the field may start the text or follow
+/// a space; it is never looked for line by line.
+fn has_field(description: &str, name: &str) -> bool {
+    [
+        format!("**{name}**:"),
+        format!("**{name}:**"),
+        format!("{name}:"),
+    ]
+    .iter()
+    .any(|prefix| {
+        description.starts_with(prefix.as_str()) || description.contains(&format!(" {prefix}"))
+    })
 }
 
 /// Whether `s` matches `^[a-z0-9]+(-[a-z0-9]+)*$`.
@@ -156,6 +218,96 @@ mod tests {
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].rule, Rule::RequirementWithoutScenario);
         assert_eq!(diags[0].line, 1);
+    }
+
+    #[test]
+    fn a_removed_entry_is_held_to_its_reason_and_migration_not_to_a_scenario() {
+        // Scenario: Requisito eliminado con razón y migración
+        let spec = parse_spec(
+            "my-cap",
+            "## REMOVED Requirements\n\n### Requirement: Old\n**Reason**: superseded.\n**Migration**: use New.\n",
+            "spec.md",
+        );
+        assert!(
+            validate_spec(&spec).is_empty(),
+            "a removed entry needs no scenario and no normative verb"
+        );
+    }
+
+    #[test]
+    fn a_removed_entry_without_migration_is_still_invalid() {
+        // Scenario: Requisito eliminado sin migración
+        let spec = parse_spec(
+            "my-cap",
+            "## REMOVED Requirements\n### Requirement: Old\n**Reason**: superseded.\n",
+            "spec.md",
+        );
+        let diags = validate_spec(&spec);
+        assert_eq!(diags.len(), 1, "{diags:?}");
+        assert_eq!(diags[0].rule, Rule::RemovedWithoutReasonOrMigration);
+        assert_eq!(diags[0].line, 2);
+    }
+
+    #[test]
+    fn only_the_removed_section_is_exempt_from_the_requirement_rules() {
+        // An ADDED requirement without a scenario is still invalid when a
+        // REMOVED section follows it in the same delta.
+        let spec = parse_spec(
+            "my-cap",
+            "## ADDED Requirements\n### Requirement: New\nThe system SHALL do it.\n\n## REMOVED Requirements\n### Requirement: Old\n**Reason**: superseded.\n**Migration**: use New.\n",
+            "spec.md",
+        );
+        let diags = validate_spec(&spec);
+        assert_eq!(diags.len(), 1, "{diags:?}");
+        assert_eq!(diags[0].rule, Rule::RequirementWithoutScenario);
+        assert_eq!(diags[0].line, 2);
+    }
+
+    #[test]
+    fn a_modified_fragment_is_reported_as_an_invalid_delta() {
+        // Scenario: Requisito modificado con bloque parcial
+        // A MODIFIED block replaces the whole requirement, so a fragment would
+        // silently drop what it left out. The change's validation holds every
+        // modified block to the rules of a requirement: a statement without its
+        // scenarios, or scenarios without their statement, is reported. A
+        // fragment that keeps some scenarios and drops others is not caught
+        // here; that one is the review's (release-con-el-push 4.3).
+        use crate::delta::parse_delta;
+        let statement_only = parse_delta(
+            "my-cap",
+            "## MODIFIED Requirements\n### Requirement: R\nThe system SHALL do it differently.\n",
+            "spec.md",
+        );
+        let diags = validate_delta_blocks(&statement_only);
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule == Rule::RequirementWithoutScenario),
+            "{diags:?}"
+        );
+
+        let scenarios_only = parse_delta(
+            "my-cap",
+            "## MODIFIED Requirements\n### Requirement: R\n#### Scenario: S\n- **WHEN** a\n- **THEN** b\n",
+            "spec.md",
+        );
+        let diags = validate_delta_blocks(&scenarios_only);
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule == Rule::RequirementWithoutNormativeVerb),
+            "{diags:?}"
+        );
+
+        let complete = parse_delta(
+            "my-cap",
+            "## MODIFIED Requirements\n### Requirement: R\nThe system SHALL do it differently.\n#### Scenario: S\n- **WHEN** a\n- **THEN** b\n\n## REMOVED Requirements\n### Requirement: Old\n**Reason**: superseded.\n**Migration**: use R.\n",
+            "spec.md",
+        );
+        assert!(
+            validate_delta_blocks(&complete).is_empty(),
+            "a complete block, and a removed entry the merge checks, pass"
+        );
     }
 
     #[test]

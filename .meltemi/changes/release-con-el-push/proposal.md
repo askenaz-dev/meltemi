@@ -4,7 +4,7 @@
 > del 2026-10-23: la release del IDE sale **sin paso manual**, como el
 > despliegue de Meltemi Diagrams sale de un push. Revierte a conciencia la
 > decisión D1 de `procedencia-de-release` (la firma minisign en la máquina del
-> mantenedor) y la cierra; absorbe la tarea 7.4 de `delivery` en meltemi-web
+> mantenedor) y la retira sin fundir sus deltas; absorbe la tarea 7.4 de `delivery` en meltemi-web
 > (retirar el sitio de este repositorio); re-acota `sucesion-y-custodia`.
 > Nace de retomar el proyecto el 2026-10-23 con tres hechos sobre la mesa:
 > v0.1.1 lleva desde el 6 de agosto como borrador sin firmar, `main` lleva
@@ -80,19 +80,20 @@ la web sepa que hubo release: un aviso del pipeline a `meltemi-web`.
   como evidencia de qué pasó. El repositorio del IDE **entra al Terraform de
   la familia** para que rulesets, entorno y credencial se declaren en código
   como todo lo demás (decisión 0004 de meltemi-web).
-- **Una versión en tres archivos, verificada.** `Cargo.toml`,
-  `desktop/tauri.conf.json` y `desktop/ui/package.json` llevan la versión; un
-  script la fija en los tres y un guardián falla si divergen, como
-  `release:version` en Diagrams. La primera release de este camino es
+- **Una versión en cinco archivos, verificada.** `Cargo.toml`,
+  `desktop/tauri.conf.json`, `mobile/tauri.conf.json`,
+  `desktop/ui/package.json` y `desktop/ui/package-lock.json` llevan la
+  versión, y `Cargo.lock` la repite por crate; un script la fija en todos y
+  un guardián falla si divergen, como `release:version` en Diagrams. La primera release de este camino es
   **0.2.0**: `turno-vacio-es-error` cambió la taxonomía de códigos de salida y
   `versionado.md` lo clasifica como ruptura. El borrador v0.1.1 se borra.
 - **Notas de release desde el repositorio**: la sección de `CHANGELOG.md` de
   esa versión cuando existe, las notas generadas cuando no;
   `antes-de-anunciar` convierte la sección en regla.
-- **La web se entera.** Al publicarse la release, el pipeline envía un
-  `repository_dispatch` a `askenaz-dev/meltemi-web` con versión, fecha y
-  enlace a las notas; el despliegue del sitio reconstruye `/ide/` con esos
-  datos y redespliega. La página de descargas sigue sin literal de versión:
+- **La web se entera.** Al publicarse la release, el pipeline dispara el
+  despliegue del sitio de `askenaz-dev/meltemi-web` con un token que solo
+  puede lanzar sus workflows; el disparo no lleva datos y el sitio lee la
+  release publicada en GitHub (design D7). La página de descargas sigue sin literal de versión:
   sus enlaces resuelven a «latest» y eso no cambia. La parte del sitio es una
   change hermana en meltemi-web; aquí va el disparo y su credencial.
 - **El sitio se retira de este repositorio** (tarea 7.4 de `delivery` en
@@ -104,7 +105,8 @@ la web sepa que hubo release: un aviso del pipeline a `meltemi-web`.
 
 ## Enmienda a `procedencia-de-release`
 
-La change sigue activa con 6 de 8 tareas; esta la cierra y la enmienda:
+La change sigue activa con 6 de 8 tareas; esta la retira sin fundir sus
+deltas y conserva, reescrito, lo que sigue siendo cierto (design D9):
 
 - **D1 se revierte.** «Los dos mecanismos conviven; ninguno reemplaza al otro»
   pasa a «la atestación es la firma». El argumento de D1 —la cuenta
@@ -123,7 +125,9 @@ La change sigue activa con 6 de 8 tareas; esta la cierra y la enmienda:
   el bundle como asset.
 - **Tarea 1.2** (corrida real de la atestación) la cumple la release 0.2.0 de
   este camino. **Tarea 2.2** (publicar la clave pública) se retira: no hay
-  clave. `antes-de-anunciar` cambia su gate a «0.2.0 publicada y verificada
+  clave. Su carpeta pasa al histórico sin delta y con la cabecera «Retirada
+  sin fundir»; `artefactos-de-cada-push`, verificada en agosto, se archiva
+  antes que esta. `antes-de-anunciar` cambia su gate a «0.2.0 publicada y verificada
   con `gh attestation verify`».
 - **`sucesion-y-custodia` se re-acota**: sin clave de largo plazo, lo que hay
   que suceder es el control del repositorio y de la organización, no una
@@ -141,34 +145,44 @@ La change sigue activa con 6 de 8 tareas; esta la cierra y la enmienda:
 
 ### Modified Capabilities
 
-- `release-distribution`: MODIFIED «Versionado con política escrita» (la
-  release se origina de un commit de versión en `main`; el tag es su
-  resultado); MODIFIED «Artefactos firmados con custodia documentada» (la
-  firma es la atestación del workflow; sin clave de largo plazo; repudio de
-  release en vez de repudio de clave); MODIFIED «Procedencia verificable de
-  la release» (deja de presentarse como complemento de la firma del
-  mantenedor; gana el bundle como asset); MODIFIED «Builds de integración
-  descargables sin crear release» (el camino de release ya no es «solo de
-  tag»: es el commit de versión); ADDED «Controles estructurales del camino
-  sin paso humano» (acciones por SHA, rulesets, commit alcanzable desde
-  `main`, versión no publicada antes, entorno acotado); ADDED «Aviso a la web
-  al publicar»; REMOVED «Publicación del sitio con la release».
-- `product-site`: REMOVED de la verdad viva de este repositorio; vive en
+- `release-distribution`: ADDED «Procedencia verificable de la release»
+  (la de `procedencia-de-release`, reescrita, con el bundle como asset);
+  ADDED «Publicación idempotente y compatible con releases inmutables»;
+  ADDED «Controles estructurales del camino sin paso humano»; ADDED «Aviso a
+  la web al publicar»; MODIFIED «Versionado con política escrita» (la release
+  nace de un commit de versión en `main`; el tag es su resultado); MODIFIED
+  «Artefactos firmados con custodia documentada» (la firma es la atestación
+  del workflow, sin clave de largo plazo; repudio de release en vez de
+  repudio de clave; conserva su nombre porque es de la era de la migración);
+  MODIFIED «Instalador auditable», «Instaladores de la GUI de escritorio» y
+  «Nombres de artefacto estables por plataforma» (de «firmado» a «cubierto
+  por la atestación»); MODIFIED «Builds de integración descargables sin crear
+  release» (el camino de release ya no es «solo de tag»; exige archivar antes
+  `artefactos-de-cada-push`); REMOVED «Publicación del sitio con la release».
+- `product-site`: REMOVED sus ocho requisitos; la capacidad vive en
   `meltemi-web`.
+- `artifact-format`: MODIFIED «Reglas de contenido de delta» (un bloque
+  `REMOVED` no exige escenario ni verbo normativo en ninguna validación del
+  motor). Es la primera eliminación del proyecto y destapó que la validación
+  de una change y la del árbol discrepaban (design D11).
 
 ## Impact
 
 - Archivos: `.github/workflows/release.yml` (reescrito), `build.yml` (el
   caso «sin cambio de versión»), `scripts/sign-release.ps1` (retirado),
-  `scripts/unsigned-build-notice.txt`, `scripts/set-version.{ps1,sh}`
-  (nuevo), `docs/release.md`, `docs/versionado.md`, `README.md`, `LEEME.md`,
+  `scripts/unsigned-build-notice.txt`, `core/meltemi-release` (nuevo:
+  la versión, el gate de release y las notas), `docs/release.md`, `docs/versionado.md`, `README.md`, `LEEME.md`,
   `core/meltemid/tests/release.rs` (los guardianes que afirman la firma
   manual cambian con sus escenarios), `core/meltemid/tests/{site.rs,
   scenarios_sitio.rs}` (retirados), `site/` (retirado),
-  `scripts/capture-desktop.ps1`, `tui/examples/capture_svg.rs`, `Cargo.toml`
-  (versión y `repository`, que hoy apunta a una organización que no es la
-  nuestra), `desktop/tauri.conf.json`, `desktop/ui/package.json`,
-  `docs/plan-de-cambios.md`.
+  `scripts/capture-desktop.ps1`, `tui/examples/capture_svg.rs`,
+  `Cargo.toml` (versión y `repository`,
+  que hoy apunta a una organización que no es la nuestra), `Cargo.lock`,
+  `desktop/tauri.conf.json`, `mobile/tauri.conf.json`,
+  `desktop/ui/package.json`, `desktop/ui/package-lock.json`, `AGENTS.md`
+  (parte operativa), `docs/plan-de-cambios.md`,
+  `core/meltemi-spec/src/validate.rs` (los bloques `REMOVED` en la
+  validación del árbol).
 - Fuera de este repositorio, nombrado aquí: en `meltemi-web`, `github.tf`
   adopta el repositorio del IDE (rulesets, entorno, credencial del aviso) y
   una change hermana reconstruye `/ide/` con la versión; el mantenedor

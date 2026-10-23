@@ -132,7 +132,7 @@ fn the_installer_size_budget_is_a_blocking_pipeline_gate() {
     );
 }
 
-// Scenario: Instalador firmado por plataforma
+// Scenario: Instalador atestiguado por plataforma
 #[test]
 fn the_pipeline_builds_and_checksums_an_installer_per_platform() {
     let release = read(".github/workflows/release.yml");
@@ -148,7 +148,7 @@ fn the_pipeline_builds_and_checksums_an_installer_per_platform() {
     }
     assert!(
         job.contains("SHA256SUMS"),
-        "installers are checksummed under the release custody"
+        "installers are checksummed into what the release's attestation covers"
     );
     assert!(
         job.contains("ubuntu-latest")
@@ -187,8 +187,6 @@ fn no_self_contained_installer_format_is_built_or_named() {
         ),
         ("README.md", read("README.md")),
         ("LEEME.md", read("LEEME.md")),
-        ("site/downloads.html", read("site/downloads.html")),
-        ("site/es/downloads.html", read("site/es/downloads.html")),
         ("docs/release.md", read("docs/release.md")),
     ] {
         assert!(
