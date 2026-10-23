@@ -23,14 +23,17 @@ cerrar sin ellas.
   escenarios «Requisito eliminado con razón y migración», «Requisito eliminado
   sin migración», «Requisito modificado con bloque parcial» (vigentes) — gates: `cargo test -p meltemi-spec`, con
   `dogfood.rs` de vuelta en verde
-- [ ] 1.2 Archivar `artefactos-de-cada-push` tal como está —7/7, verificada en
+- [x] 1.2 Archivar `artefactos-de-cada-push` tal como está —7/7, verificada en
   runner real el 2026-08-09— para que «Builds de integración descargables sin
   crear release» entre a la verdad viva y `meltemi validate
   release-con-el-push` quede limpio (design D9) — gates: `meltemi validate`,
   `cargo test -p meltemi-spec`
   <!-- 2026-10-23: simulado sobre una copia temporal de `.meltemi/` con ese
   delta fundido: `validate` limpio. Sin fundir, un único diagnóstico,
-  `modified-requirement-missing` sobre ese requisito. -->
+  `modified-requirement-missing` sobre ese requisito.
+  Hecho el mismo día con los binarios de esta rama: `verify` 9/9, `archive`
+  la preservó en `archive/2026-10-23-artefactos-de-cada-push` y regeneró la
+  proyección; `validate release-con-el-push` y `validate` limpios. -->
 - [ ] 1.3 Retirar `procedencia-de-release` sin fundir: su carpeta pasa a
   `.meltemi/changes/archive/<fecha>-procedencia-de-release/` sin `specs/`, con
   la cabecera «Retirada sin fundir — absorbida por `release-con-el-push`» en

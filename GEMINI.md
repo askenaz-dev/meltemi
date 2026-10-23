@@ -1,4 +1,4 @@
-<!-- meltemi:context:begin sha256=fc5315c4fa94aff4032ed99a5513a34ac1f0ff1617e63b36d1a38f495137b509 -->
+<!-- meltemi:context:begin sha256=15957a15359fc85dfa272fa2f34048d3403fb62f7f6f92030dd97a9fe7a7e8c0 -->
 # Meltemi — contexto proyectado
 
 _Compilado desde `.meltemi/` por `meltemi project`. El contenido del bloque gestionado se regenera; no editarlo a mano._
@@ -87,6 +87,7 @@ meltemi/
 ├── proto/             # JSON Schemas del contrato + crate meltemi-proto
 ├── tui/               # cliente de terminal `meltemi` (fase 1)
 ├── desktop/           # cliente GUI Tauri (fase 2)
+├── mobile/            # compañero Android (fase 3); reusa el frontend de desktop/
 ├── sdk/               # SDK público (fase 2)
 ├── brand/             # identidad visual (V2 vigente; ver brand/README.md)
 ├── docs/              # documentación y research interno
