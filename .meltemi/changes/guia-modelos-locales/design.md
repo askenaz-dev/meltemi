@@ -103,6 +103,9 @@ proveedores—.
 
 ### D7 — Enlaces donde se busca, sin nombrar productos donde no se puede
 
+> Nota 2026-10-24: la parte de esta decisión que toca el sitio vive ahora en meltemi-web
+> (change `agents-page-own-model`); `site/` ya no existe en este repositorio.
+
 `docs/agentes.md` (sección OpenCode) enlaza la guía por su nombre. El README, el
 LEEME y el sitio (`site/agents.html` y `site/es/agents.html`) la enlazan con
 una frase sin nombres de terceros: hoy, un modelo propio pasa por un agente de

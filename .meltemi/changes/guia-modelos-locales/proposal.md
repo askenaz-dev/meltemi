@@ -7,6 +7,13 @@
 > (`docs/research/comparativo-orca-2026-09-24.md`, brechas LM-1, LM-2, LM-5,
 > LM-6, LM-8 y P5).
 
+> **Nota 2026-10-24**: el sitio se mudó a `askenaz-dev/meltemi-web` y `release-con-el-push`
+> borró de este repositorio `site/` y la spec `product-site`. El requisito del sitio de esta
+> change —la frase honesta y el enlace en la página de agentes— ya no se archiva aquí: lo
+> recoge la change `agents-page-own-model` de meltemi-web, en inglés y con su test. Aquí
+> quedan la guía, la pierna de conformidad, la corrección de Aider y los enlaces de `docs/`,
+> el README y el LEEME.
+
 ## Why
 
 Orca no tiene historia de modelos locales: es «trae tu agente y tu
@@ -60,10 +67,10 @@ nombre, elegible desde las tres superficies, sin tocar Meltemi.
   hoy; lo será si `runner-nivel-3` existe, y entonces el prefijo de proveedor
   (`ollama_chat/…`) lo escribe el usuario y el registro aporta la bandera —
   el daemon no traduce proveedores.
-- **Enlaces donde se busca**: `docs/agentes.md` (sección OpenCode), los dos
-  README y la sección BYO del sitio (`site/agents.html` y `site/es/agents.html`)
-  apuntan a la guía con una frase que dice lo que hay: «hoy, vía OpenCode;
-  el motor propio es otra change».
+- **Enlaces donde se busca**: `docs/agentes.md` (sección OpenCode) y los dos
+  README apuntan a la guía con una frase que dice lo que hay: «hoy, vía
+  OpenCode; el motor propio es otra change». La página de agentes del sitio
+  lleva la misma idea y vive ahora en meltemi-web (ver la nota de arriba).
 - **Un lint que no deje envejecer la guía**: los bloques JSON de las recetas
   se extraen y se parsean en un test (formato válido, `baseURL` locales,
   ninguna clave literal), y la página declara la fecha y las versiones con
@@ -81,14 +88,13 @@ nombre, elegible desde las tres superficies, sin tocar Meltemi.
   (tres recetas, perfiles, sin secretos literales, lint de formato).
 - `integration-levels`: + pierna «proveedor local» en la corrida de
   conformidad manual.
-- `product-site`: + enlace BYO-modelo con la frase honesta.
 
 ## Impact
 
 - Archivos: `docs/local-models.md` (nuevo), `docs/conformidad-manual.md`,
   `docs/agentes.md`, `docs/plan-de-cambios.md`,
   `.meltemi/changes/motor-propio-byok/proposal.md`, `README.md`, `LEEME.md`,
-  `site/agents.html`, `site/es/agents.html`, un test de docs.
+  un test de docs.
 - Cero dependencias nuevas; cero RPC.
 - Lo que solo el mantenedor puede hacer: instalar ollama (`winget install
   Ollama.Ollama`, `ollama pull qwen2.5-coder:7b`) y correr la pierna. Sin eso,
