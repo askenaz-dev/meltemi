@@ -640,30 +640,8 @@ mod tests {
     fn an_affirmation_moves_the_row_it_names_and_leaves_the_rest_alone() {
         let mut live = LiveData::default();
         live.apply(Update::Sessions(vec![
-            SessionRow {
-                id: "s-1".into(),
-                agent: "mock".into(),
-                state: SessionState::Active,
-                project_root: "/repo".into(),
-                resumable: false,
-                agent_id: None,
-                profile: None,
-                title: None,
-                mode: None,
-                model: None,
-            },
-            SessionRow {
-                id: "s-2".into(),
-                agent: "mock".into(),
-                state: SessionState::Active,
-                project_root: "/repo".into(),
-                resumable: false,
-                agent_id: None,
-                profile: None,
-                title: None,
-                mode: None,
-                model: None,
-            },
+            row("s-1", SessionState::Active),
+            row("s-2", SessionState::Active),
         ]));
 
         live.apply(Update::SessionState(meltemi_proto::SessionStateParams {
