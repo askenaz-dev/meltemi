@@ -192,12 +192,17 @@ cerrar sin ellas.
   checklist de lanzamiento y los enlaces de descargas de los dos README, que
   pasan a `/ide/downloads/`. Las capturas actuales se movieron con `git mv` a
   `docs/media/`. Suite completa: 1470 tests, cero fallos. -->
-- [ ] 5.3 Al archivar, si el motor deja vacío `.meltemi/specs/product-site/`,
+- [x] 5.3 Al archivar, si el motor deja vacío `.meltemi/specs/product-site/`,
   borrar la carpeta en el mismo commit y comprobar que `dogfood.rs` sigue
   verde (design D8)
   <!-- 2026-10-23, leído en `core/meltemid/src/archive.rs`: el archivo escribe
   el texto fundido tal cual, así que `product-site` quedará con su cabecera y
   sin requisitos. Esta tarea se cumple en el commit del archivo (7.4). -->
+  <!-- 2026-10-24: el archivo la dejó en una sola línea en blanco, y la carpeta
+  se borró en el commit del archivo; `dogfood.rs` verde. Quedan deltas y
+  propuestas que nombran `product-site` en este repositorio, con el sitio ya
+  en meltemi-web: el ADDED de `guia-modelos-locales` y cuatro propuestas del
+  backlog. Se resuelven cuando les toque, no aquí. -->
 
 ## 6. Fuera de este repositorio, antes del merge
 
@@ -298,6 +303,25 @@ cerrar sin ellas.
   tags `v*`, aplicado antes por la 6.1 y sin excepciones, no admite borrarlo.
   No estorba, porque el gate pide una versión mayor que todo tag y 0.2.0 ya
   lo es. Apagar Pages y borrar `github-pages` sigue en manos del mantenedor. -->
-- [ ] 7.4 `meltemi verify release-con-el-push` sin escenarios sin vínculo;
+  <!-- 2026-10-24: la change se archiva con esta tarea abierta, porque es del
+  mantenedor y nada la bloquea: Pages sigue configurado, con meltemi.dev como
+  dominio propio, y el entorno `github-pages` existe. Queda en el punto 7 de
+  los pendientes del mantenedor en `docs/plan-de-cambios.md`. -->
+- [x] 7.4 `meltemi verify release-con-el-push` sin escenarios sin vínculo;
   `meltemi archive release-con-el-push`; actualizar `docs/plan-de-cambios.md`
   y el gate de `antes-de-anunciar`
+  <!-- 2026-10-24: `validate` limpio y `verify` **41/41**, con daemon aislado;
+  `archive` fundió `artifact-format`, `product-site` y `release-distribution`.
+  **El fold dejó mal `release-distribution`**: `split_requirements`, en
+  `core/meltemid/src/archive.rs`, mete en el bloque de cada requisito los
+  encabezados `## …` que lo siguen en el delta, así que un bloque insertado
+  arrastra el encabezado de la sección siguiente. Quedaron un «## REMOVED
+  Requirements» y un «## MODIFIED Requirements» sueltos, y siete requisitos
+  vivos se leían como eliminados; `dogfood.rs` lo vio. Se repararon a mano y
+  se comprobó cada requisito contra el delta: los 4 ADDED y los 6 MODIFIED
+  coinciden, el REMOVED no está y los 5 restantes siguen igual (15 en
+  total). El defecto es anterior: desde el archivo de `sitio-web-producto`
+  (2026-07-25), `fleet-catalog`, `remote-access` y `session-history` cargan
+  encabezados «## MODIFIED Requirements» sueltos que el guardián tolera. El
+  arreglo del motor y su limpieza son trabajo de otra change. Plan y gate de
+  `antes-de-anunciar` actualizados. -->
