@@ -2,8 +2,9 @@
 
 ## 1. El test
 
-- [ ] 1.1 La sesión cancelada se espera fuera del registro con `until`
+- [x] 1.1 La sesión cancelada se espera fuera del registro con `until`
   (design D1) — gate: `cargo test -p meltemi --test session_verbs` verde
+  <!-- 2026-10-24: verde en 2,8 s; fmt limpio. -->
 - [ ] 1.2 El helper que sigue una sesión real: primer turno callado, sesión
   entre turnos, `watch` suscrito y entonces la instrucción; usado por las dos
   fases que siguen una sesión real; `Watching` lee su stderr en vivo (design

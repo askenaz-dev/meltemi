@@ -316,10 +316,13 @@ async fn the_whole_session_followed_without_a_terminal(endpoint: &str) -> (Strin
     );
     // Parked, it would have waited for an instruction; it ended because the
     // cancel reached it — the close came after it, and nothing else asked.
-    assert!(
-        !running(endpoint, &session).await,
-        "the cancelled session is gone"
-    );
+    // The close is published before the session leaves the registry, a window
+    // `follow.rs` names as expected: its leaving is waited for, bounded, rather
+    // than asked once (seguir-y-cancelar-sin-carrera, design D1).
+    until("the cancelled session is gone", async || {
+        !running(endpoint, &session).await
+    })
+    .await;
 
     // `log` holds what the watch printed: the same records, in the same
     // order, at the end of the record — one JSON object per line.
