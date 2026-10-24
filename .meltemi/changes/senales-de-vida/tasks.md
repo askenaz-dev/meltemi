@@ -103,6 +103,23 @@ Las tareas de la interfaz corren además los gates del frontend desde
   lo medido, lo capturado y lo declarado (parpadeo en conhost, WebKitGTK y
   WKWebView, maximizar oculto en Windows) — gates: el informe
 
-- [ ] 6.2 Cerrar la change: `validate`, `verify` con todos los escenarios
+- [x] 6.2 Cerrar la change: `validate`, `verify` con todos los escenarios
   enlazados, gate completo del workspace (fmt, clippy, suite) y del frontend,
   `docs/plan-de-cambios.md` al día — gates: los del cierre
+  <!-- 2026-10-24: la rama llevaba desde el 2026-09-25 sin aterrizar, 119
+  commits por detrás de `main`. El merge de `main` (`f4ac4ee`) aplicó sin
+  conflictos de texto y dejó uno de sentido: el test de `estado-en-vivo` que
+  afirma el estado de una sesión escribía dos `SessionRow` sin los campos
+  `started_at` y `ended_at` que esta change añadió; ahora usa el helper
+  `row()` del módulo. La señal del turno se revisó contra `estado-en-vivo`:
+  `working` deriva de `allSessions`, que la notificación `session/state`
+  parchea, así que el anillo, la línea de trabajo y el cursor siguen el estado
+  vivo también para una sesión que arrancó otro cliente, y `lifeSignal` sigue
+  sin decir «trabajando» sobre un turno cerrado o una tarjeta por decidir
+  aunque el estado llegue tarde; en la TUI, `pulse::armed` lee `is_working`
+  de las filas que `Update::SessionState` parchea. Gates: `validate` limpio y
+  `verify` **21/21** con daemon aislado; `cargo fmt --check`; clippy `-D
+  warnings` en Windows y con `--target x86_64-linux-android`; suite completa
+  **1488** pasan, 0 fallan, 1 ignorado. Frontend: `npm ci`, `npm audit` sin
+  vulnerabilidades, `svelte-check` 0 errores en 159 archivos, `lint:i18n`
+  limpio, `check:forms` al día, **115/115** tests y `vite build`. -->
