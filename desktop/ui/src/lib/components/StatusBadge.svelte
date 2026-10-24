@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import { writable } from "svelte/store";
   import { t } from "../i18n";
   import type { MessageKey } from "../messages";
   import type { SessionState } from "../stores";
@@ -36,6 +37,17 @@
     ended: "muted",
     interrupted: "danger",
   };
+
+  // C state change: the glyph fades in when the state CHANGES, not when the
+  // badge mounts — a list that appears is not a list of changes
+  // (senales-de-vida D1). A store rather than the `$state` rune, which a prop
+  // named `state` would turn into a store read of its own.
+  const changed = writable(false);
+  let seen: SessionState | null = null;
+  $effect(() => {
+    if (seen !== null && seen !== state) changed.set(true);
+    seen = state;
+  });
 </script>
 
 <!-- Symbol + word, never color alone (design system). -->
@@ -45,11 +57,11 @@
     aria-label={$t(("state." + state) as MessageKey)}
     title={$t(("state." + state) as MessageKey)}
   >
-    <span aria-hidden="true">{glyphs[state]}</span>
+    {#key state}<span class:changed={$changed} aria-hidden="true">{glyphs[state]}</span>{/key}
   </span>
 {:else}
   <span class="badge tone-{tones[state]}">
-    <span aria-hidden="true">{glyphs[state]}</span>
+    {#key state}<span class:changed={$changed} aria-hidden="true">{glyphs[state]}</span>{/key}
     {$t(("state." + state) as MessageKey)}
   </span>
 {/if}
@@ -75,5 +87,13 @@
   }
   .tone-muted {
     color: var(--text-muted);
+  }
+  .changed {
+    animation: arrive var(--dur-2) var(--ease-out);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .changed {
+      animation: none;
+    }
   }
 </style>

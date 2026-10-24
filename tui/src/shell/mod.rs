@@ -17,6 +17,7 @@ pub mod messages;
 pub mod onboarding;
 pub mod palette;
 pub mod present;
+pub mod pulse;
 pub mod render;
 pub mod state;
 pub mod terminal;
@@ -82,11 +83,21 @@ pub async fn run(endpoint: &str) -> io::Result<()> {
         }
     });
 
+    // The pulse's tick. It is polled only while a session works (the `if
+    // armed` below): a shell at rest adds no redraw of its own, and the
+    // connection's own refresh is what still wakes it (senales-de-vida D5).
+    let mut tick = tokio::time::interval(pulse::TICK);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     loop {
+        // The instant every clock of this frame counts against, fixed once so
+        // the frame is a function of its input.
+        live.pulse.now = Some(pulse::now_secs());
         guard
             .terminal()
             .draw(|frame| render::render(frame, &state, &live, &ctx))?;
 
+        let armed = pulse::armed(&live);
         tokio::select! {
             input = key_rx.recv() => {
                 let Some(event) = input else { break };
@@ -114,6 +125,9 @@ pub async fn run(endpoint: &str) -> io::Result<()> {
                     }
                     live.apply(update);
                 }
+            }
+            _ = tick.tick(), if armed => {
+                live.pulse.frame = live.pulse.frame.wrapping_add(1);
             }
         }
     }
@@ -444,6 +458,8 @@ mod tests {
         let mut state = ShellState::new();
         let mut live = LiveData::new();
         live.apply(Update::Sessions(vec![SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: "s-1".into(),
@@ -489,6 +505,8 @@ mod tests {
         let mut state = ShellState::new();
         let mut live = LiveData::new();
         live.apply(Update::Sessions(vec![SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: "s-old".into(),
@@ -514,6 +532,8 @@ mod tests {
         // The same session, resumable, does go out: the distinction is the
         // agent's ability to resume, not the fact that it ended.
         live.apply(Update::Sessions(vec![SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: "s-old".into(),
@@ -555,6 +575,8 @@ mod tests {
         let mut state = ShellState::new();
         let mut live = LiveData::new();
         live.apply(Update::Sessions(vec![SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: "s-1".into(),

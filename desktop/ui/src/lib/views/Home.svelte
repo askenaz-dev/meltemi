@@ -627,7 +627,10 @@
           onclick={() => void send()}
         >
           <Icon name="plus" size={14} />
-          {running ? $t("common.loading") : $t("home.send")}
+          <span class="steady">
+            <span hidden={running}>{$t("home.send")}</span>
+            <span hidden={!running}>{$t("common.loading")}</span>
+          </span>
           <kbd>{$t("conv.chord.dispatch")}</kbd>
         </button>
       </div>
@@ -720,7 +723,7 @@
       var(--mel-wind) 110deg,
       transparent 170deg
     );
-    animation: composer-wind 2.4s linear infinite;
+    animation: composer-wind var(--dur-ambient) linear infinite;
   }
   @keyframes composer-wind {
     from {

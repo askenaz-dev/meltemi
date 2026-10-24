@@ -14,6 +14,7 @@
   import Avatar from "../components/Avatar.svelte";
   import Drawer from "../components/Drawer.svelte";
   import EmptyState from "../components/EmptyState.svelte";
+  import Skeleton from "../components/Skeleton.svelte";
   import Icon from "../components/Icon.svelte";
 
   let selectedId: string | null = $state(null);
@@ -177,7 +178,10 @@
       <EmptyState glyph="fleet" title={$t("fleet.empty.title")} hint={$t("fleet.empty.hint")}>
         <button disabled={refreshing} onclick={() => void refresh()}>
           <Icon name="refresh" size={14} />
-          {refreshing ? $t("common.loading") : $t("fleet.refresh")}
+          <span class="steady">
+            <span hidden={refreshing}>{$t("fleet.refresh")}</span>
+            <span hidden={!refreshing}>{$t("common.loading")}</span>
+          </span>
         </button>
       </EmptyState>
     {:else}
@@ -416,7 +420,7 @@
       {#if harnessError}
         <p class="hint">{$t("common.error")}: {harnessError}</p>
       {:else if !harness}
-        <p class="hint">{$t("common.loading")}</p>
+        <Skeleton rows={3} />
       {:else if harness.rules.length === 0 && (harness.unknownAgents?.length ?? 0) === 0}
         <p class="hint">{$t("harness.none")}</p>
       {:else}

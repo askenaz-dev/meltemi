@@ -3320,6 +3320,755 @@ fn the_composer_says_an_agent_is_working_and_stops_saying_it_when_it_is_not() {
     );
 }
 
+// ---- motion vocabulary (senales-de-vida) ------------------------------------
+
+/// The named animations the motion vocabulary allows (senales-de-vida D2).
+const MOTION_NAMES: &[&str] = &["composer-wind", "arrive", "skeleton-pulse", "mark-draw"];
+
+/// The tokens an animation takes its duration from, one per class.
+const MOTION_TOKENS: &[&str] = &[
+    "var(--dur-1)",
+    "var(--dur-2)",
+    "var(--dur-pulse)",
+    "var(--dur-ambient)",
+    "var(--dur-mark)",
+];
+
+/// The query under which motion is withdrawn.
+const REDUCED: &str = "@media (prefers-reduced-motion: reduce)";
+
+/// The stylesheet of a UI source — a component's `<style>`, or the whole of a
+/// `.css` — without its `/* */` comments: a comment that names an animation is
+/// not one.
+fn stylesheet(path: &std::path::Path) -> String {
+    let source = std::fs::read_to_string(path).expect("read a UI source");
+    let css = if path.extension().is_some_and(|e| e == "css") {
+        source.as_str()
+    } else {
+        source
+            .split("<style>")
+            .nth(1)
+            .and_then(|rest| rest.split("</style>").next())
+            .unwrap_or("")
+    };
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(at) = rest.find("/*") {
+        out.push_str(&rest[..at]);
+        rest = rest[at..]
+            .find("*/")
+            .map_or("", |end| &rest[at + end + 2..]);
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The body of the first `{ … }` block of `text`, braces balanced.
+fn block(text: &str) -> &str {
+    let open = text.find('{').expect("a block opens");
+    let mut depth = 0usize;
+    for (at, ch) in text[open..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &text[open + 1..open + at];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("an unbalanced block: {text}");
+}
+
+/// Every reduced-motion branch of a stylesheet, by body.
+fn reduced_branches(css: &str) -> Vec<&str> {
+    css.match_indices(REDUCED)
+        .map(|(at, _)| block(&css[at..]))
+        .collect()
+}
+
+/// A stylesheet without its reduced-motion branches: that is where motion is
+/// withdrawn, not where it is declared.
+fn outside_reduced(css: &str) -> String {
+    let mut out = String::new();
+    let mut rest = css;
+    while let Some(at) = rest.find(REDUCED) {
+        out.push_str(&rest[..at]);
+        let open = rest[at..].find('{').expect("the branch opens");
+        let body = block(&rest[at..]);
+        rest = &rest[at + open + body.len() + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The `property: value` declarations of a stylesheet. A selector such as
+/// `.row:hover` also carries a colon; it never parses as a property, which is
+/// one lowercase word with dashes.
+fn declarations(css: &str) -> Vec<(String, String)> {
+    css.split(['{', '}', ';'])
+        .filter_map(|piece| {
+            let (property, value) = piece.split_once(':')?;
+            let property = property.trim();
+            if property.is_empty() || !property.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+            {
+                return None;
+            }
+            Some((property.to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+/// A duration written as a number rather than taken from a token.
+fn is_literal_duration(word: &str) -> bool {
+    word.starts_with(|c: char| c.is_ascii_digit() || c == '.')
+        && (word.ends_with("ms") || word.ends_with('s'))
+}
+
+// Scenario: Una animación fuera de la lista rompe la suite
+// Scenario: Toda animación se retira con movimiento reducido
+// Scenario: Las duraciones salen de los tokens
+#[test]
+fn every_animation_belongs_to_the_closed_vocabulary() {
+    let mut declared = std::collections::BTreeSet::new();
+    for path in walk_ui_sources() {
+        let file = path.display().to_string();
+        let css = stylesheet(&path);
+
+        // Only the listed names, and each body animates only what its class
+        // may: opacity or transform — and the mark, its outline.
+        for (at, _) in css.match_indices("@keyframes ") {
+            let after = &css[at + "@keyframes ".len()..];
+            let name = after
+                .split(|c: char| c.is_whitespace() || c == '{')
+                .next()
+                .unwrap_or("");
+            assert!(
+                MOTION_NAMES.contains(&name),
+                "{file} declares the animation `{name}`, which is not in the motion vocabulary"
+            );
+            declared.insert(name.to_string());
+            let allowed: &[&str] = if name == "mark-draw" {
+                &["stroke-dashoffset"]
+            } else {
+                &["opacity", "transform"]
+            };
+            for (property, _) in declarations(block(after)) {
+                assert!(
+                    allowed.contains(&property.as_str()),
+                    "{file}: `{name}` animates `{property}`, which its class may not"
+                );
+            }
+        }
+
+        // Every animation outside a reduced-motion branch names a listed
+        // animation and takes its duration from a token; a transition is
+        // motion no class declares.
+        let mut animates = false;
+        for (property, value) in declarations(&outside_reduced(&css)) {
+            match property.as_str() {
+                "animation" | "animation-name" | "animation-duration" => {
+                    if value.starts_with("none") {
+                        continue;
+                    }
+                    animates = true;
+                    if property != "animation-duration" {
+                        let name = value.split_whitespace().next().unwrap_or("");
+                        assert!(
+                            MOTION_NAMES.contains(&name),
+                            "{file} runs `{name}`, which is not in the motion vocabulary"
+                        );
+                    }
+                    if property != "animation-name" {
+                        assert!(
+                            MOTION_TOKENS.iter().any(|token| value.contains(token)),
+                            "{file}: `{property}: {value}` takes no duration token"
+                        );
+                        assert!(
+                            !value.split_whitespace().any(is_literal_duration),
+                            "{file}: `{property}: {value}` writes its duration as a literal"
+                        );
+                    }
+                }
+                "transition" | "transition-property" | "transition-duration" => {
+                    assert!(
+                        value.starts_with("none"),
+                        "{file}: `{property}: {value}` is motion outside the vocabulary"
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        // And a file that animates withdraws what it runs in its own branch.
+        if animates {
+            let branches = reduced_branches(&css);
+            assert!(
+                branches
+                    .iter()
+                    .any(|body| body.contains("animation: none") || body.contains("display: none")),
+                "{file} animates without withdrawing it under reduced motion"
+            );
+        }
+    }
+
+    // Nothing drives motion from script, where no stylesheet guard can see it.
+    let mut stack = vec![repo_root().join("desktop/ui/src")];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read src").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if !path.extension().is_some_and(|e| e == "ts" || e == "svelte") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("read a UI source");
+            for scripted in [
+                "svelte/transition",
+                "svelte/animate",
+                "svelte/motion",
+                ".animate(",
+            ] {
+                assert!(
+                    !source.contains(scripted),
+                    "{} drives motion from script: `{scripted}`",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    // The shared animations live where every component can use them.
+    let app_css = stylesheet(&repo_root().join("desktop/ui/src/app.css"));
+    for token in [
+        "--dur-1: 120ms",
+        "--dur-2: 160ms",
+        "--dur-pulse: 1.2s",
+        "--dur-ambient: 2.4s",
+        "--dur-mark: 600ms",
+    ] {
+        assert!(app_css.contains(token), "app.css declares `{token}`");
+    }
+    for shared in [
+        "@keyframes arrive",
+        "@keyframes skeleton-pulse",
+        "@keyframes mark-draw",
+    ] {
+        assert!(app_css.contains(shared), "app.css declares `{shared}`");
+    }
+    assert!(
+        declared.contains("composer-wind"),
+        "the ambient ring is still the one loop"
+    );
+
+    // The vocabulary this guard enforces is the one the design system writes.
+    let system = read("docs/ux/design-system.md");
+    assert!(
+        system.contains("### Motion vocabulary"),
+        "the design system carries the vocabulary"
+    );
+    for name in MOTION_NAMES {
+        assert!(
+            system.contains(&format!("`{name}`")),
+            "the design system names `{name}`"
+        );
+    }
+}
+
+/// The class names a Svelte source puts on its elements, from `class="…"` and
+/// `class:name` — what the markup wears, not what its comments say.
+fn classes(source: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for (at, _) in source.match_indices("class=\"") {
+        let value = &source[at + "class=\"".len()..];
+        let value = value.split('"').next().unwrap_or("");
+        found.extend(value.split_whitespace().map(str::to_string));
+    }
+    for (at, _) in source.match_indices("class:") {
+        let name = source[at + "class:".len()..]
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+            .next()
+            .unwrap_or("");
+        found.push(name.to_string());
+    }
+    found
+}
+
+// Scenario: Las superficies de decisión no se mueven
+#[test]
+fn the_surfaces_of_a_decision_arrive_still() {
+    // The tray and its indicator, the notices, the bar, and the banners of the
+    // shell: nothing on them moves, because they are where a decision is made
+    // or claimed.
+    for still in [
+        "desktop/ui/src/lib/views/Permissions.svelte",
+        "desktop/ui/src/lib/components/TopBar.svelte",
+        "desktop/ui/src/lib/components/Notices.svelte",
+        "desktop/ui/src/lib/components/Sidebar.svelte",
+        "desktop/ui/src/App.svelte",
+    ] {
+        let css = stylesheet(&repo_root().join(still));
+        assert!(!css.contains("@keyframes"), "{still} declares an animation");
+        for (property, value) in declarations(&css) {
+            if property.starts_with("animation") || property.starts_with("transition") {
+                assert!(
+                    value.starts_with("none"),
+                    "{still} moves: `{property}: {value}`"
+                );
+            }
+        }
+        let source = read(still);
+        for class in classes(&source) {
+            assert!(
+                class != "arrive",
+                "{still} wears the arrival class, and it arrives still"
+            );
+        }
+        assert!(
+            !source.contains("<Skeleton"),
+            "{still} pulses while a decision is in front of the user"
+        );
+    }
+
+    // The permission card of the transcript is the one item that does not
+    // arrive: it is where the user decides.
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    let card = detail
+        .split("{:else if item.kind === \"permission\"}")
+        .nth(1)
+        .expect("the transcript draws a permission card")
+        .split("{:else")
+        .next()
+        .expect("the card's branch closes");
+    assert!(
+        !classes(card).iter().any(|class| class == "arrive"),
+        "the permission card arrives still: {card}"
+    );
+    // And its siblings do arrive, so the rule is about the card and not an
+    // accident of a transcript that never moves.
+    for sibling in [
+        "<div class=\"turn human arrive\">",
+        "<div class=\"turn agent arrive\">",
+        "<div class=\"sysLine arrive tone-{style.tone}\">",
+    ] {
+        assert!(
+            detail.contains(sibling),
+            "a new item of the conversation arrives: {sibling}"
+        );
+    }
+}
+
+// Scenario: Una carga rápida no parpadea
+// Scenario: Una carga lenta muestra el esqueleto
+#[test]
+fn a_wait_is_shown_only_past_its_threshold() {
+    // The threshold is decided by a pure module and EXECUTED (`node --test`):
+    // this pins the cases there and that the component takes it from there.
+    let executed = read("desktop/ui/tests/skeleton.test.ts");
+    for case in [
+        "a load that answers before the threshold never shows the skeleton",
+        "a load that outlasts the threshold shows the skeleton, once",
+    ] {
+        assert!(
+            executed.contains(case),
+            "the executed case is missing: {case}"
+        );
+    }
+    let module = read("desktop/ui/src/lib/skeleton.ts");
+    assert!(
+        module.contains("export const SKELETON_DELAY_MS = 150;"),
+        "the threshold is the one the spec states"
+    );
+
+    let skeleton = read("desktop/ui/src/lib/components/Skeleton.svelte");
+    assert!(
+        skeleton.contains("import { revealAfter, skeletonWidths } from \"../skeleton\";"),
+        "the component takes its threshold and its widths from the tested module"
+    );
+    // Nothing is drawn before the reveal, and the effect hands the cancel back
+    // as its teardown: the data arriving unmounts the skeleton and the reveal
+    // never fires.
+    assert!(
+        skeleton.contains("$effect(() =>\n    revealAfter(") && skeleton.contains("{#if shown}"),
+        "the skeleton waits for its reveal and cancels it on unmount"
+    );
+    // What it draws once shown: busy, with the word for a screen reader, in
+    // the density of the table it stands in for.
+    assert_eq!(
+        skeleton
+            .matches("role=\"status\" aria-busy=\"true\"")
+            .count(),
+        2,
+        "both forms say they are busy"
+    );
+    assert_eq!(
+        skeleton
+            .matches("<span class=\"label\">{$t(\"common.loading\")}</span>")
+            .count(),
+        2,
+        "both forms carry the word for a screen reader"
+    );
+    let css = stylesheet(&repo_root().join("desktop/ui/src/lib/components/Skeleton.svelte"));
+    assert!(css.contains("height: var(--row-h);"), "32 px rows");
+
+    // And every view that waits puts it inside its waiting branch, so the
+    // answer is what withdraws it.
+    for (view, branch) in [
+        (
+            "desktop/ui/src/lib/views/Project.svelte",
+            "{#if loading}\n  <Skeleton",
+        ),
+        (
+            "desktop/ui/src/lib/views/Review.svelte",
+            "{#if loading}\n    <Skeleton",
+        ),
+        (
+            "desktop/ui/src/lib/views/Fleet.svelte",
+            "{:else if !harness}\n        <Skeleton",
+        ),
+        (
+            "desktop/ui/src/lib/views/Settings.svelte",
+            "{#if loadingConfig}\n        <Skeleton",
+        ),
+        (
+            "desktop/ui/src/lib/views/Usage.svelte",
+            "{#if !result && !error}\n    <Skeleton",
+        ),
+    ] {
+        assert!(
+            read(view).contains(branch),
+            "{view} waits with a skeleton: {branch}"
+        );
+    }
+    // A refresh keeps the table on screen and says the wait beside it.
+    assert!(
+        read("desktop/ui/src/lib/views/Usage.svelte")
+            .contains("{#if loading && result}\n      <Skeleton compact />"),
+        "a refresh does not empty the table it refreshes"
+    );
+}
+
+// Scenario: El esqueleto se queda quieto con movimiento reducido
+#[test]
+fn a_skeleton_stands_still_and_speaks_under_reduced_motion() {
+    let css = stylesheet(&repo_root().join("desktop/ui/src/lib/components/Skeleton.svelte"));
+    assert!(
+        css.contains("animation: skeleton-pulse var(--dur-pulse) var(--ease-out) infinite;"),
+        "the bars pulse by opacity"
+    );
+    assert!(
+        !css.contains("gradient"),
+        "a skeleton never sweeps a gradient: that belongs to the ring"
+    );
+    let branch = reduced_branches(&css).concat();
+    let bar = block(&branch[branch.find(".bar {").expect("the bars are named")..]);
+    assert!(
+        bar.contains("animation: none;"),
+        "the bars stand still: {bar}"
+    );
+    // Still bars say nothing about progress, so the word becomes visible.
+    let label = block(&branch[branch.find(".label {").expect("the word is named")..]);
+    assert!(
+        label.contains("position: static;") && label.contains("clip-path: none;"),
+        "the word is shown when the bars stop: {label}"
+    );
+}
+
+// Scenario: Ninguna vista espera con una palabra suelta
+#[test]
+fn no_view_waits_with_a_bare_word() {
+    // Anywhere in the surface, the loading word is either a skeleton's label or
+    // the hidden twin of a control that keeps its width — never the whole of a
+    // wait, and never a label that makes its button jump.
+    for path in walk_ui_sources() {
+        if !path.extension().is_some_and(|e| e == "svelte") {
+            continue;
+        }
+        let file = path.display().to_string();
+        let source = std::fs::read_to_string(&path).expect("read a UI source");
+        for (at, _) in source.match_indices("$t(\"common.loading\")") {
+            let line_start = source[..at].rfind('\n').map_or(0, |nl| nl + 1);
+            let line = source[line_start..at].trim_start();
+            if file.ends_with("Skeleton.svelte") {
+                assert!(
+                    line.starts_with("<span class=\"label\">"),
+                    "{file}: the word is the skeleton's label: {line}"
+                );
+                continue;
+            }
+            assert!(
+                line.starts_with("<span hidden={!"),
+                "{file}: the loading word stands alone: {line}"
+            );
+            let before = &source[at.saturating_sub(240)..at];
+            assert!(
+                before.contains("<span class=\"steady\">"),
+                "{file}: a waiting label keeps its control's width"
+            );
+        }
+    }
+    // One grid cell for both labels: the control is as wide as the longer one.
+    let app_css = read("desktop/ui/src/app.css");
+    assert!(
+        app_css.contains(".steady > * {\n  grid-area: 1 / 1;\n}")
+            && app_css
+                .contains(".steady > [hidden] {\n  display: block;\n  visibility: hidden;\n}"),
+        "a steady control stacks its labels and hides the one not in use"
+    );
+}
+
+// Scenario: Antes del primer fragmento se dice que trabaja
+// Scenario: El cursor sigue al último fragmento sin parpadear
+// Scenario: Esperar una decisión no es trabajar
+// Scenario: El tiempo de la sesión corre mientras vive
+#[test]
+fn a_turn_in_flight_says_it_is_working() {
+    // Decided by a pure module over the same fold the transcript draws, and
+    // EXECUTED (`node --test`): this pins the cases and the wiring.
+    let executed = read("desktop/ui/tests/turn-signal.test.ts");
+    for case in [
+        "before the first fragment the turn is waiting, timed from its instruction",
+        "an open turn with fragments is where the cursor goes, and a closed one has none",
+        "waiting on a decision or an instruction is not working",
+        "the clock reads m:ss past the instruction, and a session's time runs until it ends",
+    ] {
+        assert!(
+            executed.contains(case),
+            "the executed case is missing: {case}"
+        );
+    }
+
+    let detail = read("desktop/ui/src/lib/views/SessionDetail.svelte");
+    // The signal answers to the SAME `working` that lights the ring: a session
+    // waiting on its user is not working, and says nothing of the kind.
+    assert!(
+        detail.contains("const signal = $derived(lifeSignal(conversation, working));"),
+        "the transcript takes its signal from the tested module"
+    );
+
+    // Waiting: a glyph, a word, and a clock the live region does not read out.
+    let waiting = detail
+        .split("{#if signal.kind === \"waiting\"}")
+        .nth(1)
+        .expect("the transcript says the agent is working")
+        .split("{#if conversation.length === 0")
+        .next()
+        .expect("the waiting line closes");
+    assert!(
+        waiting.contains("$t(\"conv.working\")")
+            && waiting.contains("<span class=\"clock\" aria-hidden=\"true\"")
+            && waiting.contains("elapsedClock(now - Date.parse(signal.since))"),
+        "the waiting line says the word and counts from the instruction: {waiting}"
+    );
+    // "No output" is a verdict on a turn that ended, never on one in flight.
+    assert!(
+        detail.contains("{#if item.parts.length === 0 && item.closed}"),
+        "an open turn is not called empty"
+    );
+
+    // The cursor follows the turn where the words arrive, and does not blink.
+    assert!(
+        detail.contains(
+            "{@const flowing = signal.kind === \"streaming\" && signal.itemId === item.id}"
+        ),
+        "the cursor belongs to the one turn in flight"
+    );
+    assert_eq!(
+        detail.matches("class=\"cursor\"").count(),
+        2,
+        "after the last words, or after the last part when it is not words"
+    );
+    let css = stylesheet(&repo_root().join("desktop/ui/src/lib/views/SessionDetail.svelte"));
+    let cursor = block(&css[css.find(".cursor {").expect("the cursor is styled")..]);
+    assert!(
+        !cursor.contains("animation"),
+        "the cursor stays still: a blink would be a second ambient loop: {cursor}"
+    );
+
+    // The session's time runs: one clock for header and transcript, ticking
+    // while the session lives and its tab is in front, in tabular figures.
+    assert!(
+        detail.contains("durationLabel(session.startedAt, session.endedAt, now)"),
+        "the header's time is measured against the ticking clock"
+    );
+    let clock = detail
+        .split("let now = $state(Date.now());")
+        .nth(1)
+        .expect("the view keeps one clock")
+        .split("});")
+        .next()
+        .expect("its effect closes");
+    assert!(
+        clock.contains("if (!active || !session || !LIVE.includes(session.state)) return;")
+            && clock.contains("setInterval(() => (now = Date.now()), 1000)")
+            && clock.contains("return () => clearInterval(tick);"),
+        "one tick a second, only while it has something to count: {clock}"
+    );
+    let figures = block(&css[css.find(".clock {").expect("the clocks are styled")..]);
+    assert!(
+        figures.contains("font-variant-numeric: tabular-nums;"),
+        "a ticking second never shifts what follows it"
+    );
+
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    assert_eq!(
+        messages.matches("\"conv.working\":").count(),
+        2,
+        "the word is written in both languages"
+    );
+}
+
+// Scenario: La ventana nace oculta y con su geometría
+// Scenario: La interfaz lista muestra la ventana
+#[test]
+fn the_window_is_shown_once_the_interface_exists() {
+    // Created hidden: the system never paints an empty frame of it.
+    let config: serde_json::Value =
+        serde_json::from_str(&read("desktop/tauri.conf.json")).expect("the config parses");
+    assert_eq!(
+        config["app"]["windows"][0]["visible"],
+        serde_json::json!(false),
+        "the main window is created hidden"
+    );
+
+    // The restored geometry lands while it is hidden: restoring comes before
+    // the gate and before the cap, the two ways it can be shown.
+    let host = read("desktop/src/lib.rs");
+    let setup = host
+        .split(".setup(|app| {")
+        .nth(1)
+        .expect("the host has a setup")
+        .split(".invoke_handler(")
+        .next()
+        .expect("the setup closes");
+    let restored = setup
+        .find("restore_window(app.handle(), &stored);")
+        .expect("the geometry is restored in setup");
+    let gate = setup
+        .find("app.manage(reveal::Reveal::default());")
+        .expect("the reveal gate is managed");
+    let cap = setup
+        .find("std::thread::sleep(reveal::REVEAL_CAP);")
+        .expect("the cap is armed");
+    assert!(
+        restored < gate && gate < cap,
+        "the geometry is applied before anything can show the window"
+    );
+    // One place shows the window, and only through the gate.
+    assert_eq!(
+        host.matches(".show()").count(),
+        1,
+        "nothing but the gate shows the window"
+    );
+    assert!(
+        host.contains("if !reveal.first() {"),
+        "the window is shown once, by whoever arrives first"
+    );
+
+    // The interface signals right after it mounts — not after a paint, which
+    // a hidden webview may never produce — and the host serves the signal.
+    let main = read("desktop/ui/src/main.ts");
+    let mounted = main
+        .find("const app = mount(App,")
+        .expect("the interface mounts");
+    let signalled = main
+        .find("void invoke(\"first_frame\")")
+        .expect("the interface signals its first frame");
+    assert!(mounted < signalled, "the signal follows the mount");
+    assert!(
+        !main.contains("requestAnimationFrame("),
+        "the signal does not wait for a frame the hidden window may never paint"
+    );
+    assert!(
+        host.contains("fn first_frame(app: tauri::AppHandle)")
+            && host.contains("            first_frame,\n"),
+        "the host answers the signal"
+    );
+}
+
+// Scenario: La marca se dibuja una vez en la bienvenida
+#[test]
+fn the_mark_draws_itself_once_in_the_welcome() {
+    let welcome = read("desktop/ui/src/lib/components/Onboarding.svelte");
+    // The mark itself, with a gradient id of its own: two `melMark` ids in one
+    // document would leave one of the two marks painted by the wrong one.
+    assert!(
+        welcome.contains("<svg class=\"mark\"")
+            && welcome.contains("id=\"melMarkWelcome\"")
+            && welcome.contains("stroke=\"url(#melMarkWelcome)\""),
+        "the welcome carries the mark with its own gradient"
+    );
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        !sidebar.contains("melMarkWelcome"),
+        "and the bar keeps its own"
+    );
+    // The outline is measured as one, so the draw is the same whatever the
+    // path's real length.
+    assert!(
+        welcome.contains("class=\"stroke\"\n        pathLength=\"1\""),
+        "the outline is normalised to a length of one"
+    );
+
+    // Drawn once, in its token's 600 ms; the resting state is the drawn mark,
+    // so withdrawing the animation leaves it drawn.
+    let css = stylesheet(&repo_root().join("desktop/ui/src/lib/components/Onboarding.svelte"));
+    let stroke = block(&css[css.find(".mark .stroke {").expect("the outline is styled")..]);
+    assert!(
+        stroke.contains("animation: mark-draw var(--dur-mark) var(--ease-out) both;")
+            && !stroke.contains("infinite"),
+        "the outline draws once: {stroke}"
+    );
+    assert!(
+        stroke.contains("stroke-dasharray: 1;") && stroke.contains("stroke-dashoffset: 0;"),
+        "at rest the outline is whole: {stroke}"
+    );
+    let reduced = reduced_branches(&css).concat();
+    assert!(
+        reduced.contains(".mark .stroke") && reduced.contains("animation: none;"),
+        "under reduced motion it is simply drawn: {reduced}"
+    );
+    assert!(
+        read("desktop/ui/src/app.css").contains("--dur-mark: 600ms;"),
+        "the brand's one movement lasts 600 ms"
+    );
+}
+
+/// The classes of the vocabulary are worn where the design system says: the
+/// palette fades in as it opens, and a status badge fades its glyph when the
+/// state changes rather than every time a list mounts (senales-de-vida D1).
+#[test]
+fn arrival_and_state_change_are_worn_where_the_vocabulary_says() {
+    let palette = stylesheet(&repo_root().join("desktop/ui/src/lib/components/Palette.svelte"));
+    let rule = block(&palette[palette.find(".palette {").expect("the panel's rule")..]);
+    assert!(
+        rule.contains("animation: arrive var(--dur-1) var(--ease-out)"),
+        "the palette arrives: {rule}"
+    );
+
+    let badge = read("desktop/ui/src/lib/components/StatusBadge.svelte");
+    assert_eq!(
+        badge
+            .matches("{#key state}<span class:changed={$changed} aria-hidden=\"true\">")
+            .count(),
+        2,
+        "both forms of the badge redraw their glyph on a change"
+    );
+    assert!(
+        badge.contains("if (seen !== null && seen !== state) changed.set(true);"),
+        "the fade is earned by a change, not by mounting"
+    );
+    let css = stylesheet(&repo_root().join("desktop/ui/src/lib/components/StatusBadge.svelte"));
+    assert!(
+        css.contains("animation: arrive var(--dur-2) var(--ease-out)"),
+        "a state change takes the state-change duration"
+    );
+}
+
 // Scenario: La pestaña dice de qué trata la sesión
 // Scenario: Una sesión sin título se nombra como antes
 // Scenario: El proyecto se antepone ante ambigüedad

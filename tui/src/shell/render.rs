@@ -21,6 +21,7 @@ use crate::shell::glyphs::{self, Glyph};
 use crate::shell::live::{LiveData, ProjectRow, SessionRow};
 use crate::shell::messages::{Lang, Msg, text};
 use crate::shell::present::Presentation;
+use crate::shell::pulse;
 use crate::shell::state::{ConfirmAction, InputPurpose, Overlay, ShellState, View};
 
 /// ASCII twin of the box-drawing border set, used when Unicode is off.
@@ -239,16 +240,42 @@ fn render_header(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx)
         };
         format!("{} · {word}: {}", gate.change, gate.artifact)
     });
-    let mut spans = vec![Span::raw(left.clone())];
-    if let Some(gate) = gate {
-        // Measured, not a magic width: the gate is shown only when it fits
-        // beside the two signals that never yield. A threshold picked by hand
-        // would be wrong for every terminal but one.
-        let needed = left.chars().count() + gate.chars().count() + perms.chars().count() + 6;
-        if needed <= area.width as usize {
-            spans.push(Span::raw("   "));
-            spans.push(Span::styled(gate, ctx.emphasis()));
+    // The pulse: a spinner, how many sessions work and a word, only while any
+    // does (senales-de-vida D5).
+    let busy = pulse::working(live);
+    let beat = (busy > 0).then(|| {
+        let word = if ctx.lang == Lang::Es {
+            "trabajando"
+        } else {
+            "working"
+        };
+        format!(
+            "{} {busy} {word}",
+            pulse::spinner(live.pulse.frame, &ctx.present)
+        )
+    });
+    // Measured, not a magic width: the gate is shown only when it fits beside
+    // the two signals that never yield, and the pulse only when it fits beside
+    // whatever of those is shown — it yields first. A threshold picked by hand
+    // would be wrong for every terminal but one.
+    let width = area.width as usize;
+    let mut used = left.chars().count() + 3 + perms.chars().count();
+    let gate = gate.filter(|gate| {
+        let fits = used + 3 + gate.chars().count() <= width;
+        if fits {
+            used += 3 + gate.chars().count();
         }
+        fits
+    });
+    let beat = beat.filter(|beat| used + 3 + beat.chars().count() <= width);
+    let mut spans = vec![Span::raw(left.clone())];
+    if let Some(beat) = beat {
+        spans.push(Span::raw("   "));
+        spans.push(Span::raw(beat));
+    }
+    if let Some(gate) = gate {
+        spans.push(Span::raw("   "));
+        spans.push(Span::styled(gate, ctx.emphasis()));
     }
     spans.push(Span::raw("   "));
     spans.push(Span::styled(perms, ctx.emphasis()));
@@ -1208,6 +1235,12 @@ fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &S
             if let Some(model) = &row.model {
                 line.push_str(&format!(" · {model}"));
             }
+            // The session's time: counting while it works, final once it
+            // ended, absent while it lives without working — a clock no tick
+            // keeps current would lie (senales-de-vida D5).
+            if let Some(time) = pulse::session_time(row, live.pulse) {
+                line.push_str(&format!(" · {time}"));
+            }
             line
         }
         None => "-".to_string(),
@@ -1796,6 +1829,8 @@ mod tests {
     #[test]
     fn the_terminal_shows_the_model_that_governed_and_nothing_when_none_did() {
         let with_model = SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             id: "s-1".into(),
             agent: "mock".into(),
             state: SessionState::Active,
@@ -1808,6 +1843,8 @@ mod tests {
             model: Some("some-provider-model".into()),
         };
         let without = SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             model: None,
             ..with_model.clone()
         };
@@ -1887,6 +1924,8 @@ mod tests {
         // and nothing is resumed. What is NOT offered is interrupting — there is
         // no turn to stop.
         let waiting = SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: "s-1".into(),
@@ -2305,6 +2344,8 @@ mod tests {
         ]));
         live.apply(Update::Sessions(vec![
             SessionRow {
+                started_at: String::new(),
+                ended_at: None,
                 mode: None,
                 model: None,
                 id: "s1".into(),
@@ -2317,6 +2358,8 @@ mod tests {
                 title: None,
             },
             SessionRow {
+                started_at: String::new(),
+                ended_at: None,
                 mode: None,
                 model: None,
                 id: "s2".into(),
@@ -2329,6 +2372,8 @@ mod tests {
                 title: None,
             },
             SessionRow {
+                started_at: String::new(),
+                ended_at: None,
                 mode: None,
                 model: None,
                 id: "s3".into(),
@@ -2404,6 +2449,8 @@ mod tests {
             active_sessions: 3,
         }]));
         let row = |id: &str, state: SessionState| SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: id.into(),
@@ -2434,9 +2481,12 @@ mod tests {
             out.contains("(1)"),
             "and each header carries how many it holds: {out}"
         );
-        // In signal order: a decision first, what is over last.
+        // In signal order: a decision first, what is over last. Read inside the
+        // view's frame: the header above it now says how many sessions work,
+        // in the working bucket's own word (senales-de-vida D5).
+        let view = &out[out.find('┌').expect("the view is framed")..];
         let at = |needle: &str| {
-            out.find(needle)
+            view.find(needle)
                 .unwrap_or_else(|| panic!("{needle}: {out}"))
         };
         assert!(
@@ -2473,6 +2523,8 @@ mod tests {
             active_sessions: 1,
         }]));
         live.apply(Update::Sessions(vec![SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: "s1".into(),
@@ -2813,6 +2865,8 @@ mod tests {
         });
         let mut live = LiveData::new();
         live.apply(Update::Sessions(vec![SessionRow {
+            started_at: String::new(),
+            ended_at: None,
             mode: None,
             model: None,
             id: "s1".into(),
@@ -3285,6 +3339,120 @@ mod tests {
         assert!(
             narrow.contains("daemon") && narrow.contains('2'),
             "connection and pending decisions survive the squeeze: {narrow}"
+        );
+    }
+
+    /// A session row with a known start, for the pulse's tests.
+    fn timed(id: &str, state: SessionState) -> SessionRow {
+        SessionRow {
+            id: id.into(),
+            agent: "mock".into(),
+            state,
+            project_root: "/repo".into(),
+            resumable: false,
+            agent_id: None,
+            profile: None,
+            title: None,
+            mode: None,
+            model: None,
+            started_at: "2026-09-26T10:00:00Z".into(),
+            ended_at: None,
+        }
+    }
+
+    /// The first row of a drawn screen: the header.
+    fn header_of(out: &str, width: usize) -> String {
+        out.chars().take(width).collect()
+    }
+
+    // Scenario: La cabecera late mientras una sesión trabaja
+    #[test]
+    fn the_header_beats_while_a_session_works_and_yields_first() {
+        let mut live = LiveData::new();
+        live.apply(Update::Sessions(vec![
+            timed("a", SessionState::Active),
+            timed("b", SessionState::Starting),
+            timed("c", SessionState::WaitingInstruction),
+        ]));
+        live.pulse.frame = 3;
+        let state = ShellState::new();
+
+        // The spinner, how many work, and the word — in the braille cycle...
+        let unicode = header_of(&draw(&state, &live, &ctx(default_present()), 120, 24), 120);
+        assert!(
+            unicode.contains("⠸ 2 trabajando"),
+            "the header beats with the count and the word: {unicode}"
+        );
+        // ...and in the ASCII one, frame for frame its own.
+        let ascii = ctx(Presentation::resolve(&PresentationEnv {
+            ascii_flag: true,
+            ..Default::default()
+        }));
+        let plain = header_of(&draw(&state, &live, &ascii, 120, 24), 120);
+        assert!(
+            plain.contains("/ 2 trabajando"),
+            "the ASCII twin beats too: {plain}"
+        );
+
+        // Squeezed, it is the first to go: before the gate, and long before
+        // the connection and the pending decisions.
+        live.gate = Some(crate::shell::live::GateRow {
+            change: "senales-de-vida".into(),
+            artifact: "design".into(),
+        });
+        let narrow = header_of(&draw(&state, &live, &ctx(default_present()), 80, 24), 80);
+        assert!(
+            !narrow.contains("trabajando") && narrow.contains("senales-de-vida"),
+            "the pulse yields before the gate: {narrow}"
+        );
+
+        // At rest it is gone: nothing works, nothing beats.
+        live.gate = None;
+        live.apply(Update::Sessions(vec![timed(
+            "c",
+            SessionState::WaitingInstruction,
+        )]));
+        let rest = header_of(&draw(&state, &live, &ctx(default_present()), 120, 24), 120);
+        assert!(
+            !rest.contains("trabajando"),
+            "a shell at rest does not beat: {rest}"
+        );
+    }
+
+    // Scenario: El detalle cuenta el tiempo de la sesión que trabaja
+    #[test]
+    fn the_detail_shows_the_time_of_a_working_session() {
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(1));
+        state.reduce(crate::shell::keymap::Action::DrillIn);
+        let ctx = ctx(default_present());
+
+        let mut live = LiveData::new();
+        live.apply(Update::Sessions(vec![timed("s-1", SessionState::Active)]));
+        live.pulse.now = crate::shell::pulse::epoch_secs("2026-09-26T10:03:07Z");
+        let shown = draw(&state, &live, &ctx, 120, 24);
+        assert!(
+            shown.contains("s-1 · 03:07"),
+            "the working session counts: {shown}"
+        );
+
+        // A tick later, the same frame counts on.
+        live.pulse.now = crate::shell::pulse::epoch_secs("2026-09-26T10:03:08Z");
+        let later = draw(&state, &live, &ctx, 120, 24);
+        assert!(
+            later.contains("s-1 · 03:08"),
+            "and runs with the clock: {later}"
+        );
+
+        // Alive but not working: no time the shell would not keep current.
+        live.apply(Update::Sessions(vec![timed(
+            "s-1",
+            SessionState::WaitingInstruction,
+        )]));
+        let idle = draw(&state, &live, &ctx, 120, 24);
+        assert!(
+            !idle.contains("03:08"),
+            "an idle session shows no clock: {idle}"
         );
     }
 }

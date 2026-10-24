@@ -58,6 +58,15 @@
   /* Elevation: 1 px hairlines and a single shadow level, overlays only. */
   --shadow-overlay: 0 4px 16px rgb(0 0 0 / 0.18);
 
+  /* Motion: every duration an animation declares comes from here, one per
+     class of the vocabulary (docs/ux/design-system.md, senales-de-vida D1). */
+  --dur-1: 120ms;
+  --dur-2: 160ms;
+  --dur-pulse: 1.2s;
+  --dur-ambient: 2.4s;
+  --dur-mark: 600ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+
   color-scheme: light dark;
 
   /* Scrollbars are chrome, not content: the classic Windows bar is ~17 px with
@@ -375,6 +384,63 @@ table.dense tbody tr[aria-selected="true"] {
   border-left-color: var(--focus);
 }
 
+/* A control whose label changes while it waits keeps its width: both labels
+ * share one grid cell and the one not in use is hidden, so the control is as
+ * wide as the longer of the two in every language (senales-de-vida D3). */
+.steady {
+  display: inline-grid;
+  justify-items: center;
+}
+
+.steady > * {
+  grid-area: 1 / 1;
+}
+
+.steady > [hidden] {
+  display: block;
+  visibility: hidden;
+}
+
+/* The shared animations of the motion vocabulary. Global because several
+ * components use each one; the closed list of names, and what each body may
+ * animate, is enforced by desktop/tests/scenarios_shell.rs (senales-de-vida
+ * D2). Every component that uses one withdraws it in its own reduced-motion
+ * branch. */
+
+/* B arrival and C state change: fade in, nothing moves. */
+@keyframes arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* D skeleton: an opacity pulse. Never a sweeping gradient — the gradient
+   belongs to the ambient ring alone. */
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* H brand: the mark's outline drawn once. The one named exception to
+   opacity/transform — stroke-dashoffset is paint, not layout. */
+@keyframes mark-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* A backstop, not the design: each animating file withdraws its own motion. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

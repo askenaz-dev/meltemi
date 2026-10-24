@@ -207,10 +207,43 @@ A lower-priority signal never occludes a higher one.
 
 ## Motion
 
-- Durations 120–160 ms, ease-out, opacity/transform only.
+- Durations come from tokens, never from literals: `--dur-1` (120 ms,
+  arrival), `--dur-2` (160 ms, state change), `--dur-pulse` (1.2 s, skeleton),
+  `--dur-ambient` (2.4 s, the ambient ring) and `--dur-mark` (600 ms, the
+  mark's outline, once), all with `--ease-out` except the ring's linear turn.
+- Opacity/transform only, with one named exception: the mark's outline
+  (class H) is drawn with `stroke-dashoffset`, which is paint and not layout.
+  Never height, position or background color.
 - `prefers-reduced-motion: reduce` suppresses every non-essential animation
-  (spinners become static glyphs with a textual "working…" label).
-- Never animate layout of the permission tray or signal banners.
+  (spinners become static glyphs with a textual "working…" label). Each file
+  that animates withdraws its own animation in its own reduced-motion branch;
+  the global kill-switch in `app.css` is a backstop, not the design.
+- Never animate the permission tray, a permission card, the notices, the
+  signal banners or the sidebar: they arrive still.
+
+### Motion vocabulary
+
+Every animation belongs to a class, and the named animations are a closed list
+—`composer-wind`, `arrive`, `skeleton-pulse`, `mark-draw`— that
+`desktop/tests/scenarios_shell.rs` enforces: a name outside it, a body that
+animates anything else, a literal duration or a file without its reduced-motion
+branch fails the build (`senales-de-vida`, 2026-09-26).
+
+| Class | Where it applies | Duration | Without motion |
+| --- | --- | --- | --- |
+| A ambient | the composer ring; one per view | `--dur-ambient` | removed; the accent frame carries the state |
+| B arrival | new transcript items (turns, system lines, empty turns — never a permission card) and the palette as it opens | `--dur-1` | appears at once |
+| C state change | the glyph of a status badge when its state changes | `--dur-2` | changes at once |
+| D skeleton | waiting for data, only past 150 ms; opacity pulse, never a sweeping gradient | `--dur-pulse` | still bars and the visible "loading…" text |
+| E flow | streamed text arrives as it arrives, with no typing effect; a fixed, non-blinking cursor marks its edge | — | the same |
+| F tools | reserved for `herramientas-a-la-vista` | — | — |
+| G terminal | the TUI header spinner, braille with an ASCII twin of its own cycle, armed only while a session works | ~100 ms per frame | the ASCII twin |
+| H brand | the mark's outline, drawn once in the welcome | `--dur-mark`, once | already drawn |
+| I window | hidden until the interface exists, capped at 500 ms | — | the same |
+
+Arrival does not apply to switching views: views mount by branch, several have
+no single root to carry the class without breaking their height, and the tray
+is one of them.
 
 ### Ambient working indicator
 

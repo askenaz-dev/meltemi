@@ -31,6 +31,25 @@ Where the interactive interface uses box-drawing characters, an ASCII-only
 fallback is available for terminals or fonts that cannot render them, so the
 layout stays legible.
 
+## Motion
+
+Movement says that something is working or loading, and never anything else.
+The terminal has exactly one: the header's spinner, drawn only while a session
+is running a turn and with an ASCII twin of its own (`-\|/`) wherever the
+ASCII fallback applies. At rest nothing is animated and the pulse adds no
+redraw. The time a working session has been running is shown in its detail;
+a session that lives without working shows no time, because nothing would keep
+it current.
+
+The desktop surface honors `prefers-reduced-motion`: each animation is
+withdrawn rather than frozen. A skeleton's bars stand still and its "loading…"
+word becomes visible, the brand mark appears already drawn, and the ambient
+ring gives way to an accent frame. Clocks keep counting — a figure that changes
+is not motion — and the time beside a working turn is hidden from the
+transcript's live region, so a screen reader hears "working…" once instead of
+a second every second. The full vocabulary, with where each movement is allowed
+and where it never is, lives in [the design system](ux/design-system.md#motion).
+
 ## No hangs without a TTY
 
 A bare invocation without a TTY is a usage error that points to `meltemi help` —
