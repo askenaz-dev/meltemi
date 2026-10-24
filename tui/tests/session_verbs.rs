@@ -110,6 +110,36 @@ async fn detached_session(endpoint: &str, root: &Path) -> Surface {
     }
 }
 
+/// A real session followed from before its request. Its first turn is silent,
+/// so nothing happens until the watch has declared its interest, and only then
+/// does the instruction that asks the permission arrive. `watch` emits what
+/// happens from its interest on, so the request can never come first
+/// (seguir-y-cancelar-sin-carrera, design D2).
+async fn followed_session(endpoint: &str, tag: &str) -> (Surface, Watching, PathBuf) {
+    let root = fixture(tag, &["--titled-permission", "--silent-turn-at", "0"]);
+    let surface = detached_session(endpoint, &root).await;
+    let session = surface.session.clone();
+    until("the silent first turn parks the session", async || {
+        live_state(endpoint, &session).await.as_deref() == Some("waiting_instruction")
+    })
+    .await;
+    let mut watching = watch_binary(endpoint, &session);
+    watching.until_note("Ctrl+C stops following").await;
+    surface
+        .peer
+        .request(
+            methods::SESSION_DIRECT,
+            &json!({
+                "sessionId": session,
+                "instruction": "now look around",
+                "projectRoot": root.display().to_string(),
+            }),
+        )
+        .await
+        .expect("the instruction reaches the parked session");
+    (surface, watching, root)
+}
+
 async fn run(endpoint: &str, line: &[&str]) -> (i32, String, String) {
     let args: Vec<String> = line.iter().map(|arg| (*arg).to_string()).collect();
     let plan = meltemi::cli::plan(&args, false);
@@ -189,6 +219,10 @@ struct Watching {
     child: tokio::process::Child,
     lines: mpsc::UnboundedReceiver<String>,
     seen: Vec<String>,
+    /// What the watch writes on stderr, line by line as it writes it: its
+    /// "following" line is how a test knows it has declared its interest.
+    notes: mpsc::UnboundedReceiver<String>,
+    noted: Vec<String>,
 }
 
 fn watch_binary(endpoint: &str, session: &str) -> Watching {
@@ -211,10 +245,22 @@ fn watch_binary(endpoint: &str, session: &str) -> Watching {
             }
         }
     });
+    let stderr = child.stderr.take().expect("its stderr");
+    let (tx, notes) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
     Watching {
         child,
         lines,
         seen: Vec::new(),
+        notes,
+        noted: Vec::new(),
     }
 }
 
@@ -235,6 +281,42 @@ impl Watching {
                 return;
             }
         }
+    }
+
+    /// Waits for a line on the watch's stderr containing `text`, keeping
+    /// every line it wrote.
+    async fn until_note(&mut self, text: &str) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let line = tokio::time::timeout(left, self.notes.recv())
+                .await
+                .unwrap_or_else(|_| panic!("`{text}` on the watch's stderr: {:?}", self.noted))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "the watch's stderr closed before `{text}`: {:?}",
+                        self.noted
+                    )
+                });
+            let found = line.contains(text);
+            self.noted.push(line);
+            if found {
+                return;
+            }
+        }
+    }
+
+    /// Everything the watch wrote on stderr, once it has ended: bounded, so a
+    /// stderr that never closed is a red test rather than a hung one.
+    async fn all_notes(&mut self) -> String {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while let Some(line) = self.notes.recv().await {
+                self.noted.push(line);
+            }
+        })
+        .await
+        .expect("the watch's stderr closes with it");
+        self.noted.join("\n")
     }
 }
 
@@ -264,10 +346,8 @@ async fn following_reading_and_cancelling_end_to_end() {
 // Scenario: Lo que watch emite es lo que log guarda
 // Scenario: Un flujo emite un objeto por línea
 async fn the_whole_session_followed_without_a_terminal(endpoint: &str) -> (String, PathBuf) {
-    let root = fixture("whole", &["--titled-permission"]);
-    let surface = detached_session(endpoint, &root).await;
+    let (surface, mut watching, root) = followed_session(endpoint, "whole").await;
     let session = surface.session.clone();
-    let mut watching = watch_binary(endpoint, &session);
 
     // The request is on the stream while the session is blocked on it: the
     // records arrive as they happen, not when the session ends.
@@ -296,11 +376,7 @@ async fn the_whole_session_followed_without_a_terminal(endpoint: &str) -> (Strin
         .expect("the watch ends with its session")
         .expect("wait");
     assert!(status.success(), "{status:?}");
-    let mut stderr = String::new();
-    let mut pipe = watching.child.stderr.take().expect("its stderr");
-    tokio::io::AsyncReadExt::read_to_string(&mut pipe, &mut stderr)
-        .await
-        .unwrap();
+    let stderr = watching.all_notes().await;
     assert!(stderr.contains("Ctrl+C stops following"), "{stderr}");
     while let Ok(line) = watching.lines.try_recv() {
         watching.seen.push(line);
@@ -392,10 +468,8 @@ async fn an_unknown_session_is_a_contract_error(endpoint: &str) {
 
 // Scenario: Dejar de seguir no cancela la sesión
 async fn stopping_the_watch_leaves_the_session_running(endpoint: &str) {
-    let root = fixture("stop-following", &["--titled-permission"]);
-    let surface = detached_session(endpoint, &root).await;
+    let (surface, mut watching, root) = followed_session(endpoint, "stop-following").await;
     let session = surface.session.clone();
-    let mut watching = watch_binary(endpoint, &session);
     watching.until_record("permission_requested").await;
 
     // The watch goes away the way Ctrl+C takes it: the process ends.
