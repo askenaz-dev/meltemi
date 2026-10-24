@@ -48,7 +48,10 @@ SUBCOMMANDS:
                         before the first prompt. A lever the agent does not
                         take is refused by name, and no prompt is sent; the
                         output says the model and effort that governed
-    sessions            list agent sessions (active and historical)
+    sessions [root] [--follow]
+                        list agent sessions (active and historical); with
+                        --follow, write each change of state as it happens,
+                        one record per line, until Ctrl+C or the daemon goes
     explore <topic> [--agent <id|profile>]
                         deliberate with the agent without writing
     plan <change>       refine design and sequence a change's tasks
@@ -147,6 +150,16 @@ SUBCOMMANDS:
     harness [--agent <id>]
                         the harness that applies: every piece with the layer it
                         comes from, plus what is covered or unreadable and why
+    machines            the machines you configured, with the one in use marked.
+                        Reading only: each run of this CLI resolves its own
+                        endpoint, so there is nobody here to switch
+    identity            who you are on your OWN mesh, which machines it knows
+                        and whether each is online. Meltemi reads your mesh
+                        client; it has no accounts and issues no identity
+    identity-link [--hostname <name>] [--exec]
+                        print the gesture that links THIS machine to your mesh;
+                        `--exec` runs your own client, which opens your browser
+                        so you sign in with your own provider
     tunnel [user@host] [--exec]
                         compose the `ssh` command that reverse-forwards this
                         daemon's endpoint to a remote host; `--exec` runs it

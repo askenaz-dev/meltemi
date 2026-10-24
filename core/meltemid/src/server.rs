@@ -15,9 +15,9 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use meltemi_proto::{
-    InitializeParams, InitializeResult, PROTOCOL_VERSION, PeerInfo, PermissionChangedParams,
-    PermissionDecideParams, PermissionDecideResult, PermissionPendingResult, SessionCancelParams,
-    StatusResult, error_codes, methods,
+    IdentityLinkParams, IdentityUnavailable, InitializeParams, InitializeResult, PROTOCOL_VERSION,
+    PeerInfo, PermissionChangedParams, PermissionDecideParams, PermissionDecideResult,
+    PermissionPendingResult, SessionCancelParams, StatusResult, error_codes, methods,
 };
 
 use crate::pending::PendingQueue;
@@ -58,15 +58,19 @@ pub struct DaemonState {
 impl DaemonState {
     /// Builds shared state. `data_dir`/`config_dir` come from [`crate::paths`].
     pub fn new(data_dir: PathBuf, config_dir: PathBuf, shutdown: mpsc::Sender<()>) -> Arc<Self> {
+        let events = crate::events::EventHub::default();
         Arc::new(Self {
             version: env!("CARGO_PKG_VERSION"),
             started: Instant::now(),
             data_dir,
             config_dir,
-            sessions: SessionRegistry::default(),
+            // One hub, held by both: the registry announces on the very
+            // channel every connection listens to. Two hubs would be two
+            // silences (estado-en-vivo design D2).
+            sessions: SessionRegistry::with_hub(events.clone()),
             pending: PendingQueue::default(),
             clients: crate::clients::ClientRegistry::default(),
-            events: crate::events::EventHub::default(),
+            events,
             edits: Arc::default(),
             shutdown,
         })
@@ -110,6 +114,18 @@ pub async fn serve_until_shutdown(
     }
 }
 
+/// Affirms where every session the daemon holds stands, to one connection.
+///
+/// Sent on `initialize`, and again whenever this connection falls behind the
+/// state channel. Both callers want exactly this and for the same reason: an
+/// affirmation states the whole standing of a session, so a snapshot is a
+/// repair as well as an opening (estado-en-vivo design D3, D4).
+async fn push_state_snapshot(peer: &Peer, state: &Arc<DaemonState>) {
+    for affirmation in state.sessions.affirmations().await {
+        peer.notify(methods::SESSION_STATE, &affirmation);
+    }
+}
+
 async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonState>) {
     let (peer, mut incoming) = Peer::start(stream);
     let mut initialized = false;
@@ -122,6 +138,13 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
     // that originated it (eventos-para-tardios D1).
     let mut watched: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut session_events = state.events.subscribe();
+    // Lifecycle state, subscribed BEFORE the snapshot this connection gets on
+    // `initialize`. The order is the whole trick: subscribing first means a
+    // transition that happens during the snapshot arrives after it and corrects
+    // it, and by the affirmation being whole rather than a difference, applying
+    // it is idempotent. The other order would lose that transition
+    // (estado-en-vivo design D3).
+    let mut session_states = state.events.subscribe_state();
 
     // Forward pending-queue changes to this client as `permission/changed`,
     // so its tray reconciles to one snapshot without a round-trip. The
@@ -151,6 +174,32 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
                         continue;
                     }
                     // The queue is gone (daemon tearing down): stop forwarding.
+                    Err(RecvError::Closed) => break,
+                }
+            }
+            affirmation = session_states.recv() => {
+                use tokio::sync::broadcast::error::RecvError;
+                match affirmation {
+                    Ok(affirmation) => {
+                        if initialized {
+                            peer.notify(methods::SESSION_STATE, affirmation.as_ref());
+                        }
+                        continue;
+                    }
+                    // Fell behind the bounded buffer. The client cannot know —
+                    // the lag is reported on THIS side — so leaving a
+                    // `tracing::warn!` here and nothing else is what the event
+                    // channel does and what makes its gaps silent. State must
+                    // not have silent gaps, so the whole snapshot goes again:
+                    // the same call the connection makes on `initialize`, and
+                    // idempotent for the same reason (design D4).
+                    Err(RecvError::Lagged(missed)) => {
+                        tracing::warn!(missed, "session state stream lagged; re-affirming");
+                        if initialized {
+                            push_state_snapshot(&peer, &state).await;
+                        }
+                        continue;
+                    }
                     Err(RecvError::Closed) => break,
                 }
             }
@@ -186,6 +235,11 @@ async fn handle_connection(stream: crate::transport::Stream, state: Arc<DaemonSt
                                 client_guard = Some(state.clients.register());
                             }
                             peer.respond(id, Ok(result));
+                            // Where every session stands, before any transition
+                            // reaches this connection. A client that had to ask
+                            // for this would be a client that shows nothing
+                            // until it does (design D3).
+                            push_state_snapshot(&peer, &state).await;
                         }
                         Err(err) => {
                             let close = err.code == error_codes::PROTOCOL_VERSION_UNSUPPORTED;
@@ -358,12 +412,66 @@ async fn dispatch_request(
         methods::SUBSCRIPTION_UNLINK => handle_subscription_unlink(params, state).await,
         methods::PROJECT_FORGET => crate::projects::handle_project_forget(params, state).await,
         methods::ANALYTICS_USAGE => crate::analytics::handle_analytics_usage(params, state),
+        methods::IDENTITY_STATUS => handle_identity_status(state).await,
+        methods::IDENTITY_LINK => handle_identity_link(params, state).await,
         other => Err(RpcError::method_not_found(other)),
     }
 }
 
 /// Default `session/log` page size when the client gives no limit.
 const SESSION_LOG_PAGE: usize = 200;
+
+/// `identity/status`: who the user is on their own mesh, and which of their
+/// machines are there (identidad-propia design D1, D2).
+///
+/// Never an error: the three ways identity cannot be read come back as an answer
+/// with a reason and a remedy, because a user who never wanted identity is not in
+/// a broken state (design D5).
+async fn handle_identity_status(state: &Arc<DaemonState>) -> Result<Value, RpcError> {
+    // No project root, deliberately: identity is of the person and the machine,
+    // and a versioned file must not decide it (design D5).
+    let config = crate::config::Config::load(&state.config_dir, None);
+    let result = crate::identity::status(&config).await;
+    Ok(serde_json::to_value(result).expect("IdentityStatusResult serializes"))
+}
+
+/// `identity/link`: the gesture that links THIS machine, composed and handed
+/// back as text (design D3).
+///
+/// The daemon never runs it. A daemon that executed a login would be a daemon
+/// holding somebody's session, and §2 does not allow that even for the user's own
+/// mesh.
+async fn handle_identity_link(params: Value, state: &Arc<DaemonState>) -> Result<Value, RpcError> {
+    // Every field is optional, so a client that sends no params at all is asking
+    // the ordinary question.
+    let params: IdentityLinkParams = if params.is_null() {
+        IdentityLinkParams::default()
+    } else {
+        serde_json::from_value(params)
+            .map_err(|e| RpcError::invalid_params(format!("identity/link: {e}")))?
+    };
+    let config = crate::config::Config::load(&state.config_dir, None);
+    let this_machine = meltemi_client::notices::machine_name();
+    match crate::identity::link(&config, &params, &this_machine) {
+        Ok(result) => Ok(serde_json::to_value(result).expect("IdentityLinkResult serializes")),
+        Err((reason, remedy)) => {
+            // The `kind` is a literal at the site of the refusal, not a table:
+            // one place to read, and nothing to keep in sync.
+            let reason = match reason {
+                IdentityUnavailable::NotConfigured => "not_configured",
+                IdentityUnavailable::ClientMissing => "client_missing",
+                IdentityUnavailable::NotLinked => "not_linked",
+            };
+            Err(RpcError::application(
+                error_codes::IDENTITY_UNAVAILABLE,
+                "identity is unavailable",
+                "identity_unavailable",
+                format!("identity/link cannot be composed: {reason}"),
+                Some(remedy),
+            ))
+        }
+    }
+}
 
 /// `repo/map`: the repository tree honoring nested gitignore, with sizes and a
 /// declared truncation budget (gestion-contexto-repo).
@@ -836,7 +944,11 @@ async fn handle_worktree_dispatch(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            root.display().to_string(),
+        )
         .await;
     let project_key = crate::paths::project_key(&root);
     // The project registry is fed by real use only (multiproyecto D3).
@@ -1809,7 +1921,11 @@ async fn handle_sdd_implement(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            root.display().to_string(),
+        )
         .await;
     let project_key = crate::paths::project_key(&root);
     // The project registry is fed by real use only (multiproyecto D3).
@@ -2439,7 +2555,11 @@ async fn resume_with_instruction(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            project_root.display().to_string(),
+        )
         .await;
     let mut log =
         crate::session_log::SessionLog::create(&state.data_dir, &project_key, &session_id)

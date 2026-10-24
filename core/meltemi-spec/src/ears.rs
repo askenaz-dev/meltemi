@@ -13,6 +13,11 @@ use crate::model::{Scenario, Spec, StepMarker};
 /// Appends EARS diagnostics for a spec's requirements and scenarios.
 pub(crate) fn validate_ears(spec: &Spec, out: &mut Vec<Diagnostic>) {
     for req in &spec.requirements {
+        // A REMOVED entry is not a requirement and carries no SHALL of its own
+        // (`artifact-format`, «Reglas de contenido de delta»).
+        if spec.is_removed_entry(req) {
+            continue;
+        }
         if !has_normative_verb(&req.description) {
             out.push(Diagnostic::new(
                 spec.source.clone(),

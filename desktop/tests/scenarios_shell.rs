@@ -389,6 +389,397 @@ fn the_privacy_promise_is_visible_in_settings() {
     );
 }
 
+// ---- the user's machines (maquinas-remotas) ----------------------------------
+
+// Scenario: Ajustes lista las máquinas con su endpoint
+// Scenario: Probar una máquina dice si respondió y cuánto tardó
+#[test]
+fn settings_lists_the_machines_with_their_endpoint_and_a_test_that_reports() {
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    for key in [
+        "settings.machines",
+        "settings.machines.hint",
+        "settings.machines.here",
+        "settings.machines.use",
+        "settings.machines.test",
+    ] {
+        assert!(settings.contains(key), "Settings is missing `{key}`");
+    }
+    // The way in is shown, falling back to what the user wrote.
+    assert!(
+        settings.contains("machine.via ?? machine.configured"),
+        "each row shows how it is reached"
+    );
+    // A test reports the version and the time, or why not — through the one
+    // place that spells that sentence.
+    assert!(
+        settings.contains("probeLine(probe, {"),
+        "the probe's line comes from the module with the test"
+    );
+    assert!(
+        settings.contains("settings.machines.answered")
+            && settings.contains("settings.machines.failed"),
+        "and both outcomes have words"
+    );
+    // Testing does not change the active machine: there is no switch call in
+    // the test path, which is what would make it one.
+    let probe = settings
+        .split_once("async function testMachine(")
+        .expect("the test function")
+        .1;
+    let probe = &probe[..probe.find("\n  }").expect("it ends")];
+    assert!(
+        !probe.contains("switchMachine"),
+        "testing is a question, not a move: {probe}"
+    );
+}
+
+// Scenario: Cambiar de máquina avisa del trabajo sin guardar
+#[test]
+fn changing_machines_runs_the_same_unsaved_work_guard_as_leaving_the_editor() {
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    // The guard is HANDED DOWN, not reimplemented: two guards for one danger is
+    // how two behaviours appear for one question.
+    assert!(
+        settings.contains("onGuarded: (go: () => void) => void"),
+        "the view takes the guard as a prop"
+    );
+    let switch = settings
+        .split_once("function useMachine(")
+        .expect("the switch function")
+        .1;
+    let switch = &switch[..switch.find("\n  }").expect("it ends")];
+    assert!(
+        switch.contains("onGuarded(() =>"),
+        "the switch goes through the guard: {switch}"
+    );
+
+    // And the guard it receives is the editor's own.
+    let app = read("desktop/ui/src/App.svelte");
+    assert!(
+        app.contains("onGuarded={(go) => leaveEditor(go)}"),
+        "App hands down `leaveEditor`, the same one navigation uses"
+    );
+
+    // Switching clears the tabs of the machine being left: they point at
+    // sessions of another daemon and stop meaning anything.
+    let stores = read("desktop/ui/src/lib/stores.ts");
+    let switching = stores
+        .split_once("export async function switchMachine(")
+        .expect("the store function")
+        .1;
+    let switching = &switching[..switching.find("\n}").expect("it ends")];
+    assert!(
+        switching.contains("sessions.set([])") && switching.contains("allSessions.set([])"),
+        "the sessions of the old machine do not survive the switch: {switching}"
+    );
+}
+
+// Scenario: Sin máquinas configuradas el cromo no cambia
+// Scenario: La presencia se muestra a pedido y no es una prueba de conexión
+#[test]
+fn the_chrome_says_nothing_about_machines_unless_there_is_a_choice() {
+    let bar = read("desktop/ui/src/lib/components/StatusBar.svelte");
+    // The decision is a pure function with its own executed test, not a
+    // condition written into the markup.
+    assert!(
+        bar.contains("worthShowing($machines.machines)"),
+        "the bar asks the one place that decides"
+    );
+
+    let decided = read("desktop/ui/src/lib/machines.ts");
+    // Presence is crossed by NAME and never invented, which is the rule that
+    // keeps a mesh machine from being read as a machine with a daemon.
+    assert!(
+        decided.contains("export function withPresence("),
+        "the crossing lives in one place"
+    );
+    assert!(
+        decided.contains("mesh.get(machine.name.toLowerCase())"),
+        "crossed by name, the only thing the two lists share"
+    );
+    assert!(
+        decided.contains("presence ? { ...machine, presence } : { ...machine }"),
+        "and nothing is invented when they do not cross"
+    );
+
+    // Read when asked for, never polled: no interval, no timer, no watcher
+    // anywhere near the machine list.
+    let stores = read("desktop/ui/src/lib/stores.ts");
+    let reading = stores
+        .split_once("export async function refreshMachines(")
+        .expect("the reader")
+        .1;
+    let reading = &reading[..reading.find("\n}").expect("it ends")];
+    for polling in ["setInterval", "setTimeout", "watch("] {
+        assert!(
+            !reading.contains(polling),
+            "the machine list is read on demand (`{polling}`): {reading}"
+        );
+    }
+    let test = read("desktop/ui/tests/machines.test.ts");
+    assert!(
+        test.contains("worthShowing([configured[0]])"),
+        "one machine is not a fleet, and that is executed"
+    );
+}
+
+// ---- the user's mesh identity (identidad-propia) -----------------------------
+
+// Scenario: Ajustes muestra quién soy y mis equipos
+// Scenario: La promesa de privacidad sigue siendo cierta
+#[test]
+fn settings_shows_the_mesh_identity_with_presence_and_a_copyable_gesture() {
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    // Who, whose mesh, this machine, and the machines.
+    for key in [
+        "settings.identity",
+        "settings.identity.whose",
+        "settings.identity.provider",
+        "settings.identity.this",
+        "settings.identity.machines",
+    ] {
+        assert!(settings.contains(key), "Settings is missing `{key}`");
+    }
+    // Presence as a SYMBOL and a WORD: the symbol comes from the shared helper
+    // and the word from the catalogue, so neither can be shown alone.
+    assert!(
+        settings.contains("presenceGlyph(machine.presence)"),
+        "the presence symbol comes from the one place that spells it"
+    );
+    assert!(
+        settings.contains("settings.identity.online")
+            && settings.contains("settings.identity.offline"),
+        "and the word is always beside it"
+    );
+    // The gesture is offered as text with a copy control, and this surface does
+    // NOT run it: no launcher, no opener, no https origin (design D3).
+    assert!(
+        settings.contains("settings.identity.copy") && settings.contains("clipboard.writeText"),
+        "the gesture is copied, not executed"
+    );
+    assert!(
+        !settings.contains("shell.open") && !settings.contains("plugin-opener"),
+        "the desktop surface gains no way to launch or to open a URL here"
+    );
+    // And the platform's own form is what gets copied: the plain reading is the
+    // one that breaks when pasted into a shell that quotes differently.
+    assert!(
+        settings.contains("gesture.powershell") && settings.contains("gesture.posix"),
+        "both forms exist and the platform picks"
+    );
+
+    // The privacy promise is untouched and now has a neighbour that says whose
+    // identity this is, so nobody reads the section as a Meltemi account.
+    assert!(
+        settings.contains("settings.privacy.noAccounts"),
+        "the `no accounts` declaration stays exactly as it was"
+    );
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    assert_eq!(
+        catalog.matches("\"settings.privacy.noAccounts\"").count(),
+        2,
+        "in both catalogues, unchanged"
+    );
+    let whose: Vec<&str> = catalog
+        .lines()
+        .filter(|line| line.contains("\"settings.identity.whose\""))
+        .collect();
+    assert_eq!(whose.len(), 2, "the sentence is translated: {whose:?}");
+    let said = whose.join(" ").to_lowercase();
+    assert!(
+        said.contains("malla") && said.contains("no la guarda"),
+        "it says the identity is the mesh's and that Meltemi does not keep it: {said}"
+    );
+    assert!(
+        said.contains("mesh") && said.contains("does not keep"),
+        "in English too: {said}"
+    );
+}
+
+// Scenario: Sin enlazar, la barra ofrece enlazar y no exige nada
+// Scenario: Sin configurar, el cromo no pide nada
+#[test]
+fn the_foot_offers_linking_only_when_configured_and_asks_for_nothing_otherwise() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    // The decision is NOT in the component: it is a pure function with its own
+    // executed test, so "the chrome asks for nothing" is driven by a test rather
+    // than by whoever last edited the markup.
+    assert!(
+        sidebar.contains("footIdentity($identity)"),
+        "the foot asks the one place that decides"
+    );
+    assert!(
+        sidebar.contains("{#if foot.kind !== \"hidden\"}"),
+        "and renders nothing when the answer is nothing"
+    );
+    assert!(
+        sidebar.contains("nav.identity.link"),
+        "the one offer it makes, when this machine is what is missing"
+    );
+    // It leads to Settings and does nothing itself.
+    assert!(
+        sidebar.contains("onclick={() => onNavigate(\"settings\")}"),
+        "the row navigates and never acts"
+    );
+    // Settings stays the LAST entry of the foot: the row goes above it.
+    let foot = sidebar
+        .split_once("<div class=\"bottom\">")
+        .expect("the foot exists")
+        .1;
+    let identity_at = foot
+        .find("class=\"item ghost identity\"")
+        .expect("the identity row");
+    let settings_at = foot
+        .find("class:current={view === \"settings\"}")
+        .expect("the settings entry");
+    assert!(
+        identity_at < settings_at,
+        "identity sits ABOVE settings, which stays the last entry"
+    );
+
+    // The decision module exists and the rule is executed there.
+    let decided = read("desktop/ui/src/lib/identity.ts");
+    assert!(
+        decided.contains("case \"not_configured\":") && decided.contains("kind: \"hidden\""),
+        "not configured means the chrome does not change"
+    );
+    let test = read("desktop/ui/tests/identity.test.ts");
+    assert!(
+        test.contains("footIdentity(null)"),
+        "including before the daemon has answered, which is most of the first second"
+    );
+}
+
+// Scenario: Presencia no es control
+#[test]
+fn a_machine_being_online_opens_nothing_in_any_surface() {
+    // The claim is about what is NOT there, which is the only way it can keep
+    // being true: knowing a machine is reachable must not become a way to reach
+    // it. The path to another machine's daemon stays the user's own tunnel, and
+    // whether `meltemid` runs there is learned by connecting, never assumed.
+
+    // The desktop's machine list: rows of text, with nothing to press.
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    let list = settings
+        .split_once("<ul class=\"machines\">")
+        .expect("the machine list exists")
+        .1;
+    let list = &list[..list.find("</ul>").expect("the list closes")];
+    for interactive in ["<button", "onclick", "<a ", "href="] {
+        assert!(
+            !list.contains(interactive),
+            "a machine row must not be actionable (`{interactive}`): {list}"
+        );
+    }
+
+    // And nothing anywhere turns a machine into an endpoint. This is the shape
+    // the feature would take if it ever crossed the line, so it is named.
+    let decided = read("desktop/ui/src/lib/identity.ts");
+    for reaching in ["endpoint", "connect", "invoke(", "tunnel", "ssh"] {
+        assert!(
+            !decided.to_lowercase().contains(reaching),
+            "the identity module must not know how to reach anything (`{reaching}`)"
+        );
+    }
+
+    // The terminal draws the same list as lines, and its keymap gains no action
+    // on a machine: the identity block is read, never operated.
+    let render = read("tui/src/shell/render.rs");
+    let block = render
+        .split_once("fn append_identity(")
+        .expect("the terminal renders identity")
+        .1;
+    let block = &block[..block
+        .find("\n/// The name of a harness layer")
+        .expect("the function ends")];
+    for reaching in ["endpoint", "connect(", "Effect::", "Command::"] {
+        assert!(
+            !block.contains(reaching),
+            "the identity block renders and does not act (`{reaching}`)"
+        );
+    }
+
+    // The posture is written where a reader looks for it, not only in code.
+    let doc = read("docs/acceso-remoto.md").to_lowercase();
+    assert!(
+        doc.contains("presencia no es control"),
+        "the page states it"
+    );
+    assert!(
+        doc.contains("sigue siendo tu túnel ssh"),
+        "and says what the path to another machine still is"
+    );
+}
+
+// Scenario: Plegada, la identidad sigue alcanzable
+#[test]
+fn folded_to_a_rail_the_identity_row_keeps_its_label_and_its_focus() {
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    let foot = sidebar
+        .split_once("<div class=\"bottom\">")
+        .expect("the foot exists")
+        .1;
+    let row = foot
+        .split_once("class=\"item ghost identity\"")
+        .expect("the identity row")
+        .1;
+    let row = &row[..row.find("</button>").expect("the row closes")];
+    // A real button, so it keeps focus when folded; and an accessible label, so
+    // the rail is not a mystery mark.
+    assert!(
+        row.contains("aria-label="),
+        "the row carries its own accessible label: {row}"
+    );
+    assert!(
+        row.contains("class=\"label\""),
+        "and the visible label is the thing the rail hides, not the whole row"
+    );
+    // Its mark is its own, never the agents' initials avatar: that palette
+    // identifies agents, and a login with the same initials would render the
+    // same chip (design D6).
+    assert!(
+        row.contains("<Icon name=\"identity\""),
+        "its own mark: {row}"
+    );
+    assert!(
+        !row.contains("<Avatar"),
+        "and not the agents' avatar: {row}"
+    );
+    // The foot is a sibling of the navigation and the tree, so the row takes no
+    // part in the split between them.
+    let split = read("desktop/ui/src/lib/nav-split.ts");
+    assert!(
+        !split.contains("identity"),
+        "the height arithmetic knows nothing about identity"
+    );
+}
+
+// Scenario: La identidad nunca es requisito
+#[test]
+fn onboarding_never_mentions_identity_and_never_asks_for_it() {
+    // Nothing of this is a requirement, so the first run says nothing about it.
+    let onboarding = read("desktop/ui/src/lib/components/Onboarding.svelte");
+    let lowered = onboarding.to_lowercase();
+    assert!(
+        !lowered.contains("identity") && !lowered.contains("identidad"),
+        "the onboarding does not mention identity"
+    );
+    let catalog = read("desktop/ui/src/lib/messages.ts");
+    for line in catalog
+        .lines()
+        .filter(|line| line.contains("\"onboarding."))
+    {
+        let lowered = line.to_lowercase();
+        assert!(
+            !lowered.contains("identidad")
+                && !lowered.contains("mesh")
+                && !lowered.contains("malla"),
+            "no onboarding string mentions identity: {line}"
+        );
+    }
+}
+
 // ---- identity ----------------------------------------------------------------
 
 // Scenario: Marca presente en el chrome
@@ -889,6 +1280,144 @@ fn theme_and_locale_survive_a_restart_and_the_override_wins() {
     assert!(
         stores.contains("window.title.pending"),
         "and the surface takes it from the catalog"
+    );
+}
+
+// Scenario: El contador de la barra cuenta una sesión de otro cliente
+// Scenario: El sondeo solo reconcilia
+#[test]
+fn the_indicators_are_fed_by_the_live_state_and_not_by_polling() {
+    let stores = read("desktop/ui/src/lib/stores.ts");
+    assert!(
+        stores.contains("case \"session/state\""),
+        "the surface takes the daemon's affirmation where it takes its other pushes"
+    );
+    // Patched into the array every indicator derives from, which is why no
+    // component needed touching (estado-en-vivo design D7).
+    assert!(
+        stores.contains("allSessions.set(patched)"),
+        "the affirmation patches the session store rather than a private flag"
+    );
+    assert!(
+        stores.contains("void refreshSessions().catch(() => {})") && stores.contains("at === -1"),
+        "a session another client just opened is fetched once, not invented from a thin payload"
+    );
+
+    // And the four indicators still derive from that one array: if any of them
+    // grew its own source, patching the store would stop being the whole fix.
+    let bar = read("desktop/ui/src/lib/components/StatusBar.svelte");
+    assert!(
+        bar.contains("$sessions.filter((s) => s.state === \"active\" || s.state === \"starting\")"),
+        "the bar's counter reads the store"
+    );
+    let sidebar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        sidebar.contains("$sessions.filter((session) => isLive(session.state))"),
+        "the sidebar bucket reads the store"
+    );
+    let tree = read("desktop/ui/src/lib/tree.ts");
+    assert!(
+        tree.contains("if (isLive(session.state)) group.live += 1"),
+        "the tree buckets read the sessions they are given"
+    );
+}
+
+// Scenario: El cromo nombra la vía
+#[test]
+fn the_status_bar_says_when_the_fleet_belongs_to_another_machine() {
+    let bar = read("desktop/ui/src/lib/components/StatusBar.svelte");
+    assert!(
+        bar.contains("via($conn.endpoint)"),
+        "the bar asks whether this endpoint names a command"
+    );
+    assert!(
+        bar.contains("conn.via"),
+        "and labels the segment from the catalog, not with prose of its own"
+    );
+    // The raw endpoint stays reachable, because the abbreviation is for reading
+    // and the whole command is what someone debugging needs.
+    assert!(
+        bar.contains("title={$conn.endpoint ?? \"\"}"),
+        "the whole command is still there, on hover"
+    );
+
+    // The rule lives in a leaf module both the surface and its tests can load.
+    let helper = read("desktop/ui/src/lib/via.ts");
+    assert!(
+        helper.contains("const PREFIX = \"exec:\""),
+        "the prefix is the one the client uses"
+    );
+    assert!(
+        helper.contains("if (!endpoint || !endpoint.startsWith(PREFIX)) return null"),
+        "a local socket has no via, and the surface invents none"
+    );
+
+    // Both languages carry the label: a segment that appeared only in one would
+    // be a segment missing in the other.
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    assert_eq!(
+        messages.matches("\"conn.via\"").count(),
+        2,
+        "the label is in both catalogs"
+    );
+}
+
+// Scenario: La prueba usa el mismo camino que el aviso real
+#[test]
+fn the_notice_is_run_by_the_native_process_and_rehearsed_from_settings() {
+    // The command runs in the native process, never in the webview: a view that
+    // could run commands is a surface nobody needs to open
+    // (aviso-de-espera-opt-in design D2).
+    let bridge = read("desktop/src/bridge.rs");
+    assert!(
+        bridge.contains("notice_for(notices, &method, &params)"),
+        "the bridge decides the notice where it reads the daemon's pushes"
+    );
+    assert!(
+        bridge.contains("notices.resolved()"),
+        "and an emptied queue says nothing, rather than spending the floor"
+    );
+    // The emitter lives outside the reconnection loop, or a daemon that drops and
+    // comes back would reset the floor and let a burst through.
+    let outside = bridge
+        .split("let mut backoff = MIN_BACKOFF;")
+        .nth(1)
+        .expect("the actor's loop")
+        .split("loop {")
+        .next()
+        .expect("before the loop");
+    assert!(
+        outside.contains("notices::Emitter::new"),
+        "the emitter survives a reconnection"
+    );
+
+    let host = read("desktop/src/lib.rs");
+    assert!(
+        host.contains("fn notice_test()") && host.contains("emitter.test("),
+        "the rehearsal goes through the same emitter as the real notice"
+    );
+    assert!(
+        host.contains("notice_test,") && host.contains("notice_state,"),
+        "and both are reachable from the surface"
+    );
+
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    assert!(
+        settings.contains("notice_test"),
+        "settings rehearses it where a person is already configuring things"
+    );
+    // The command itself is NOT editable here: it is user-scope, and a field in
+    // this view would suggest a project could carry it.
+    assert!(
+        !settings.contains("on-waiting"),
+        "the command is edited in the user's own file, not in this view"
+    );
+
+    let messages = read("desktop/ui/src/lib/messages.ts");
+    assert_eq!(
+        messages.matches("\"settings.notices.hint\"").count(),
+        2,
+        "both catalogues explain where it is configured and what travels"
     );
 }
 

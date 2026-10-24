@@ -52,7 +52,7 @@ marketplace. No accounts, no credits, no fees, no lock-in, no telemetry.
 ### Option A — the release installers (recommended)
 
 Artifact names are stable and version-free, so every link below always resolves
-to the **latest signed release** — you never have to know a version number:
+to the **latest published release** — you never have to know a version number:
 
 | Platform | Desktop app | Core (daemon + terminal) |
 |---|---|---|
@@ -63,24 +63,23 @@ to the **latest signed release** — you never have to know a version number:
 The core archive carries both binaries: the daemon `meltemid` and the terminal
 client `meltemi`. The desktop installer carries the desktop app.
 
-Every release publishes `SHA256SUMS` with a detached minisign signature and a
-build attestation minted by the release workflow. Three checks, ordered by what
-each one buys — stop at the guarantee you need:
+Every release publishes `SHA256SUMS` and is signed by the attestation its own
+release workflow mints when it publishes it; no person and no long-term key sign
+it. Two checks, ordered by what each one buys — stop at the guarantee you need:
 
 ```bash
-sha256sum --check SHA256SUMS                                     # 1. intact
-minisign -Vm SHA256SUMS -P <the public key in docs/release.md>   # 2. vouched for
-gh attestation verify SHA256SUMS --repo askenaz-dev/meltemi      # 3. provenance
+sha256sum --check --ignore-missing SHA256SUMS                    # 1. intact
+gh attestation verify meltemi-Linux.tar.gz --repo askenaz-dev/meltemi \
+  --signer-workflow askenaz-dev/meltemi/.github/workflows/release.yml   # 2. signed
 ```
 
 (`shasum -a 256` on macOS; `Get-FileHash` on Windows.) The checksum proves the
-file arrived intact; the signature proves the maintainer vouched for it; the
-attestation proves which repository, commit and workflow produced it. The
-installer scripts do the first step for you, not the other two — `minisign` and
-`gh` ship with no operating system, and a one-line installer that first demands
-a package install is not one line. See [`docs/release.md`](docs/release.md) for
-the key, the full provenance command, and what each check does and does not
-prove.
+file arrived intact; the attestation proves which repository, commit and
+workflow published that very file. The installer scripts do the first step for
+you, not the second — `gh` ships with no operating system, and a one-line
+installer that first demands a package install is not one line. See
+[`docs/release.md`](docs/release.md) for the offline variant with the bundle
+each release carries, and for what each check does and does not prove.
 
 Every desktop installer stays under 15 MB because none of them embeds a browser
 engine: each one uses your operating system's own. Windows bootstraps its runtime
@@ -159,7 +158,7 @@ the exact command that installs it — start there, or read
 ### Option B — from source
 
 Prefer a browser? Every artifact above is also listed on
-[meltemi.dev/downloads](https://meltemi.dev/downloads.html).
+[meltemi.dev/ide/downloads](https://meltemi.dev/ide/downloads/).
 
 You need the pinned Rust toolchain (`rust-toolchain.toml` selects it
 automatically) and, for the desktop app, Node 24+.

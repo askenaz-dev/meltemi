@@ -25,8 +25,8 @@ use meltemi_proto::{
 };
 
 use crate::shell::live::{
-    FleetRow, FleetSnapshot, GateRow, HarnessSnapshot, ProjectRow, RaceBoard, RaceLane, SessionRow,
-    Update,
+    FleetRow, FleetSnapshot, GateRow, HarnessSnapshot, MachineRow, MachinesSnapshot, ProjectRow,
+    RaceBoard, RaceLane, SessionRow, Update,
 };
 use crate::shell::messages::{Lang, Msg, text};
 use crate::shell::render::ConnState;
@@ -38,6 +38,10 @@ pub enum Command {
     CancelSession(String),
     /// Shut the daemon down (`shutdown`).
     Shutdown,
+    /// Rehearse the waiting notice. Not a daemon method: the notice is the
+    /// client's own doing, and the daemon takes no part in it
+    /// (aviso-de-espera-opt-in design D2).
+    TestNotice,
     /// Force a status refresh.
     Refresh,
     /// Query the fleet catalog (`fleet/list`).
@@ -45,6 +49,14 @@ pub enum Command {
     /// Read the effective harness (`harness/effective`), optionally narrowed
     /// to one catalog agent.
     Harness { agent: Option<String> },
+    /// Read the user's mesh identity (identidad-propia design D6).
+    Identity,
+    /// List the machines this user configured (maquinas-remotas design D6).
+    Machines,
+    /// Talk to another machine from now on.
+    SwitchMachine { name: String },
+    /// Ask for the linking gesture. The terminal prints it and never runs it.
+    IdentityLink { hostname: Option<String> },
     /// Query the known-project registry (`project/list`).
     ProjectList,
     /// Set the project every scoped call is made against; `None` returns to the
@@ -103,6 +115,9 @@ pub async fn connection_actor(
     mut commands: UnboundedReceiver<Command>,
     updates: UnboundedSender<Update>,
 ) {
+    // A variable, not the constant it used to be: changing machines is
+    // reconnecting, and this loop already reconnects (maquinas-remotas D2).
+    let mut endpoint = endpoint;
     let mut backoff = MIN_BACKOFF;
     loop {
         let _ = updates.send(Update::Conn(ConnState::Connecting));
@@ -112,8 +127,17 @@ pub async fn connection_actor(
                 let _ = updates.send(Update::Conn(ConnState::Unreachable {
                     detail: error.to_string(),
                 }));
-                if backoff_or_stop(&mut commands, backoff).await {
-                    return;
+                match backoff_or_stop(&mut commands, backoff, &updates, lang).await {
+                    Waited::UiGone => return,
+                    // The machine chosen during a wait starts its own attempt at
+                    // once: the new one inherits nothing from the old one's bad
+                    // luck.
+                    Waited::Switch(next) => {
+                        endpoint = next;
+                        backoff = MIN_BACKOFF;
+                        continue;
+                    }
+                    Waited::Elapsed => {}
                 }
                 backoff = (backoff * 2).min(MAX_BACKOFF);
                 continue;
@@ -123,9 +147,13 @@ pub async fn connection_actor(
 
         // A dropped UI sender ends the actor entirely; a dropped connection just
         // reconnects.
-        match serve_connection(stream, lang, &mut commands, &updates).await {
+        match serve_connection(stream, lang, &mut commands, &updates, &endpoint).await {
             ConnExit::UiGone => return,
             ConnExit::Disconnected => continue,
+            ConnExit::Switch(next) => {
+                endpoint = next;
+                continue;
+            }
         }
     }
 }
@@ -135,6 +163,18 @@ enum ConnExit {
     UiGone,
     /// The connection closed: reconnect.
     Disconnected,
+    /// The user chose another machine; dial this one instead.
+    Switch(String),
+}
+
+/// How a backoff ended.
+enum Waited {
+    /// The wait ran out; try the same endpoint again.
+    Elapsed,
+    /// The UI dropped its command sender.
+    UiGone,
+    /// The user chose another machine while we were waiting.
+    Switch(String),
 }
 
 async fn serve_connection(
@@ -142,6 +182,7 @@ async fn serve_connection(
     lang: Lang,
     commands: &mut UnboundedReceiver<Command>,
     updates: &UnboundedSender<Update>,
+    endpoint: &str,
 ) -> ConnExit {
     let (peer, mut incoming) = Peer::start(stream);
 
@@ -157,10 +198,25 @@ async fn serve_connection(
         return ConnExit::Disconnected;
     }
     refresh_status(&peer, updates).await;
-    refresh_sessions(&peer, updates).await;
+    let seeded = refresh_sessions(&peer, updates).await;
     // Seed the tray from the daemon's queue so it survives reconnection
     // (the count no longer lives per-connection).
     refresh_pending(&peer, updates).await;
+
+    // The sessions this connection has a row for. Local to the actor, like
+    // `watched`: it exists only to tell an affirmation about a session we know
+    // from one about a session we have never seen, which is the only case that
+    // still needs the list (estado-en-vivo design D7).
+    //
+    // Seeded from the list fetched a moment ago, which is what keeps the
+    // daemon's opening snapshot from costing one query per session: every id in
+    // it is already known.
+    let mut known_sessions: std::collections::HashSet<String> = seeded.into_iter().collect();
+
+    // One emitter for the actor's life, so the record of when the last notice went
+    // out survives a reconnection: a daemon that drops and comes back must not
+    // reset the floor (aviso-de-espera-opt-in design D5).
+    let mut notices = meltemi_client::notices::Emitter::new(meltemi_client::paths::config_dir());
 
     let mut ticker = interval(REFRESH_EVERY);
     ticker.tick().await; // consume the immediate first tick
@@ -189,6 +245,22 @@ async fn serve_connection(
                 }
                 Some(Incoming::Notification { method, params }) if method == methods::PERMISSION_CHANGED => {
                     if let Ok(changed) = serde_json::from_value::<PermissionChangedParams>(params) {
+                        if changed.pending.is_empty() {
+                            // Somebody decided. Saying so would be noise arriving
+                            // while the person is already on their way.
+                            notices.resolved();
+                        } else {
+                            let session = changed
+                                .pending
+                                .first()
+                                .map(|p| p.session_id.clone())
+                                .unwrap_or_default();
+                            notices.waiting(
+                                meltemi_client::notices::Waiting::Permission,
+                                &session,
+                                u32::try_from(changed.pending.len()).unwrap_or(u32::MAX),
+                            );
+                        }
                         let _ = updates.send(Update::PermissionQueue(changed.pending));
                     }
                 }
@@ -205,6 +277,29 @@ async fn serve_connection(
                         let _ = updates.send(Update::TranscriptLine { session_id, line });
                     }
                 }
+                Some(Incoming::Notification { method, params }) if method == methods::SESSION_STATE => {
+                    if let Ok(affirmation) =
+                        serde_json::from_value::<meltemi_proto::SessionStateParams>(params)
+                    {
+                        // A session this surface holds no row for — one another
+                        // client just opened — is fetched once. The affirmation
+                        // is deliberately thin, and a row invented from it would
+                        // show an agent with no name.
+                        if known_sessions.insert(affirmation.session_id.clone()) {
+                            known_sessions.extend(refresh_sessions(&peer, updates).await);
+                        }
+                        // A session parked between turns is waiting for a person
+                        // to type, which is exactly what the notice is for.
+                        if affirmation.state == meltemi_proto::SessionState::WaitingInstruction {
+                            notices.waiting(
+                                meltemi_client::notices::Waiting::Instruction,
+                                &affirmation.session_id,
+                                1,
+                            );
+                        }
+                        let _ = updates.send(Update::SessionState(affirmation));
+                    }
+                }
                 Some(Incoming::Notification { .. }) => {}
             },
             command = commands.recv() => match command {
@@ -215,16 +310,64 @@ async fn serve_connection(
                 Some(Command::CancelSession(session_id)) => {
                     peer.notify(methods::SESSION_CANCEL, &SessionCancelParams { session_id });
                 }
+                Some(Command::TestNotice) => {
+                    // The same emitter and the same command as a real notice: a
+                    // rehearsal that took a shortcut would prove nothing about
+                    // the thing it rehearses.
+                    let sent = notices.test("test");
+                    let _ = updates.send(Update::Notice(
+                        if sent {
+                            "aviso de prueba lanzado; si no llegó, revisa el comando o tu servicio"
+                        } else {
+                            "no hay aviso configurado: [notices] on-waiting en tu config.toml de usuario"
+                        }
+                        .into(),
+                    ));
+                }
                 Some(Command::Shutdown) => {
                     let _ = peer.request(methods::SHUTDOWN, &json!({})).await;
                 }
                 Some(Command::Refresh) => {
                     refresh_status(&peer, updates).await;
-                    refresh_sessions(&peer, updates).await;
+                    known_sessions.extend(refresh_sessions(&peer, updates).await);
                 }
                 Some(Command::FleetList) => refresh_fleet(&peer, updates, scope.as_deref()).await,
                 Some(Command::Harness { agent }) => {
                     read_harness(&peer, updates, scope.as_deref(), agent).await;
+                }
+                Some(Command::Identity) => read_identity(&peer, updates).await,
+                Some(Command::Machines) => send_machines(updates, Some(endpoint)),
+                Some(Command::SwitchMachine { name }) => {
+                    if let Some(endpoint) = resolve_machine(&name, updates, lang) {
+                        // Dropped, not drained: what is in flight belongs to the
+                        // machine being left.
+                        peer.close();
+                        return ConnExit::Switch(endpoint);
+                    }
+                }
+                Some(Command::IdentityLink { hostname }) => {
+                    let mut params = json!({});
+                    if let Some(hostname) = &hostname {
+                        params["hostname"] = json!(hostname);
+                    }
+                    let notice = match peer.request(methods::IDENTITY_LINK, &params).await {
+                        // The gesture leads with the platform's own shell form:
+                        // the plain reading is the one that breaks when pasted.
+                        Ok(value) => {
+                            let gesture = if cfg!(windows) {
+                                value["powershell"].as_str().unwrap_or("")
+                            } else {
+                                value["posix"].as_str().unwrap_or("")
+                            };
+                            format!(
+                                "{gesture}  ({})",
+                                text(Msg::IdentityGestureHint, lang)
+                            )
+                        }
+                        // The daemon's own detail and remedy travel as they are.
+                        Err(error) => format!("identity/link: {error}"),
+                    };
+                    let _ = updates.send(Update::Notice(notice));
                 }
                 Some(Command::ProjectList) => refresh_projects(&peer, updates).await,
                 Some(Command::LinkSubscription { agent, name }) => {
@@ -369,18 +512,92 @@ async fn serve_connection(
                 }
             },
             _ = ticker.tick() => {
+                // The clocks, and the daemon's own vitals. NOT the session
+                // list: the state arrives as it changes now, and polling for it
+                // was what made "0 working" possible with an agent working
+                // (estado-en-vivo design D7). The list is still asked for on
+                // connect, on an explicit refresh, and when an affirmation
+                // names a session this connection has no row for.
                 refresh_status(&peer, updates).await;
-                refresh_sessions(&peer, updates).await;
             }
         }
     }
 }
 
 /// Sleeps for `backoff`, returning `true` if the UI went away meanwhile.
-async fn backoff_or_stop(commands: &mut UnboundedReceiver<Command>, backoff: Duration) -> bool {
-    tokio::select! {
-        _ = tokio::time::sleep(backoff) => false,
-        command = commands.recv() => command.is_none(),
+async fn backoff_or_stop(
+    commands: &mut UnboundedReceiver<Command>,
+    backoff: Duration,
+    updates: &UnboundedSender<Update>,
+    lang: Lang,
+) -> Waited {
+    let sleep = tokio::time::sleep(backoff);
+    tokio::pin!(sleep);
+    loop {
+        tokio::select! {
+            _ = &mut sleep => return Waited::Elapsed,
+            command = commands.recv() => match command {
+                None => return Waited::UiGone,
+                // Listing the machines works while unreachable, and that is when
+                // somebody most wants it: the list is configuration, not an
+                // answer from a daemon.
+                Some(Command::Machines) => send_machines(updates, None),
+                Some(Command::SwitchMachine { name }) => {
+                    if let Some(endpoint) = resolve_machine(&name, updates, lang) {
+                        return Waited::Switch(endpoint);
+                    }
+                }
+                Some(_) => {}
+            },
+        }
+    }
+}
+
+/// Sends the configured machines, marking `active` when there is one.
+fn send_machines(updates: &UnboundedSender<Update>, active: Option<&str>) {
+    let read = meltemi_client::machines::read(&meltemi_client::paths::config_dir());
+    let rows: Vec<MachineRow> = read
+        .machines
+        .iter()
+        .map(|machine| MachineRow {
+            name: machine.name.clone(),
+            configured: machine.configured.clone(),
+            via: machine.via(),
+            active: active.is_some_and(|at| at == machine.endpoint),
+        })
+        .collect();
+    let named = active.and_then(|at| read.named(at)).map(|m| m.name.clone());
+    let _ = updates.send(Update::Machines(MachinesSnapshot {
+        rows,
+        active: named,
+        diagnostics: read.diagnostics,
+    }));
+}
+
+/// The endpoint of the machine called `name`, or a notice naming the ones there
+/// are.
+///
+/// A refusal that lists the alternatives, because the mistake this answers is
+/// almost always a typo or a half-remembered name.
+fn resolve_machine(name: &str, updates: &UnboundedSender<Update>, lang: Lang) -> Option<String> {
+    let read = meltemi_client::machines::read(&meltemi_client::paths::config_dir());
+    match read.by_name(name) {
+        Some(machine) => Some(machine.endpoint.clone()),
+        None => {
+            let names = read.names().join(", ");
+            let notice = match lang {
+                Lang::Es if names.is_empty() => {
+                    "no hay máquinas configuradas en tu config.toml de usuario".to_string()
+                }
+                Lang::Es => format!("no hay ninguna máquina `{name}`; tienes: {names}"),
+                Lang::En if names.is_empty() => {
+                    "no machines are configured in your user config.toml".to_string()
+                }
+                Lang::En => format!("there is no machine `{name}`; you have: {names}"),
+            };
+            let _ = updates.send(Update::Notice(notice));
+            None
+        }
     }
 }
 
@@ -433,16 +650,25 @@ async fn refresh_gate(peer: &Peer, updates: &UnboundedSender<Update>, scope: Opt
     }
 }
 
-async fn refresh_sessions(peer: &Peer, updates: &UnboundedSender<Update>) {
+/// Refreshes the session table, answering the ids it brought back.
+///
+/// The ids matter because the caller keeps track of which sessions it has a row
+/// for: an affirmation about one of those is applied in place, and only an
+/// affirmation about a session nobody has heard of costs a query
+/// (estado-en-vivo design D7).
+async fn refresh_sessions(peer: &Peer, updates: &UnboundedSender<Update>) -> Vec<String> {
     // Unfiltered on purpose (multiproyecto-suscripciones D7): one query brings
     // every session with its own root, and the shell groups by project.
     let params = SessionListParams::default();
     if let Ok(value) = peer.request(methods::SESSION_LIST, &params).await
         && let Ok(result) = serde_json::from_value::<SessionListResult>(value)
     {
-        let rows = result.sessions.into_iter().map(SessionRow::from).collect();
+        let rows: Vec<SessionRow> = result.sessions.into_iter().map(SessionRow::from).collect();
+        let ids = rows.iter().map(|row| row.id.clone()).collect();
         let _ = updates.send(Update::Sessions(rows));
+        return ids;
     }
+    Vec::new()
 }
 
 /// Queries `project/list` and pushes the known-project registry, so the
@@ -588,6 +814,27 @@ async fn refresh_fleet(peer: &Peer, updates: &UnboundedSender<Update>, scope: Op
 /// every other scoped call here follows. Without either, the request goes out
 /// with no project at all and the answer is the user's own scopes, which the
 /// view then says out loud instead of looking empty.
+/// Reads the user's mesh identity into the live data.
+///
+/// A refusal is an ANSWER here — `available: false` with a reason — so it is
+/// stored like any other, and the view says what is missing rather than showing
+/// an empty block (identidad-propia design D5).
+async fn read_identity(peer: &Peer, updates: &UnboundedSender<Update>) {
+    match peer.request(methods::IDENTITY_STATUS, &json!({})).await {
+        Ok(value) => match serde_json::from_value::<meltemi_proto::IdentityStatusResult>(value) {
+            Ok(answer) => {
+                let _ = updates.send(Update::Identity(answer));
+            }
+            Err(error) => {
+                let _ = updates.send(Update::Notice(format!("identity/status: {error}")));
+            }
+        },
+        Err(error) => {
+            let _ = updates.send(Update::Notice(format!("identity/status: {error}")));
+        }
+    }
+}
+
 async fn read_harness(
     peer: &Peer,
     updates: &UnboundedSender<Update>,

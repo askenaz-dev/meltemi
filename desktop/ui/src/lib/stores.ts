@@ -11,6 +11,8 @@ import { onIncoming, request } from "./daemon";
 import { pushNotice } from "./notices";
 import { setActiveProject, uiState } from "./ui-state";
 import { decide, type Announced, type Moment } from "./attention";
+import type { IdentityStatus } from "./identity";
+import type { MachineList, ProbeResult } from "./machines";
 export { isLive, LIVE_STATE } from "./session-state";
 import {
   isPermissionGranted,
@@ -383,6 +385,86 @@ export async function refreshPending(): Promise<void> {
   pending.set(result.pending);
 }
 
+/**
+ * The machines this user configured, with whatever could not be read.
+ *
+ * Read on demand and never polled: a background sweep towards remote machines
+ * would raise ssh connections nobody asked for (maquinas-remotas design D4).
+ */
+export const machines = writable<MachineList>({ machines: [], diagnostics: [] });
+
+/** Reads the machine list from the native side. */
+export async function refreshMachines(): Promise<void> {
+  try {
+    machines.set(await invoke<MachineList>("machines_list"));
+  } catch {
+    // No list is the ordinary state of most installs, not a failure to report.
+    machines.set({ machines: [], diagnostics: [] });
+  }
+}
+
+/** Opens a machine, says hello and closes. Changes nothing. */
+export async function probeMachine(name: string): Promise<ProbeResult> {
+  return invoke<ProbeResult>("machine_probe", { name });
+}
+
+/**
+ * Talks to another machine from now on.
+ *
+ * The caller runs the unsaved-work guard FIRST — the same guard as leaving the
+ * editor, not a second one — because the tabs of the machine being left point at
+ * sessions of another daemon and stop meaning anything.
+ */
+export async function switchMachine(name: string): Promise<string> {
+  const switched = await invoke<string>("machine_switch", { name });
+  // The tabs of the machine being left are about another daemon's sessions.
+  sessions.set([]);
+  allSessions.set([]);
+  await refreshMachines();
+  return switched;
+}
+
+/**
+ * The user's mesh identity, or nothing.
+ *
+ * `null` means "the chrome shows nothing", and it covers both "not configured"
+ * and "not asked yet" on purpose: identity is never a requirement, so a daemon
+ * that cannot answer leaves the surface exactly as it was.
+ */
+export const identity = writable<IdentityStatus | null>(null);
+
+/** The gesture that links this machine, as the daemon composed it. */
+export interface LinkGesture {
+  command: string;
+  args: string[];
+  posix: string;
+  powershell: string;
+  opensBrowser: boolean;
+  loginServer?: string;
+}
+
+/** Reads `identity/status`. A refusal is an answer and is stored as one. */
+export async function refreshIdentity(): Promise<void> {
+  try {
+    const result = await request<IdentityStatus>("identity/status", {});
+    // `machines` is omitted when empty by the contract, and a surface that
+    // iterated `undefined` would be a blank panel instead of a mesh of one.
+    identity.set({ ...result, machines: result.machines ?? [] });
+  } catch {
+    identity.set(null);
+  }
+}
+
+/**
+ * Asks the daemon to compose the linking gesture.
+ *
+ * Composed, never run: this surface has no plugin to launch a process or open a
+ * URL and does not gain one here (identidad-propia design D3).
+ */
+export async function identityGesture(hostname?: string): Promise<LinkGesture> {
+  return request<LinkGesture>("identity/link", hostname ? { hostname } : {});
+}
+
 export async function refreshFleet(): Promise<void> {
   const result = await request<{ agents: FleetAgent[] }>("fleet/list", {
     projectRoot: get(activeProject) ?? undefined,
@@ -473,6 +555,33 @@ export function startIncomingRouter(
   return onIncoming((message) => {
     const params = (message.params ?? {}) as Record<string, unknown>;
     switch (message.method) {
+      case "session/state": {
+        // Where one session stands, affirmed whole. Patching the store is the
+        // entire fix: the bar's counter, the sidebar bucket, the tree buckets,
+        // the tab glyph and the detail ring all derive from this array, so all
+        // of them become true without one component being touched
+        // (estado-en-vivo design D7).
+        const sessionId = String(params.sessionId ?? "");
+        if (!sessionId) return;
+        const state = params.state as SessionState | undefined;
+        if (!state) return;
+        const known = get(allSessions);
+        const at = known.findIndex((s) => s.sessionId === sessionId);
+        if (at === -1) {
+          // A session another client just opened: we hold no row for it yet, and
+          // the affirmation is deliberately thin — it carries where the session
+          // stands, not everything a row shows. One fetch fills it in, and from
+          // then on the affirmations keep it current.
+          void refreshSessions().catch(() => {});
+          return;
+        }
+        const patched = known.slice();
+        patched[at] = { ...patched[at], state };
+        allSessions.set(patched);
+        const root = get(activeProject);
+        sessions.set(root ? scopedTo(root, patched) : patched);
+        return;
+      }
       case "permission/changed": {
         const queue = (params.pending as PendingPermission[]) ?? [];
         pending.set(queue);

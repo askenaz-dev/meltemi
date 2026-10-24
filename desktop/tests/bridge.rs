@@ -146,3 +146,91 @@ async fn requests_while_unreachable_fail_fast_with_the_endpoint_diagnosed() {
     .expect("unreachable state reported");
     assert_eq!(state, endpoint);
 }
+
+// Scenario: Cambiar de máquina reconecta y lo dice
+#[tokio::test]
+async fn switching_machines_reconnects_against_the_new_one_without_restarting() {
+    // Two daemons standing in for two machines. What is under test is that one
+    // client process, without restarting, stops talking to the first and starts
+    // talking to the second — and that the state feed says which endpoint it is
+    // on, because a surface that did not say would make an action on the wrong
+    // machine look like an action on your own.
+    let (first, _one) = spawn_daemon("switch-first").await;
+    let (second, _two) = spawn_daemon("switch-second").await;
+    let (command_tx, command_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut events) = mpsc::unbounded_channel();
+    let _actor = tokio::spawn(bridge_actor(first.clone(), command_rx, event_tx));
+
+    // Talking to the first.
+    let status = request(&command_tx, "status", json!({}))
+        .await
+        .expect("the first machine answers");
+    assert!(status.get("daemonVersion").is_some(), "{status}");
+
+    command_tx
+        .send(BridgeCommand::Switch {
+            endpoint: second.clone(),
+        })
+        .expect("actor alive");
+
+    // And now the second, through the same process and the same channel.
+    let status = request(&command_tx, "status", json!({}))
+        .await
+        .expect("the second machine answers");
+    assert!(status.get("daemonVersion").is_some(), "{status}");
+
+    // The feed named the endpoint it ended up on. Collected with a deadline
+    // because the reconnection is asynchronous by nature.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut connected_to_second = false;
+    while tokio::time::Instant::now() < deadline && !connected_to_second {
+        match tokio::time::timeout(std::time::Duration::from_millis(250), events.recv()).await {
+            Ok(Some(BridgeEvent::State(ConnState::Connected { endpoint, .. }))) => {
+                connected_to_second = endpoint == second;
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => break,
+            Err(_) => {}
+        }
+    }
+    assert!(
+        connected_to_second,
+        "the state feed says which machine it is on"
+    );
+}
+
+#[tokio::test]
+async fn a_machine_chosen_while_unreachable_is_dialed_without_waiting_out_the_backoff() {
+    // The case a user actually hits: the current machine is down, the client is
+    // in its retry backoff, and they pick another one. Sitting through the
+    // remains of the previous machine's bad luck would be the client punishing
+    // them for its own schedule.
+    #[cfg(windows)]
+    let dead = format!(r"\\.\pipe\meltemi-desktop-dead-{}", std::process::id());
+    #[cfg(unix)]
+    let dead = std::env::temp_dir()
+        .join(format!("meltemi-desktop-dead-{}.sock", std::process::id()))
+        .to_string_lossy()
+        .into_owned();
+    let (alive, _daemon) = spawn_daemon("switch-from-dead").await;
+
+    let (command_tx, command_rx) = mpsc::unbounded_channel();
+    let (event_tx, _events) = mpsc::unbounded_channel();
+    let _actor = tokio::spawn(bridge_actor(dead, command_rx, event_tx));
+
+    // Let it fail at least once and settle into the wait.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    command_tx
+        .send(BridgeCommand::Switch {
+            endpoint: alive.clone(),
+        })
+        .expect("actor alive");
+
+    let answered = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        request(&command_tx, "status", json!({})),
+    )
+    .await
+    .expect("the switch is not held behind the old machine's backoff");
+    assert!(answered.is_ok(), "{answered:?}");
+}

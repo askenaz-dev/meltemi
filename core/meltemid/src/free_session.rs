@@ -126,7 +126,11 @@ pub async fn handle_session_start(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            project_root.display().to_string(),
+        )
         .await;
     let project_key = paths::project_key(&project_root);
     // Starting work on a root IS pointing Meltemi at it: the registry is fed by

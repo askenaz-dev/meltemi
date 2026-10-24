@@ -44,6 +44,9 @@ pub async fn run(endpoint: &str) -> io::Result<()> {
         present: Presentation::from_env(),
         lang: Lang::from_locale(std::env::var("LANG").ok().as_deref()),
         project: std::path::Path::new(".meltemi").is_dir(),
+        // `None` for this machine's own socket: there is no via worth naming
+        // when the answer is "here".
+        via: meltemi_client::exec::shown(endpoint),
     };
     let mut state = ShellState::new();
     let mut live = LiveData::new();
@@ -229,12 +232,27 @@ fn handle_action(
         Some(Effect::ShutdownDaemon) => {
             let _ = commands.send(Command::Shutdown);
         }
+        Some(Effect::TestNotice) => {
+            let _ = commands.send(Command::TestNotice);
+        }
         Some(Effect::RefreshStatus) => {
             let _ = commands.send(Command::Refresh);
         }
         Some(Effect::RefreshFleet) => refresh_fleet = true,
         Some(Effect::RefreshHarness { agent }) => {
             let _ = commands.send(Command::Harness { agent });
+        }
+        Some(Effect::IdentityStatus) => {
+            let _ = commands.send(Command::Identity);
+        }
+        Some(Effect::Machines) => {
+            let _ = commands.send(Command::Machines);
+        }
+        Some(Effect::SwitchMachine { name }) => {
+            let _ = commands.send(Command::SwitchMachine { name });
+        }
+        Some(Effect::IdentityLink { hostname }) => {
+            let _ = commands.send(Command::IdentityLink { hostname });
         }
         // The Input overlay's raw `agent name`: parsed HERE so a malformed
         // line becomes a visible notice instead of a guessed request.

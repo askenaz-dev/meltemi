@@ -15,10 +15,15 @@
 //!   daemon spawn on demand.
 //! - [`paths`]: platform path resolution (endpoint, data/config dirs,
 //!   project key).
+//! - [`machines`]: the machines this user named, read from their own
+//!   configuration and from nowhere else (maquinas-remotas).
 //!
 //! The daemon never opens a network port; neither does this crate.
 
 pub mod bootstrap;
+pub mod exec;
+pub mod machines;
+pub mod notices;
 pub mod paths;
 pub mod rpc;
 pub mod transport;

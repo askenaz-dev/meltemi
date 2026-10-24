@@ -182,6 +182,81 @@ Si no hay daemon escuchando, el puente rehúsa de inmediato con su remedio en
 lugar de esperar: al otro lado de un `ssh` no hay nadie mirando un indicador de
 progreso.
 
+## La GUI y la TUI contra tu PC
+
+El puente de arriba es un canal completo, pero hasta ahora solo lo hablaba un
+`ssh` abierto a mano. Ahora lo habla **cualquier cliente de Meltemi**: un
+endpoint que empieza por `exec:` nombra un comando en vez de un socket, y el
+cliente lo lanza y habla el protocolo por su entrada y salida.
+
+```
+MELTEMI_ENDPOINT="exec:ssh mi-pc meltemi bridge" meltemi status
+```
+
+Para la GUI, que se abre desde un icono y nunca vio una variable exportada en un
+shell, lo mismo va en tu configuración **de usuario**:
+
+```toml
+# <config>/meltemi/config.toml
+[client]
+endpoint = "exec:ssh mi-pc meltemi bridge"
+```
+
+El cromo de las dos superficies dice **vía `ssh mi-pc`** mientras esté hablando
+por ahí. No es decoración: si la flota en pantalla es de otra máquina, revertir
+un archivo en la equivocada no debe parecer revertirlo en la propia.
+
+### El `~/.ssh/config` mínimo
+
+Nada de esto configura `ssh` por ti, y eso es deliberado. Un alias y un latido
+bastan:
+
+```
+Host mi-pc
+    HostName 203.0.113.10
+    User guillermo
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+```
+
+`IdentityFile` no es obligatorio: si tu clave está en el agente, `ssh` la
+encuentra.
+
+### Lo que Meltemi no hace, y no va a hacer
+
+- **No añade opciones a tu comando.** Ni `BatchMode`, ni `-o` de ningún tipo. El
+  comando es tuyo, entero.
+- **No gestiona claves, passphrases ni hosts conocidos.** Los decide tu `ssh`,
+  con tu agente y tu `known_hosts`. Meltemi no lee ni transporta nada de eso.
+- **No te da un terminal para escribir una passphrase.** La entrada y la salida
+  del comando **son** el canal del protocolo; no pueden ser también un diálogo.
+
+De lo último se sigue lo único incómodo: **la primera conexión a un host nuevo
+va a fallar**, porque nadie puede aceptar la huella. El rehúse lo dice y trae lo
+que `ssh` escribió en su salida de error, que es donde explica de verdad lo que
+pasó. El remedio es una vez y en un terminal:
+
+```
+ssh mi-pc true        # acepta la huella
+ssh-add ~/.ssh/id_ed25519   # carga la clave en el agente
+```
+
+Después, el cliente entra sin preguntar nada.
+
+### Dos garantías que conviene saber
+
+- **Un endpoint `exec:` nunca arranca un daemon local.** Ni con
+  `MELTEMI_START_HERE=1`. Si el comando falla, arrancar uno aquí serviría esta
+  máquina en el nombre de la otra, y respondería en su lugar.
+- **El endpoint no se lee del repositorio.** Solo de tu entorno o de tu
+  configuración de usuario. Un `.meltemi/config.toml` que pudiera fijarlo sería
+  un repositorio que ejecuta un comando en tu máquina por el hecho de abrirlo, y
+  clonar no debería ser una decisión de seguridad.
+
+Sin tuberías ni redirecciones en la cadena, porque no hay shell en medio: si las
+necesitas, nombra un script. Un `.cmd` en Windows funciona, y el proceso que
+lance muere con el cliente igual que el resto.
+
 ## Windows como PC servido
 
 Un PC con Windows se sirve con el servidor OpenSSH que Windows trae como
@@ -281,21 +356,312 @@ Meltemi no exige cuenta ni red. Es infraestructura **del usuario**, igual que su
 final hacia el daemon sigue siendo el SSH del usuario hacia el socket local; la
 malla es solo el enrutamiento por el que ese SSH viaja.
 
+## Identidad: la de tu malla
+
+Meltemi **no tiene cuentas y no las va a tener**. Lo que sí tienes es una
+identidad en tu malla —tu dominio, tu IdP, verificada por quien debe, y ya
+presente en cada equipo— y Meltemi la **lee**. No la crea, no la guarda y no la
+usa para nada más: ninguna conexión se etiqueta por identidad y ningún uso local
+la necesita.
+
+Se enciende con una tabla en tu configuración **de usuario**:
+
+```toml
+# <config>/meltemi/config.toml   (nunca el .meltemi/ de un proyecto)
+[identity]
+mesh = "tailscale"                           # único valor hoy
+login-server = "https://headscale.mi-casa"   # si corres tu propio servidor
+command = "tailscale"                        # opcional: ruta o nombre del binario
+```
+
+De usuario y solo de usuario: la identidad es de la persona y de la máquina, y un
+`login-server` en un archivo versionado se comitearía. Una tabla `[identity]` en
+el `.meltemi/config.toml` de un proyecto **se ignora con diagnóstico**, para que
+quien la escribió ahí sepa por qué no pasó nada.
+
+Con eso, `meltemi identity` responde quién eres, de quién es la malla, cómo se
+llama este equipo, y tus equipos con su presencia:
+
+```
+guillmar@mi-casa on https://headscale.mi-casa
+this machine: mi-pc
+
+  mi-pc        online   windows  (this machine)
+  el-portatil  online   macOS
+  la-torre     offline  linux    last seen 2026-09-30T18:21:05Z
+```
+
+**Cómo se lee, exactamente.** El daemon invoca una sola vez el binario oficial
+que configuraste, en modo de solo lectura (`status --json`), con un **tiempo
+límite**; nunca `up`, `login`, `logout` ni nada que cambie estado. Es la misma
+regla con la que ejecuta `git`: el proceso es tuyo, la red la hace tu propio
+demonio de malla en su socket, y del código de Meltemi no sale un byte. De la
+salida del cliente **nada fuera del modelo sobrevive**: ni direcciones, ni claves
+públicas —el mapa de pares viene indexado por ellas—, ni la salida cruda.
+
+**Presencia no es control.** Saber que un equipo está en línea no abre nada: el
+camino hacia un daemon remoto sigue siendo tu túnel SSH, y si en un equipo corre
+`meltemid` se sabe al conectar, nunca se supone. La lista es para **reconocer**
+equipos, no para conectarse a ellos.
+
+**Cuando no se puede, se dice por qué.** Tres rehúsos, porque piden tres remedios
+distintos: no hay tabla (`not_configured`), no se encuentra el binario donde lo
+nombraste o no se pudo leer (`client_missing`), o el cliente está ahí y este
+equipo no ha iniciado sesión (`not_linked`). Ninguno degrada nada más: Meltemi
+sigue funcionando igual con la identidad apagada, que es el estado por defecto.
+
+**Enlazar este equipo** es un gesto que Meltemi **compone y jamás ejecuta**:
+
+```
+meltemi identity-link                 # lo imprime, en la forma de tu shell
+meltemi identity-link --exec          # lo corre: es tu binario, con tu terminal
+```
+
+Un daemon que ejecutara un login sería un daemon con la sesión de alguien en las
+manos. Así que el daemon devuelve texto; el CLI lo imprime y, solo con `--exec`,
+corre **tu** binario con la entrada y la salida heredadas, para que el URL que
+imprima tu cliente llegue a ti sin filtro y decidas en tu navegador. El gesto no
+lleva secretos: una clave de preautorización sería un secreto, y no se compone
+ninguna. La GUI lo ofrece con un botón de copiar y nada más — no tiene con qué
+abrir un navegador ni lo gana aquí.
+
+En la TUI, `:identity` e `:identity-link` desde la paleta (también `:identidad`);
+la respuesta se dibuja bajo el catálogo. En la GUI, la sección «Identidad» de
+Ajustes, y una fila en el pie de la barra **solo si configuraste la tabla**: un
+llamado permanente a enlazar en el cromo de quien nunca quiso identidad sería
+pedir algo, y esto no pide nada.
+
+> **Verificación de campo pendiente.** La forma del JSON del cliente se verificó
+> contra sus **definiciones de tipo publicadas**, fijadas en `v1.102.5`
+> (`ipn/ipnstate/ipnstate.go` y `tailcfg/tailcfg.go`), que es de donde el CLI
+> serializa su salida — más fuerte que una captura, que solo muestra los campos
+> que una máquina pobló en un estado. Queda correr `meltemi identity` una vez
+> contra un cliente instalado y enlazado; no cambia el contrato, y si algo
+> apareciera se anota aquí con la versión contra la que se leyó.
+
+## Tus máquinas, con nombre
+
+Varios Meltemi en varios equipos **no toca el daemon**: cada `meltemid` sigue
+siendo de su máquina y no sabe que existen otras. El multi-daemon es un concepto
+del cliente — una lista de endpoints con nombre, que vive en tu configuración de
+usuario:
+
+```toml
+# <config>/meltemi/config.toml   (nunca el .meltemi/ de un proyecto)
+[[client.machines]]
+name = "esta"
+endpoint = "local"                           # el default de esta plataforma
+
+[[client.machines]]
+name = "la-torre"
+endpoint = "exec:ssh la-torre meltemi bridge"
+```
+
+De usuario y solo de usuario, por la misma razón que el endpoint suelto y sin
+ninguna nuance: un endpoint puede nombrar un comando, así que un repositorio
+capaz de fijarlo ejecutaría algo en tu máquina por el hecho de abrirlo.
+
+**Sin material de claves.** Ni ruta de clave, ni passphrase, ni puerto, ni
+usuario: `la-torre` es un alias que resuelve tu `~/.ssh/config` con tu agente de
+claves, que es donde `ssh` ya los lee. Un campo aquí para una ruta de clave sería
+el primer paso hacia leerla, así que escribir uno **rehúsa la máquina entera** y
+te dice dónde vive ese dato — ruidoso a propósito: ignorarlo te dejaría creyendo
+que tu clave está en uso sin ver por qué no pasa nada.
+
+Dónde se ve y qué hace cada superficie:
+
+```
+meltemi machines              # lista, con la que estás en uso marcada
+:machines  /  :maquinas       # lo mismo en la paleta de la TUI
+:machine la-torre             # cambiar de máquina, sin reiniciar
+```
+
+En la GUI, la sección «Máquinas» de Ajustes: la lista, «Probar» y «Usar esta».
+El CLI **lista y no cambia**, y lo dice: cada corrida resuelve su endpoint y
+termina, así que no hay a quién cambiarle la máquina.
+
+**Cambiar de máquina es reconectar**, no reiniciar: el cliente corta y marca el
+endpoint de la nueva. Si eliges una mientras el cliente está reintentando contra
+otra que no responde, el cambio **corta la espera** en vez de hacerte cumplir el
+castigo de la mala suerte de la anterior. Y antes de cambiar se aplica la misma
+guarda de trabajo sin guardar que al salir del editor —no una segunda—, porque
+las pestañas de la máquina que dejas apuntan a sesiones de **otro** daemon.
+
+**«Probar» abre, saluda y cierra.** Informa la versión del daemon y cuánto tardó,
+o por qué no respondió. No arranca nada: probar una máquina remota apagada
+**falla**, que es la respuesta correcta y no un arranque remoto sorpresa.
+
+**La presencia se lee cuando abres la lista**, nunca de fondo: un sondeo
+periódico hacia máquinas remotas levantaría conexiones `ssh` que nadie pidió. Y
+la presencia es la de **tu malla** (ver arriba), no una prueba de conexión: que un
+equipo esté en línea no dice que allí corra `meltemid`. Eso se sabe al probar o al
+conectar, nunca se supone.
+
+**Nada agrega sesiones de varias máquinas.** Lo que ves es lo de la máquina
+activa, y el cromo dice cuál. Buscar entre máquinas exigiría un agregador, y un
+agregador es un servicio.
+
+## El compañero móvil
+
+El puesto remoto del Agent Boss: **monitorear, aprobar, revisar y dirigir**, y
+nada más. Sin autoría de código ni de specs — la spec `mobile-companion` lo
+prohíbe salvo enmienda fundacional, y la app tiene **un solo campo de texto**, el
+compositor con el que le hablas a un agente.
+
+**El canal es el mismo de siempre.** El teléfono marca hacia afuera, por tu
+propia infraestructura, hasta `meltemi bridge`. La única diferencia con el
+escritorio es **quién ejecuta el SSH**: en el teléfono no hay un `ssh` del
+sistema que lanzar, así que lo habla la app. El daemon no gana nada y no sabe
+que existe un teléfono; el canal que recibe es el mismo flujo que cualquier
+cliente con un endpoint de comando.
+
+**La clave es de la app.** La genera en el teléfono la primera vez y te muestra
+la **pública** para que la añadas a tu `authorized_keys`; la privada queda
+cifrada en reposo con material del almacén de claves del sistema. Meltemi **no
+lee ni pide claves de otras apps ni la tuya** (§2), y revocar el acceso del
+teléfono es borrar **una línea** de ese archivo — que es la propiedad que hace
+aceptable tener una clave por teléfono.
+
+Dicho con precisión, porque la frase cómoda no es cierta: el almacén de Android
+**no exporta claves privadas asimétricas**, y una biblioteca SSH en espacio de
+usuario necesita la clave para firmar. Lo que el almacén guarda es la clave
+simétrica que cifra la privada en disco, que es el patrón real de la plataforma.
+Firmar por el almacén exigiría un puente JNI y un backend de firma propio; no
+está hecho, y decirlo es mejor que insinuarlo.
+
+**La clave del host se fija en el primer uso** y se comprueba después. Si cambia,
+la conexión **se corta y lo dice**: o reinstalaste esa máquina, o no es esa
+máquina. Nunca se acepta en silencio.
+
+**Suspendida no es conectada.** La app **no sostiene el socket en segundo
+plano** y no finge estar conectada cuando no lo está: el deny-by-default del
+daemon depende de que haya alguien mirando. Al volver al frente reconecta y
+reconcilia antes de presentar nada como actual. Lo que te trae de vuelta es el
+**aviso de espera** opt-in, que sale de tu propia infraestructura — y por eso no
+hay un segundo camino para lo mismo, peor y con una conexión colgando.
+
+**Sin túnel no hay nada que mostrar**, y esa pantalla es la más importante: dice
+qué falta y cómo se arregla. No ofrece relé, ni puerto, ni cuenta, porque no
+existen.
+
 ## Notas para el compañero móvil (fase 3)
 
-Lo que sigue **no existe todavía**: son decisiones de diseño anotadas para la
-change `companero-movil`, no capacidades presentes.
+Lo que sigue **no existe todavía**: es una decisión de diseño anotada, no una
+capacidad presente. La identidad de la malla, el selector de máquinas y el
+compañero móvil sí existen ya y viven arriba, cada uno en su sección.
 
-- **Identidad del usuario (BYO-identity)**: entrar con una cuenta del dominio
-  propio se resuelve con un IdP autohospedado que emite **certificados SSH de
-  vida corta**; el punto de encuentro y los PCs confían en esa CA. Meltemi no
-  gana cuentas: la lectura contraria —«Meltemi con login»— choca con el rumbo
-  («ni un servicio en la nube», sin lock-in) y exigiría enmienda fundacional.
-- **Selector de máquinas**: varios Meltemi en varios equipos no toca el daemon;
-  cada `meltemid` sigue siendo de su máquina. El multi-daemon es un concepto de
-  la aplicación — una lista de endpoints con su presencia.
-- **Aviso de espera**: ya especificado arriba (opt-in, mínimo, jamás emitido por
-  el daemon). La infraestructura del usuario es su casa natural.
+- **Certificados SSH del bastión**: entrar al punto de encuentro con una cuenta
+  del dominio propio se resuelve con un IdP autohospedado que emite
+  **certificados SSH de vida corta**; el bastión y los PCs confían en esa CA. Eso
+  es autorización de transporte y es otra cosa que leer la identidad de la malla:
+  Meltemi no gana cuentas en ninguno de los dos casos, y la lectura contraria
+  —«Meltemi con login»— choca con el rumbo («ni un servicio en la nube», sin
+  lock-in) y exigiría enmienda fundacional.
+
+> **iOS** queda para después, con el mismo código y el trámite de la tienda como
+> tarea del mantenedor. No es una decisión de diseño pendiente: es el mismo
+> compañero en otra plataforma.
+
+## El aviso de espera (opt-in)
+
+«Empecé algo y me fui a hacer la compra; qué bien recibir la notificación en el
+teléfono.» Eso se puede, sin relé y sin puerto, y así:
+
+```toml
+# <config>/meltemi/config.toml
+[notices]
+on-waiting = "curl -d 'Meltemi te espera' https://ntfy.mi-casa/meltemi"
+```
+
+Lo ejecuta **el cliente conectado** —la GUI o la TUI— cuando algo empieza a
+esperarte. El daemon no lo lee, no lo valida y no lo ejecuta jamás. Está
+**apagado por defecto** y solo se lee de tu configuración de usuario: nunca del
+`.meltemi/` de un repositorio, porque abrir un proyecto no debe ejecutar nada en
+tu máquina.
+
+### Qué recibe el comando, exactamente
+
+Esto es un contrato, no una descripción: la constitución exige que el contenido
+de cualquier aviso esté especificado antes de existir, y ampliarlo requiere una
+enmienda.
+
+| Variable | Contenido |
+| --- | --- |
+| `MELTEMI_WAITING` | `permission`, `instruction`, `gate` o `test` |
+| `MELTEMI_SESSION` | El identificador de sesión, opaco |
+| `MELTEMI_MACHINE` | El nombre de la máquina del cliente |
+| `MELTEMI_AT` | El instante, RFC 3339 en UTC |
+| `MELTEMI_COUNT` | Cuántas cosas esperan ahora |
+
+Y **nada más**. No viaja la ruta del proyecto, ni su nombre, ni el texto de la
+petición, ni el nombre de la herramienta, ni el título de la sesión.
+
+La razón no es timidez. El destino es un servicio que tú operas pero que no
+siempre operas solo: un topic de ntfy es una URL que otra persona puede llegar a
+conocer. Lo que viaja tiene que ser inútil para cualquiera que no seas tú, y
+suficiente para que decidas si vale la pena volver. «Algo espera en esta
+máquina» es justo eso.
+
+### Cuántos avisos, y cuándo no
+
+- **Uno por espera, no uno por cosa en cola.** Si llegan tres permisos juntos,
+  hay un aviso con `MELTEMI_COUNT=3`.
+- **Piso de treinta segundos** entre avisos. Seis notificaciones seguidas es cómo
+  uno aprende a silenciar un canal.
+- **Al resolverse no se avisa.** Decirte que ya no hace falta es ruido que llega
+  cuando ya vienes en camino.
+
+### Pruébalo antes de confiar en él
+
+En Ajustes de la GUI, y en la paleta de la TUI con `notice-test` (o
+`aviso-prueba`). Usa el mismo camino que el aviso real, con
+`MELTEMI_WAITING=test`, e ignora el piso: pulsarlo dos veces manda dos.
+
+Es el único momento en que una mala configuración se ve. Un fallo del aviso real
+no se grita: el cliente sigue funcionando y tú te quedas sin notificación, que es
+recuperable y visible.
+
+### Recetas, todas con tu propia infraestructura
+
+Cada una de estas es **tuya**, como tu `ssh`. Meltemi no opera ninguna, no
+gestiona sus claves y no sabe si funcionan.
+
+**ntfy autohospedado** — el caso más simple:
+
+```toml
+on-waiting = "curl -s -d Meltemi https://ntfy.mi-casa/mi-topic-largo-y-privado"
+```
+
+Un topic corto es una dirección que alguien adivina. Usa uno largo, o pon
+autenticación en tu servidor.
+
+**Gotify**:
+
+```toml
+on-waiting = "curl -s -F title=Meltemi -F message=espera https://gotify.mi-casa/message?token=TU_TOKEN"
+```
+
+El token queda en tu archivo de configuración, que es tuyo; Meltemi no lo lee
+más que para pasárselo al comando que tú escribiste.
+
+**Apprise**, si ya lo usas para todo lo demás:
+
+```toml
+on-waiting = "apprise -t Meltemi -b espera"
+```
+
+**Sin servidor: la campana del terminal.** Si trabajas por `ssh -t` desde el
+teléfono, `MELTEMI_BELL=1` hace que la TUI suene, y las apps de terminal
+convierten esa campana en notificación local. Es el push más barato que existe y
+no necesita nada más.
+
+### Lo que este aviso no es
+
+- **No es push del daemon.** El daemon no abre puertos ni habla con nadie fuera
+  de su socket, y esto no lo cambia.
+- **No es telemetría.** Nada sale hacia Meltemi ni hacia nadie que no sea el
+  servicio que tú pusiste en esa línea.
+- **No lleva tu trabajo.** Las cinco variables de arriba son el contrato entero.
 
 ## Sin push sin túnel — y por qué
 

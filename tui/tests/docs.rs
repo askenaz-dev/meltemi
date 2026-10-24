@@ -114,24 +114,188 @@ fn the_rendezvous_pattern_is_documented_with_its_boundary() {
         "compiling and testing Meltemi needs no account and no network"
     );
 
-    // Phase 3 is annotated, never promised.
+    // The user's mesh identity is DOCUMENTED AS BUILT, with the boundary that
+    // makes it legal: read from the user's own client, never issued, never
+    // executed, and presence that controls nothing (identidad-propia 4.1).
+    let identity = doc
+        .split("## Identidad: la de tu malla")
+        .nth(1)
+        .expect("the identity section exists")
+        .split("\n## ")
+        .next()
+        .expect("the section has an end");
+    let identity_lower = identity
+        .to_ascii_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        identity_lower.contains("no tiene cuentas"),
+        "the section opens by saying Meltemi has no accounts"
+    );
+    assert!(
+        identity.contains("[identity]") && identity_lower.contains("de usuario"),
+        "the table is documented as user scope"
+    );
+    assert!(
+        identity_lower.contains("se ignora con diagnóstico"),
+        "and a project's table is said to be ignored, with its diagnostic"
+    );
+    assert!(
+        identity.contains("status --json") && identity_lower.contains("solo lectura"),
+        "the one read-only invocation is named"
+    );
+    for forbidden in ["`up`", "`login`", "`logout`"] {
+        assert!(
+            identity.contains(forbidden),
+            "the verbs the daemon never runs are named: {forbidden}"
+        );
+    }
+    assert!(
+        identity_lower.contains("tiempo límite"),
+        "the read has a deadline and the page says so"
+    );
+    assert!(
+        identity_lower.contains("presencia no es control"),
+        "presence is declared read-only: knowing a machine is online opens nothing"
+    );
+    for reason in ["not_configured", "client_missing", "not_linked"] {
+        assert!(
+            identity.contains(reason),
+            "the three refusals ask three remedies and are named: {reason}"
+        );
+    }
+    assert!(
+        identity.contains("identity-link") && identity_lower.contains("jamás ejecuta"),
+        "the gesture is composed and never run by the daemon"
+    );
+    assert!(
+        identity_lower.contains("--exec") && identity_lower.contains("heredadas"),
+        "and running it is the user's own binary with stdio inherited"
+    );
+    // The field verification that is still pending is written as pending, with
+    // the version the shape was read against. An honest page over a tidy one.
+    assert!(
+        identity_lower.contains("pendiente") && identity.contains("v1.102.5"),
+        "the pending field check names the version the type was read at"
+    );
+
+    // The machine selector is DOCUMENTED AS BUILT too, with the boundaries that
+    // keep it legal: user scope, no key material, nothing that polls, and no
+    // aggregation across machines (maquinas-remotas 4.1).
+    let machines = doc
+        .split("## Tus máquinas, con nombre")
+        .nth(1)
+        .expect("the machines section exists")
+        .split("\n## ")
+        .next()
+        .expect("the section has an end");
+    let machines_lower = machines
+        .to_ascii_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        machines.contains("[[client.machines]]") && machines_lower.contains("de usuario"),
+        "the list is documented as user scope"
+    );
+    assert!(
+        machines_lower.contains("sin material de claves"),
+        "and as carrying no key material"
+    );
+    assert!(
+        machines.contains("~/.ssh/config"),
+        "with the place that data actually lives"
+    );
+    assert!(
+        machines_lower.contains("rehúsa la máquina entera"),
+        "writing one is refused loudly rather than ignored"
+    );
+    assert!(
+        machines_lower.contains("cambiar de máquina es reconectar"),
+        "switching is reconnecting, not restarting"
+    );
+    assert!(
+        machines_lower.contains("trabajo sin guardar"),
+        "and the unsaved-work guard is named"
+    );
+    assert!(
+        machines_lower.contains("no arranca nada"),
+        "testing a machine starts nothing"
+    );
+    assert!(
+        machines_lower.contains("nunca de fondo"),
+        "presence is read on demand and never polled"
+    );
+    assert!(
+        machines_lower.contains("no dice que allí corra"),
+        "and presence is not a promise about a daemon"
+    );
+    assert!(
+        machines_lower.contains("un agregador es un servicio"),
+        "nothing aggregates sessions across machines, with the reason"
+    );
+    // The CLI's own limit is written where somebody would look for it, instead
+    // of being discovered by trying.
+    assert!(
+        machines_lower.contains("lista y no cambia"),
+        "the CLI lists and does not switch, and says so"
+    );
+
+    // Phase 3 is annotated, never promised — and what has since been BUILT is no
+    // longer in the notes. This half of the test has now been rewritten twice,
+    // by the two changes that built what it used to reserve; each time it pinned
+    // the old semantics and each time that was the point of rewriting it.
     let phase3 = doc
         .split("## Notas para el compañero móvil")
         .nth(1)
-        .expect("the phase-3 notes section exists");
+        .expect("the phase-3 notes section exists")
+        // Bounded to the section: unbounded it ran to the end of the page and
+        // swallowed the sections after it, so "this is still a note" would be
+        // satisfied by a heading that says the opposite.
+        .split(
+            "
+## ",
+        )
+        .next()
+        .expect("the section has an end");
     assert!(
         phase3.contains("no existe todavía"),
         "the phase-3 notes say plainly that none of it exists yet"
     );
-    for note in ["BYO-identity", "Selector de máquinas", "Aviso de espera"] {
+    assert!(
+        phase3.contains("Certificados SSH del bastión"),
+        "the one design note left is recorded"
+    );
+    // What is left is a decision for a FUTURE change, and the note says what it
+    // is rather than naming a change that has already happened: `companero-movil`
+    // built the companion, so pointing at it would read as "coming soon" for
+    // something shipped.
+    assert!(
+        phase3.contains("certificados SSH de vida corta"),
+        "the note says what the decision is"
+    );
+    // The notes must not promise what is already built, which is the failure mode
+    // a stale note creates: a reader deciding the feature is years away.
+    let phase3_lower = phase3
+        .to_ascii_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for built in [
+        "byo-identity",
+        "selector que conecta",
+        "aviso de espera",
+        "android primero",
+    ] {
         assert!(
-            phase3.contains(note),
-            "the design note `{note}` is recorded"
+            !phase3_lower.contains(built),
+            "`{built}` is built and must not still read as a future thing"
         );
     }
     assert!(
-        phase3.contains("companero-movil"),
-        "the notes name the change that will consume them"
+        phase3_lower.contains("existen ya"),
+        "and the notes point at what already exists instead of restating it"
     );
 }
 

@@ -61,11 +61,18 @@ Which end runs what:
   all; `ssh <pc> meltemi bridge` carries the connection over SSH's own stdio,
   and the scriptable verbs (`ssh <pc> meltemi permissions`, …) run on the PC
   itself.
+- **From any client, to any of the three**: an endpoint of the form
+  `exec:<command>` makes the client launch that command and speak the protocol
+  over its stdio, so `MELTEMI_ENDPOINT="exec:ssh <pc> meltemi bridge"` gives the
+  desktop app and the terminal shell the same reach the bridge already gave a
+  script. The command comes from the user's environment or user-scope
+  configuration and never from a repository, and such an endpoint never starts a
+  daemon locally.
 
 A client whose `MELTEMI_ENDPOINT` points at a forwarded socket never starts a
 daemon there: if the tunnel is down, it says so and names the tunnel. The
-served Windows PC, the phone and the waiting settings are in
-[acceso-remoto.md](acceso-remoto.md).
+served Windows PC, the phone, the `~/.ssh/config` a command endpoint wants and
+the waiting settings are in [acceso-remoto.md](acceso-remoto.md).
 
 ### Isolating an environment
 

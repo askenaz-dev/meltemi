@@ -81,12 +81,36 @@ pub async fn connect_or_start(endpoint: &str) -> std::io::Result<Stream> {
 /// safe side of being wrong.
 #[must_use]
 pub fn may_start(endpoint: &str, own: &str, start_here: Option<&str>) -> bool {
+    // An endpoint that names a command is never a place to start a daemon, and
+    // not even the opt-in changes that. Starting one because a remote `ssh` did
+    // not answer would serve one machine in the name of another, and the local
+    // daemon would then answer in place of the one the user meant.
+    //
+    // The comparison below would already never match an `exec:` endpoint, so
+    // this is written out rather than left to that accident: a guarantee that
+    // holds by coincidence is a guarantee the next refactor takes away without
+    // noticing (via-ssh-del-cliente design D4).
+    if crate::exec::is_exec(endpoint) {
+        return false;
+    }
     endpoint == own || !matches!(start_here, None | Some("") | Some("0"))
 }
 
 /// Why nothing was started at `endpoint`, and the two ways on.
 #[must_use]
 pub fn refusal(endpoint: &str) -> String {
+    // A command endpoint gets its own refusal, because the two remedies the
+    // other one offers cannot work here: there is no tunnel to check and the
+    // start-here opt-in is closed by `may_start` above. Offering a way that is
+    // shut would be worse than offering none.
+    if crate::exec::is_exec(endpoint) {
+        return format!(
+            "`{endpoint}` names a command and it did not put a daemon on its output; nothing \
+             is ever started locally for a command endpoint, because that would answer in \
+             place of the machine you meant. Check the command on its own: run it in a \
+             terminal and see whether it speaks JSON-RPC"
+        );
+    }
     format!(
         "`{endpoint}` is not accepting connections, and a daemon is started only at this \
          user's own endpoint: if it is a tunnel, check the tunnel; if the daemon should run \
@@ -255,5 +279,44 @@ mod tests {
         unsafe {
             std::env::remove_var(ENV_DAEMON_BIN);
         }
+    }
+
+    // Scenario: El comando falla y no se arranca nada
+    #[test]
+    fn a_command_endpoint_never_starts_a_daemon_not_even_when_asked_to() {
+        let own = "socket-of-this-user";
+        let command = "exec:ssh my-pc meltemi bridge";
+
+        assert!(
+            !may_start(command, own, None),
+            "a command endpoint is not a place to start a daemon"
+        );
+        // And the opt-in does NOT open it. This is the assertion the explicit
+        // guard exists for: the text comparison alone refuses the first case by
+        // accident and would allow this one.
+        for asked in ["1", "yes", "true"] {
+            assert!(
+                !may_start(command, own, Some(asked)),
+                "`{asked}` must not open a command endpoint to a local daemon"
+            );
+        }
+        // The plain forms are untouched: the own endpoint still starts, and the
+        // opt-in still works where it always did.
+        assert!(may_start(own, own, None));
+        assert!(may_start("some-other-socket", own, Some("1")));
+
+        // And the refusal talks about the command, not about a tunnel: a remedy
+        // pointing at the start-here variable would be a remedy that cannot
+        // work, because the guard above closed it.
+        let said = refusal(command);
+        assert!(said.contains("names a command"), "{said}");
+        assert!(
+            said.contains("run it in a terminal"),
+            "the remedy is about the command: {said}"
+        );
+        assert!(
+            !said.contains("MELTEMI_START_HERE"),
+            "and it does not offer a way that is shut: {said}"
+        );
     }
 }

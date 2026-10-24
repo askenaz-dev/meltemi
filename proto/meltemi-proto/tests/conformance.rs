@@ -112,12 +112,16 @@ const ALL_SESSION_STATES: [SessionState; 6] = [
     SessionState::Interrupted,
 ];
 
-/// The session-state enum is written THREE times — once in Rust and once in
-/// each of the two schemas that define it independently — and until now nothing
-/// compared them. A state present in Rust and missing from a schema is a
-/// conformance failure that only shows up when a real daemon sends a real
-/// session; a state in one schema and not the other is a contract that
+/// The session-state enum is written FOUR times — once in Rust and once in each
+/// of the three schemas that define it independently — and until this test
+/// nothing compared them. A state present in Rust and missing from a schema is
+/// a conformance failure that only shows up when a real daemon sends a real
+/// session; a state in one schema and not another is a contract that
 /// contradicts itself.
+///
+/// The third schema arrived with `session/state` (estado-en-vivo): the
+/// notification carries the enum too, so it has to be held to the same
+/// comparison as the two that came before it.
 #[test]
 fn the_state_enum_is_the_same_in_rust_and_in_both_schemas() {
     let in_rust: Vec<String> = ALL_SESSION_STATES
@@ -131,7 +135,7 @@ fn the_state_enum_is_the_same_in_rust_and_in_both_schemas() {
         })
         .collect();
 
-    for schema in ["status", "session-list"] {
+    for schema in ["status", "session-list", "session-state"] {
         let text = std::fs::read_to_string(format!("../schemas/v1/{schema}.schema.json"))
             .unwrap_or_else(|e| panic!("read {schema}.schema.json: {e}"));
         let doc: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
@@ -1715,6 +1719,225 @@ fn session_events_conform() {
     );
 }
 
+/// The live-state notification (estado-en-vivo design D1).
+#[test]
+fn session_state_conforms() {
+    // Every state, because the notification carries the enum and a state that
+    // serialized to something the schema rejects would only surface against a
+    // real daemon.
+    for state in ALL_SESSION_STATES {
+        assert_conforms(
+            "session-state",
+            "notificationParams",
+            &SessionStateParams {
+                session_id: "sess-1".into(),
+                project_root: "/repo".into(),
+                state,
+                since: "2026-09-26T12:00:00Z".into(),
+                pending_permissions: 0,
+            },
+        );
+    }
+
+    // A session with people waiting on it, so the count is exercised as a
+    // number and not only as its zero.
+    assert_conforms(
+        "session-state",
+        "notificationParams",
+        &SessionStateParams {
+            session_id: "sess-2".into(),
+            project_root: "/repo".into(),
+            state: SessionState::WaitingPermission,
+            since: "2026-09-26T12:00:05Z".into(),
+            pending_permissions: 3,
+        },
+    );
+
+    // What the notification must NEVER be: an affirmation without the instant
+    // it started, which is the one field a clock cannot invent, and one whose
+    // `since` is not a timestamp at all.
+    assert_rejected(
+        "session-state",
+        "notificationParams",
+        &serde_json::json!({
+            "sessionId": "sess-1",
+            "projectRoot": "/repo",
+            "state": "active",
+            "pendingPermissions": 0
+        }),
+    );
+    assert_rejected(
+        "session-state",
+        "notificationParams",
+        &serde_json::json!({
+            "sessionId": "sess-1",
+            "projectRoot": "/repo",
+            "state": "active",
+            "since": "yesterday",
+            "pendingPermissions": 0
+        }),
+    );
+    // And a state nobody declared: the enum is the contract, not a hint.
+    assert_rejected(
+        "session-state",
+        "notificationParams",
+        &serde_json::json!({
+            "sessionId": "sess-1",
+            "projectRoot": "/repo",
+            "state": "working",
+            "since": "2026-09-26T12:00:00Z",
+            "pendingPermissions": 0
+        }),
+    );
+}
+
+/// Identity: the user's own mesh, read and never issued (identidad-propia D9).
+#[test]
+fn identity_conforms() {
+    assert_conforms("identity", "statusParams", &IdentityStatusParams::default());
+    assert_conforms("identity", "linkParams", &IdentityLinkParams::default());
+    assert_conforms(
+        "identity",
+        "linkParams",
+        &IdentityLinkParams {
+            hostname: Some("mi-pc".into()),
+        },
+    );
+
+    // The three refusals, each one an ANSWER rather than an error: a user who
+    // never wanted identity is not in a broken state.
+    for reason in [
+        IdentityUnavailable::NotConfigured,
+        IdentityUnavailable::ClientMissing,
+        IdentityUnavailable::NotLinked,
+    ] {
+        assert_conforms(
+            "identity",
+            "statusResult",
+            &IdentityStatusResult {
+                available: false,
+                reason: Some(reason),
+                remedy: Some("add an [identity] table to your user configuration".into()),
+                user: None,
+                provider: None,
+                this: None,
+                machines: Vec::new(),
+            },
+        );
+    }
+
+    // And the answer when it is available, with presence on both sides.
+    assert_conforms(
+        "identity",
+        "statusResult",
+        &IdentityStatusResult {
+            available: true,
+            reason: None,
+            remedy: None,
+            user: Some("guillermo@askenaz.dev".into()),
+            provider: Some("tailscale".into()),
+            this: Some("mi-pc".into()),
+            machines: vec![
+                MeshMachine {
+                    name: "mi-pc".into(),
+                    presence: MeshPresence::Online,
+                    system: Some("windows".into()),
+                    last_seen: Some("2026-09-26T18:04:00Z".into()),
+                    this_machine: true,
+                },
+                MeshMachine {
+                    name: "el-portatil".into(),
+                    presence: MeshPresence::Offline,
+                    system: None,
+                    last_seen: None,
+                    this_machine: false,
+                },
+            ],
+        },
+    );
+
+    assert_conforms(
+        "identity",
+        "linkResult",
+        &IdentityLinkResult {
+            command: "tailscale up --login-server https://headscale.askenaz.dev --hostname mi-pc"
+                .into(),
+            args: vec![
+                "tailscale".into(),
+                "up".into(),
+                "--login-server".into(),
+                "https://headscale.askenaz.dev".into(),
+                "--hostname".into(),
+                "mi-pc".into(),
+            ],
+            posix: "tailscale up --login-server https://headscale.askenaz.dev --hostname mi-pc"
+                .into(),
+            powershell:
+                "tailscale up --login-server https://headscale.askenaz.dev --hostname mi-pc".into(),
+            opens_browser: true,
+            login_server: Some("https://headscale.askenaz.dev".into()),
+        },
+    );
+
+    // What the contract must refuse. A presence nobody declared, because the set
+    // is the contract and not a hint; and a gesture with no command at all,
+    // because a surface would show an empty thing to copy.
+    assert_rejected(
+        "identity",
+        "statusResult",
+        &json!({
+            "available": true,
+            "machines": [{ "name": "mi-pc", "presence": "away", "thisMachine": true }]
+        }),
+    );
+    assert_rejected(
+        "identity",
+        "linkResult",
+        &json!({
+            "command": "",
+            "args": ["tailscale", "up"],
+            "posix": "x",
+            "powershell": "x",
+            "opensBrowser": false
+        }),
+    );
+    // A gesture with no argument vector, or one too short to be a program plus a
+    // verb: `--exec` would have nothing to run, and guessing by re-splitting the
+    // line is the bug the vector exists to prevent.
+    assert_rejected(
+        "identity",
+        "linkResult",
+        &json!({
+            "command": "tailscale up",
+            "posix": "tailscale up",
+            "powershell": "tailscale up",
+            "opensBrowser": true
+        }),
+    );
+    assert_rejected(
+        "identity",
+        "linkResult",
+        &json!({
+            "command": "tailscale up",
+            "args": ["tailscale"],
+            "posix": "tailscale up",
+            "powershell": "tailscale up",
+            "opensBrowser": true
+        }),
+    );
+    // A machine that does not say whether it is this one: the surfaces mark the
+    // current machine, and a row that left it out would be marked as not-this by
+    // omission.
+    assert_rejected(
+        "identity",
+        "statusResult",
+        &json!({
+            "available": true,
+            "machines": [{ "name": "mi-pc", "presence": "online" }]
+        }),
+    );
+}
+
 // Local usage accounting (analitica-consumo-local D5).
 #[test]
 fn analytics_usage_conforms() {
@@ -3155,6 +3378,9 @@ fn error_codes_match_catalog() {
         error_codes::SPEC_MERGE_CONFLICT,
         error_codes::ARTIFACT_NOT_FOUND,
         error_codes::USAGE_QUERY_INVALID,
+        // 6xxx opens a domain: identity and mesh. A list somebody has to edit is
+        // the point — it is what made 2005's drift visible.
+        error_codes::IDENTITY_UNAVAILABLE,
     ];
     let mut sorted = constants.to_vec();
     sorted.sort_unstable();

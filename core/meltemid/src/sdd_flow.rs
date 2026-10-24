@@ -510,7 +510,11 @@ async fn run_turn(
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
         .sessions
-        .register(&session_id, agent_command.clone())
+        .register(
+            &session_id,
+            agent_command.clone(),
+            project_root.display().to_string(),
+        )
         .await;
     crate::projects::touch(&state.data_dir, project_root);
     let project_key = crate::paths::project_key(project_root);

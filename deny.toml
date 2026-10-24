@@ -34,6 +34,16 @@ ignore = [
     "RUSTSEC-2025-0081",
     "RUSTSEC-2025-0098",
     "RUSTSEC-2025-0100",
+    # zbus_names, zvariant, zvariant_derive: unmaintained as standalone crates
+    # since zbus 6 folded them in as modules (z-galaxy/zbus#2043). None is a
+    # vulnerability. They arrive through notify-rust, which still requires
+    # zbus 5 at its latest release (4.18.2), under tauri-plugin-notification
+    # 2.3.3, the latest stable, which the desktop links for its OS notices
+    # (avisos-de-escritorio design D1). D-Bus is the Linux notification path
+    # only. Revisited when the plugin or notify-rust moves to zbus 6.
+    "RUSTSEC-2026-0370",
+    "RUSTSEC-2026-0371",
+    "RUSTSEC-2026-0372",
 ]
 
 [licenses]
@@ -66,10 +76,12 @@ allow-wildcard-paths = true
 # leaves from the official binary, with the auth that binary manages (§2).
 #
 # `reqwest` is the single gate through which an HTTP stack can enter this tree,
-# and only the desktop shell's webview framework pulls it. Naming `tauri` as
-# its sole wrapper keeps that door where it is: any other crate — an adapter,
-# the daemon, a future engine — that reaches for HTTP or TLS fails this gate
-# and must argue for its exception here, in writing, as design D2 did.
+# and only a shell's webview framework pulls it — the desktop's, and since
+# `companero-movil` the companion's, which is the same `tauri` under another
+# target. Naming `tauri` as its sole wrapper keeps that door where it is: any
+# other crate — an adapter, the daemon, a future engine — that reaches for HTTP
+# or TLS fails this gate and must argue for its exception here, in writing, as
+# design D2 did.
 [[bans.deny]]
 crate = "reqwest"
 wrappers = ["tauri"]
@@ -78,7 +90,31 @@ reason = "HTTP belongs to the provider's official binary, never to Meltemi's own
 [[bans.deny]]
 crate = "hyper"
 wrappers = ["reqwest", "hyper-util"]
-reason = "reachable only under the desktop shell's webview framework"
+reason = "reachable only under a shell's webview framework — the desktop's, and now the companion's"
+
+# SSH is not HTTP and is not TLS, and that is why the mobile companion needs no
+# TLS exception here (companero-movil design D2). The phone has no system `ssh`
+# to launch, so the app speaks the protocol itself with `russh`.
+#
+# What russh DOES require is a crypto backend, and it offers exactly two: `ring`
+# or `aws-lc-rs`. One of them is mandatory — the crate refuses to compile with
+# neither — so this is a real exception, written here as D2 was amended to say,
+# and not the clean "no exception needed" the design first claimed.
+#
+# `ring` is the one chosen, and `russh` is its ONLY permitted wrapper, exactly
+# as `tauri` is `reqwest`'s. It is Apache-2.0 AND ISC, both already allowed; it
+# is Rust and assembly with no C toolchain; and it builds for the Android
+# targets. `aws-lc-rs` stays banned: it drags `aws-lc-sys`, a C library that
+# wants NASM on Windows, and a C crypto stack is the thing this file exists to
+# keep out.
+[[bans.deny]]
+crate = "ring"
+wrappers = ["russh"]
+reason = "the SSH client of the mobile companion needs one crypto backend; this one, there, and nowhere else"
+
+[[bans.deny]]
+crate = "aws-lc-rs"
+reason = "it drags a C crypto library and its build toolchain; `ring` is the backend this workspace allows"
 
 [[bans.deny]]
 crate = "rustls"

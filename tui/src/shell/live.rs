@@ -195,6 +195,26 @@ pub struct FleetSnapshot {
 /// because "why is mine not the one applying" is the question people arrive
 /// with, and a listing of only what governs leaves it unanswered
 /// (harness-global-y-por-agente design D5/D8).
+/// One machine, as the terminal shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRow {
+    pub name: String,
+    /// What the user wrote, which is what they recognise.
+    pub configured: String,
+    /// `ssh my-pc`, when the way in is a command.
+    pub via: Option<String>,
+    pub active: bool,
+}
+
+/// The machines, read when asked for and never polled.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MachinesSnapshot {
+    pub rows: Vec<MachineRow>,
+    /// The name of the active machine, when it is one of the configured ones.
+    pub active: Option<String>,
+    pub diagnostics: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessSnapshot {
     /// The agent the reading was narrowed to, when it was.
@@ -258,6 +278,10 @@ pub enum Update {
     Fleet(FleetSnapshot),
     /// The effective harness was (re)read.
     Harness(HarnessSnapshot),
+    /// Who the user is on their own mesh, as the mesh's client answered it.
+    Identity(meltemi_proto::IdentityStatusResult),
+    /// The machines this user configured, and which one is active.
+    Machines(MachinesSnapshot),
     /// The known-project registry was (re)queried.
     Projects(Vec<ProjectRow>),
     /// The lanes of a race were (re)read for the board.
@@ -281,6 +305,13 @@ pub enum Update {
     },
     /// A persistent, labeled notice (e.g. a permission expiry).
     Notice(String),
+    /// Where one session stands, as the daemon affirmed it.
+    ///
+    /// The whole state of that session, not a difference, so applying it twice
+    /// or out of order converges — which is what lets the reconciling refresh
+    /// and this coexist without either having to win (estado-en-vivo design
+    /// D1).
+    SessionState(meltemi_proto::SessionStateParams),
 }
 
 /// The live snapshot the renderer reads. Mutated only by [`LiveData::apply`] and
@@ -297,6 +328,12 @@ pub struct LiveData {
     /// The effective harness; `None` until it is asked for. It is asked for,
     /// never polled: reading four scopes off disk is not chrome.
     pub harness: Option<HarnessSnapshot>,
+    /// The last identity answer, absent until asked for: reading the mesh client
+    /// on every refresh would be chrome nobody requested (design D6).
+    pub identity: Option<meltemi_proto::IdentityStatusResult>,
+    /// The machines, absent until asked for. The active one survives the list
+    /// being closed, because the header names it.
+    pub machines: Option<MachinesSnapshot>,
     /// The race board currently open, when the shell is drilled into one.
     pub race: Option<RaceBoard>,
     pub selected: usize,
@@ -344,6 +381,8 @@ impl LiveData {
             projects: Vec::new(),
             fleet: None,
             harness: None,
+            identity: None,
+            machines: None,
             race: None,
             selected: 0,
             permission_queue: Vec::new(),
@@ -394,8 +433,24 @@ impl LiveData {
                     self.selected = self.sessions.len().saturating_sub(1);
                 }
             }
+            Update::SessionState(affirmation) => {
+                // Patched by id, and nothing else touched: what arrived says
+                // where the session stands, not everything a row shows. A row
+                // this surface does not hold is left alone — the connection
+                // actor asks for the list when it sees one, because a row built
+                // out of five fields would show an agent with no name.
+                if let Some(row) = self
+                    .sessions
+                    .iter_mut()
+                    .find(|row| row.id == affirmation.session_id)
+                {
+                    row.state = affirmation.state;
+                }
+            }
             Update::Fleet(snapshot) => self.fleet = Some(snapshot),
             Update::Harness(snapshot) => self.harness = Some(snapshot),
+            Update::Identity(answer) => self.identity = Some(answer),
+            Update::Machines(snapshot) => self.machines = Some(snapshot),
             Update::Race(board) => {
                 // Selection survives a re-read as long as the lane still exists;
                 // a lane that vanished clamps rather than pointing past the end.
@@ -578,6 +633,68 @@ mod tests {
             profile: None,
             title: None,
         }
+    }
+
+    // Scenario: La fila cambia al llegar la transición
+    #[test]
+    fn an_affirmation_moves_the_row_it_names_and_leaves_the_rest_alone() {
+        let mut live = LiveData::default();
+        live.apply(Update::Sessions(vec![
+            SessionRow {
+                id: "s-1".into(),
+                agent: "mock".into(),
+                state: SessionState::Active,
+                project_root: "/repo".into(),
+                resumable: false,
+                agent_id: None,
+                profile: None,
+                title: None,
+                mode: None,
+                model: None,
+            },
+            SessionRow {
+                id: "s-2".into(),
+                agent: "mock".into(),
+                state: SessionState::Active,
+                project_root: "/repo".into(),
+                resumable: false,
+                agent_id: None,
+                profile: None,
+                title: None,
+                mode: None,
+                model: None,
+            },
+        ]));
+
+        live.apply(Update::SessionState(meltemi_proto::SessionStateParams {
+            session_id: "s-2".into(),
+            project_root: "/repo".into(),
+            state: SessionState::WaitingPermission,
+            since: "2026-09-26T12:00:00Z".into(),
+            pending_permissions: 1,
+        }));
+
+        assert_eq!(
+            live.sessions[0].state,
+            SessionState::Active,
+            "s-1 untouched"
+        );
+        assert_eq!(live.sessions[1].state, SessionState::WaitingPermission);
+        // Nothing else of the row moved: the affirmation says where the session
+        // stands, not what it is.
+        assert_eq!(live.sessions[1].agent, "mock");
+        assert_eq!(live.sessions[1].project_root, "/repo");
+
+        // A session this surface holds no row for is left alone rather than
+        // invented: the connection actor is what asks for the list.
+        live.apply(Update::SessionState(meltemi_proto::SessionStateParams {
+            session_id: "s-9".into(),
+            project_root: "/elsewhere".into(),
+            state: SessionState::Active,
+            since: "2026-09-26T12:00:01Z".into(),
+            pending_permissions: 0,
+        }));
+        assert_eq!(live.sessions.len(), 2, "no phantom row appeared");
     }
 
     #[test]

@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "meltemi-release"
+description = "The release tooling of this repository: the version and its carriers, the release gate, the release notes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+# No dependency at all, by design (release-con-el-push D2): the tool rewrites a
+# few lines of text and asks `git` and `cargo` questions, and the standard
+# library does both. It runs on the maintainer's machine and in the release
+# pipeline, and it ships in no archive.

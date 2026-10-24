@@ -339,3 +339,67 @@ async fn a_refused_link_reaches_the_shell_with_the_daemons_remedy() {
     let _ = tokio::time::timeout(Duration::from_secs(5), actor).await;
     daemon.abort();
 }
+
+// Scenario: El reloj sigue moviendo los relojes
+#[tokio::test]
+async fn the_clock_keeps_ticking_and_stops_asking_for_the_session_list() {
+    // Before this change the periodic tick asked for the whole session list,
+    // which is what made "0 working" possible with an agent working: the state
+    // was only as fresh as the last poll. The tick stays — the clocks and the
+    // daemon's vitals need it — and it stops asking.
+    //
+    // Observable either way: a tick that still polled would push a fresh
+    // `Sessions` update every two seconds. Five seconds covers two ticks.
+    let (endpoint, daemon) = spawn_daemon("shell-clock").await;
+
+    let (cmd_tx, cmd_rx) = unbounded_channel::<Command>();
+    let (upd_tx, mut upd_rx) = unbounded_channel::<Update>();
+    let actor = tokio::spawn(connection_actor(endpoint.clone(), Lang::Es, cmd_rx, upd_tx));
+
+    // The connect-time refresh is expected and is not a tick.
+    let mut seeded = false;
+    let settle = async {
+        while let Some(update) = upd_rx.recv().await {
+            if matches!(update, Update::Sessions(_)) {
+                seeded = true;
+                break;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), settle)
+        .await
+        .expect("the actor seeded the table on connect");
+    assert!(seeded, "the list is still fetched on connect");
+
+    // Now the quiet part: no session moves, and two ticks pass.
+    let mut polled_again = false;
+    let mut still_ticking = false;
+    let watch = async {
+        while let Some(update) = upd_rx.recv().await {
+            match update {
+                Update::Sessions(_) => {
+                    polled_again = true;
+                    break;
+                }
+                // The tick's other errand, which proves the clock is alive
+                // rather than merely silent.
+                Update::Conn(_) => still_ticking = true,
+                _ => {}
+            }
+        }
+    };
+    let _ = tokio::time::timeout(Duration::from_secs(5), watch).await;
+
+    assert!(
+        !polled_again,
+        "the tick asked for the session list again; the state is supposed to arrive as it changes"
+    );
+    assert!(
+        still_ticking,
+        "the tick is gone entirely, so nothing would move the clocks"
+    );
+
+    drop(cmd_tx);
+    let _ = tokio::time::timeout(Duration::from_secs(5), actor).await;
+    daemon.abort();
+}

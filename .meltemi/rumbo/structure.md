@@ -15,6 +15,7 @@ meltemi/
 ├── proto/             # JSON Schemas del contrato + crate meltemi-proto
 ├── tui/               # cliente de terminal `meltemi` (fase 1)
 ├── desktop/           # cliente GUI Tauri (fase 2)
+├── mobile/            # compañero Android (fase 3); reusa el frontend de desktop/
 ├── sdk/               # SDK público (fase 2)
 ├── brand/             # identidad visual (V2 vigente; ver brand/README.md)
 ├── docs/              # documentación y research interno

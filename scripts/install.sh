@@ -8,7 +8,8 @@
 # Manual equivalent (if you prefer not to run this):
 #   1. Download the release archive for your platform and its SHA256SUMS.
 #   2. Verify: `sha256sum --check SHA256SUMS` (or `shasum -a 256 --check`).
-#   3. Verify the signature of SHA256SUMS with the published signing key.
+#   3. Verify its signature: gh attestation verify <archive> --repo askenaz-dev/meltemi
+#      --signer-workflow askenaz-dev/meltemi/.github/workflows/release.yml (docs/release.md).
 #   4. Extract `meltemi`, `meltemid` and the two `meltemi-*-acp` adapters into a
 #      directory on your PATH. Keep the adapters BESIDE the daemon: that is
 #      where it looks for them.

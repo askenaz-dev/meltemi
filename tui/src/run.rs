@@ -84,7 +84,12 @@ pub async fn execute(
         Command::Link { agent, name } => link(agent, name, endpoint).await,
         Command::Unlink { name } => unlink(name, endpoint).await,
         Command::Project { project_root } => project(project_root, endpoint).await,
-        Command::Sessions { project_root } => sessions(project_root, endpoint).await,
+        // `--follow` never reaches here: the dispatcher runs the streams where
+        // the process's own writer lives (see `Command::Watch`).
+        Command::Sessions {
+            project_root,
+            follow: _,
+        } => sessions(project_root, endpoint).await,
         Command::Explore { topic, agent } => {
             sdd_verb(endpoint, methods::SDD_EXPLORE, topic, None, agent).await
         }
@@ -180,6 +185,10 @@ pub async fn execute(
             value,
         } => set_option(session, option, value, endpoint).await,
         Command::Harness { agent } => harness(agent, endpoint).await,
+        // `machines` is a local reader: it never touches the daemon.
+        Command::Machines => machines(endpoint),
+        Command::Identity => identity(endpoint).await,
+        Command::IdentityLink { hostname, exec } => identity_link(hostname, exec, endpoint).await,
         // `tunnel` is a local formatter: it never touches the daemon.
         Command::Tunnel { target, exec } => tunnel(target, exec),
         // The bridge writes the daemon's bytes to the process's own locked
@@ -1766,6 +1775,254 @@ async fn harness(agent: Option<String>, endpoint: &str) -> Result<Outcome, CliEr
     })
 }
 
+/// `machines`: the machines this user configured, and which one this run uses.
+///
+/// Local, like `tunnel`: it reads the user's configuration and never dials
+/// anything. Listing only — a one-shot CLI resolves its endpoint and exits, so
+/// there is nobody here whose machine could be switched, and the render says
+/// where switching does live.
+fn machines(endpoint: &str) -> Result<Outcome, CliError> {
+    let read = meltemi_client::machines::read(&meltemi_client::paths::config_dir());
+    let rows: Vec<serde_json::Value> = read
+        .machines
+        .iter()
+        .map(|machine| {
+            json!({
+                "name": machine.name,
+                "configured": machine.configured,
+                "endpoint": machine.endpoint,
+                "via": machine.via(),
+                "active": machine.endpoint == endpoint,
+            })
+        })
+        .collect();
+    Ok(Outcome {
+        human: render_machines(&rows, &read.diagnostics, endpoint),
+        json: json!({ "machines": rows, "diagnostics": read.diagnostics }),
+    })
+}
+
+fn render_machines(rows: &[serde_json::Value], diagnostics: &[String], endpoint: &str) -> String {
+    let mut out = String::new();
+    if rows.is_empty() {
+        // Not an error: most people have one machine, and that is the ordinary
+        // case rather than a broken one. So it says how to have more.
+        out.push_str(
+            "no machines configured
+Add them to your user config.toml:
+
+               [[client.machines]]
+  name = \"this one\"
+  endpoint = \"local\"
+
+               [[client.machines]]
+  name = \"the tower\"
+  endpoint = \"exec:ssh tower meltemi              bridge\"
+",
+        );
+    } else {
+        let width = rows
+            .iter()
+            .filter_map(|row| row["name"].as_str())
+            .map(str::len)
+            .max()
+            .unwrap_or(0);
+        for row in rows {
+            let name = row["name"].as_str().unwrap_or("?");
+            let mark = if row["active"].as_bool().unwrap_or(false) {
+                "*"
+            } else {
+                " "
+            };
+            let shown = row["via"].as_str().map_or_else(
+                || row["configured"].as_str().unwrap_or("").to_string(),
+                |via| format!("{via}  ({})", row["configured"].as_str().unwrap_or("")),
+            );
+            out.push_str(&format!(
+                "{mark} {name:<width$}  {shown}
+"
+            ));
+        }
+        if !rows
+            .iter()
+            .any(|row| row["active"].as_bool().unwrap_or(false))
+        {
+            // The endpoint in use is not one of the named machines, which is
+            // ordinary with MELTEMI_ENDPOINT set — and confusing if unsaid.
+            out.push_str(&format!(
+                "
+this run is on {endpoint}, which is not one of them
+"
+            ));
+        }
+        out.push_str(
+            "
+`machines` lists. To switch, use `:machine <name>` in the terminal shell or the Machines section of the desktop's Settings.
+",
+        );
+    }
+    for said in diagnostics {
+        out.push_str(&format!(
+            "
+{said}
+"
+        ));
+    }
+    out
+}
+
+/// `identity`: who the user is on their own mesh, and which machines it knows.
+///
+/// No project root: identity is of the person and the machine, not of a project
+/// (identidad-propia design D5).
+async fn identity(endpoint: &str) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let response = peer.request(methods::IDENTITY_STATUS, &json!({})).await;
+    background.finish(&peer).await;
+
+    let value = response.map_err(CliError::contract)?;
+    Ok(Outcome {
+        human: render_identity(&value),
+        json: value,
+    })
+}
+
+/// `identity-link`: print the gesture; with `--exec`, run the user's own client.
+async fn identity_link(
+    hostname: Option<String>,
+    exec: bool,
+    endpoint: &str,
+) -> Result<Outcome, CliError> {
+    let (peer, background) = connect_and_init(endpoint).await?;
+    let mut params = json!({});
+    if let Some(hostname) = &hostname {
+        params["hostname"] = json!(hostname);
+    }
+    let response = peer.request(methods::IDENTITY_LINK, &params).await;
+    background.finish(&peer).await;
+    let value = response.map_err(CliError::from_rpc)?;
+
+    if exec {
+        // The argument vector the daemon composed, never a re-split of the
+        // printed line: a client path with a space is exactly what would break.
+        let args: Vec<String> = value["args"]
+            .as_array()
+            .map(|args| {
+                args.iter()
+                    .filter_map(|arg| arg.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let Some((program, rest)) = args.split_first() else {
+            return Err(CliError::contract(
+                "identity/link answered without an argument vector, so there is nothing to run",
+            ));
+        };
+        // Inherited stdio, which is the whole point: the client prints a URL and
+        // the user answers it in their own browser. Meltemi reads none of it.
+        let status = std::process::Command::new(program)
+            .args(rest)
+            .status()
+            .map_err(|e| CliError::link_failed(format!("could not launch `{program}`: {e}")))?;
+        let ran = format!("ran `{}`", value["command"].as_str().unwrap_or(""));
+        if !status.success() {
+            return Err(CliError::link_failed(format!(
+                "{ran}\nyour mesh client ended with {} — this machine is not linked",
+                status
+                    .code()
+                    .map_or_else(|| "a signal".to_string(), |code| format!("exit {code}"))
+            )));
+        }
+        return Ok(Outcome {
+            human: format!("{ran}\nyour mesh client reported success"),
+            json: json!({
+                "command": value["command"],
+                "executed": true,
+                "exitCode": status.code(),
+            }),
+        });
+    }
+
+    Ok(Outcome {
+        human: render_identity_link(&value),
+        json: value,
+    })
+}
+
+/// The gesture in the form of the platform the user is on, with the hint.
+fn render_identity_link(value: &serde_json::Value) -> String {
+    // The platform's own form, because the point of composing two is that the
+    // wrong one is subtly wrong rather than loudly broken.
+    let shell = if cfg!(windows) { "powershell" } else { "posix" };
+    let gesture = value[shell]
+        .as_str()
+        .or_else(|| value["command"].as_str())
+        .unwrap_or("");
+    let mut out = format!("Link this machine to your mesh by running:\n\n  {gesture}\n");
+    if value["opensBrowser"].as_bool().unwrap_or(false) {
+        out.push_str(
+            "\nIt opens your browser so you sign in with your own provider. Meltemi never runs \
+             this for you and never sees the session.\n",
+        );
+    }
+    if let Some(server) = value["loginServer"].as_str() {
+        out.push_str(&format!("\nLogin server: {server}\n"));
+    }
+    out
+}
+
+/// Who the user is on their mesh, and their machines with presence in a word.
+fn render_identity(value: &serde_json::Value) -> String {
+    if !value["available"].as_bool().unwrap_or(false) {
+        // A refusal is an answer here, so it reads like one: what is missing and
+        // what to do, never a stack of fields that are all empty.
+        let reason = value["reason"].as_str().unwrap_or("unavailable");
+        let remedy = value["remedy"].as_str().unwrap_or("");
+        return format!("no identity ({reason})\n{remedy}");
+    }
+    let mut out = String::new();
+    let user = value["user"].as_str().unwrap_or("(the mesh did not say)");
+    match value["provider"].as_str() {
+        Some(provider) => out.push_str(&format!("{user} on {provider}\n")),
+        None => out.push_str(&format!("{user}\n")),
+    }
+    if let Some(this) = value["this"].as_str() {
+        out.push_str(&format!("this machine: {this}\n"));
+    }
+    let machines = value["machines"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    if machines.is_empty() {
+        return out;
+    }
+    let width = machines
+        .iter()
+        .filter_map(|machine| machine["name"].as_str())
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    out.push('\n');
+    for machine in machines {
+        let name = machine["name"].as_str().unwrap_or("?");
+        // Presence in a word, not a glyph: this surface is piped into other
+        // programs, and `online` survives that where a symbol does not.
+        let presence = machine["presence"].as_str().unwrap_or("?");
+        out.push_str(&format!("  {name:<width$}  {presence:<7}"));
+        if let Some(system) = machine["system"].as_str() {
+            out.push_str(&format!("  {system}"));
+        }
+        if let Some(seen) = machine["lastSeen"].as_str() {
+            out.push_str(&format!("  last seen {seen}"));
+        }
+        if machine["thisMachine"].as_bool().unwrap_or(false) {
+            out.push_str("  (this machine)");
+        }
+        out.push('\n');
+    }
+    out
+}
+
 fn render_harness(value: &serde_json::Value) -> String {
     let rules = value["rules"].as_array().map(Vec::as_slice).unwrap_or(&[]);
     let unknown = value["unknownAgents"]
@@ -3171,5 +3428,182 @@ mod tests {
             competitors: vec![lane("claude")],
         });
         assert!(rendered.contains("state: —  base —"), "{rendered}");
+    }
+
+    /// What the daemon answers for a linked mesh of three machines.
+    fn linked_identity() -> serde_json::Value {
+        json!({
+            "available": true,
+            "user": "guillmar@mock.example",
+            "provider": "https://headscale.askenaz.dev",
+            "this": "mi-pc",
+            "machines": [
+                { "name": "mi-pc", "presence": "online", "system": "windows",
+                  "thisMachine": true },
+                { "name": "el-portatil", "presence": "online", "system": "macOS",
+                  "thisMachine": false },
+                { "name": "la-torre", "presence": "offline", "system": "linux",
+                  "lastSeen": "2026-09-30T18:21:05Z", "thisMachine": false }
+            ]
+        })
+    }
+
+    // Scenario: Sin máquinas configuradas, dice cómo se configuran
+    #[test]
+    fn with_no_machines_it_says_how_to_have_some_and_is_not_an_error() {
+        // Most people have one machine. That is the ordinary case, not a broken
+        // one, so it answers with the shape of the configuration rather than a
+        // complaint.
+        let rendered = render_machines(&[], &[], "local");
+        assert!(rendered.starts_with("no machines configured"), "{rendered}");
+        assert!(rendered.contains("[[client.machines]]"), "{rendered}");
+        assert!(rendered.contains("endpoint = \"local\""), "{rendered}");
+        assert!(
+            rendered.contains("exec:ssh"),
+            "the remote shape too: {rendered}"
+        );
+    }
+
+    // Scenario: machines imprime la lista y cuál está activa
+    #[test]
+    fn machines_marks_the_one_in_use_and_names_the_way_in() {
+        let rows = vec![
+            json!({
+                "name": "esta", "configured": "local", "endpoint": "local",
+                "via": null, "active": true
+            }),
+            json!({
+                "name": "la-torre", "configured": "exec:ssh la-torre meltemi bridge",
+                "endpoint": "exec:ssh la-torre meltemi bridge",
+                "via": "ssh la-torre", "active": false
+            }),
+        ];
+        let rendered = render_machines(&rows, &[], "local");
+        assert!(
+            rendered.contains("* esta"),
+            "the active one is marked: {rendered}"
+        );
+        assert!(rendered.contains("  la-torre"), "{rendered}");
+        assert!(
+            rendered.contains("ssh la-torre"),
+            "the way in is named, not the whole command: {rendered}"
+        );
+        // Listing only, and it says where switching is rather than leaving the
+        // reader to guess that this verb cannot.
+        assert!(rendered.contains(":machine <name>"), "{rendered}");
+        assert!(rendered.contains("Settings"), "{rendered}");
+    }
+
+    #[test]
+    fn an_endpoint_that_is_not_one_of_the_machines_is_said_rather_than_hidden() {
+        // Ordinary with MELTEMI_ENDPOINT set, and confusing if left unsaid: no
+        // row is marked and nothing explains why.
+        let rows = vec![json!({
+            "name": "esta", "configured": "local", "endpoint": "local",
+            "via": null, "active": false
+        })];
+        let rendered = render_machines(&rows, &[], "/tmp/somewhere-else.sock");
+        assert!(rendered.contains("not one of them"), "{rendered}");
+        assert!(rendered.contains("somewhere-else"), "{rendered}");
+    }
+
+    #[test]
+    fn a_refused_machine_is_reported_under_the_list() {
+        let rendered = render_machines(&[], &["machine `x` was skipped: ...".to_string()], "local");
+        assert!(rendered.contains("was skipped"), "{rendered}");
+    }
+
+    // Scenario: identity imprime quién y qué equipos
+    #[test]
+    fn identity_prints_who_the_provider_this_machine_and_presence_in_a_word() {
+        let rendered = render_identity(&linked_identity());
+
+        assert!(
+            rendered.contains("guillmar@mock.example on https://headscale.askenaz.dev"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("this machine: mi-pc"), "{rendered}");
+        // Presence in a word, not a glyph: this surface gets piped into other
+        // programs, where `online` survives and a symbol does not.
+        assert!(rendered.contains("online"), "{rendered}");
+        assert!(rendered.contains("offline"), "{rendered}");
+        assert!(
+            rendered.contains("last seen 2026-09-30T18:21:05Z"),
+            "only the one that is away carries a last-seen: {rendered}"
+        );
+        assert!(rendered.contains("(this machine)"), "{rendered}");
+        // All three, and the names aligned so the column reads as a column.
+        for name in ["mi-pc", "el-portatil", "la-torre"] {
+            assert!(rendered.contains(name), "{name} missing from {rendered}");
+        }
+    }
+
+    #[test]
+    fn without_identity_the_render_reads_like_an_answer_and_not_an_empty_form() {
+        // The refusal is an answer, so it says what is missing and what to do
+        // instead of printing a stack of blank fields.
+        let rendered = render_identity(&json!({
+            "available": false,
+            "reason": "not_configured",
+            "remedy": "identity is off: add an [identity] table with `mesh` to your user config.toml"
+        }));
+        assert!(
+            rendered.starts_with("no identity (not_configured)"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("[identity]"), "{rendered}");
+        assert!(!rendered.contains("this machine:"), "{rendered}");
+    }
+
+    // Scenario: identity-link imprime el gesto y solo ejecuta a pedido
+    #[test]
+    fn the_gesture_prints_in_this_platforms_form_with_the_browser_hint() {
+        let answered = json!({
+            "command": "tailscale up --login-server https://headscale.askenaz.dev --hostname mi pc",
+            "args": ["tailscale", "up", "--login-server",
+                     "https://headscale.askenaz.dev", "--hostname", "mi pc"],
+            "posix": "tailscale up --login-server https://headscale.askenaz.dev --hostname 'mi pc'",
+            "powershell":
+                "tailscale up --login-server https://headscale.askenaz.dev --hostname 'mi pc'",
+            "opensBrowser": true,
+            "loginServer": "https://headscale.askenaz.dev"
+        });
+        let rendered = render_identity_link(&answered);
+
+        // The platform's own form, quoted — never the plain reading, which is the
+        // one that breaks when pasted.
+        let expected = if cfg!(windows) { "powershell" } else { "posix" };
+        assert!(
+            rendered.contains(answered[expected].as_str().expect("a form")),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("'mi pc'"),
+            "the quoted name is what gets printed: {rendered}"
+        );
+        // The browser is announced before it appears, and who holds the session
+        // is said in the same breath.
+        assert!(rendered.contains("opens your browser"), "{rendered}");
+        assert!(rendered.contains("never runs this for you"), "{rendered}");
+        assert!(
+            rendered.contains("Login server: https://headscale.askenaz.dev"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn a_gesture_with_no_login_server_says_nothing_about_one() {
+        let rendered = render_identity_link(&json!({
+            "command": "tailscale up --hostname mi-pc",
+            "args": ["tailscale", "up", "--hostname", "mi-pc"],
+            "posix": "tailscale up --hostname mi-pc",
+            "powershell": "tailscale up --hostname mi-pc",
+            "opensBrowser": true
+        }));
+        assert!(!rendered.contains("Login server"), "{rendered}");
+        assert!(
+            rendered.contains("tailscale up --hostname mi-pc"),
+            "{rendered}"
+        );
     }
 }

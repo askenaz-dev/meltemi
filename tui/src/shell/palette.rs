@@ -94,6 +94,47 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "shut down the daemon (confirms)",
     },
     Entry {
+        name: "identity",
+        reserved: false,
+        methods: &[m::IDENTITY_STATUS],
+        desc_es: "quién soy en mi malla, y qué equipos hay",
+        desc_en: "who I am on my mesh, and which machines there are",
+    },
+    Entry {
+        name: "identity-link",
+        reserved: false,
+        methods: &[m::IDENTITY_LINK],
+        desc_es: "el gesto para enlazar este equipo (se imprime, no se ejecuta)",
+        desc_en: "the gesture that links this machine (printed, never run)",
+    },
+    Entry {
+        // No contract method: the machines are the client's own configuration and
+        // the daemon does not know other machines exist, so these two contribute
+        // nothing to the parity union (maquinas-remotas design D7).
+        name: "machines",
+        reserved: false,
+        methods: &[],
+        desc_es: "las máquinas que configuraste, y en cuál estás",
+        desc_en: "the machines you configured, and which one you are on",
+    },
+    Entry {
+        name: "machine",
+        reserved: false,
+        methods: &[],
+        desc_es: "hablar con otra máquina: `machine <nombre>`",
+        desc_en: "talk to another machine: `machine <name>`",
+    },
+    Entry {
+        // No contract method: the notice is the client's own doing and the daemon
+        // takes no part in it, so this entry contributes nothing to the parity
+        // union (aviso-de-espera-opt-in design D2).
+        name: "notice-test",
+        reserved: false,
+        methods: &[],
+        desc_es: "enviar un aviso de espera de prueba",
+        desc_en: "send a test waiting notice",
+    },
+    Entry {
         name: "quit",
         reserved: false,
         methods: &[],

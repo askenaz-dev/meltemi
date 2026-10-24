@@ -1605,7 +1605,9 @@ mod tests {
             std::env::temp_dir().join(format!("meltemi-acp-wait-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let registry = crate::session::SessionRegistry::default();
-        registry.register("s-1", vec!["mock".into()]).await;
+        registry
+            .register("s-1", vec!["mock".into()], "/repo".into())
+            .await;
         let log = Arc::new(Mutex::new(
             SessionLog::create(&dir, "proj", "s-1").expect("a log to write to"),
         ));

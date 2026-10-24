@@ -402,24 +402,9 @@ pub async fn handle_sdd_validate(params: Value) -> Result<Value, RpcError> {
                         continue;
                     };
                     let delta = meltemi_spec::parse_delta(&capability, &md, &path);
-                    // Structural + EARS validation of the delta's own requirements
-                    // (build a synthetic spec from its Added/Modified blocks).
-                    let requirements: Vec<meltemi_spec::model::Requirement> = delta
-                        .operations
-                        .iter()
-                        .filter_map(|op| match op {
-                            meltemi_spec::DeltaOp::Added(r)
-                            | meltemi_spec::DeltaOp::Modified(r) => Some(r.clone()),
-                            _ => None,
-                        })
-                        .collect();
-                    let synthetic = meltemi_spec::model::Spec {
-                        capability: capability.clone(),
-                        requirements,
-                        deltas: Vec::new(),
-                        source: path.clone(),
-                    };
-                    for d in meltemi_spec::validate_spec(&synthetic) {
+                    // Structural + EARS validation of the delta's own requirement
+                    // blocks, the ADDED and MODIFIED ones.
+                    for d in meltemi_spec::validate_delta_blocks(&delta) {
                         diagnostics.push(ValidateDiagnostic {
                             capability: capability.clone(),
                             location: location(&d),

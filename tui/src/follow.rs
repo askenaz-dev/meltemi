@@ -319,6 +319,75 @@ enum Stream {
 /// One message from the daemon: a record of the session is written, and its
 /// close ends the stream; a request nobody here serves is refused, so the
 /// daemon never waits on this connection for an answer.
+/// `sessions --follow`: every affirmation of state the daemon makes, one record
+/// per line, until the user stops or the daemon goes.
+///
+/// Two differences from [`watch`], both of them consequences rather than
+/// choices. There is no interest to declare: the daemon affirms every session to
+/// every connection, which is the whole point of the channel. And there is no
+/// session to outlive, so the only endings are the user's and the daemon's —
+/// `watch` needs a liveness poll because it follows one session and must not
+/// outlast it (estado-en-vivo design D8).
+///
+/// The first records are the snapshot the daemon sends on `initialize`, so a
+/// reader that starts here knows where everything stands without asking.
+pub async fn states(
+    project_root: Option<&str>,
+    endpoint: &str,
+    format: Format,
+    out: &mut impl Write,
+    err: &mut impl Write,
+) -> Result<(), CliError> {
+    let (peer, mut incoming) = crate::run::connect_reading(endpoint).await?;
+    let result = follow_states(project_root, &mut incoming, format, out, err).await;
+    peer.close();
+    result
+}
+
+/// Whether `root` contains the session at `own`, by the same rule the surfaces
+/// use: separators and case normalized, and a worktree under the root counts.
+fn within(root: &str, own: &str) -> bool {
+    let norm = |p: &str| p.replace('\\', "/").trim_end_matches('/').to_lowercase();
+    let (root, own) = (norm(root), norm(own));
+    own == root || own.starts_with(&format!("{root}/"))
+}
+
+async fn follow_states(
+    project_root: Option<&str>,
+    incoming: &mut UnboundedReceiver<Incoming>,
+    format: Format,
+    out: &mut impl Write,
+    err: &mut impl Write,
+) -> Result<(), CliError> {
+    if !format.is_machine() {
+        let _ = writeln!(
+            err,
+            "following every session's state — Ctrl+C stops following; the sessions keep running"
+        );
+    }
+    loop {
+        let Some(message) = incoming.recv().await else {
+            return Err(CliError::unreachable(
+                "the daemon closed the connection while following session state".to_string(),
+            ));
+        };
+        let Incoming::Notification { method, params } = message else {
+            continue;
+        };
+        if method != methods::SESSION_STATE {
+            continue;
+        }
+        if let Some(root) = project_root {
+            let own = params.get("projectRoot").and_then(Value::as_str);
+            if !own.is_some_and(|own| within(root, own)) {
+                continue;
+            }
+        }
+        let line = serde_json::to_string(&params).map_err(CliError::internal)?;
+        write_record(out, format, &line).map_err(CliError::internal)?;
+    }
+}
+
 fn handle(
     peer: &Peer,
     message: Incoming,

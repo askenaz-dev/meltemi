@@ -166,6 +166,16 @@ pub async fn dispatch_with(
             let result = follow::log(&session, endpoint, format, out).await;
             close_stream(result, format, out, err)
         }
+        // Following state is a stream like the other two, so it is dispatched
+        // here for the same reason: the records are written to the process's own
+        // locked stdout as they arrive.
+        Action::Run(Command::Sessions {
+            project_root,
+            follow: true,
+        }) => {
+            let result = follow::states(project_root.as_deref(), endpoint, format, out, err).await;
+            close_stream(result, format, out, err)
+        }
         Action::Run(command) => {
             // A result is not always a success: `validate` findings exit `14`
             // (its `clean` field is the stable signal), and any answer that

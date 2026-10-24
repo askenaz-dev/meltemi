@@ -136,9 +136,15 @@ visible or accessible label.
 
 Shared with the TUI so both surfaces speak one language. Each status renders
 glyph + label (localized); the glyph has an ASCII twin (TUI rule) and the
-desktop uses the same shapes in its iconography. The last two rows were added by
+desktop uses the same shapes in its iconography. Two rows were added by
 `sesiones-en-la-barra` (2026-09-15), when the bar started heading a bucket for
-each of them.
+each of them, and the last two by `identidad-propia` (2026-10-01).
+
+Presence is about a **machine of the user's mesh**, not about a session, and it
+is read-only: a machine being online says nothing about being able to do anything
+to it, and Meltemi offers nothing that would. Its two shapes are the ones already
+learned for filled-is-here and hollow-is-not, with their own names in the glyph
+table so neither meaning drifts when the other changes.
 
 | Status | Glyph | ASCII twin | Color token |
 |---|---|---|---|
@@ -149,6 +155,8 @@ each of them.
 | ended / done | `■` | `x` | `--text-muted` |
 | interrupted (stopped) | `■` | `x` | `--text-muted` |
 | error / unreachable | `▲` | `!` | `--danger` |
+| mesh machine online | `●` + word | `*` | `--ok` |
+| mesh machine offline | `○` + word | `o` | `--text-faint` |
 
 ## Signal priority
 

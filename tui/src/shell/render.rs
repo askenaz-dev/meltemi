@@ -62,6 +62,13 @@ pub struct ShellCtx {
     pub present: Presentation,
     pub lang: Lang,
     pub project: bool,
+    /// How this shell reaches the daemon, when it is not this machine's own
+    /// socket: the abbreviated command, for example `ssh my-pc`.
+    ///
+    /// Shown in the header because a surface that stayed quiet about talking to
+    /// another machine would make an action on the wrong one look like an action
+    /// on your own (via-ssh-del-cliente design D8).
+    pub via: Option<String>,
 }
 
 impl ShellCtx {
@@ -196,10 +203,18 @@ fn render_header(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx)
             version,
             uptime_s,
             sessions,
-        } => (
-            glyphs::OK,
-            format!("daemon {version} | {uptime_s}s | {sessions} ses."),
-        ),
+        } => (glyphs::OK, {
+            let mut said = format!("daemon {version} | {uptime_s}s | {sessions} ses.");
+            // Which machine, when the user named one: an action on the wrong
+            // computer must not look like an action on your own.
+            if let Some(machine) = live.machines.as_ref().and_then(|m| m.active.as_ref()) {
+                said.push_str(&format!(" | {machine}"));
+            }
+            if let Some(via) = &ctx.via {
+                said.push_str(&format!(" | vía {via}"));
+            }
+            said
+        }),
         ConnState::Unreachable { .. } => (glyphs::ERROR, ctx.msg(Msg::Unreachable).to_string()),
     };
     // Permission indicator: glyph + count + word, always present (never a bare dot).
@@ -498,7 +513,139 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
     // navigate to (design D8). Absent until asked for: reading four scopes off
     // disk on every refresh would be chrome nobody requested.
     append_harness(&mut lines, live, ctx);
+    // And the user's own mesh identity, on the same terms and for the same
+    // reason: asked for, not polled.
+    append_identity(&mut lines, live, ctx);
+    // And the machines of this user, on the same terms: asked for, not polled.
+    append_machines(&mut lines, live, ctx);
     render_lines(frame, area, lines);
+}
+
+/// Appends the machines this user configured, marking the one in use.
+///
+/// Configuration, not an answer from a daemon, which is why it renders the same
+/// whether or not there is a connection — and why it is the one block worth
+/// reading when there is not.
+fn append_machines(lines: &mut Vec<Line<'static>>, live: &LiveData, ctx: &ShellCtx) {
+    let Some(snapshot) = &live.machines else {
+        return;
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(ctx.msg(Msg::MachinesTitle)));
+    if snapshot.rows.is_empty() {
+        lines.push(Line::from(format!("  {}", ctx.msg(Msg::MachinesNone))));
+    }
+    let width = snapshot
+        .rows
+        .iter()
+        .map(|row| row.name.chars().count())
+        .max()
+        .unwrap_or(0);
+    for row in &snapshot.rows {
+        // The marker is a glyph with its ASCII twin and a word beside it, like
+        // every other state in this surface.
+        let glyph = if row.active {
+            glyphs::OK
+        } else {
+            glyphs::ABSENT
+        };
+        let pad = width.saturating_sub(row.name.chars().count());
+        let mut text = format!(
+            "    {} {}{}",
+            glyph.text(&ctx.present),
+            row.name,
+            " ".repeat(pad)
+        );
+        if row.active {
+            text.push_str(&format!("  ({})", ctx.msg(Msg::MachinesHere)));
+        }
+        // The way in, not the whole command: it is what a person recognises.
+        match &row.via {
+            Some(via) => text.push_str(&format!("  · {via}")),
+            None => text.push_str(&format!("  · {}", row.configured)),
+        }
+        lines.push(Line::from(text));
+    }
+    if !snapshot.rows.is_empty() && snapshot.active.is_none() {
+        lines.push(Line::from(format!("  {}", ctx.msg(Msg::MachinesElsewhere))));
+    }
+    for said in &snapshot.diagnostics {
+        lines.push(Line::from(format!("  · {said}")));
+    }
+}
+
+/// Appends the user's mesh identity: who they are, whose mesh it is, and their
+/// machines with presence as a symbol AND a word.
+///
+/// Never color alone and never a symbol alone: the glyph has an ASCII twin and
+/// the word is always beside it, so the meaning survives a terminal without
+/// Unicode as well as a reader who cannot tell the two shapes apart.
+fn append_identity(lines: &mut Vec<Line<'static>>, live: &LiveData, ctx: &ShellCtx) {
+    let Some(answer) = &live.identity else {
+        return;
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(ctx.msg(Msg::IdentityTitle)));
+    if !answer.available {
+        // The three refusals ask for three different remedies, so each says its
+        // own thing in the surface's language, and the daemon's remedy — which is
+        // English, by §11 — follows as the detail it is.
+        let said = match answer.reason {
+            Some(meltemi_proto::IdentityUnavailable::ClientMissing) => {
+                ctx.msg(Msg::IdentityClientMissing)
+            }
+            Some(meltemi_proto::IdentityUnavailable::NotLinked) => ctx.msg(Msg::IdentityNotLinked),
+            _ => ctx.msg(Msg::IdentityNotConfigured),
+        };
+        lines.push(Line::from(format!("  {said}")));
+        if let Some(remedy) = &answer.remedy {
+            lines.push(Line::from(format!("  · {remedy}")));
+        }
+        return;
+    }
+    // Whose identity this is, said where it is shown: nobody should read this
+    // block as a Meltemi account, because there are none (design D7).
+    lines.push(Line::from(format!("  {}", ctx.msg(Msg::IdentityWhose))));
+    let who = match (&answer.user, &answer.provider) {
+        (Some(user), Some(provider)) => format!("  {user} · {provider}"),
+        (Some(user), None) => format!("  {user}"),
+        (None, Some(provider)) => format!("  {provider}"),
+        (None, None) => String::new(),
+    };
+    if !who.is_empty() {
+        lines.push(Line::from(who));
+    }
+    let width = answer
+        .machines
+        .iter()
+        .map(|machine| machine.name.chars().count())
+        .max()
+        .unwrap_or(0);
+    for machine in &answer.machines {
+        let (glyph, word) = match machine.presence {
+            meltemi_proto::MeshPresence::Online => (glyphs::ONLINE, ctx.msg(Msg::IdentityOnline)),
+            meltemi_proto::MeshPresence::Offline => {
+                (glyphs::OFFLINE, ctx.msg(Msg::IdentityOffline))
+            }
+        };
+        let pad = width.saturating_sub(machine.name.chars().count());
+        let mut row = format!(
+            "    {} {}{}  {word}",
+            glyph.text(&ctx.present),
+            machine.name,
+            " ".repeat(pad)
+        );
+        if let Some(system) = &machine.system {
+            row.push_str(&format!(" · {system}"));
+        }
+        if let Some(seen) = &machine.last_seen {
+            row.push_str(&format!(" · {} {seen}", ctx.msg(Msg::IdentityLastSeen)));
+        }
+        if machine.this_machine {
+            row.push_str(&format!(" ({})", ctx.msg(Msg::IdentityThisMachine)));
+        }
+        lines.push(Line::from(row));
+    }
 }
 
 /// The name of a harness layer, in the surface's language.
@@ -1809,7 +1956,44 @@ mod tests {
             present,
             lang: Lang::Es,
             project: false,
+            via: None,
         }
+    }
+
+    // Scenario: El cromo de la TUI nombra la vía
+    #[test]
+    fn the_header_names_the_via_when_the_daemon_is_on_another_machine() {
+        let mut live = LiveData::new();
+        live.apply(Update::Conn(ConnState::Connected {
+            version: "0.1.1".into(),
+            uptime_s: 12,
+            sessions: 2,
+        }));
+        let state = ShellState::new();
+
+        // Talking to this machine: no via, because "here" is not worth a
+        // segment.
+        let here = draw(
+            &state,
+            &live,
+            &ctx(Presentation::resolve(&PresentationEnv::default())),
+            120,
+            24,
+        );
+        assert!(here.contains("daemon 0.1.1"), "{here}");
+        assert!(!here.contains("vía"), "nothing invented for a local socket");
+
+        // Talking to another: the via is named.
+        let mut elsewhere = ctx(Presentation::resolve(&PresentationEnv::default()));
+        elsewhere.via = meltemi_client::exec::shown("exec:ssh my-pc meltemi bridge");
+        let shown = draw(&state, &live, &elsewhere, 120, 24);
+        assert!(
+            shown.contains("vía ssh my-pc"),
+            "the header says which machine's fleet this is: {shown}"
+        );
+        // And the daemon's own facts are still there: the via is added, not
+        // substituted.
+        assert!(shown.contains("daemon 0.1.1"), "{shown}");
     }
 
     fn draw(state: &ShellState, live: &LiveData, ctx: &ShellCtx, w: u16, h: u16) -> String {
@@ -1822,6 +2006,204 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect()
+    }
+
+    /// The catalog view, with a linked mesh of three machines read into it.
+    fn with_identity(answer: meltemi_proto::IdentityStatusResult) -> (ShellState, LiveData) {
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "1".into(),
+            rows: Vec::new(),
+        }));
+        live.apply(Update::Identity(answer));
+        (state, live)
+    }
+
+    fn linked_mesh() -> meltemi_proto::IdentityStatusResult {
+        use meltemi_proto::{IdentityStatusResult, MeshMachine, MeshPresence};
+        IdentityStatusResult {
+            available: true,
+            reason: None,
+            remedy: None,
+            user: Some("guillmar@mock.example".into()),
+            provider: Some("https://headscale.askenaz.dev".into()),
+            this: Some("mi-pc".into()),
+            machines: vec![
+                MeshMachine {
+                    name: "mi-pc".into(),
+                    presence: MeshPresence::Online,
+                    system: Some("windows".into()),
+                    last_seen: None,
+                    this_machine: true,
+                },
+                MeshMachine {
+                    name: "la-torre".into(),
+                    presence: MeshPresence::Offline,
+                    system: Some("linux".into()),
+                    last_seen: Some("2026-09-30T18:21:05Z".into()),
+                    this_machine: false,
+                },
+            ],
+        }
+    }
+
+    fn machines_of(active: Option<&str>) -> crate::shell::live::MachinesSnapshot {
+        use crate::shell::live::{MachineRow, MachinesSnapshot};
+        MachinesSnapshot {
+            rows: vec![
+                MachineRow {
+                    name: "esta".into(),
+                    configured: "local".into(),
+                    via: None,
+                    active: active == Some("esta"),
+                },
+                MachineRow {
+                    name: "la-torre".into(),
+                    configured: "exec:ssh la-torre meltemi bridge".into(),
+                    via: Some("ssh la-torre".into()),
+                    active: active == Some("la-torre"),
+                },
+            ],
+            active: active.map(str::to_string),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    // Scenario: Máquinas desde la paleta
+    #[test]
+    fn the_terminal_lists_the_machines_and_marks_the_one_it_is_on() {
+        let ctx = ctx(default_present());
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "1".into(),
+            rows: Vec::new(),
+        }));
+        live.apply(Update::Machines(machines_of(Some("esta"))));
+        let shown = draw(&state, &live, &ctx, 160, 40);
+
+        assert!(shown.contains("Máquinas"), "{shown}");
+        assert!(shown.contains("esta"), "{shown}");
+        assert!(shown.contains("la-torre"), "{shown}");
+        // Marked with a glyph AND a word, like every other state here.
+        assert!(shown.contains("aquí"), "the one in use says so: {shown}");
+        assert!(shown.contains(crate::shell::glyphs::OK.unicode), "{shown}");
+        assert!(
+            shown.contains(crate::shell::glyphs::ABSENT.unicode),
+            "and the ones that are not: {shown}"
+        );
+        // The way in, not the whole command.
+        assert!(shown.contains("ssh la-torre"), "{shown}");
+        assert!(
+            !shown.contains("meltemi bridge"),
+            "the command is not what a person reads at a glance: {shown}"
+        );
+    }
+
+    #[test]
+    fn a_connection_that_is_none_of_the_machines_is_said_rather_than_left_blank() {
+        let ctx = ctx(default_present());
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Fleet(FleetSnapshot {
+            registry_version: "1".into(),
+            rows: Vec::new(),
+        }));
+        live.apply(Update::Machines(machines_of(None)));
+        let shown = draw(&state, &live, &ctx, 160, 40);
+        assert!(shown.contains("ninguna de ellas"), "{shown}");
+    }
+
+    // Scenario: Identidad desde la paleta
+    #[test]
+    fn the_terminal_shows_who_i_am_and_presence_in_a_symbol_and_a_word() {
+        let ctx = ctx(default_present());
+        let (state, live) = with_identity(linked_mesh());
+        let shown = draw(&state, &live, &ctx, 160, 40);
+
+        assert!(shown.contains("guillmar@mock.example"), "{shown}");
+        assert!(
+            shown.contains("headscale.askenaz.dev"),
+            "whose mesh: {shown}"
+        );
+        assert!(shown.contains("mi-pc"), "{shown}");
+        assert!(shown.contains("la-torre"), "{shown}");
+        assert!(
+            shown.contains("este equipo"),
+            "this machine marked: {shown}"
+        );
+        // Presence as a SYMBOL and a WORD, never either alone: a terminal with no
+        // Unicode still says it, and so does a reader who cannot tell ● from ○.
+        assert!(shown.contains("en línea"), "{shown}");
+        assert!(shown.contains("fuera de línea"), "{shown}");
+        assert!(
+            shown.contains(crate::shell::glyphs::ONLINE.unicode),
+            "the filled symbol: {shown}"
+        );
+        assert!(
+            shown.contains(crate::shell::glyphs::OFFLINE.unicode),
+            "the hollow symbol: {shown}"
+        );
+        assert!(shown.contains("visto 2026-09-30"), "{shown}");
+        // Nobody may read this block as a Meltemi account, so it says whose it is.
+        assert!(
+            shown.contains("Meltemi la lee, no la guarda"),
+            "whose identity this is: {shown}"
+        );
+    }
+
+    #[test]
+    fn without_unicode_presence_is_still_a_symbol_and_a_word() {
+        // The ASCII twin carries the same meaning: `*` and `o` beside the words.
+        let ctx = ctx(Presentation {
+            unicode: false,
+            ..default_present()
+        });
+        let (state, live) = with_identity(linked_mesh());
+        let shown = draw(&state, &live, &ctx, 160, 40);
+        assert!(
+            !shown.contains(crate::shell::glyphs::ONLINE.unicode),
+            "no Unicode may leak into an ASCII terminal: {shown}"
+        );
+        assert!(
+            shown.contains("en línea") && shown.contains("fuera de línea"),
+            "{shown}"
+        );
+    }
+
+    // Scenario: Sin cliente de malla, el terminal dice el remedio
+    #[test]
+    fn without_a_mesh_client_the_terminal_says_the_remedy_and_stays_put() {
+        use meltemi_proto::{IdentityStatusResult, IdentityUnavailable};
+        let ctx = ctx(default_present());
+        let remedy = "install your mesh client or set [identity] command to its path";
+        let (state, live) = with_identity(IdentityStatusResult {
+            available: false,
+            reason: Some(IdentityUnavailable::ClientMissing),
+            remedy: Some(remedy.into()),
+            user: None,
+            provider: None,
+            this: None,
+            machines: Vec::new(),
+        });
+        let before = state.view();
+        let shown = draw(&state, &live, &ctx, 160, 40);
+
+        // The diagnosis in the surface's language, and the daemon's remedy as it
+        // is — English, because the daemon's strings are English by §11.
+        assert!(
+            shown.contains("no se encontró tu cliente de malla"),
+            "{shown}"
+        );
+        assert!(shown.contains("[identity] command"), "the remedy: {shown}");
+        // And the refusal does not move the user anywhere.
+        assert_eq!(state.view(), before, "a refusal is not a navigation");
+        // Nothing of the available shape is shown for an answer that has none.
+        assert!(!shown.contains("este equipo"), "{shown}");
     }
 
     // Scenario: El terminal muestra el harness con su origen

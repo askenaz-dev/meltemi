@@ -7,6 +7,9 @@
 -->
 <script lang="ts">
   import { conn } from "../daemon";
+  import { via } from "../via";
+  import { activeMachine, worthShowing } from "../machines";
+  import { machines } from "../stores";
   import { t } from "../i18n";
   import {
     activeProject,
@@ -49,7 +52,23 @@
   {#if $conn.state === "connected"}
     <span class="ok"><span aria-hidden="true">▸</span> {$t("conn.connected")}</span>
     <span class="muted version">v{$conn.version}</span>
-    <span class="mono endpoint" title={$t("conn.endpoint")}>{$conn.endpoint ?? ""}</span>
+    <!-- Which machine, when there is more than one to be on. One machine is
+         not a fleet, and naming the only computer somebody has is noise. -->
+    {#if worthShowing($machines.machines) && activeMachine($machines.machines)}
+      <span class="sep" aria-hidden="true">·</span>
+      <span class="seg machine"
+        >{$t("conn.machine")} {activeMachine($machines.machines)}</span
+      >
+    {/if}
+    {#if via($conn.endpoint)}
+      <!-- Another machine's fleet is on screen, and the chrome says so: an
+           action on the wrong machine must not look like one on your own. -->
+      <span class="seg via" title={$conn.endpoint ?? ""}
+        >{$t("conn.via")} {via($conn.endpoint)}</span
+      >
+    {:else}
+      <span class="mono endpoint" title={$t("conn.endpoint")}>{$conn.endpoint ?? ""}</span>
+    {/if}
   {:else if $conn.state === "connecting"}
     <span class="info"><span aria-hidden="true">◌</span> {$t("conn.connecting")}</span>
   {:else}
