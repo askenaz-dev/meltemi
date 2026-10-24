@@ -32,5 +32,7 @@
   (`crypto-bigint`, publicado esa noche y ajeno a esta change), que
   `20b27b1` resolvió en un commit propio. CI run 40088516507 sobre
   `20b27b1`: verde en las tres plataformas y en cargo-deny. -->
-- [ ] 2.2 Al histórico fechado a mano, porque `meltemi archive` rehúsa una
+- [x] 2.2 Al histórico fechado a mano, porque `meltemi archive` rehúsa una
   change sin deltas, y la entrada en `docs/plan-de-cambios.md`
+  <!-- 2026-10-24: entrada «12º quater» en la tanda 1 del plan; movida a mano
+  al histórico fechado, como `grabador-de-avisos-sin-carrera`. -->
