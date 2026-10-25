@@ -18,7 +18,12 @@
 
 ## 2. Cierre
 
-- [ ] 2.1 `meltemi validate rutas-de-datos-en-la-guia` y `verify` limpios, con
+- [x] 2.1 `meltemi validate rutas-de-datos-en-la-guia` y `verify` limpios, con
   daemon aislado; `cargo fmt --check`, clippy `-D warnings` y el test; la rama
   llega a `main` con `git merge --no-ff`, se empuja, y el CI de `main` queda
   verde en las tres plataformas
+  <!-- 2026-10-24: `validate` limpio y `verify` 2/2 con daemon aislado; fmt limpio;
+  clippy `-D warnings` de `meltemi` con sus tests en Windows y con `--target
+  x86_64-linux-android`; los 15 tests de `docs` verdes. Merge e3075f9,
+  empujado; el CI de `main` (CI, Build y Release) verde en las tres
+  plataformas. -->
