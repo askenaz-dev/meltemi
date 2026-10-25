@@ -420,6 +420,78 @@ fn the_platforms_page_and_the_tunnel_helper_agree() {
     );
 }
 
+// Scenario: Las carpetas de cada plataforma
+// Scenario: La guía coincide con el código
+#[test]
+fn the_platforms_page_names_the_folders_the_code_resolves() {
+    use meltemi_client::paths;
+
+    let bs = char::from(92u8);
+    let guide = norm(&read(&repo_root(), "docs/plataformas.md"));
+    let section = guide
+        .split("## Data paths")
+        .nth(1)
+        .expect("a `Data paths` section")
+        .split("\n## ")
+        .next()
+        .unwrap_or_default();
+
+    // The guide names the data and the configuration folder of the three platforms…
+    let named = [
+        format!("%APPDATA%{bs}meltemi{bs}data"),
+        format!("%APPDATA%{bs}meltemi{bs}config"),
+        "~/Library/Application Support/meltemi".to_string(),
+        "$XDG_DATA_HOME/meltemi".to_string(),
+        "~/.local/share/meltemi".to_string(),
+        "$XDG_CONFIG_HOME/meltemi".to_string(),
+        "~/.config/meltemi".to_string(),
+    ];
+    for folder in &named {
+        assert!(
+            section.contains(folder.as_str()),
+            "the guide does not name {folder}"
+        );
+    }
+    assert!(
+        !section.contains("LOCALAPPDATA"),
+        "the daemon does not use the local profile"
+    );
+
+    // …and the ones the code resolves on THIS platform are those.
+    if std::env::var_os(paths::ENV_DATA_DIR).is_some()
+        || std::env::var_os(paths::ENV_CONFIG_DIR).is_some()
+    {
+        eprintln!("the folders are overridden by the environment: the defaults are not under test");
+        return;
+    }
+    let (data, config) = (paths::data_dir(), paths::config_dir());
+    if cfg!(windows) {
+        assert!(
+            data.ends_with("meltemi/data") && config.ends_with("meltemi/config"),
+            "windows folders: {data:?}, {config:?}"
+        );
+        assert!(
+            data.components().any(|c| c.as_os_str() == "Roaming"),
+            "the data folder is in the roaming profile: {data:?}"
+        );
+    } else if cfg!(target_os = "macos") {
+        assert_eq!(data, config, "macOS keeps both in one folder");
+        assert!(
+            data.ends_with("Library/Application Support/meltemi"),
+            "macOS folder: {data:?}"
+        );
+    } else {
+        let xdg = |var: &str, home_relative: &str, got: &Path| match std::env::var_os(var)
+            .filter(|v| !v.is_empty())
+        {
+            Some(base) => assert_eq!(got, Path::new(&base).join("meltemi")),
+            None => assert!(got.ends_with(home_relative), "linux folder: {got:?}"),
+        };
+        xdg("XDG_DATA_HOME", ".local/share/meltemi", &data);
+        xdg("XDG_CONFIG_HOME", ".config/meltemi", &config);
+    }
+}
+
 // Scenario: El smoke dice qué se midió y qué no
 #[test]
 fn the_tunnel_smoke_says_what_was_measured_and_what_was_not() {

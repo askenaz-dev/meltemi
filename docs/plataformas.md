@@ -29,12 +29,16 @@ package names rather than guessing them.
 
 ## Data paths
 
-The daemon stores session logs (append-only JSONL) and local metrics under the
-OS-conventional per-user data directory:
+The daemon keeps two kinds of files in the OS-conventional per-user folders. The
+**data** folder holds session logs (append-only JSONL), the daemon's own logs, the
+index of projects and local metrics; the **configuration** folder holds the
+settings and the permission rules.
 
-- **Windows**: `%LOCALAPPDATA%\meltemi\`
-- **macOS**: `~/Library/Application Support/meltemi/`
-- **Linux**: `$XDG_DATA_HOME/meltemi/` (or `~/.local/share/meltemi/`)
+- **Windows** (the roaming profile): data in `%APPDATA%\meltemi\data\`,
+  configuration in `%APPDATA%\meltemi\config\`
+- **macOS**: both in `~/Library/Application Support/meltemi/`
+- **Linux**: data in `$XDG_DATA_HOME/meltemi/` (or `~/.local/share/meltemi/`),
+  configuration in `$XDG_CONFIG_HOME/meltemi/` (or `~/.config/meltemi/`)
 
 Per-repository method artifacts live in `.meltemi/` inside each repository.
 
