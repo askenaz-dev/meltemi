@@ -326,10 +326,10 @@ que su schema y el formulario de la GUI ofrecen.
 | 25º | `buscar-y-leer` | completa | D7, D5, C-A | `session/search`, paleta unificada, Markdown renderizado, imágenes | 18º (imágenes remotas) |
 | 26º | `anotar-el-diff` | completa | D6 | comentarios por línea devueltos al agente (meltemi.md §6.8) | 15º |
 | 27º | `abrir-con-lo-tuyo` | completa (enmienda de rumbo) | D11, D12 | «Abrir PR con…» y «Abrir terminal aquí»; terminal como no-objetivo escrito | ratificación del mantenedor |
-| 28º | `demo-animada-del-sitio` | rápida | P4 | el producto en movimiento en la portada, sin JS | 10º |
+| 28º | `demo-animada-del-sitio` | rápida | P4 | el producto en movimiento: la captura y los medios en `docs/media/`; el vídeo en `/ide/`, su CSS y su lint son de meltemi-web (primero `site-figures-provenance`) | 10º |
 | 29º | `meltemi-doctor` | rápida | P-V1 | el diagnóstico que costó una tarde, en una pantalla | 1º (rangos de versión) |
-| 30º | `docs-en-el-sitio` | completa (enmienda §11) | P7 | docs navegables sin JS y la política de idioma decidida | ratificación del mantenedor |
-| 31º | `distribucion-y-actualizacion` | completa | P8, D-V1 | winget/brew/scoop tras la release firmada; la actualización la hace el gestor | 13º |
+| 30º | `docs-en-el-sitio` | completa (enmienda §11) | P7 | la política de idioma decidida y el índice de las docs; servirlas en el sitio es antes una decisión de meltemi-web (la 0006), y el generador es suyo | ratificación del mantenedor |
+| 31º | `distribucion-y-actualizacion` | completa | P8, D-V1 | winget/brew/scoop tras la release atestada; la actualización la hace el gestor; los repos de destino y la página de descargas son de meltemi-web; el tap (propio o `homebrew-tap`) lo decide el mantenedor | 13º |
 
 #### Tanda 3 — apuestas grandes
 
