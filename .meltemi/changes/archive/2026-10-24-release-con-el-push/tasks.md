@@ -295,7 +295,7 @@ cerrar sin ellas.
   deploy started for v0.2.0» a las 18:56:36Z; el deploy 40007435237 de la web
   nació en ese segundo como `workflow_dispatch`, terminó verde y /ide/ sigue
   diciendo «v0.2.0». -->
-- [ ] 7.3 *(mantenedor)* Con `main` ya en 0.2.0: borrar el borrador v0.1.1 y su
+- [x] 7.3 *(mantenedor)* Con `main` ya en 0.2.0: borrar el borrador v0.1.1 y su
   tag, apagar GitHub Pages en este repositorio y borrar su entorno
   `github-pages` (design D8, D10)
   <!-- 2026-10-23: el borrador v0.1.1 está borrado (release 366263679, nueve
@@ -307,6 +307,14 @@ cerrar sin ellas.
   mantenedor y nada la bloquea: Pages sigue configurado, con meltemi.dev como
   dominio propio, y el entorno `github-pages` existe. Queda en el punto 7 de
   los pendientes del mantenedor en `docs/plan-de-cambios.md`. -->
+  <!-- 2026-10-26: cerrada por orden del mantenedor. Antes de apagar se
+  comprobó que `meltemi.dev` y `www` los sirve Cloudflare (301 de `www` al
+  apex, 200 en `/` y `/ide/`), que Terraform tiene `apex_on_github_pages =
+  false` y que ningún archivo de los dos repositorios enlaza `github.io`.
+  `DELETE /repos/askenaz-dev/meltemi/pages` y `DELETE …/environments/
+  github-pages`: el repositorio ya no tiene sitio de Pages y su único entorno
+  es `release`; el sitio sigue respondiendo 200. El recurso del repositorio no
+  está importado en `github.tf`, así que Terraform no lo vuelve a encender. -->
 - [x] 7.4 `meltemi verify release-con-el-push` sin escenarios sin vínculo;
   `meltemi archive release-con-el-push`; actualizar `docs/plan-de-cambios.md`
   y el gate de `antes-de-anunciar`
