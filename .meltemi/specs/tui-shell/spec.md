@@ -790,3 +790,13 @@ pintar fondo. El significado MUST seguir en glifo, etiqueta y disposición.
 - **WHEN** se genera `docs/media/tui-sessions.svg` con `capture_svg`
 - **THEN** la captura SHALL ser SVG bien formado
 - **AND** SHALL llevar el acento de la marca como `fill` de los tramos en bloque
+
+### Requirement: Diagnóstico desde la paleta
+La paleta SHALL ofrecer `doctor` (y `diagnostico`), que muestre el mismo informe
+que el subcomando, con estado en símbolo y palabra, también cuando el daemon no
+responde.
+
+#### Scenario: La paleta muestra el diagnóstico, también sin daemon
+- **WHEN** el usuario escribe `doctor` en la paleta
+- **THEN** la TUI SHALL mostrar el informe
+- **AND** con el daemon caído SHALL mostrarlo igual, con esa fila en falla
