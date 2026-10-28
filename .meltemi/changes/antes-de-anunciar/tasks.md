@@ -6,11 +6,16 @@ es del mantenedor y no es tarea de esta change.
 
 ## 1. Canales
 
-- [ ] 1.1 Plantillas `bug.md` y `question.md`, `config.yml` sin issue en blanco
+- [x] 1.1 Plantillas `bug.md` y `question.md`, `config.yml` sin issue en blanco
   y con la política de seguridad, y la de propuesta con el orden de la
   constitución; el lint de gobernanza las exige (design D1) — escenarios «Cada
   tipo tiene su plantilla con sus secciones» y «La seguridad no va a un issue
   público»; gates: `governance.rs`
+  <!-- 2026-10-28: `bug.md` pide versión, plataforma, superficie, agente y la
+  salida de diagnóstico, y avisa de `SECURITY.md`; `question.md` apunta antes a
+  la FAQ y al quickstart; `config.yml` apaga el issue en blanco y enlaza el
+  reporte privado de vulnerabilidades. La de propuesta decía «proposal → specs
+  → design → tasks»; ahora el orden de la constitución. `governance.rs` 3/3. -->
 - [ ] 1.2 Insignias de CI, licencia y última release en `README.md` y
   `LEEME.md` (design D2) — gate: pruebas de docs
 

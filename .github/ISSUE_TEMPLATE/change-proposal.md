@@ -26,7 +26,7 @@ code. See CONTRIBUTING.md.
 ## Scope check
 
 - [ ] This is a feature/change (not a trivial fix — those use the fast track).
-- [ ] I will provide the four artifacts (proposal → specs → design → tasks).
+- [ ] I will provide the four artifacts (proposal → design → specs → tasks).
 - [ ] Scenarios will be the definition of "done" (covered by tests or a
       documented verification).
 
