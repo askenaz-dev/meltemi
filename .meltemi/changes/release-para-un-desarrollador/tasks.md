@@ -1,0 +1,50 @@
+# Tasks — release-para-un-desarrollador
+
+Vía completa. Un commit atómico por tarea, con referencia
+`(release-para-un-desarrollador N.M)` y sin trailers de co-autoría. Esta change
+no implementa nada que otra change de la tanda posea.
+
+## 1. La tanda
+
+- [x] 1.1 La tanda declarada en `docs/plan-de-cambios.md`, y las cuatro changes
+  nuevas nombradas
+  <!-- 2026-10-28: 0º–7º cerradas en la rama de la tanda, cada una con su
+  entrada en el avance; `pestana-nueva-con-nombre` nombrada por el smoke de 7º
+  y hecha en la misma tanda. -->
+
+## 2. El informe en las notas
+
+- [ ] 2.1 `meltemi-release changelog --report <ruta>`: la línea del informe abre
+  la sección, se conserva al reescribir y se rehúsa una ruta que no existe
+  (design D3) — escenarios «Las notas enlazan el informe» y «Un informe que no
+  existe no se enlaza»; gate: tests de `meltemi-release`
+- [ ] 2.2 La regla en `docs/release.md` (inglés y resumen en español): una
+  release que marca un hito probado enlaza su informe; el orden corrida →
+  informe → `changelog --report` → `set-version`; la recomendación 0.3.0
+  (design D5)
+
+## 3. El guion
+
+- [ ] 3.1 `docs/prueba-de-uno.md` con sus pasos, lo esperado, dónde queda
+  registrado, las desviaciones conocidas, las diferencias de macOS y Linux y la
+  plantilla del informe (design D1, D4) — escenario «El guion se sigue desde los
+  assets»
+- [ ] 3.2 El test de la docs CI sobre el guion (design D2) — escenario «Los
+  verbos del guion existen en el binario»; gate: `tui/tests/docs.rs`
+- [ ] 3.3 Enlaces: las filas del índice en `README.md` y `LEEME.md`,
+  `docs/hito-v01.md` y el chequeo de enlaces internos
+
+## 4. Cierre del agente
+
+- [ ] 4.1 `meltemi validate` y `verify` con los cuatro escenarios; el pendiente
+  del mantenedor en `docs/plan-de-cambios.md`
+
+## 5. Del mantenedor (gate de archivo)
+
+- [ ] 5.1 Correr `docs/prueba-de-uno.md` en su máquina con sus agentes y
+  escribir `docs/qa/<fecha>-prueba-de-uno.md` desde la plantilla
+- [ ] 5.2 `changelog <versión> --report docs/qa/<fecha>-prueba-de-uno.md` y
+  `set-version <versión>` (recomendación: 0.3.0); el push a `main` publica
+- [ ] 5.3 Tras publicar: la fila «Cliente de escritorio» del estado de
+  meltemi-web pasa a decir por qué sigue en desarrollo (instaladores sin firma
+  de plataforma), como change de meltemi-web
