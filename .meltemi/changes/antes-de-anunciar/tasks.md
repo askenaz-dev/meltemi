@@ -61,8 +61,15 @@ es del mantenedor y no es tarea de esta change.
   en `CONTRIBUTING.md`; la que corre `version` y `help` contra el binario sigue
   verde. Pruebas de docs 19/19, gobernanza 3/3 (`CONTRIBUTING.md` conserva sus
   secciones). -->
-- [ ] 3.2 `docs/faq.md`, enlazada desde los dos README y el quickstart (design
+- [x] 3.2 `docs/faq.md`, enlazada desde los dos README y el quickstart (design
   D6) — escenario «Cada pregunta tiene su respuesta»; gates: pruebas de docs
+  <!-- 2026-10-28: once preguntas, cada una con la guía que la desarrolla; la del
+  instalador sin firma da los clics de SmartScreen y de Gatekeeper después de
+  verificar. Enlazada desde el índice de los dos README (la fila del LEEME
+  dice que la página está en inglés) y desde el quickstart, que vuelve a
+  enlazar los clics y gana «When something goes wrong». La prueba nueva exige
+  las siete preguntas del requisito y los tres enlaces; la FAQ entra en el lint
+  de enlaces internos. Pruebas de docs 20/20. -->
 
 ## 4. Cierre
 

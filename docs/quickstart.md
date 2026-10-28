@@ -36,7 +36,8 @@ and the offline variant, are in [releases and verification](release.md).
 **The first launch of the desktop app warns you.** The MSI and the DMG carry no
 platform signature yet — that needs purchased certificates — so Windows
 SmartScreen and macOS Gatekeeper ask before opening them. The checks above are
-what tell you the file is the one the release published.
+what tell you the file is the one the release published. The
+[FAQ](faq.md#the-installer-warns-that-it-is-not-signed) shows the exact clicks.
 
 ## 2. Check it worked
 
@@ -125,3 +126,7 @@ Under git-bash / MSYS, environment variables that look like paths (e.g.
 `MELTEMI_ENDPOINT`) can be mangled. See the
 [platform notes](plataformas.md#windows-git-bash) for the remedy before setting
 them.
+
+## When something goes wrong
+
+Start with the [questions and troubleshooting](faq.md) page.

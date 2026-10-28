@@ -685,6 +685,29 @@ fn both_readmes_carry_the_ci_licence_and_release_badges() {
 }
 
 #[test]
+fn the_faq_answers_what_is_asked_first() {
+    // Scenario: Cada pregunta tiene su respuesta
+    let faq = read(&repo_root(), "docs/faq.md");
+    for question in [
+        "## The fleet says my agent is not launchable",
+        "## The command line denies every permission",
+        "## How do I use Meltemi from another machine?",
+        "## The session ended without saying anything",
+        "## The agent edited files without asking me",
+        "## The installer warns that it is not signed",
+        "## Where are my data and my logs?",
+    ] {
+        assert!(faq.contains(question), "the FAQ lacks `{question}`");
+    }
+    for doc in ["README.md", "LEEME.md", "docs/quickstart.md"] {
+        assert!(
+            read(&repo_root(), doc).contains("faq.md"),
+            "{doc} does not link the FAQ"
+        );
+    }
+}
+
+#[test]
 fn internal_doc_links_resolve() {
     // Docs lint: internal markdown links point at files that exist.
     let root = repo_root();
@@ -697,6 +720,7 @@ fn internal_doc_links_resolve() {
         "docs/accesibilidad.md",
         "docs/plataformas.md",
         "docs/acceso-remoto.md",
+        "docs/faq.md",
     ];
     let mut problems = Vec::new();
     for doc in docs {

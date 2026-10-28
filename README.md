@@ -296,6 +296,7 @@ application and the terminal surface are in core parity, verified by CI. See
 ## Documentation
 
 - [Quickstart](docs/quickstart.md) — zero to your first reviewed proposal
+- [Questions and troubleshooting](docs/faq.md) — what people ask first
 - [Agents guide](docs/agentes.md) — install, detect and configure your agents
 - [The harness](docs/harness.md) — say your conventions once, adjust them per agent and per project
 - [Architecture](docs/arquitectura.md)

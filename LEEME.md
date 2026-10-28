@@ -185,6 +185,7 @@ en cada release. Ver [`docs/plan-de-cambios.md`](docs/plan-de-cambios.md).
 ## Documentación
 
 - [Quickstart](docs/quickstart.md), [Arquitectura](docs/arquitectura.md),
+- [Preguntas y resolución de problemas](docs/faq.md) — lo que se pregunta primero (en inglés)
   [Método SDD](docs/metodo-sdd.md), [Referencia CLI](docs/referencia-cli.md),
   [Agentes](docs/agentes.md), [Harness](docs/harness.md),
   [Paridad de núcleo](docs/paridad-nucleo.md),
