@@ -1125,6 +1125,78 @@ mod tests {
         (path, first, second)
     }
 
+    // Scenario: OpenCode se lanza de modo que pregunte
+    #[test]
+    fn opencode_is_launched_so_that_it_asks() {
+        // Against the real snapshot, not a fixture: what ships is what is proved.
+        let dir = temp("opencode-asks");
+        fake_binary(&dir, "opencode");
+        let path_var = std::env::join_paths([&dir]).unwrap();
+        let snapshot =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("data/fleet-registry.toml");
+        let config = Config {
+            agent_id: Some("opencode".into()),
+            fleet_registry: Some(snapshot),
+            fleet_profiles: vec![crate::config::FleetProfile {
+                model: None,
+                effort: None,
+                name: "local".into(),
+                agent: "opencode".into(),
+                env: vec![],
+            }],
+            ..Config::default()
+        };
+        let asks = |env: &[(String, String)]| {
+            let (_, value) = env
+                .iter()
+                .find(|(name, _)| name == "OPENCODE_CONFIG_CONTENT")
+                .expect("the launch carries OpenCode's inline configuration");
+            let parsed: serde_json::Value =
+                serde_json::from_str(value).expect("the inline configuration is JSON");
+            for permission in [
+                "edit",
+                "bash",
+                "webfetch",
+                "websearch",
+                "task",
+                "external_directory",
+            ] {
+                assert_eq!(
+                    parsed["permission"][permission], "ask",
+                    "`{permission}` asks"
+                );
+            }
+        };
+        // What the entry declares, whoever runs this.
+        asks(&launch_env(
+            &build_catalog(&config),
+            Some("opencode"),
+            &[],
+            &|_| false,
+        ));
+        // And every resolution of the id carries it — unless whoever runs these
+        // tests set the variable themselves, in which case theirs wins by
+        // design (proved by `what_the_user_set_wins_over_what_the_registry_declares`).
+        if std::env::var_os("OPENCODE_CONFIG_CONTENT").is_none() {
+            asks(
+                &resolve_fleet_agent(&config, "opencode", &path_var, None)
+                    .unwrap()
+                    .env,
+            );
+            asks(
+                &resolve_fleet_agent(&config, "local", &path_var, None)
+                    .unwrap()
+                    .env,
+            );
+            asks(
+                &resolve_session_agent(&config, None, &path_var, None)
+                    .unwrap()
+                    .env,
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // Scenario: Lo que el usuario fijó manda
     #[test]
     fn what_the_user_set_wins_over_what_the_registry_declares() {

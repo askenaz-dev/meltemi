@@ -114,6 +114,21 @@ fn the_guide_states_the_level_and_binaries_the_registry_declares() {
                 agent.id
             );
         }
+        // What an entry launches its agent with is never a surprise: the guide
+        // names every variable and shows the value the registry sets, so a user
+        // who sets their own knows what they replace (opencode-que-pregunta D3).
+        for (variable, value) in &agent.launch_env {
+            assert!(
+                named.contains(variable),
+                "the section of `{}` does not name the variable `{variable}` it launches with",
+                agent.id
+            );
+            assert!(
+                body.contains(value.as_str()),
+                "the section of `{}` does not show the value of `{variable}` the registry sets",
+                agent.id
+            );
+        }
         // Two-layer entries must name both layers and both install commands.
         if let Some(cli_bin) = &agent.cli_bin {
             assert!(

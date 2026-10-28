@@ -105,6 +105,24 @@ the surfaces show which of the two you are looking at.
 
 - Level 1 (native ACP), launched as `opencode acp`.
 - Meltemi looks for: `opencode`
+- **Launched so that it asks.** On its own, OpenCode edits files, runs commands
+  and goes to the network without asking, and what it does not ask never
+  reaches the permission proxy. Meltemi launches it with
+  `OPENCODE_CONFIG_CONTENT` set to an inline configuration that puts `edit`,
+  `bash`, `webfetch`, `websearch`, `task` and `external_directory` on `ask`,
+  so each of those comes to you as a permission request. Reading, searching and
+  listing inside the project still do not ask: they change nothing and leave no
+  machine.
+- If you already set `OPENCODE_CONFIG_CONTENT` yourself, in your environment or
+  in a profile's `env`, yours wins and Meltemi adds nothing to it. To keep
+  OpenCode governed, add this to your own value:
+
+  ```json
+  {"permission":{"edit":"ask","bash":"ask","webfetch":"ask","websearch":"ask","task":"ask","external_directory":"ask"}}
+  ```
+
+  A literal `agent.command` gets none of this either: what you wrote is
+  launched as you wrote it.
 - Your own model — on your machine, behind one endpoint for many providers, or
   through an aggregator — goes through OpenCode's own configuration: the
   verified recipes and their profiles are in [the local-models guide](local-models.md).
@@ -198,7 +216,11 @@ dated report in `docs/qa/`. The last one:
 
 The report: [`qa/2026-09-26-corrida-integrada.md`](qa/2026-09-26-corrida-integrada.md).
 Since then the two path-scoped notes no longer hold: both adapters carry the
-command and the path in their requests (adaptadores-con-rawinput, 2026-10-28).
+command and the path in their requests (adaptadores-con-rawinput, 2026-10-28),
+and OpenCode is launched so that it asks (opencode-que-pregunta, 2026-10-28).
+That OpenCode, launched that way, sends its questions to the proxy is not
+measured yet: it is a pending manual leg of
+[the conformance guide](conformidad-manual.md).
 The table keeps what that run measured until the next run replaces it.
 Agents of the catalog that are not installed on the machine that ran it are
 listed there as not measured, never as passing.

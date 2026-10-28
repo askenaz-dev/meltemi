@@ -19,10 +19,17 @@ Vía rápida. Un commit atómico por tarea, con referencia
   herede del daemon. `configured_env` no aplica nada con `agent.command`. Dos
   tests: precedencia por id, perfil, configurado y etiqueta libre; y el comando
   literal junto a un id que sí declara. -->
-- [ ] 1.3 La entrada de OpenCode lo declara (design D4); la guía de agentes y
+- [x] 1.3 La entrada de OpenCode lo declara (design D4); la guía de agentes y
   la pierna manual de `docs/conformidad-manual.md` (design D5) — escenario
   «OpenCode se lanza de modo que pregunte»; gates: tests de la guía y de la
   resolución contra la instantánea real del registro
+  <!-- 2026-10-28: `launch-env` en la entrada `opencode`, documentado en la
+  cabecera del registro, cuya revisión pasa a 2026-10-28. La guía nombra la
+  variable, muestra el valor y dice qué hacer si el usuario ya la fija; el test
+  de la guía lo exige para toda entrada que declare `launch-env`. La pierna
+  «Pierna de permisos — OpenCode lanzado de modo que pregunte» queda pendiente.
+  El test contra la instantánea real resuelve por id, por perfil y como agente
+  del proyecto, y parsea el JSON. -->
 
 ## 2. Cierre
 
