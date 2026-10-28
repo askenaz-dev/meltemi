@@ -172,6 +172,11 @@
     const root = $t(("nav." + view) as never);
     if (editorContext) return [root, $t("editor.title")];
     if (reviewOpen) return [root, $t("review.title")];
+    // The composer's tab is a composer, not a transcript, and its id is a
+    // marker that is never shown (pestana-nueva-con-nombre D1).
+    if (inSession && activeSession === NEW_SESSION_TAB) {
+      return [root, $t("nav.open.newSession")];
+    }
     if (inSession && activeSession) {
       return [root, `${$t("sessions.detail.transcript")} · ${activeSession.slice(0, 8)}`];
     }
@@ -181,6 +186,7 @@
   const viewTitle = $derived.by(() => {
     if (editorContext) return $t("editor.title");
     if (reviewOpen) return $t("review.title");
+    if (inSession && activeSession === NEW_SESSION_TAB) return $t("nav.open.newSession");
     if (inSession) return $t("sessions.detail.transcript");
     return $t(("nav." + view) as never);
   });

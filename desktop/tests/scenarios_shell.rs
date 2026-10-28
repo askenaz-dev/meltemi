@@ -2566,6 +2566,34 @@ fn the_first_arrival_says_what_the_fleet_has_before_a_send_refuses() {
     );
 }
 
+// Scenario: El compositor abierto no muestra su id
+#[test]
+fn the_composer_tab_is_named_in_words_everywhere() {
+    // The smoke on the binary read «Registro de la sesión · __new__» in the
+    // breadcrumb and «__new__» in the open list: both cut the tab's id to eight
+    // characters without knowing the composer's marker.
+    let app = read("desktop/ui/src/App.svelte");
+    assert!(
+        app.contains("if (inSession && activeSession === NEW_SESSION_TAB) {\n      return [root, $t(\"nav.open.newSession\")];")
+            && app.contains("if (inSession && activeSession === NEW_SESSION_TAB) return $t(\"nav.open.newSession\");"),
+        "the breadcrumb and the title name the composer, not a transcript"
+    );
+    let bar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        bar.contains("sessionId === NEW_SESSION_TAB\n            ? $t(\"nav.open.newSession\")"),
+        "the open list names the composer as the strip does"
+    );
+    assert!(
+        !bar.contains("row.sessionId.slice(0, 8)"),
+        "no row composes its own fallback: the label is decided once"
+    );
+    let strip = read("desktop/ui/src/lib/components/SessionTabs.svelte");
+    assert!(
+        strip.contains("$t(\"nav.open.newSession\")"),
+        "the same words as the strip"
+    );
+}
+
 // Scenario: El consumo medido se muestra
 // Scenario: Sin medición no se inventa un cero
 #[test]

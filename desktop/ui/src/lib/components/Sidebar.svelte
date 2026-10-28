@@ -28,6 +28,7 @@
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
   import { setNavCollapsed, setNavSplit, uiState } from "../ui-state";
+  import { NEW_SESSION_TAB } from "../session-tabs";
   import { MIN_NAV_PX, MIN_TREE_PX, STEP_PX, clampNavHeight, stepNavHeight } from "../nav-split";
 
   let {
@@ -70,10 +71,23 @@
    * make the bar and the strip disagree about what exists.
    */
   const openRows = $derived(
-    openSessions.map((sessionId) => ({
-      sessionId,
-      session: $allSessions.find((s) => s.sessionId === sessionId) ?? null,
-    })),
+    openSessions.map((sessionId) => {
+      const session = $allSessions.find((s) => s.sessionId === sessionId) ?? null;
+      return {
+        sessionId,
+        session,
+        // The composer's tab has a marker for an id, never shown: it is named
+        // as the strip names it. A real session the listing has not caught up
+        // with still shows its short id, the only thing known about it
+        // (pestana-nueva-con-nombre D1, D2).
+        label:
+          sessionId === NEW_SESSION_TAB
+            ? $t("nav.open.newSession")
+            : session
+              ? rowLabel(session)
+              : sessionId.slice(0, 8),
+      };
+    }),
   );
 
   /**
@@ -431,7 +445,7 @@
                 <Avatar id={agentLabelOf(row.session)} size={16} />
               {/if}
               <span class="agent"
-                >{row.session ? rowLabel(row.session) : row.sessionId.slice(0, 8)}</span
+                >{row.label}</span
               >
               {#if current}
                 <!-- Shape and word, like every other state in this bar. -->
@@ -444,10 +458,10 @@
             <button
               class="quick ghost"
               aria-label={$t("nav.open.close", {
-                session: row.session ? rowLabel(row.session) : row.sessionId.slice(0, 8),
+                session: row.label,
               })}
               title={$t("nav.open.close", {
-                session: row.session ? rowLabel(row.session) : row.sessionId.slice(0, 8),
+                session: row.label,
               })}
               onclick={() => onCloseSession?.(row.sessionId)}
             >
