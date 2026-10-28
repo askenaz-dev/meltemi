@@ -33,6 +33,22 @@ Genuinely trivial contributions do not need the full set of artifacts:
 Declare the fast track in your PR. Anything that changes behavior is a feature
 and takes the full path — when in doubt, open a proposal.
 
+## Build and test
+
+With the pinned toolchain (`rust-toolchain.toml` selects it):
+
+```bash
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --check
+```
+
+The desktop app is built with the Tauri CLI, not a plain `cargo build`; the
+README's "Option B — from source" has the commands and the system packages each
+platform needs. Users install from the release instead: see the
+[quickstart](docs/quickstart.md).
+
 ## Quality checklist
 
 Before a change is merged, all of the following must hold (the PR template

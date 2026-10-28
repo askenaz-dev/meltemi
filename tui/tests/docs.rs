@@ -758,6 +758,34 @@ fn meltemi_bin() -> PathBuf {
 }
 
 #[test]
+fn the_quickstart_starts_at_the_release_and_not_at_the_compiler() {
+    // Scenario: El quickstart no pide compilar
+    let quickstart = read(&repo_root(), "docs/quickstart.md");
+    for asked in ["cargo build", "[agent]", "command = ["] {
+        assert!(
+            !quickstart.contains(asked),
+            "the quickstart asks for `{asked}`: building and hand-written agent \
+             configuration belong to contributors, not to a first install"
+        );
+    }
+    for needed in [
+        "releases/latest/download/",
+        "SHA256SUMS",
+        "gh attestation verify",
+        "meltemi fleet",
+        "meltemi session",
+    ] {
+        assert!(
+            quickstart.contains(needed),
+            "the quickstart lacks `{needed}`"
+        );
+    }
+    // Building from source stays documented, where contributors look.
+    assert!(read(&repo_root(), "README.md").contains("Option B — from source"));
+    assert!(read(&repo_root(), "CONTRIBUTING.md").contains("cargo build"));
+}
+
+#[test]
 fn quickstart_local_steps_run_against_the_binary() {
     // Scenario: Quickstart en CI
     // the scriptable steps run against the real

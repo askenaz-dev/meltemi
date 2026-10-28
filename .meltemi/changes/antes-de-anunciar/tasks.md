@@ -48,9 +48,19 @@ es del mantenedor y no es tarea de esta change.
 
 ## 3. Docs
 
-- [ ] 3.1 El quickstart desde los instaladores; compilar, en el README y en
+- [x] 3.1 El quickstart desde los instaladores; compilar, en el README y en
   `CONTRIBUTING.md` (design D5) — escenario «El quickstart no pide compilar»;
   gates: pruebas de docs
+  <!-- 2026-10-28: seis pasos —instalar desde los assets con su verificación y
+  el aviso del primer arranque, `version`/`help`/`status`, `fleet`, una sesión
+  libre gobernada en terminal y en el escritorio, `propose` (y solo entonces
+  aparece `.meltemi/`), el ciclo—. `CONTRIBUTING.md` gana «Build and test». La
+  prueba nueva exige que el quickstart no pida `cargo build` ni un `[agent]`
+  escrito a mano, que nombre los assets, `SHA256SUMS`, `gh attestation
+  verify`, `fleet` y `session`, y que compilar siga documentado en el README y
+  en `CONTRIBUTING.md`; la que corre `version` y `help` contra el binario sigue
+  verde. Pruebas de docs 19/19, gobernanza 3/3 (`CONTRIBUTING.md` conserva sus
+  secciones). -->
 - [ ] 3.2 `docs/faq.md`, enlazada desde los dos README y el quickstart (design
   D6) — escenario «Cada pregunta tiene su respuesta»; gates: pruebas de docs
 
