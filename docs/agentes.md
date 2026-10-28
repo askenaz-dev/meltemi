@@ -122,6 +122,10 @@ the surfaces show which of the two you are looking at.
   SDK. It stays grey because the provider has published no position on
   third-party orchestration of that CLI; if one appears, the note will cite it.
   Meltemi shows this note in the Fleet view instead of hiding it.
+- Permission rules: each request carries the tool's input and the file it
+  names, so a rule by command or by path decides it without asking you. A rule
+  that allows a command does not allow another command chained, piped or
+  redirected after it; that one still asks.
 - Per-session levers by launch flag: `model`. The adapter has no verified place
   for an effort, so asking for one is refused before the session opens (see
   [model and effort per session](#model-and-effort-per-session)).
@@ -154,6 +158,11 @@ the surfaces show which of the two you are looking at.
   provider's own web search; and calls to MCP servers from Codex's own
   configuration that Codex does not submit for approval. Each of those servers
   is named in the session when Codex starts it.
+- Permission rules: an approval carries the command, or the file of a change
+  that touches only one, as the session showed it, so a rule by command or by
+  path decides it. A change of several files carries no single path, and a
+  network access or input to a running terminal does not carry the command:
+  those ask you.
 - The name Meltemi uses: the adapter introduces itself to the CLI as
   `meltemi-codex-acp`, and the CLI reports that name to the provider's backend
   as the `originator` of its requests. Meltemi never presents itself as one of
@@ -188,6 +197,9 @@ dated report in `docs/qa/`. The last one:
 | `codex-cli` | 0.156.1 | 2026-09-26 | six of seven: it cannot be resumed with `direct`; a path-scoped rule cannot match its requests either |
 
 The report: [`qa/2026-09-26-corrida-integrada.md`](qa/2026-09-26-corrida-integrada.md).
+Since then the two path-scoped notes no longer hold: both adapters carry the
+command and the path in their requests (adaptadores-con-rawinput, 2026-10-28).
+The table keeps what that run measured until the next run replaces it.
 Agents of the catalog that are not installed on the machine that ran it are
 listed there as not measured, never as passing.
 
