@@ -43,8 +43,11 @@ no implementa nada que otra change de la tanda posea.
   la TUI, no en la CLI. -->
 - [ ] 3.2 El test de la docs CI sobre el guion (design D2) — escenario «Los
   verbos del guion existen en el binario»; gate: `tui/tests/docs.rs`
-- [ ] 3.3 Enlaces: las filas del índice en `README.md` y `LEEME.md`,
+- [x] 3.3 Enlaces: las filas del índice en `README.md` y `LEEME.md`,
   `docs/hito-v01.md` y el chequeo de enlaces internos
+  <!-- 2026-10-28: de paso, la fila de la FAQ de `LEEME.md` partía en dos la
+  viñeta de la documentación (la puso ahí `antes-de-anunciar`); vuelve a su
+  sitio. -->
 
 ## 4. Cierre del agente
 
