@@ -6135,7 +6135,7 @@ fn the_bar_governs_the_open_tabs_without_becoming_a_second_truth() {
         "the bar lists the open tabs in a section of its own, with the count"
     );
     assert!(
-        sidebar.contains("openSessions.map((sessionId) => ({"),
+        sidebar.contains("openSessions.map((sessionId) => {"),
         "driven by the open ids, so a tab whose session the listing has not          caught up with still has a row"
     );
     // Selecting goes through the ONE opener, which is what makes it focus an
