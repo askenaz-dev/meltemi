@@ -5,10 +5,17 @@ Vía rápida. Un commit atómico por tarea, con referencia
 
 ## 1. El motor
 
-- [ ] 1.1 `split_requirements` cierra el bloque en una cabecera de sección del
+- [x] 1.1 `split_requirements` cierra el bloque en una cabecera de sección del
   delta y no la copia (design D1) — escenarios «Un requisito añadido antes de
   otra sección no arrastra su cabecera» y «Una cabecera arrastrada antes se
   retira al fundir»; gates: tests de `archive.rs`
+  <!-- 2026-10-28: `is_delta_section` reconoce las cuatro cabeceras; cierran el
+  bloque y lo que sigue hasta el siguiente requisito no es de nadie. Dos tests:
+  un delta ADDED → MODIFIED → REMOVED funde sin ninguna cabecera, y el motor
+  lee la spec resultante sin secciones de delta; una cabecera ya arrastrada en
+  la viva desaparece al fundir otra cosa, sin perder el texto del requisito que
+  la sigue. Con `is_delta_section` devolviendo siempre `false`, solo en local,
+  los dos fallan. Tests de `archive.rs` 5/5. -->
 - [ ] 1.2 Retirar a mano las cabeceras arrastradas de `fleet-catalog`,
   `remote-access` y `session-history` — gates: `dogfood.rs`, `migration.rs` y
   `meltemi validate` de la verdad viva
