@@ -35,16 +35,17 @@ prueba de una máquina (`maquinas-remotas`): un diagnóstico que levanta un
 daemon cambia lo que diagnostica. Un daemon que no responde es una fila que
 falla, con el remedio (`meltemi status` lo arranca), no un error del comando.
 
-### D3 — Filas con id estable; cada superficie pone sus palabras
+### D3 — Filas con id estable y sus palabras en los dos idiomas
 
 Cada fila lleva un id estable (`client`, `daemon`, `versions`, `endpoint`,
 `data-dir`, `config-dir`, `user-config`, `agent:<id>`, `agents-absent`, `git`,
 `ssh`, `sshd`, `daemon-log`), un estado (bien, aviso, falla, sin comprobar),
-los hechos que encontró y, si hace falta, un remedio. El terminal y el CLI la
-dicen en inglés o en español con las palabras del módulo; la GUI con las suyas
-(`messages.ts`), por id. El JSON lleva el id, el estado, los hechos y las
-palabras en inglés, que es lo que se copia a un issue. El estado se dice con
-glifo y palabra, y el glifo tiene gemelo ASCII.
+los hechos que encontró y sus palabras —qué se comprobó, qué se encontró y el
+remedio— en inglés y en español, escritas una sola vez en el módulo. Cada
+superficie elige las de su idioma, así que el terminal y el escritorio dicen lo
+mismo sin una segunda copia de las frases. El JSON lleva el id, el estado, los
+hechos y las palabras en inglés, que es también lo que se copia a un issue. El
+estado se dice con glifo y palabra, y el glifo tiene gemelo ASCII.
 
 ### D4 — Ningún paso sin tope
 

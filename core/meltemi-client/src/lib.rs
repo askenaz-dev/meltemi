@@ -21,6 +21,7 @@
 //! The daemon never opens a network port; neither does this crate.
 
 pub mod bootstrap;
+pub mod doctor;
 pub mod exec;
 pub mod machines;
 pub mod notices;
