@@ -414,6 +414,15 @@ fila de un agente que nadie instaló; corregido. De paso, la vista de flota de
 la TUI sin catálogo vuelve a pintar las máquinas, como su comentario
 prometía.
 
+**5º `opencode-que-pregunta`, cerrada el 2026-10-28** (4/4, verify 3/3): una
+entrada del registro declara `launch-env` y el daemon lo aplica en toda
+resolución de su id —por id, por perfil, como agente del proyecto—, nunca a un
+`agent.command` literal, y por debajo de lo que el usuario fijó en su entorno o
+en su perfil. La entrada de OpenCode lanza con `OPENCODE_CONFIG_CONTENT` en
+`ask` para editar, comandos, red, subagentes y rutas fuera del proyecto; la
+guía lo dice con el valor, y que OpenCode así mande sus preguntas por ACP es una
+pierna manual pendiente de `docs/conformidad-manual.md`.
+
 No son gate, y el guion los declara como desviación conocida:
 `codex-reanudar-y-mcp` (Codex no se reanuda), `extension-acp-usage` (Claude
 Code y Codex no reportan uso), los certificados de firma de plataforma y la
