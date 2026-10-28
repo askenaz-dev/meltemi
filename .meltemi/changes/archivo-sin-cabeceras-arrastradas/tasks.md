@@ -26,9 +26,14 @@ Vía rápida. Un commit atómico por tarea, con referencia
 
 ## 2. El archivo
 
-- [ ] 2.1 Reconciliar el tercer escenario de «El punto de encuentro en dos vías
+- [x] 2.1 Reconciliar el tercer escenario de «El punto de encuentro en dos vías
   está documentado» en el delta de `maquinas-remotas` con la aserción de
   `identidad-propia` (design D3) — gate: `meltemi validate maquinas-remotas`
+  <!-- 2026-10-28: el `AND` recuperado es el de `identidad-propia`, palabra por
+  palabra: «la identidad y la lista de equipos de la variante de malla SHALL
+  estar descritas como capacidad presente y leída, no creada, por Meltemi».
+  `validate` limpio; `verify` sigue 16/16, porque el escenario conserva su
+  título y su test. -->
 - [ ] 2.2 Archivar con el motor, en orden de aterrizaje, las changes terminadas
   con `verify` completo, salvo `lanzador-conversacional` (design D2, D4) —
   gates: `meltemi archive` limpio en cada una, `dogfood.rs`, `migration.rs` y
