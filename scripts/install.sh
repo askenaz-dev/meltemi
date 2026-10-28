@@ -24,7 +24,7 @@ set -eu
 VERSION="${MELTEMI_VERSION:-latest}"
 INSTALL_DIR="${1:-$HOME/.local/bin}"
 # Canonical download base — declared once in docs/release.md and verified by
-# the site lint; override only for a local mirror while testing.
+# core/meltemid/tests/release.rs; override only for a local mirror while testing.
 BASE_URL="${MELTEMI_BASE_URL:-https://github.com/askenaz-dev/meltemi/releases}"
 
 # The two shapes the host serves: the version-free redirector for the latest
