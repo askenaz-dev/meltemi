@@ -31,10 +31,21 @@ Vía rápida. Un commit atómico por tarea, con referencia
 
 ## 2. El motor de reglas
 
-- [ ] 2.1 Un prefijo `allow` no casa con lo encadenado; `deny` sí (design D4) —
+- [x] 2.1 Un prefijo `allow` no casa con lo encadenado; `deny` sí (design D4) —
   escenarios «Lo encadenado tras el prefijo escala al humano» y «Deny sigue
   alcanzando lo encadenado»; gates: tests de `permissions.rs`, del aprobador
-  del CLI y `docs/referencia-cli.md`
+  del CLI y `docs/sesion-libre.md`
+  <!-- 2026-10-28: `chains_another` en `permissions.rs`, solo para `allow`:
+  `;`, `&`, `|`, acento grave, `$(`, `>`, `<` y saltos de línea en lo que sigue
+  al prefijo. Tres tests: diez formas de encadenar escalan y el comando con sus
+  argumentos no; `deny rm` alcanza `rm -rf build; ls`; lo que el prefijo mismo
+  dice (`cargo test 2>&1 | tail`) es elección de quien lo escribió. El
+  aprobador del CLI describe la regla `allow` por comando como «commands
+  starting with `X` that chain no other after it», con su test; la de `deny`
+  sigue diciendo solo «starting with». La gate nombraba
+  `docs/referencia-cli.md`, que no describe reglas: la frase va en
+  `docs/sesion-libre.md`, junto a la tecla `r`, que es donde se escribe una.
+  Permisos del daemon 22/22, aprobador 34/34. -->
 
 ## 3. De punta a punta y cierre
 
