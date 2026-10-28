@@ -105,6 +105,9 @@ Meltemi no inicia sesión por ti.
 
 **Dónde queda.** En tu `config.toml` global, como `[[fleet.profile]]`.
 
+**Desviación conocida.** Ninguna; si no tienes dos cuentas, el informe dice «no
+corrido».
+
 ## 5. Una sesión gobernada en la terminal
 
 **Qué haces.** En el repositorio de prueba:
@@ -232,20 +235,31 @@ meltemi usage week --all
 
 **Qué esperas ver.** Las sesiones de la tarde, por agente.
 
+**Dónde queda.** En ninguna parte nueva: se pliega de los registros de sesión,
+en local. Nada sale de la máquina.
+
 **Desviación conocida.** Claude Code y Codex **no reportan uso** por el
 protocolo (`extension-acp-usage`): sus filas salen sin tokens ni costo, y
 Meltemi no los estima.
 
 ## 10. Desde otra máquina (opcional)
 
-Si tienes otra máquina con acceso SSH a esta: [acceso remoto](acceso-remoto.md).
-Lo esencial es que el daemon nunca escucha en la red:
+**Qué haces.** Si tienes otra máquina con acceso SSH a esta, sigue
+[acceso remoto](acceso-remoto.md). Lo esencial:
 
 ```
 meltemi tunnel usuario@otra-maquina
 ```
 
-**Desviación conocida.** Ninguna; si no lo corres, el informe lo dice.
+**Qué esperas ver.** El comando `ssh` que reenvía el endpoint local de este
+daemon a la otra máquina; con `--exec` lo corre. El daemon nunca escucha en la
+red: lo remoto llega siempre por el túnel.
+
+**Dónde queda.** Las sesiones que abras desde la otra máquina quedan en el
+daemon de esta, como cualquier otra.
+
+**Desviación conocida.** Ninguna; si no lo corres, el informe dice «no
+corrido».
 
 ## 11. Desinstalar
 
@@ -259,6 +273,8 @@ sesión, reglas, perfiles) y la carpeta `.meltemi/` del repositorio de prueba:
 son tuyos. Borra `%APPDATA%\meltemi\` si no los quieres.
 
 **Dónde queda.** Anota lo que quedó en disco.
+
+**Desviación conocida.** Ninguna.
 
 ## macOS y Linux
 

@@ -740,6 +740,9 @@ fn internal_doc_links_resolve() {
         "docs/plataformas.md",
         "docs/acceso-remoto.md",
         "docs/faq.md",
+        "docs/prueba-de-uno.md",
+        "docs/hito-v01.md",
+        "docs/release.md",
     ];
     let mut problems = Vec::new();
     for doc in docs {
@@ -861,4 +864,157 @@ fn quickstart_local_steps_run_against_the_binary() {
             "help documents `{verb}`: divergence would fail here"
         );
     }
+}
+
+/// The fenced code of a markdown document, line by line.
+fn fenced_lines(markdown: &str) -> Vec<String> {
+    let mut inside = false;
+    let mut lines = Vec::new();
+    for line in markdown.lines() {
+        if line.trim_start().starts_with("```") {
+            inside = !inside;
+            continue;
+        }
+        if inside {
+            lines.push(line.trim().to_string());
+        }
+    }
+    lines
+}
+
+#[test]
+fn the_one_developer_guide_starts_at_the_release_and_says_what_to_expect() {
+    // Scenario: El guion se sigue desde los assets
+    let guide = read(&repo_root(), "docs/prueba-de-uno.md");
+    assert!(
+        !guide.contains("cargo build"),
+        "a person follows it from the release assets, never from the compiler"
+    );
+    let steps: Vec<&str> = guide
+        .split("\n## ")
+        .skip(1)
+        .filter(|step| step.starts_with(|c: char| c.is_ascii_digit()))
+        .collect();
+    assert!(steps.len() >= 10, "the guide walks the product end to end");
+    let first = steps[0];
+    for needed in ["releases/latest", "SHA256SUMS", "gh attestation verify"] {
+        assert!(
+            first.contains(needed),
+            "the first step installs from the release and checks it: `{needed}`"
+        );
+    }
+    for step in &steps {
+        let title = step.lines().next().unwrap_or_default();
+        for part in [
+            "**Qué haces.**",
+            "**Qué esperas ver.**",
+            "**Dónde queda.**",
+            "**Desviación conocida.**",
+        ] {
+            assert!(step.contains(part), "step `{title}` lacks {part}");
+        }
+    }
+    // The report's template travels with the guide, and an unexercised row is
+    // never written as passing.
+    assert!(guide.contains("docs/qa/<fecha>-prueba-de-uno.md"));
+    assert!(guide.contains("no se escribe como aprobada"));
+    for doc in [
+        "README.md",
+        "LEEME.md",
+        "docs/hito-v01.md",
+        "docs/release.md",
+    ] {
+        assert!(
+            read(&repo_root(), doc).contains("prueba-de-uno.md"),
+            "{doc} does not link the guide"
+        );
+    }
+}
+
+#[test]
+fn the_one_developer_guide_names_only_verbs_the_binary_has() {
+    // Scenario: Los verbos del guion existen en el binario
+    let bin = meltemi_bin();
+    assert!(
+        bin.exists(),
+        "build the `meltemi` binary first (cargo test builds it)"
+    );
+    let help = Command::new(&bin).arg("help").output().expect("run help");
+    assert!(help.status.success());
+    let help = String::from_utf8_lossy(&help.stdout).into_owned();
+    let subcommands = help
+        .split("SUBCOMMANDS:")
+        .nth(1)
+        .and_then(|rest| rest.split("\n\n").next())
+        .expect("help lists its subcommands");
+    let known: std::collections::BTreeSet<&str> = subcommands
+        .lines()
+        .filter(|line| line.starts_with("    ") && !line.starts_with("     "))
+        .filter_map(|line| line.split_whitespace().next())
+        .collect();
+
+    let guide = read(&repo_root(), "docs/prueba-de-uno.md");
+    let mut named = std::collections::BTreeSet::new();
+    for line in fenced_lines(&guide) {
+        let Some(rest) = line.strip_prefix("meltemi ") else {
+            continue;
+        };
+        let verb = rest
+            .split_whitespace()
+            .find(|word| !word.starts_with('-'))
+            .expect("a verb after meltemi");
+        assert!(
+            known.contains(verb),
+            "the guide runs `meltemi {verb}`, which the binary does not have:\n{line}"
+        );
+        named.insert(verb.to_string());
+    }
+    assert!(
+        named.len() >= 15,
+        "the guide covers the product, not one corner of it: {named:?}"
+    );
+
+    // Its local steps, against the binary: the version, and the diagnosis
+    // pointed at an endpoint where nothing answers. The diagnosis must answer
+    // with its report, say the daemon is not there, and start nothing.
+    let out = Command::new(&bin)
+        .arg("version")
+        .output()
+        .expect("run version");
+    assert!(out.status.success(), "`meltemi version` exits 0");
+
+    let scratch = std::env::temp_dir().join(format!("meltemi-docs-guide-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let endpoint = if cfg!(windows) {
+        format!(r"\\.\pipe\meltemi-docs-guide-{}", std::process::id())
+    } else {
+        scratch.join("nobody.sock").display().to_string()
+    };
+    let out = Command::new(&bin)
+        .args(["doctor", "--json"])
+        .env("MELTEMI_ENDPOINT", &endpoint)
+        .env("MELTEMI_DATA_DIR", scratch.join("data"))
+        .env("MELTEMI_CONFIG_DIR", scratch.join("config"))
+        .output()
+        .expect("run doctor");
+    assert_eq!(
+        out.status.code(),
+        Some(14),
+        "a daemon that does not answer is a failing row"
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("doctor --json prints JSON");
+    let rows = report["rows"].as_array().expect("rows");
+    assert!(
+        rows.iter()
+            .any(|row| row["id"] == "daemon" && row["status"] == "fail"),
+        "{report:#}"
+    );
+    assert_eq!(report["clean"], false);
+    assert!(
+        !scratch.join("nobody.sock").exists() && !scratch.join("data").exists(),
+        "the diagnosis starts no daemon and writes nothing"
+    );
+    let _ = std::fs::remove_dir_all(&scratch);
 }

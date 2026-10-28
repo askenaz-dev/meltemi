@@ -41,8 +41,15 @@ no implementa nada que otra change de la tanda posea.
   contra la ayuda del binario y las guías: la regla recordada es por ruta
   exacta, y la decisión de revisión vive en la vista Proyecto o en la paleta de
   la TUI, no en la CLI. -->
-- [ ] 3.2 El test de la docs CI sobre el guion (design D2) — escenario «Los
+- [x] 3.2 El test de la docs CI sobre el guion (design D2) — escenario «Los
   verbos del guion existen en el binario»; gate: `tui/tests/docs.rs`
+  <!-- 2026-10-28: dos tests. Uno exige que el primer paso instale desde la
+  release y que cada paso numerado diga qué haces, qué esperas ver, dónde queda
+  y su desviación; encontró que el paso 9 no decía dónde queda, y se completó.
+  El otro cruza cada `meltemi <verbo>` de los bloques de código con la ayuda
+  del binario y corre `version` y `doctor --json` contra un endpoint vacío:
+  sale con 14, la fila del daemon falla y no se crea nada. El chequeo de
+  enlaces internos gana el guion, `hito-v01.md` y `release.md`. -->
 - [x] 3.3 Enlaces: las filas del índice en `README.md` y `LEEME.md`,
   `docs/hito-v01.md` y el chequeo de enlaces internos
   <!-- 2026-10-28: de paso, la fila de la FAQ de `LEEME.md` partía en dos la
