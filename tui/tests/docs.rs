@@ -697,7 +697,10 @@ fn the_faq_starts_with_the_diagnosis() {
         "the first answer sends to the diagnosis: {first}"
     );
     let bug = read(&repo_root(), ".github/ISSUE_TEMPLATE/bug.md");
-    assert!(bug.contains("meltemi doctor"), "and the bug template asks for it");
+    assert!(
+        bug.contains("meltemi doctor"),
+        "and the bug template asks for it"
+    );
 }
 
 #[test]
