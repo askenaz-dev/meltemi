@@ -217,8 +217,9 @@ fn is_lane(root: &str) -> bool {
 }
 
 // Scenario: El registro de un despacho se lee por su calle
+// Scenario: Un despacho no ensucia el árbol principal
 #[tokio::test]
-async fn a_dispatched_lane_is_read_by_its_lane() {
+async fn a_dispatched_lane_is_read_by_its_lane_and_stays_out_of_git() {
     let root = fixture("log");
     let root_str = root.display().to_string();
     let (endpoint, daemon) = spawn_daemon("log").await;
@@ -235,6 +236,30 @@ async fn a_dispatched_lane_is_read_by_its_lane() {
     );
     let by_project = log_lines(&peer, &root_str, &session_id).await;
     assert_eq!(by_lane, by_project, "either root reads the same log");
+
+    // A second lane, still without a workshop: the managed root is excluded
+    // once, and the main tree sees neither lane.
+    let _ = dispatch(&peer, &root_str, "1.2").await;
+    let exclude = std::fs::read_to_string(root.join(".git/info/exclude")).unwrap_or_default();
+    assert_eq!(
+        exclude
+            .lines()
+            .filter(|l| l.trim() == "/.meltemi/worktrees/")
+            .count(),
+        1,
+        "the managed root is excluded exactly once: {exclude}"
+    );
+    let status = git(&root, &["status", "--porcelain", "--untracked-files=all"]);
+    assert!(
+        !status.contains("worktrees"),
+        "the main tree does not see its lanes: {status}"
+    );
+    assert!(
+        !std::fs::read_to_string(root.join(".gitignore"))
+            .unwrap_or_default()
+            .contains("worktrees"),
+        "the versioned .gitignore is never touched"
+    );
 
     peer.close();
     daemon.abort();

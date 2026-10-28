@@ -15,8 +15,11 @@ Vía rápida. Un commit atómico por tarea, con referencia
   arreglo, `session/log` por la calle devolvió `[]` —el hallazgo 3 tal cual— y
   la reanudación se rehusó como «activa pero no dirigible», que es D4. Tests
   unitarios de la forma de la ruta y de `is_running`. -->
-- [ ] 1.2 `create` excluye la raíz gestionada (design D3) — escenario «Un
+- [x] 1.2 `create` excluye la raíz gestionada (design D3) — escenario «Un
   despacho no ensucia el árbol principal»; gate: el mismo e2e
+  <!-- 2026-10-28: dos despachos en un fixture sin taller dejan una sola línea
+  en `.git/info/exclude`, el estado del árbol principal no muestra las calles y
+  el `.gitignore` no se toca. Sin el arreglo, la exclusión no existía. -->
 
 ## 2. Cierre
 

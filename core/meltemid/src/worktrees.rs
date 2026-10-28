@@ -211,6 +211,10 @@ pub fn create(
         base_rev: base_rev.to_string(),
     };
     record(repo_root, &wt).map_err(|e| e.to_string())?;
+    // A task's lane is as much inside the managed root as a workshop, and a
+    // project that never opened a workshop would otherwise see every lane as
+    // an embedded repository (registro-de-la-sesion-de-calle D3).
+    ensure_excluded(repo_root)?;
     Ok(wt)
 }
 
