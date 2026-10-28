@@ -177,7 +177,7 @@ pub fn resolve_fleet_agent(
     //     overlay the auth-context env (`${VAR}` resolved; never a secret).
     if let Some(profile) = config.fleet_profiles.iter().find(|p| p.name == name) {
         let launch = resolve_id_launch(&catalog, &profile.agent, path_var, bundled_dir)?;
-        let env: Vec<(String, String)> = profile
+        let overlay: Vec<(String, String)> = profile
             .env
             .iter()
             .map(|(k, v)| {
@@ -191,6 +191,7 @@ pub fn resolve_fleet_agent(
                 (k.clone(), resolved)
             })
             .collect();
+        let env = launch_env(&catalog, Some(&profile.agent), &overlay, &user_has);
         return Ok(ResolvedAgent {
             launch,
             env,
@@ -208,7 +209,7 @@ pub fn resolve_fleet_agent(
         let launch = resolve_id_launch(&catalog, name, path_var, bundled_dir)?;
         return Ok(ResolvedAgent {
             launch,
-            env: Vec::new(),
+            env: launch_env(&catalog, Some(name), &[], &user_has),
             source: FleetResolutionSource::Catalog,
             profile: None,
             agent_id: Some(name.to_string()),
@@ -222,7 +223,7 @@ pub fn resolve_fleet_agent(
     let launch = resolve_launch(config, path_var, bundled_dir)?;
     Ok(ResolvedAgent {
         launch,
-        env: Vec::new(),
+        env: configured_env(config, &catalog, &user_has),
         source: FleetResolutionSource::Configured,
         profile: None,
         // The configured agent names an id unless the project pins a bare argv.
@@ -253,7 +254,7 @@ pub fn resolve_session_agent(
         Some(name) => resolve_fleet_agent(config, name, path_var, bundled_dir),
         None => Ok(ResolvedAgent {
             launch: resolve_launch(config, path_var, bundled_dir)?,
-            env: Vec::new(),
+            env: configured_env(config, &build_catalog(config), &user_has),
             source: meltemi_proto::FleetResolutionSource::Configured,
             profile: None,
             // The configured agent names an id unless the project pins a bare
@@ -264,6 +265,56 @@ pub fn resolve_session_agent(
             levers: configured_levers(config, &build_catalog(config)),
         }),
     }
+}
+
+/// The environment a resolution launches with (opencode-que-pregunta D2, D3):
+/// the entry's declared `launch-env`, minus every variable the user already
+/// has in their own environment, under the profile's own overlay. Lowest to
+/// highest: the registry, the user's environment, the profile. A variable left
+/// out here still reaches the agent, because the child inherits the daemon's
+/// environment.
+fn launch_env(
+    catalog: &crate::fleet::Catalog,
+    id: Option<&str>,
+    overlay: &[(String, String)],
+    user_has: &dyn Fn(&str) -> bool,
+) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = id
+        .and_then(|id| catalog.entries.iter().find(|entry| entry.id == id))
+        .map(|entry| {
+            entry
+                .launch_env
+                .iter()
+                .filter(|(name, _)| !user_has(name))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    for (name, value) in overlay {
+        env.retain(|(declared, _)| declared != name);
+        env.push((name.clone(), value.clone()));
+    }
+    env
+}
+
+/// The environment of the project-configured agent: its entry's, unless the
+/// project pins a literal command — what the user wrote is launched as written
+/// (opencode-que-pregunta D2).
+fn configured_env(
+    config: &Config,
+    catalog: &crate::fleet::Catalog,
+    user_has: &dyn Fn(&str) -> bool,
+) -> Vec<(String, String)> {
+    if config.agent_command.is_some() {
+        return Vec::new();
+    }
+    launch_env(catalog, config.agent_id.as_deref(), &[], user_has)
+}
+
+/// Whether the user already set this variable in the environment the daemon
+/// runs in.
+fn user_has(name: &str) -> bool {
+    std::env::var_os(name).is_some()
 }
 
 /// The levers a catalog entry declares as launch flags, when it declares them.
@@ -1053,6 +1104,113 @@ mod tests {
             resolved.env,
             vec![("MELTEMI_MOCK_MARKER".to_string(), "work".to_string())]
         );
+    }
+
+    /// A registry with one detected level-1 entry `env-agent` that declares two
+    /// launch variables, named so no real environment carries them.
+    fn launch_env_registry(dir: &std::path::Path) -> (std::path::PathBuf, String, String) {
+        fake_binary(dir, "env-agent-bin");
+        let pid = std::process::id();
+        let first = format!("MELTEMI_TEST_LAUNCH_FIRST_{pid}");
+        let second = format!("MELTEMI_TEST_LAUNCH_SECOND_{pid}");
+        let path = dir.join("registry.toml");
+        std::fs::write(
+            &path,
+            format!(
+                "version=\"v\"\n[[agents]]\nid=\"env-agent\"\nname=\"Env\"\nlevel=1\n\
+                 bin=\"env-agent-bin\"\nlaunch-env={{ {first}=\"registry\", {second}=\"registry\" }}\n"
+            ),
+        )
+        .unwrap();
+        (path, first, second)
+    }
+
+    // Scenario: Lo que el usuario fijó manda
+    #[test]
+    fn what_the_user_set_wins_over_what_the_registry_declares() {
+        let dir = temp("launch-env-precedence");
+        let (registry, first, second) = launch_env_registry(&dir);
+        let path_var = std::env::join_paths([&dir]).unwrap();
+        let profile = crate::config::FleetProfile {
+            model: None,
+            effort: None,
+            name: "work".into(),
+            agent: "env-agent".into(),
+            env: vec![(second.clone(), "profile".into())],
+        };
+        let config = Config {
+            agent_id: Some("env-agent".into()),
+            fleet_registry: Some(registry),
+            fleet_profiles: vec![profile],
+            ..Config::default()
+        };
+        let pair = |name: &str, value: &str| (name.to_string(), value.to_string());
+
+        // Nobody set anything: every resolution of the id carries the entry's
+        // declaration — by id, as the configured agent, and named or not.
+        let by_id = resolve_fleet_agent(&config, "env-agent", &path_var, None).unwrap();
+        assert_eq!(
+            by_id.env,
+            vec![pair(&first, "registry"), pair(&second, "registry")]
+        );
+        let configured = resolve_session_agent(&config, None, &path_var, None).unwrap();
+        assert_eq!(configured.env, by_id.env);
+        let free_label = resolve_fleet_agent(&config, "fast", &path_var, None).unwrap();
+        assert_eq!(free_label.env, by_id.env);
+
+        // The profile's own value wins over the registry's, the rest stands.
+        let by_profile = resolve_fleet_agent(&config, "work", &path_var, None).unwrap();
+        assert_eq!(
+            by_profile.env,
+            vec![pair(&first, "registry"), pair(&second, "profile")]
+        );
+
+        // A variable the user already has is left out, so the agent inherits
+        // the user's own value from the daemon's environment; the profile's
+        // still goes on top of everything.
+        let catalog = build_catalog(&config);
+        let user_has_first = |name: &str| name == first;
+        assert_eq!(
+            launch_env(&catalog, Some("env-agent"), &[], &user_has_first),
+            vec![pair(&second, "registry")]
+        );
+        let user_has_both = |name: &str| name == first || name == second;
+        assert_eq!(
+            launch_env(
+                &catalog,
+                Some("env-agent"),
+                &[pair(&second, "profile")],
+                &user_has_both
+            ),
+            vec![pair(&second, "profile")]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Scenario: Un comando literal no hereda el entorno del registro
+    #[test]
+    fn a_literal_command_inherits_no_registry_environment() {
+        let dir = temp("launch-env-literal");
+        let (registry, _, _) = launch_env_registry(&dir);
+        let bin = fake_binary(&dir, "own-agent");
+        let path_var = std::env::join_paths([&dir]).unwrap();
+        // Even beside a configured id whose entry declares an environment: the
+        // command wins the launch, and what the user wrote is launched as
+        // written.
+        let config = Config {
+            agent_command: Some(vec![bin.display().to_string()]),
+            agent_id: Some("env-agent".into()),
+            fleet_registry: Some(registry),
+            ..Config::default()
+        };
+        let unnamed = resolve_session_agent(&config, None, &path_var, None).unwrap();
+        assert!(unnamed.env.is_empty(), "{:?}", unnamed.env);
+        let free_label = resolve_fleet_agent(&config, "fast", &path_var, None).unwrap();
+        assert!(free_label.env.is_empty(), "{:?}", free_label.env);
+        // Naming the id itself is not the literal command: it is that entry.
+        let by_id = resolve_fleet_agent(&config, "env-agent", &path_var, None).unwrap();
+        assert_eq!(by_id.env.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

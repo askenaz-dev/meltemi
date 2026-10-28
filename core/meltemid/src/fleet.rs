@@ -1296,7 +1296,10 @@ bin = "plain"
         .expect("parses");
         assert_eq!(
             registry.agents[0].launch_env,
-            vec![("ASKS_CONFIG".to_string(), r#"{"permission":"ask"}"#.to_string())]
+            vec![(
+                "ASKS_CONFIG".to_string(),
+                r#"{"permission":"ask"}"#.to_string()
+            )]
         );
         assert!(registry.agents[1].launch_env.is_empty(), "absent is empty");
     }
