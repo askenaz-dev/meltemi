@@ -25,7 +25,7 @@ $ErrorActionPreference = "Stop"
 
 $version = if ($env:MELTEMI_VERSION) { $env:MELTEMI_VERSION } else { "latest" }
 # Canonical download base — declared once in docs/release.md and verified by
-# the site lint; override only for a local mirror while testing.
+# core/meltemid/tests/release.rs; override only for a local mirror while testing.
 $baseUrl = if ($env:MELTEMI_BASE_URL) { $env:MELTEMI_BASE_URL } else { "https://github.com/askenaz-dev/meltemi/releases" }
 # The two shapes the host serves: the version-free redirector for the latest
 # release, and the tagged path for a pinned one. `latest` is NOT a tag, so

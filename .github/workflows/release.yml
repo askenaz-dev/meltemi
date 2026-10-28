@@ -258,9 +258,9 @@ jobs:
           # hosting a copy of it.
           cp scripts/install.sh scripts/install.ps1 dist/
           cd dist
-          # Publish a checksum for every artifact. The detached signature of
-          # SHA256SUMS is produced with the maintainer's key (docs/release.md);
-          # that signing step runs with the release secrets, not in this file.
+          # A working checksum of this job's artifacts. The published one is
+          # recomputed over the merged set by `publish`, whose attestation
+          # is the release's signature (docs/release.md).
           if command -v sha256sum >/dev/null; then sha256sum * > SHA256SUMS; else shasum -a 256 * > SHA256SUMS; fi
           cat SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -360,9 +360,9 @@ jobs:
             exit 1
           fi
           cd dist-gui
-          # Signed with the same custody as every release artifact: the
-          # detached signature of SHA256SUMS is produced with the maintainer's
-          # key outside this file (docs/release.md).
+          # A working checksum, like the core archives': `publish` merges
+          # every artifact under one SHA256SUMS and attests it
+          # (docs/release.md).
           if command -v sha256sum >/dev/null; then sha256sum * > SHA256SUMS; else shasum -a 256 * > SHA256SUMS; fi
           cat SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
