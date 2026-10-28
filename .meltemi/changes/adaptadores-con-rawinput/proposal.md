@@ -36,6 +36,14 @@ Consecuencias medidas al cerrar `aprobador-en-el-cli`:
 - Casos de conformidad que pinean los hechos en ambos adaptadores, y un e2e con
   el agente simulado que muestra una regla con prefijo de comando gobernando una
   petición con esa forma.
+- **Añadido al implementar (2026-10-28, `release-para-un-desarrollador`)**: con
+  los comandos de Claude y de Codex en la petición, una regla `allow` por
+  prefijo de comando empieza a gobernarlos, y el prefijo es una comparación de
+  texto: la regla que el aprobador recuerda para `git status` también
+  permitiría `git status && curl … | sh`. Una regla `allow` por prefijo de
+  comando deja de casar cuando lo que sigue al prefijo encadena, redirige o
+  sustituye otro comando; esa petición escala al humano. Las reglas `deny`
+  siguen casando con todo lo que empieza por su prefijo (design D4).
 
 ## Capabilities
 
@@ -43,11 +51,15 @@ Consecuencias medidas al cerrar `aprobador-en-el-cli`:
 
 - `own-adapters`: + los hechos de la herramienta viajan en la petición de
   permiso (`rawInput`, `locations`), no solo en el texto.
+- `permission-rules`: + un prefijo de comando `allow` no permite lo que se
+  encadena tras él.
 
 ## Impact
 
 - `core/meltemi-adapters/src/{claude,codex}/{permission,mapping}.rs`, sus tests
   de conformidad y `docs/agentes.md`.
+- `core/meltemid/src/permissions.rs` (el casado de prefijos) y la referencia de
+  reglas en `docs/referencia-cli.md`.
 - Cero dependencias; el contrato daemon↔clientes no se mueve.
 
 ## Fuera de alcance
