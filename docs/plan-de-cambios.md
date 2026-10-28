@@ -373,6 +373,31 @@ v0.2.0 sin tocar `proto/` ni la gramática del CLI.
 | deseable | `herramientas-a-la-vista` | completa | el transcript del escritorio deja de pintar píldoras: lo que el sitio llama «pulir la carcasa». Entra si cabe; no bloquea | 10º, 14º del orden anterior |
 | si caben | `regla-precisa-en-la-bandeja`, `auditar-reglas-y-procedencia` | completas | la bandeja propone la misma regla precisa que el aprobador, y crear una regla queda en el log | 1º |
 
+**Avance del 2026-10-28.** 0º y 1º implementados; 2º implementado y, con su
+motor arreglado, **archivadas 27 changes** en orden de aterrizaje, cada una con
+`verify` completo y un commit propio: `barra-de-estado-agentica`,
+`compositor-que-trabaja`, `modos-de-autonomia`, `pensamiento-a-la-vista`,
+`piel-de-pestanas`, `preguntas-del-agente`, `redirigir-turno`,
+`sesion-que-espera`, `titulo-de-sesion`, `harness-global-y-por-agente`,
+`sesiones-en-la-barra`, `apagado-entero-y-modos`, `codex-al-dia`,
+`turno-vacio-es-error`, `aprobador-en-el-cli`, `modelo-por-opcion-anunciada`,
+`usage-desde-acp`, `verbos-del-agent-boss`, `acceso-remoto-afinado`,
+`corrida-integrada`, `estado-en-vivo`, `via-ssh-del-cliente`,
+`aviso-de-espera-opt-in`, `maquinas-remotas`, `companero-movil`,
+`senales-de-vida`, `enfasis-con-color` y `adaptadores-con-rawinput`. Antes,
+dos barridos: ningún requisito lo modificaban dos changes sin archivar, y un
+MODIFIED (`maquinas-remotas` sobre `remote-access`) era anterior a una change ya
+archivada del mismo requisito, `identidad-propia`, y se reconcilió devolviéndole
+la aserción que había perdido. `enfasis-con-color` y `modos-de-autonomia` tenían
+un escenario sin enlazar, y se enlazó. **No se archiva** `lanzador-conversacional`
+(gate de la firma 1c). La verdad viva valida limpia: 37 capabilities (nace
+`agent-harness`) y 93 changes en el histórico. Hallazgo de 2º, corregido: el
+daemon que sirvió los primeros archivos estaba compilado antes del arreglo; la
+guarda del lote lo detectó en `sesion-que-espera` (una cabecera arrastrada), se
+deshizo ese archivo sin commitear, se reinició el daemon y se rehízo. Los
+anteriores no arrastraron nada porque sus deltas no tenían sección tras un
+ADDED.
+
 No son gate, y el guion los declara como desviación conocida:
 `codex-reanudar-y-mcp` (Codex no se reanuda), `extension-acp-usage` (Claude
 Code y Codex no reportan uso), los certificados de firma de plataforma y la

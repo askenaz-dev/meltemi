@@ -34,9 +34,25 @@ Vía rápida. Un commit atómico por tarea, con referencia
   estar descritas como capacidad presente y leída, no creada, por Meltemi».
   `validate` limpio; `verify` sigue 16/16, porque el escenario conserva su
   título y su test. -->
-- [ ] 2.2 Archivar con el motor, en orden de aterrizaje, las changes terminadas
+- [x] 2.2 Archivar con el motor, en orden de aterrizaje, las changes terminadas
   con `verify` completo, salvo `lanzador-conversacional` (design D2, D4) —
   gates: `meltemi archive` limpio en cada una, `dogfood.rs`, `migration.rs` y
   `meltemi validate` de la verdad viva al final
-- [ ] 2.3 `meltemi validate` y `meltemi verify` de esta change; entrada en
+  <!-- 2026-10-28: 27 archivadas, un commit cada una, en orden de aterrizaje
+  (último commit de su `tasks.md`), con un script de lote que se detiene si
+  `verify` no está completo, si una cabecera de sección llega a la verdad viva
+  o si una change sin MODIFIED quita texto, y valida la verdad viva tras cada
+  una. Antes de archivar se enlazaron los dos escenarios que faltaban
+  (`enfasis-con-color`, `modos-de-autonomia`). La guarda paró dos veces: por una
+  línea en blanco normalizada entre bloques (falsa alarma; se cuentan solo
+  líneas con texto) y por una cabecera arrastrada en `sesion-que-espera`,
+  porque el daemon aislado se había compilado antes de 1.1; se deshizo ese
+  archivo, se reinició el daemon con el arreglo y se rehízo. Al final:
+  `validate` de la verdad viva limpio, ninguna cabecera de sección en las 37
+  specs, `meltemi-spec` 63/63 (dogfood y migración incluidos). El test de
+  `desktop/tests/scenarios_shell.rs` que leía el delta de
+  `sesiones-en-la-barra` tiene rama de archivada, y su condición se cumple. -->
+- [x] 2.3 `meltemi validate` y `meltemi verify` de esta change; entrada en
   `docs/plan-de-cambios.md` con lo archivado y lo que no, y por qué
+  <!-- 2026-10-28: `validate` limpio y `verify` 2/2 enlazados; el avance en la
+  tanda de `docs/plan-de-cambios.md`. -->
