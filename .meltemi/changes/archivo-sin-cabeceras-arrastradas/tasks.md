@@ -16,9 +16,13 @@ Vía rápida. Un commit atómico por tarea, con referencia
   la viva desaparece al fundir otra cosa, sin perder el texto del requisito que
   la sigue. Con `is_delta_section` devolviendo siempre `false`, solo en local,
   los dos fallan. Tests de `archive.rs` 5/5. -->
-- [ ] 1.2 Retirar a mano las cabeceras arrastradas de `fleet-catalog`,
+- [x] 1.2 Retirar a mano las cabeceras arrastradas de `fleet-catalog`,
   `remote-access` y `session-history` — gates: `dogfood.rs`, `migration.rs` y
   `meltemi validate` de la verdad viva
+  <!-- 2026-10-28: cuatro cabeceras `## MODIFIED Requirements` retiradas: dos en
+  `fleet-catalog`, una en `remote-access` (la última línea del archivo) y una
+  en `session-history`; ningún texto de requisito se tocó. `meltemi validate`
+  de la verdad viva limpio; `dogfood.rs` 2/2 y `migration.rs` 3/3. -->
 
 ## 2. El archivo
 

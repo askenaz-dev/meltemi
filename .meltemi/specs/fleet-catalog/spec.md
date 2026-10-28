@@ -290,8 +290,6 @@ declarado, de modo que el usuario decida informado antes de instalar nada.
 - **THEN** la superficie SHALL mostrar la advertencia junto al remedio de esa capa
 - **AND** SHALL indicar el camino seguro declarado
 
-## MODIFIED Requirements
-
 ### Requirement: Guía de perfiles multi-suscripción
 La guía de agentes SHALL documentar los perfiles de lanzamiento como suscripciones
 con nombre, con el ejemplo canónico de dos cuentas del mismo proveedor conviviendo
@@ -381,8 +379,6 @@ quien la recomienda.
 - **WHEN** un cliente consulta el catálogo
 - **THEN** la capa adaptador de una entrada con adaptador propio SHALL declararse empaquetada
 - **AND** SHALL NOT ofrecer comando de instalación de terceros para esa capa
-
-## MODIFIED Requirements
 
 ### Requirement: El vínculo de suscripción de primera clase
 

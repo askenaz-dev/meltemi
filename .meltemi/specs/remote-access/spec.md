@@ -247,5 +247,3 @@ subconjunto vive en `mobile-companion` y no se duplica aquí).
 - **WHEN** un equipo aparece en línea en la lista
 - **THEN** ninguna superficie SHALL abrir una conexión hacia él por ese hecho
 - **AND** el camino hacia su daemon SHALL seguir siendo el túnel del usuario
-
-## MODIFIED Requirements

@@ -113,8 +113,6 @@ ningún material de autenticación (constitución §2).
 - **THEN** el listado SHALL omitir el nombre de perfil
 - **AND** SHALL NOT presentar una suscripción que no existió
 
-## MODIFIED Requirements
-
 ### Requirement: Evento local de uso en ejecuciones headless
 WHERE una ejecución de nivel 3 emite contadores de uso en su salida estructurada
 oficial, el daemon SHALL persistirlos en el log JSONL de la sesión como un evento
