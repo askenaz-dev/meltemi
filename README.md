@@ -1,6 +1,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Meltemi
 
+[![CI](https://github.com/askenaz-dev/meltemi/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/askenaz-dev/meltemi/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/askenaz-dev/meltemi)](https://github.com/askenaz-dev/meltemi/releases/latest)
+
 **The spec-driven control plane for agentic development.** Open source
 (Apache-2.0), free, community-built. Meltemi orchestrates the coding agents you
 already use — through open standards — under a discipline where no line of code

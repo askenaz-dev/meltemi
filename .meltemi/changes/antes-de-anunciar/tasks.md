@@ -16,8 +16,12 @@ es del mantenedor y no es tarea de esta change.
   la FAQ y al quickstart; `config.yml` apaga el issue en blanco y enlaza el
   reporte privado de vulnerabilidades. La de propuesta decía «proposal → specs
   → design → tasks»; ahora el orden de la constitución. `governance.rs` 3/3. -->
-- [ ] 1.2 Insignias de CI, licencia y última release en `README.md` y
+- [x] 1.2 Insignias de CI, licencia y última release en `README.md` y
   `LEEME.md` (design D2) — gate: pruebas de docs
+  <!-- 2026-10-28: bajo el título de los dos README; la de CI es la del propio
+  GitHub Actions y las otras dos de shields.io, solo en los README. Prueba de
+  docs nueva que las exige; las de enlaces internos siguen verdes (la de
+  licencia apunta a `LICENSE`). Pruebas de docs 18/18. -->
 
 ## 2. El changelog
 

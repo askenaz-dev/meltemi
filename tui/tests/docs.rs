@@ -666,6 +666,25 @@ fn the_terminal_capture_carries_the_brands_colours() {
 }
 
 #[test]
+fn both_readmes_carry_the_ci_licence_and_release_badges() {
+    // antes-de-anunciar design D2: in the READMEs, never on the site, which
+    // keeps no external origins.
+    for doc in ["README.md", "LEEME.md"] {
+        let text = read(&repo_root(), doc);
+        for (what, link) in [
+            ("CI", "actions/workflows/ci.yml/badge.svg"),
+            ("licence", "img.shields.io/badge/license-Apache--2.0"),
+            (
+                "latest release",
+                "img.shields.io/github/v/release/askenaz-dev/meltemi",
+            ),
+        ] {
+            assert!(text.contains(link), "{doc} lacks the {what} badge");
+        }
+    }
+}
+
+#[test]
 fn internal_doc_links_resolve() {
     // Docs lint: internal markdown links point at files that exist.
     let root = repo_root();
