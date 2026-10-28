@@ -434,6 +434,18 @@ despacho termina sin salir del registro vivo, y `session/direct` lo rehusaba
 como «activa pero no dirigible» mientras el daemon viviera; ahora solo rehúsa
 una sesión que sigue corriendo.
 
+**7º `primer-arranque-del-home`, cerrada el 2026-10-28** (3.2 hecha, verify
+3/3): el smoke sobre el binario (Linux, WebKitGTK, dos registros fixture) midió
+el chip y el saludo, y encontró tres defectos que ya se dieron por buenos en
+agosto: la flota vacía cambiaba la palabra pero no el tono, la advertencia se
+leía «sin agentes …», y el lado Rust del estado de la interfaz tiraba
+`fleetGreeted` y `noticesEnabled` en cada guardado —el saludo volvía en cada
+ventana y apagar los avisos no duraba—. Los tres corregidos y re-medidos, con un
+test que falla si el host deja caer un campo que la superficie persiste.
+`docs/qa/2026-10-28-primer-arranque-del-home-smoke.md`. Nombra
+`pestana-nueva-con-nombre`: la miga y la sección «Abiertas» muestran el id
+interno `__new__` de la pestaña del compositor.
+
 No son gate, y el guion los declara como desviación conocida:
 `codex-reanudar-y-mcp` (Codex no se reanuda), `extension-acp-usage` (Claude
 Code y Codex no reportan uso), los certificados de firma de plataforma y la
