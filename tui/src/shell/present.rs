@@ -13,6 +13,10 @@ pub struct Presentation {
     pub color: bool,
     /// Whether Unicode glyphs may be used (otherwise the ASCII twins).
     pub unicode: bool,
+    /// Whether the terminal announced 24-bit colour (`COLORTERM=truecolor` or
+    /// `24bit`), so the brand's exact blue may be used; otherwise the nearest
+    /// of the 256-colour palette. Always false when `color` is.
+    pub truecolor: bool,
 }
 
 /// The inputs that decide presentation, read from the environment/flags.
@@ -30,6 +34,8 @@ pub struct PresentationEnv {
     pub ascii_flag: bool,
     /// `LANG`/`LC_*` value (used to detect UTF-8 capability).
     pub lang: Option<String>,
+    /// `COLORTERM` value (`truecolor` or `24bit` announce 24-bit colour).
+    pub colorterm: Option<String>,
 }
 
 impl Presentation {
@@ -46,7 +52,20 @@ impl Presentation {
             || lang_is_non_utf8(&env.lang);
         let unicode = !ascii_forced;
 
-        Self { color, unicode }
+        let truecolor = color
+            && matches!(
+                env.colorterm
+                    .as_deref()
+                    .map(str::to_ascii_lowercase)
+                    .as_deref(),
+                Some("truecolor" | "24bit")
+            );
+
+        Self {
+            color,
+            unicode,
+            truecolor,
+        }
     }
 
     /// Resolves presentation from the real process environment.
@@ -62,6 +81,7 @@ impl Presentation {
             lang: get("LC_ALL")
                 .or_else(|| get("LC_CTYPE"))
                 .or_else(|| get("LANG")),
+            colorterm: get("COLORTERM"),
         })
     }
 }
@@ -116,6 +136,41 @@ mod tests {
         });
         assert!(!p.color);
         assert!(p.unicode, "NO_COLOR must not disable Unicode");
+    }
+
+    #[test]
+    fn truecolor_follows_colorterm_when_color_is_allowed() {
+        // Scenario: El acento según el terminal.
+        for announced in ["truecolor", "24bit", "TrueColor"] {
+            let p = Presentation::resolve(&PresentationEnv {
+                colorterm: Some(announced.into()),
+                lang: Some("en_US.UTF-8".into()),
+                ..env()
+            });
+            assert!(p.truecolor, "{announced} announces 24-bit colour");
+        }
+        for other in [None, Some(String::new()), Some("256color".into())] {
+            let p = Presentation::resolve(&PresentationEnv {
+                colorterm: other.clone(),
+                lang: Some("en_US.UTF-8".into()),
+                ..env()
+            });
+            assert!(p.color);
+            assert!(!p.truecolor, "{other:?} is not 24-bit colour");
+        }
+    }
+
+    #[test]
+    fn no_color_disables_truecolor_with_color() {
+        // Scenario: Monocromo conserva el inverso.
+        let p = Presentation::resolve(&PresentationEnv {
+            no_color: Some("1".into()),
+            colorterm: Some("truecolor".into()),
+            lang: Some("en_US.UTF-8".into()),
+            ..env()
+        });
+        assert!(!p.color);
+        assert!(!p.truecolor);
     }
 
     #[test]

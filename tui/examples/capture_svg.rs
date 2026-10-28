@@ -19,7 +19,7 @@ use meltemi::shell::state::ShellState;
 use meltemi_proto::SessionState;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
-use ratatui::style::Modifier;
+use ratatui::style::{Color, Modifier};
 
 const COLS: u16 = 96;
 const ROWS: u16 = 24;
@@ -98,6 +98,9 @@ fn main() {
     let ctx = ShellCtx {
         present: Presentation::resolve(&PresentationEnv {
             lang: Some("en_US.UTF-8".into()),
+            // A terminal with 24-bit colour, so the capture carries the brand's
+            // exact blue (enfasis-con-color design D4).
+            colorterm: Some("truecolor".into()),
             ..Default::default()
         }),
         lang: Lang::En,
@@ -142,34 +145,55 @@ fn main() {
     ));
 
     for row in 0..ROWS {
-        // Group the row into runs sharing the reverse-video attribute, so the
-        // focused line reads as focused in the image too.
-        let mut runs: Vec<(u16, String, bool)> = Vec::new();
+        // Group the row into runs sharing one style (background, text colour,
+        // bold, reverse video), so the banner, the selected row and the group
+        // headers read in the image as they do in a terminal.
+        let mut runs: Vec<(u16, String, RunStyle)> = Vec::new();
         for col in 0..COLS {
             let cell = &buffer[(col, row)];
-            let reversed = cell.modifier.contains(Modifier::REVERSED);
+            let style = RunStyle::of(cell.fg, cell.bg, cell.modifier);
             match runs.last_mut() {
-                Some((_, text, run_reversed)) if *run_reversed == reversed => {
+                Some((_, text, run_style)) if *run_style == style => {
                     text.push_str(cell.symbol());
                 }
-                _ => runs.push((col, cell.symbol().to_string(), reversed)),
+                _ => runs.push((col, cell.symbol().to_string(), style)),
             }
         }
         let y = f32::from(row) * CELL_H;
-        for (col, text, reversed) in runs {
-            if text.trim().is_empty() && !reversed {
+        for (col, text, style) in runs {
+            let block = style.reversed || style.bg.is_some();
+            if text.trim().is_empty() && !block {
                 continue;
             }
             let x = f32::from(col) * CELL_W;
-            if reversed {
+            if block {
                 let run_width = text.chars().count() as f32 * CELL_W;
-                svg.push_str(&format!(
-                    "  <rect class=\"rev\" x=\"{x}\" y=\"{y}\" width=\"{run_width}\" height=\"{CELL_H}\"/>\n"
-                ));
+                match &style.bg {
+                    Some(bg) => svg.push_str(&format!(
+                        "  <rect fill=\"{bg}\" x=\"{x}\" y=\"{y}\" width=\"{run_width}\" height=\"{CELL_H}\"/>\n"
+                    )),
+                    None => svg.push_str(&format!(
+                        "  <rect class=\"rev\" x=\"{x}\" y=\"{y}\" width=\"{run_width}\" height=\"{CELL_H}\"/>\n"
+                    )),
+                }
             }
-            let class = if reversed { "revfg" } else { "fg" };
+            let class = if style.reversed && style.bg.is_none() {
+                "revfg"
+            } else {
+                "fg"
+            };
+            let fill = style
+                .fg
+                .as_ref()
+                .map(|fg| format!(" fill=\"{fg}\""))
+                .unwrap_or_default();
+            let weight = if style.bold {
+                " font-weight=\"700\""
+            } else {
+                ""
+            };
             svg.push_str(&format!(
-                "  <text class=\"{class}\" x=\"{x}\" y=\"{}\" xml:space=\"preserve\">{}</text>\n",
+                "  <text class=\"{class}\"{fill}{weight} x=\"{x}\" y=\"{}\" xml:space=\"preserve\">{}</text>\n",
                 y + CELL_H * 0.72,
                 escape(&text)
             ));
@@ -177,6 +201,37 @@ fn main() {
     }
     svg.push_str("</svg>\n");
     print!("{svg}");
+}
+
+/// The style of one run of cells, as the SVG tells it: colours as hex when the
+/// cell has one, bold, and reverse video for a capture without colour.
+#[derive(Clone, PartialEq, Eq)]
+struct RunStyle {
+    fg: Option<String>,
+    bg: Option<String>,
+    bold: bool,
+    reversed: bool,
+}
+
+impl RunStyle {
+    fn of(fg: Color, bg: Color, modifier: Modifier) -> Self {
+        Self {
+            fg: hex(fg),
+            bg: hex(bg),
+            bold: modifier.contains(Modifier::BOLD),
+            reversed: modifier.contains(Modifier::REVERSED),
+        }
+    }
+}
+
+/// A cell colour as `#rrggbb`: the exact ones the renderer sets on a 24-bit
+/// terminal, and the terminal's default (reset) as none.
+fn hex(color: Color) -> Option<String> {
+    match color {
+        Color::Rgb(r, g, b) => Some(format!("#{r:02x}{g:02x}{b:02x}")),
+        Color::White => Some("#ffffff".into()),
+        _ => None,
+    }
 }
 
 /// XML-escapes a run of text.
