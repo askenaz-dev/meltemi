@@ -105,6 +105,9 @@
   .face.warn {
     border-color: var(--warn);
     color: var(--warn);
+    /* A warning is read whole: «sin agentes detectados» cut to «sin agentes…»
+       is the half that says nothing (primer-arranque-del-home 3.2). */
+    max-width: none;
   }
   .label {
     flex: none;

@@ -2521,6 +2521,22 @@ fn the_first_arrival_says_what_the_fleet_has_before_a_send_refuses() {
             && home.contains("home.agent.none"),
         "an empty fleet is said on the chip's face"
     );
+    // In the warning tone, not only in words: the smoke on the binary found
+    // the label said it while the chip looked like every other one.
+    assert!(
+        home.contains("tone={refusal || noFleet ? \"warn\" : \"plain\"}"),
+        "the empty fleet warns in tone as well as in words"
+    );
+    let chip = read("desktop/ui/src/lib/components/Chip.svelte");
+    let warn_rule = chip
+        .split(".face.warn {")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .unwrap_or_default();
+    assert!(
+        warn_rule.contains("max-width: none"),
+        "and a warning is never cut to its first words: {warn_rule}"
+    );
     // And the unresolvable default stops being offered as a choice.
     assert!(
         home.contains("{:else if !noFleet}"),

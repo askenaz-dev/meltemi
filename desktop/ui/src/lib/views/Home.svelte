@@ -519,7 +519,7 @@
           label={$t("session.new.agent")}
           value={agentLabel}
           title={chosen?.id ?? ""}
-          tone={refusal ? "warn" : "plain"}
+          tone={refusal || noFleet ? "warn" : "plain"}
         >
           {#snippet lead()}
             {#if chosen && !refusal}

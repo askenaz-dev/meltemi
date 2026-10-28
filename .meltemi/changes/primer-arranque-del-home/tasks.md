@@ -26,6 +26,13 @@ cero daemon, cero dependencias. Un commit atómico por tarea, con referencia
 
 - [x] 3.1 `meltemi validate primer-arranque-del-home` limpio y `meltemi verify`
   con los tres escenarios enlazados; gates del frontend y suite de cableado
-- [ ] 3.2 Smoke sobre el binario: el chip advirtiendo con flota vacía y el
+- [x] 3.2 Smoke sobre el binario: el chip advirtiendo con flota vacía y el
   saludo apareciendo una sola vez. **Requiere un fixture con flota vacía**, que
   es un registro sin candidatos alcanzables. Nota en `docs/qa/`
+  <!-- 2026-10-28: `docs/qa/2026-10-28-primer-arranque-del-home-smoke.md`, en
+  Linux con WebKitGTK. Encontró y corrigió tres defectos: el chip no tomaba el
+  tono de advertencia con la flota vacía, la advertencia se recortaba a «sin
+  agentes …», y el lado Rust del estado tiraba `fleetGreeted` (y
+  `noticesEnabled`) en cada guardado, así que el saludo volvía en cada ventana.
+  Re-medido tras corregir: advertencia entera y con tono; «2 detectados» en la
+  primera ventana y «el del proyecto» en la segunda. -->
