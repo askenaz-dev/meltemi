@@ -9,7 +9,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
@@ -76,14 +76,44 @@ impl ShellCtx {
         text(m, self.lang)
     }
 
-    /// Emphasis style: reverse video (works without color) plus bold when color
-    /// is allowed. Never relies on color alone.
-    fn emphasis(&self) -> Style {
-        let mut s = Style::default().add_modifier(Modifier::REVERSED);
-        if self.present.color {
-            s = s.add_modifier(Modifier::BOLD);
+    /// The brand's Aegean blue (`--mel-aegean`, #2563eb): exact on a terminal
+    /// that announced 24-bit colour, the nearest of the 256-colour palette
+    /// elsewhere (enfasis-con-color design D2).
+    fn accent(&self) -> Color {
+        if self.present.truecolor {
+            Color::Rgb(37, 99, 235)
+        } else {
+            Color::Indexed(27)
         }
-        s
+    }
+
+    /// Emphasis style, for what must stand out as a block: the banner, the
+    /// counters, the focused title and the selected row. With color, the
+    /// brand's blue behind white bold text; without, reverse video, which
+    /// works everywhere and paints no background. Never relies on color
+    /// alone: the glyph and the label carry the meaning.
+    fn emphasis(&self) -> Style {
+        if self.present.color {
+            Style::default()
+                .bg(self.accent())
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().add_modifier(Modifier::REVERSED)
+        }
+    }
+
+    /// Heading style, for the titles of views and the group headers inside
+    /// them: with color, bold in the brand's blue on the terminal's own
+    /// background; without, the same reverse video as the emphasis.
+    fn heading(&self) -> Style {
+        if self.present.color {
+            Style::default()
+                .fg(self.accent())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            self.emphasis()
+        }
     }
 
     fn border_set(&self) -> border::Set {
@@ -389,7 +419,7 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
             detected
         )
     };
-    let mut lines = vec![Line::styled(header, ctx.emphasis()), Line::from("")];
+    let mut lines = vec![Line::styled(header, ctx.heading()), Line::from("")];
 
     let id_width = fleet.rows.iter().map(|r| r.id.len()).max().unwrap_or(0);
     // Wide enough for the longest verified label, so a version does not push
@@ -680,7 +710,7 @@ fn append_harness(lines: &mut Vec<Line<'static>>, live: &LiveData, ctx: &ShellCt
         Some(agent) => format!("{} — {agent}", ctx.msg(Msg::HarnessTitle)),
         None => ctx.msg(Msg::HarnessTitle).to_string(),
     };
-    lines.push(Line::styled(title, ctx.emphasis()));
+    lines.push(Line::styled(title, ctx.heading()));
     if !snapshot.scoped_to_project {
         lines.push(Line::from(format!(
             "  {} {}",
@@ -764,7 +794,7 @@ fn render_race_board(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &Shell
         },
         short_rev(&board.base_rev)
     );
-    let mut lines = vec![Line::styled(header, ctx.emphasis()), Line::from("")];
+    let mut lines = vec![Line::styled(header, ctx.heading()), Line::from("")];
 
     if board.lanes.is_empty() {
         lines.push(Line::from(ctx.msg(Msg::RaceEmpty)));
@@ -1109,7 +1139,7 @@ fn render_sessions(
             visible.len(),
             mark
         );
-        lines.push(Line::styled(pan(&header, live.h_scroll), ctx.emphasis()));
+        lines.push(Line::styled(pan(&header, live.h_scroll), ctx.heading()));
         // Inside the project, by what each session asks of you. The cursor is a
         // flat index over `live.sessions` and never learns about this: rows are
         // reordered for reading, not renumbered (design D6).
@@ -1287,7 +1317,7 @@ fn render_session_detail(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &S
     );
 
     let mut lines = vec![
-        Line::styled(header, ctx.emphasis()),
+        Line::styled(header, ctx.heading()),
         Line::from(subtitle),
         Line::from(prospect),
         Line::from(""),
@@ -1356,7 +1386,7 @@ fn project_registry_lines(live: &LiveData, ctx: &ShellCtx) -> Vec<Line<'static>>
             ctx.msg(Msg::ProjectRegistryTitle),
             live.projects.len()
         ),
-        ctx.emphasis(),
+        ctx.heading(),
     )];
     if live.projects.is_empty() {
         lines.push(Line::from(ctx.msg(Msg::ProjectRegistryEmpty)));
@@ -1396,7 +1426,7 @@ fn render_permissions(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &Shel
         format!("{waiting} awaiting a decision")
     };
     let mut lines = vec![
-        Line::styled(header, ctx.emphasis()),
+        Line::styled(header, ctx.heading()),
         Line::from(ctx.msg(Msg::TrayHint)),
         Line::from(""),
     ];
@@ -1816,7 +1846,7 @@ fn centered(area: Rect, pct_w: u16, pct_h: u16) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell::live::{FleetRow, FleetSnapshot, SessionRow, Update};
+    use crate::shell::live::{FleetRow, FleetSnapshot, ProjectRow, SessionRow, Update};
     use crate::shell::present::{Presentation, PresentationEnv};
     use meltemi_proto::{
         PendingPermission, PermissionOption, PermissionOptionKind, PermissionRule,
@@ -2888,6 +2918,137 @@ mod tests {
         assert!(out.contains('+') && out.contains('|'));
     }
 
+    /// The capture's fixture: two projects, a session waiting on a decision,
+    /// one working and one ended, and one permission pending.
+    fn sessions_with_a_pending_permission() -> LiveData {
+        let mut live = LiveData::new();
+        live.apply(Update::Conn(ConnState::Connected {
+            version: "0.1.0".into(),
+            uptime_s: 1_845,
+            sessions: 1,
+        }));
+        live.apply(Update::Pending(1));
+        live.apply(Update::Projects(vec![
+            ProjectRow {
+                root: "/fixtures/harbour".into(),
+                exists: true,
+                sessions_total: 2,
+                active_sessions: 1,
+            },
+            ProjectRow {
+                root: "/fixtures/lighthouse".into(),
+                exists: true,
+                sessions_total: 1,
+                active_sessions: 0,
+            },
+        ]));
+        let row = |id: &str, state: meltemi_proto::SessionState, root: &str| SessionRow {
+            started_at: String::new(),
+            ended_at: None,
+            mode: None,
+            model: None,
+            id: id.into(),
+            agent: "mock-agent".into(),
+            state,
+            project_root: root.into(),
+            resumable: false,
+            agent_id: Some("mock-agent".into()),
+            profile: Some("work".into()),
+            title: None,
+        };
+        live.apply(Update::Sessions(vec![
+            row(
+                "3f9c1a20",
+                meltemi_proto::SessionState::Active,
+                "/fixtures/harbour",
+            ),
+            row(
+                "7b21e4d8",
+                meltemi_proto::SessionState::WaitingPermission,
+                "/fixtures/harbour",
+            ),
+            row(
+                "c04ab7f1",
+                meltemi_proto::SessionState::Ended,
+                "/fixtures/lighthouse",
+            ),
+        ]));
+        live
+    }
+
+    /// The style of the first cell of `needle` in the drawn buffer.
+    fn style_of(buffer: &ratatui::buffer::Buffer, needle: &str) -> (Color, Color, Modifier) {
+        let width = buffer.area.width;
+        for row in 0..buffer.area.height {
+            let text: String = (0..width).map(|col| buffer[(col, row)].symbol()).collect();
+            if let Some(at) = text.find(needle) {
+                let col = text[..at].chars().count() as u16;
+                let cell = &buffer[(col, row)];
+                return (cell.fg, cell.bg, cell.modifier);
+            }
+        }
+        panic!("{needle:?} is not drawn");
+    }
+
+    #[test]
+    fn with_color_the_block_is_the_accent_and_headings_are_accent_text() {
+        // Scenario: Énfasis con color.
+        let live = sessions_with_a_pending_permission();
+        let present = Presentation::resolve(&PresentationEnv {
+            lang: Some("en_US.UTF-8".into()),
+            colorterm: Some("truecolor".into()),
+            ..Default::default()
+        });
+        let ctx = ShellCtx {
+            present,
+            lang: Lang::En,
+            project: true,
+            via: None,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(96, 24)).unwrap();
+        terminal
+            .draw(|f| render(f, &ShellState::new(), &live, &ctx))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let accent = Color::Rgb(37, 99, 235);
+
+        let (fg, bg, modifier) = style_of(buffer, "permissions waiting");
+        assert_eq!(bg, accent, "the banner is a block in the accent");
+        assert_eq!(fg, Color::White);
+        assert!(modifier.contains(Modifier::BOLD));
+        assert!(!modifier.contains(Modifier::REVERSED));
+
+        let (_, bg, _) = style_of(buffer, "3f9c1a20");
+        assert_eq!(bg, accent, "the selected row is a block in the accent");
+
+        let (fg, bg, modifier) = style_of(buffer, "harbour (2)");
+        assert_eq!(fg, accent, "a group header is accent text");
+        assert_eq!(bg, Color::Reset, "a group header paints no background");
+        assert!(modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn without_truecolor_the_accent_is_the_nearest_of_the_palette() {
+        // Scenario: El acento según el terminal.
+        let live = sessions_with_a_pending_permission();
+        let present = Presentation::resolve(&PresentationEnv {
+            lang: Some("en_US.UTF-8".into()),
+            ..Default::default()
+        });
+        let ctx = ShellCtx {
+            present,
+            lang: Lang::En,
+            project: true,
+            via: None,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(96, 24)).unwrap();
+        terminal
+            .draw(|f| render(f, &ShellState::new(), &live, &ctx))
+            .unwrap();
+        let (_, bg, _) = style_of(terminal.backend().buffer(), "permissions waiting");
+        assert_eq!(bg, Color::Indexed(27));
+    }
+
     #[test]
     fn no_color_render_emits_no_colored_cells() {
         let mono = Presentation::resolve(&PresentationEnv {
@@ -2900,7 +3061,6 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         let live = LiveData::new();
         terminal.draw(|f| render(f, &s, &live, &ctx(mono))).unwrap();
-        use ratatui::style::Color;
         for cell in terminal.backend().buffer().content() {
             assert_eq!(cell.fg, Color::Reset);
             assert_eq!(cell.bg, Color::Reset);
