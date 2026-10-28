@@ -117,8 +117,12 @@ pub fn owning_project(path: &Path) -> Option<PathBuf> {
     if named(worktrees)? != "worktrees" || named(meltemi)? != ".meltemi" {
         return None;
     }
-    let root: PathBuf = parts.rev().collect();
-    (!root.as_os_str().is_empty()).then_some(root)
+    // The ancestor, not the components collected again: rebuilding a path from
+    // its components respells its separators on Windows (`/work\repo` comes
+    // back as `\work\repo`), and the project key hashes the path as spelled
+    // whenever it cannot be canonicalized.
+    let root = path.ancestors().nth(4)?;
+    (!root.as_os_str().is_empty()).then(|| root.to_path_buf())
 }
 
 /// The key a session's log and index record live under: the owning project's
@@ -683,6 +687,14 @@ mod tests {
             .join("dark-mode")
             .join("1-1-lane");
         assert_eq!(owning_project(&lane), Some(root.clone()));
+        // Spelled exactly as the lane spells it: the project key hashes the path
+        // as written when it cannot be canonicalized, and on Windows a path
+        // rebuilt from its components comes back with other separators.
+        assert_eq!(
+            owning_project(&lane).unwrap().as_os_str(),
+            root.as_os_str(),
+            "the owner is the lane's own prefix, byte for byte"
+        );
         // A workshop has the same shape, and the same owner.
         let (workshop, _) = workspace_names("dark-mode", None);
         assert_eq!(owning_project(&root.join(workshop)), Some(root.clone()));
