@@ -23,7 +23,7 @@
 //!   diff travels as what it is — text — with the path alongside it so clients
 //!   can still follow along.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use agent_client_protocol::schema::v1::{
     Content, ContentBlock, ContentChunk, MessageId, PromptRequest, SessionUpdate, TextContent,
@@ -119,6 +119,24 @@ pub struct Mapper {
     children: HashSet<String>,
     /// Tool calls the session has already been shown, by id.
     announced: HashSet<String>,
+    /// What each command or file change was, by item id, for the approval that
+    /// may come for it later (adaptadores-con-rawinput design D2).
+    facts: HashMap<String, ItemFacts>,
+}
+
+/// What an item was, as the session was shown it: the facts an approval for it
+/// lends to the permission request, because the provider's approval names the
+/// item and repeats none of them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ItemFacts {
+    /// The title the session showed.
+    pub title: String,
+    /// The command line of a command execution.
+    pub command: Option<String>,
+    /// The file of a change that touches exactly one. A change of several has
+    /// none: the proxy matches a single path, and one of several would let a
+    /// rule by path allow the others (design D3).
+    pub path: Option<String>,
 }
 
 impl Mapper {
@@ -141,6 +159,13 @@ impl Mapper {
     /// time, so an approval about something never shown can show it first.
     pub fn announce(&mut self, tool_call: &str) -> bool {
         self.announced.insert(tool_call.to_string())
+    }
+
+    /// What an item was, if the session was shown it as a command or a file
+    /// change.
+    #[must_use]
+    pub fn facts_of(&self, item: &str) -> Option<&ItemFacts> {
+        self.facts.get(item)
     }
 
     /// Records that a turn is over.
@@ -384,6 +409,32 @@ impl Mapper {
             return Mapped::default();
         };
         self.announced.insert(rendered.id.clone());
+        match &item {
+            ThreadItem::CommandExecution { id, command, .. } => {
+                self.facts.insert(
+                    id.clone(),
+                    ItemFacts {
+                        title: rendered.title.clone(),
+                        command: Some(command.clone()),
+                        path: None,
+                    },
+                );
+            }
+            ThreadItem::FileChange { id, changes, .. } => {
+                self.facts.insert(
+                    id.clone(),
+                    ItemFacts {
+                        title: rendered.title.clone(),
+                        command: None,
+                        path: match changes.as_slice() {
+                            [one] => Some(one.path.clone()),
+                            _ => None,
+                        },
+                    },
+                );
+            }
+            _ => {}
+        }
         Mapped::updates(vec![if completed {
             SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                 rendered.id,

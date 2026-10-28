@@ -542,7 +542,13 @@ where
                 stream.emit(mapping::declined_elsewhere(&id, &method, &belongs));
             }
             Incoming::Request { id, method, params } => {
-                relay_approval(peer, turn, stream, session_id, &id, &method, &params).await;
+                let asked = Asked {
+                    id: &id,
+                    method: &method,
+                    params: &params,
+                    item: None,
+                };
+                relay_approval(peer, turn, stream, session_id, asked).await;
             }
             Incoming::Notification { method, .. } => {
                 if let Some(note) = mapper.set_aside(&method, &belongs) {
@@ -586,7 +592,18 @@ where
                     &method, &approval,
                 )));
             }
-            relay_approval(peer, turn, stream, session_id, &id, &method, &params).await;
+            // What the item was, as the session was shown it: the approval
+            // names it and repeats none of it (adaptadores-con-rawinput D2).
+            let item = serde_json::from_value::<wire::ApprovalParams>(params.clone())
+                .ok()
+                .and_then(|approval| mapper.facts_of(&approval.item_id).cloned());
+            let asked = Asked {
+                id: &id,
+                method: &method,
+                params: &params,
+                item,
+            };
+            relay_approval(peer, turn, stream, session_id, asked).await;
             Ok(None)
         }
         Incoming::Noise(line) => {
@@ -651,6 +668,16 @@ where
     }
 }
 
+/// One question from the server, as the turn loop hands it to the relay: the
+/// request itself and, when it is about an item the session was shown, what
+/// that item was (adaptadores-con-rawinput design D2).
+struct Asked<'a> {
+    id: &'a Value,
+    method: &'a str,
+    params: &'a Value,
+    item: Option<mapping::ItemFacts>,
+}
+
 /// Puts one of the server's questions to the permission proxy, and answers the
 /// server with what the proxy said.
 ///
@@ -665,13 +692,17 @@ async fn relay_approval<W, S>(
     turn: &TurnControl,
     stream: &S,
     session_id: &SessionId,
-    id: &Value,
-    method: &str,
-    params: &Value,
+    asked: Asked<'_>,
 ) where
     W: AsyncWrite + Unpin + Send,
     S: TurnStream,
 {
+    let Asked {
+        id,
+        method,
+        params,
+        item,
+    } = asked;
     // Every request has a declared answer (codex-al-dia design D7). A refusal
     // is shown by what it is, never with its parameters: some of them carry
     // credentials or ask for the client's identity, and nothing of those is
@@ -706,7 +737,7 @@ async fn relay_approval<W, S>(
     // free to take as long as a human takes, and a turn that was told to stop
     // while a question sat unanswered would otherwise wait for both forever.
     let decision = tokio::select! {
-        decision = stream.ask(permission::request_for(session_id, method, &approval)) => decision,
+        decision = stream.ask(permission::request_for(session_id, method, &approval, item.as_ref())) => decision,
         () = turn.wait_interrupted() => permission::Decision::Cancelled,
     };
     let answer = wire::ApprovalResponse::new(permission::decide(&decision));
@@ -1710,6 +1741,77 @@ mod tests {
             asked[0].tool_call.tool_call_id.0.as_ref(),
             "i2",
             "against the very item the server asked about"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_approval_borrows_the_command_of_the_item_the_session_was_shown() {
+        // Scenario: La aprobación de un comando lleva el comando del ítem
+        //
+        // The server announces the command as an item and then asks about it
+        // by id alone; the question that reaches the proxy carries the command
+        // where the rules read it.
+        let (peer, mut incoming, turn, mut server) = wired(Duration::from_millis(50));
+        let stream = Collected::default();
+        stream
+            .answers
+            .lock()
+            .unwrap()
+            .push(permission::Decision::Selected(
+                permission::ALLOW_ONCE.into(),
+            ));
+
+        let params = turn_params();
+        let session = SessionId::new("s-1");
+        let mut mapper = mapping::Mapper::new();
+        let driving = drive_turn(
+            &peer,
+            &mut incoming,
+            &turn,
+            &stream,
+            &session,
+            &params,
+            &mut mapper,
+        );
+        let serving = async {
+            let start = server.next_call().await;
+            server
+                .notify(
+                    wire::ITEM_STARTED,
+                    json!({"threadId": "thread-1", "turnId": "turn-1", "item": {
+                        "type": "commandExecution", "id": "i3", "command": "cargo test",
+                        "cwd": "/p", "commandActions": [], "status": "inProgress"
+                    }}),
+                )
+                .await;
+            server
+                .say(&json!({"id": 8, "method": wire::COMMAND_EXECUTION_APPROVAL,
+                             "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "i3"}}))
+                .await;
+            let answer = server.next_call().await;
+            assert_eq!(answer["id"], 8);
+            server
+                .notify(
+                    wire::TURN_COMPLETED,
+                    json!({"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed", "items": []}}),
+                )
+                .await;
+            server
+                .say(&json!({"id": start["id"], "result": {"turn": {"id": "turn-1", "status": "completed", "items": []}}}))
+                .await;
+        };
+
+        let (outcome, ()) = tokio::join!(driving, serving);
+        assert_eq!(outcome.unwrap(), TurnOutcome::Ended(StopReason::EndTurn));
+
+        let asked = stream.asked.lock().unwrap();
+        assert_eq!(asked.len(), 1);
+        let call = serde_json::to_value(&asked[0].tool_call).expect("serialise");
+        assert_eq!(call["toolCallId"], "i3");
+        assert_eq!(call["title"], "cargo test");
+        assert_eq!(
+            call["rawInput"]["command"], "cargo test",
+            "the command the item showed, where the proxy reads it"
         );
     }
 

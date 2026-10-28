@@ -13,11 +13,21 @@ Vía rápida. Un commit atómico por tarea, con referencia
   `path_in` de `mapping.rs` pasa a `pub(crate)`: la petición y la llamada sacan
   la ruta de la misma función. Suite de `meltemi-adapters` verde (155 + los de
   integración). -->
-- [ ] 1.2 Codex: el `Mapper` recuerda los hechos de cada ítem y `request_for` los
+- [x] 1.2 Codex: el `Mapper` recuerda los hechos de cada ítem y `request_for` los
   lleva cuando la aprobación concede lo que el ítem es (design D2, D3) —
   escenarios «La aprobación de un comando lleva el comando del ítem», «Lo que
   concede otra cosa no hereda el comando» y «Un cambio de varios archivos no
   presenta una sola ruta»; gates: tests del adaptador
+  <!-- 2026-10-28: `ItemFacts` en el `Mapper` (título, comando, ruta de un
+  cambio de un solo archivo), leído por el bucle del turno y prestado a
+  `request_for` solo cuando la aprobación no concede otra cosa. Tests: la
+  aprobación de comando lleva `rawInput.command`; la de red y la de entrada a
+  un terminal, con un ítem que tiene comando, no lo llevan; un cambio de un
+  archivo lleva `rawInput.path` y `locations`, uno de varios ninguna ruta; y de
+  punta a punta en el bucle, `item/started` y luego la aprobación por id llegan
+  al proxy con el comando. `relay_approval` recibe la pregunta como un valor
+  (`Asked`) en vez de ocho argumentos, por clippy. Suite de `meltemi-adapters`
+  159/159; clippy `-D warnings` limpio. -->
 
 ## 2. El motor de reglas
 
