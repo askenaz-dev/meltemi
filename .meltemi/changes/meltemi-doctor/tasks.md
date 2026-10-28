@@ -22,10 +22,22 @@ y sin trailers de co-autoría. Cero dependencias nuevas; cero RPC.
   palabra; la carpeta se prueba sin dejar rastro; el log da sus últimas cinco
   líneas de error; un programa ausente es «missing»; una configuración rota
   falla y dice por qué. Clippy `-D warnings` limpio. -->
-- [ ] 1.2 `meltemi doctor [--json]`: gramática, ayuda, referencia regenerada,
+- [x] 1.2 `meltemi doctor [--json]`: gramática, ayuda, referencia regenerada,
   salida `0`/`14` (design D7) — escenarios «El diagnóstico funciona sin daemon
   y no arranca ninguno» y «El diagnóstico se lee como JSON»; gates: e2e contra
   el binario y la referencia fresca
+  <!-- 2026-10-28: `Command::Doctor` en la gramática y la ayuda, despachado sin
+  el arranque bajo demanda; el JSON lleva `clean`, así que una fila que falla
+  sale con `14` por la misma regla que `validate`. Ejecutado a mano contra un
+  endpoint vacío (informe entero, `14`, nada arrancado) y contra el daemon
+  aislado. Esa corrida encontró dos defectos de 1.1, corregidos con su test:
+  un agente cuya única capa encontrada es un adaptador propio de Meltemi —que
+  viaja en toda instalación— salía como instalación a medias en falla, y es un
+  agente no instalado; y el remedio repetía un comando que su frase ya
+  nombraba. `tui/tests/doctor.rs`: sin daemon (con `MELTEMI_START_HERE=1`
+  puesto) el informe sale entero, sale con `14` y no aparece ni socket ni log;
+  el JSON trae cada fila con id, estado, hechos y palabras; con argumentos es
+  error de uso. Referencia del CLI regenerada (`docs` 20/20). -->
 
 ## 2. Las superficies
 

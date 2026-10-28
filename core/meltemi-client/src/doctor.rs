@@ -231,14 +231,22 @@ pub struct Local {
 }
 
 impl Local {
-    /// Gathers the facts of this machine. Every step is bounded (design D4).
+    /// Gathers the facts of this machine, for the endpoint this user resolves
+    /// to. Every step is bounded (design D4); it blocks, so an async caller
+    /// runs it on a blocking thread.
     #[must_use]
     pub fn gather() -> Self {
+        Self::gather_for(&crate::paths::endpoint())
+    }
+
+    /// The same, for the endpoint the caller is talking to.
+    #[must_use]
+    pub fn gather_for(endpoint: &str) -> Self {
         let data = crate::paths::data_dir();
         let config = crate::paths::config_dir();
         Self {
             client_version: env!("CARGO_PKG_VERSION").to_string(),
-            endpoint: crate::paths::endpoint(),
+            endpoint: endpoint.to_string(),
             data_dir: (data.clone(), dir_state(&data)),
             config_dir: (config.clone(), dir_state(&config)),
             config: config_state(&config),
@@ -572,11 +580,10 @@ fn fleet_rows(fleet: &FleetListResult) -> Vec<Row> {
     let mut rows = Vec::new();
     let mut absent = Vec::new();
     for agent in &fleet.agents {
-        match agent.install_state {
-            Some(FleetInstallState::NotDetected) | None if !agent.detected => {
-                absent.push(agent.id.clone());
-            }
-            _ => rows.push(agent_row(agent)),
+        if not_installed(agent) {
+            absent.push(agent.id.clone());
+        } else {
+            rows.push(agent_row(agent));
         }
     }
     if !absent.is_empty() {
@@ -620,6 +627,22 @@ fn fleet_rows(fleet: &FleetListResult) -> Vec<Row> {
     rows
 }
 
+/// Whether an agent is simply not installed here. Meltemi's own adapters travel
+/// in every installation, so an agent whose only layer found is one of them is
+/// an agent the user never installed — not a half installation to repair.
+fn not_installed(agent: &FleetAgent) -> bool {
+    match agent.install_state {
+        Some(FleetInstallState::NotDetected) => true,
+        None => !agent.detected,
+        Some(FleetInstallState::CliMissing) => agent
+            .layers
+            .iter()
+            .filter(|layer| layer.detected)
+            .all(|layer| layer.bundled),
+        Some(_) => false,
+    }
+}
+
 fn agent_row(agent: &FleetAgent) -> Row {
     let id = format!("agent:{}", agent.id);
     let verified = agent
@@ -633,6 +656,8 @@ fn agent_row(agent: &FleetAgent) -> Row {
         .map(|version| format!(", verificado con {version}"))
         .unwrap_or_default();
     let remedy = match (&agent.remedy, &agent.remedy_command) {
+        // The fleet's sentence often names its command already.
+        (Some(remedy), Some(command)) if remedy.contains(command.as_str()) => Some(remedy.clone()),
         (Some(remedy), Some(command)) => Some(format!("{remedy} `{command}`")),
         (Some(remedy), None) => Some(remedy.clone()),
         (None, Some(command)) => Some(format!("`{command}`")),
@@ -1072,6 +1097,67 @@ mod tests {
             model: None,
             effort: None,
         }
+    }
+
+    #[test]
+    fn an_agent_with_only_meltemis_own_adapter_is_not_installed_not_broken() {
+        let mut codex = agent("codex-like", FleetInstallState::CliMissing, true);
+        codex.layers = vec![
+            FleetLayer {
+                kind: FleetLayerKind::Cli,
+                bin: "codex".to_string(),
+                detected: false,
+                binary_path: None,
+                evidence_only: false,
+                install: Some("npm i -g @openai/codex".to_string()),
+                bundled: false,
+                source: None,
+            },
+            FleetLayer {
+                kind: FleetLayerKind::Adapter,
+                bin: "meltemi-codex-acp".to_string(),
+                detected: true,
+                binary_path: Some("/opt/meltemi/meltemi-codex-acp".to_string()),
+                evidence_only: false,
+                install: None,
+                bundled: true,
+                source: None,
+            },
+        ];
+        codex.remedy = Some("install it: npm i -g @openai/codex".to_string());
+        codex.remedy_command = Some("npm i -g @openai/codex".to_string());
+        let mut third_party = codex.clone();
+        third_party.id = "third-party".to_string();
+        third_party.layers[1].bundled = false;
+        let daemon = Daemon {
+            reached: true,
+            version: Some("0.2.0".to_string()),
+            fleet: Some(FleetListResult {
+                registry_version: "1".to_string(),
+                agents: vec![codex, third_party],
+            }),
+            ..Daemon::default()
+        };
+        let report = compose(&local(), &daemon);
+        assert!(
+            report.rows.iter().all(|row| row.id != "agent:codex-like"),
+            "the bundled adapter alone is no installation: {report:#?}"
+        );
+        assert_eq!(
+            by_id(&report, "agents-absent").facts["agents"],
+            "codex-like"
+        );
+        let broken = by_id(&report, "agent:third-party");
+        assert_eq!(
+            broken.status,
+            Status::Fail,
+            "an adapter the user installed is half an install"
+        );
+        assert_eq!(
+            broken.en.remedy.as_deref(),
+            Some("install it: npm i -g @openai/codex"),
+            "a command the sentence already names is not repeated"
+        );
     }
 
     fn by_id<'a>(report: &'a Report, id: &str) -> &'a Row {
