@@ -55,10 +55,20 @@ y sin trailers de co-autoría. Cero dependencias nuevas; cero RPC.
   que se leen sin conexión: ahora pinta las máquinas y el diagnóstico debajo.
   Tests del reductor (tres palabras) y del render (Unicode y ASCII, sin daemon);
   suite de `meltemi` 349/349, clippy limpio. -->
-- [ ] 2.2 GUI: comando de Tauri que compone con las respuestas que la vista pide
+- [x] 2.2 GUI: comando de Tauri que compone con las respuestas que la vista pide
   al daemon, sección en Ajustes con las filas en es/en y «Copiar» —
   escenario «Ajustes muestra el diagnóstico y lo copia»; gates: `npm run
   check`, `lint:i18n`, tests del frontend y del escritorio
+  <!-- 2026-10-28: el comando `doctor_report` pregunta al daemon él mismo, por
+  la misma conexión sin arranque que el CLI y la TUI, en vez de recibir las
+  respuestas de la vista: un solo camino para las tres superficies. Ajustes
+  gana «Diagnóstico» antes de «Privacidad»: diagnosticar, copiar, y cada fila
+  con símbolo y palabra, su frase en el idioma de la interfaz y el remedio
+  debajo; copiar deja el texto en inglés. Mensajes en es/en. `svelte-check`
+  159 archivos sin errores, `lint:i18n` limpio, tests del frontend 115/115;
+  `scenarios_shell` 127/127 con el escenario nuevo, que también exige que
+  Ajustes no llame a `fetch`, `XMLHttpRequest` ni `sendBeacon`; clippy del
+  escritorio limpio. -->
 
 ## 3. Docs y cierre
 
