@@ -345,6 +345,39 @@ que su schema y el formulario de la GUI ofrecen.
 | 39º | `runner-nivel-3` (opcional) | completa | LM-1, AI-9 | solo si Aider u otro CLI headless lo justifica | 6º |
 | 40º | `sucesion-y-custodia` | rápida | P10 | inventario de claves y segundo custodio | `procedencia-de-release` cerrada |
 
+#### La release que prueba un desarrollador — declarada el 2026-10-28
+
+Fuente: `release-para-un-desarrollador` (propuesta abierta el 2026-10-28 tras
+revisar el estado del IDE frente a lo que el sitio declara del cliente de
+escritorio). No hay spec del escritorio pendiente: lo que hace honesto el «en
+desarrollo» del sitio son los instaladores sin firma de plataforma, el
+transcript sin filas de herramienta y el smoke 3.2 de
+`primer-arranque-del-home`. La tanda ordena lo ya propuesto para que una
+persona —el mantenedor, en su máquina— instale desde los assets, trabaje con
+sus agentes y escriba el informe que acompaña a la release. `main` @ ee0aa7b:
+58 changes activas (28 terminadas sin archivar, 1 con una tarea abierta, 29
+solo propuesta), 66 archivadas, 36 specs vivas, 53 commits después de la
+v0.2.0 sin tocar `proto/` ni la gramática del CLI.
+
+| Orden | Change | Vía | Por qué aquí | Depende de |
+|---|---|---|---|---|
+| 0º | `piso-del-aviso-sin-carrera` | rápida, sin deltas (solo un test) | `main` está en rojo en macOS desde el 2026-10-28: `past_the_floor_the_next_wait_is_told_again` supone que grabar el primer aviso tarda menos que un piso de 200 ms; el test pasa a medir el tiempo. Una tanda que empieza en rojo no se puede medir | — |
+| 1º | `adaptadores-con-rawinput` | rápida | sin `rawInput` ni `locations` ninguna regla gobierna a Claude Code ni a Codex y cada petición escala al cliente (86 aprobadas y 32 denegadas a mano en la aceptación del hito); recordar solo funciona con el simulado | — |
+| 2º | `archivo-sin-cabeceras-arrastradas` | rápida | `split_requirements` arrastra la cabecera siguiente del delta; las 28 changes terminadas se archivan con el motor, y el `CHANGELOG.md` del 3º se genera del archivo | — |
+| 3º | `antes-de-anunciar` | rápida | quickstart desde los instaladores, FAQ, plantillas, `CHANGELOG.md` en el formato que lee `meltemi-release notes`; su gate se cumplió el 2026-10-24 | 2º (el archivo es el changelog en bruto) |
+| 4º | `meltemi-doctor` | rápida | la primera pregunta de cualquier problema, en una pantalla; el guion lo usa como primer paso | — |
+| 5º | `opencode-que-pregunta` | rápida | OpenCode edita sin pedir permiso: se lanza de modo que pida por ACP o la flota lo declara «no gobernado» con palabras | — |
+| 6º | `registro-de-la-sesion-de-calle` | rápida | `session/log` no encuentra el registro de una sesión de `dispatch`; los worktrees de tarea no se excluyen del git del árbol principal | — |
+| 7º | `primer-arranque-del-home` 3.2 | tarea abierta | el smoke con flota vacía, que espera un fixture sin candidatos alcanzables | — |
+| 8º | `release-para-un-desarrollador` | completa | el guion `docs/prueba-de-uno.md`, el informe en `docs/qa/`, la regla de `docs/release.md` y la recomendación de versión (0.3.0); el mantenedor escribe la versión y corre el guion | 0º–7º |
+| deseable | `herramientas-a-la-vista` | completa | el transcript del escritorio deja de pintar píldoras: lo que el sitio llama «pulir la carcasa». Entra si cabe; no bloquea | 10º, 14º del orden anterior |
+| si caben | `regla-precisa-en-la-bandeja`, `auditar-reglas-y-procedencia` | completas | la bandeja propone la misma regla precisa que el aprobador, y crear una regla queda en el log | 1º |
+
+No son gate, y el guion los declara como desviación conocida:
+`codex-reanudar-y-mcp` (Codex no se reanuda), `extension-acp-usage` (Claude
+Code y Codex no reportan uso), los certificados de firma de plataforma y la
+pierna local con ollama.
+
 **Lo que Meltemi no copia de Orca**, y por qué, está en la sección 6 del
 informe: relé en la nube y push sin túnel (§3), cuentas y uso por API del
 proveedor (§2/§5), pty sin gobierno, Chromium embebido, GitHub/CI en el
@@ -355,7 +388,10 @@ daemon, yolo por defecto, telemetría, releases automáticas, JS en el sitio.
 `hooks-eventos`, `plugins-skills-sdk`, `i18n-superficies`,
 `metricas-sdd-locales`, `lsp-superficie-revision`, `harness-skills`,
 `harness-hooks`, `harness-subagentes`, `ruteo-declarativo-de-perfiles` y el
-`.rpm` de Fedora/RHEL.
+`.rpm` de Fedora/RHEL. Nombradas el 2026-10-28 por `release-para-un-desarrollador`,
+con su sitio en la tanda de arriba y su propuesta por abrir:
+`piso-del-aviso-sin-carrera`, `archivo-sin-cabeceras-arrastradas`,
+`opencode-que-pregunta` y `registro-de-la-sesion-de-calle`.
 
 ### `motor-propio-byok` — propuesta activa desde el 2026-07-25
 
@@ -1683,3 +1719,4 @@ del daemon en macOS/Linux, que son otra clase y otro remedio.
 5. ⬜ **Decidir las versiones pineadas de Codex y OpenCode**: la prueba del 2026-09-24 las dejó en 0.156.1 y 1.18.32. Para Codex la decisión ya tiene consecuencia en código: `codex-al-dia` re-ancló el esquema a 0.156.1, que es el piso del adaptador, y la corrida real del 2026-09-25 le dio nivel 2 con esa versión; volver a 0.77.0 ya no abre sesión. Para OpenCode sigue abierta (`npm i -g opencode-ai@1.14.33` para volver).
 6. ⬜ **Ratificar las dos enmiendas** que traen `abrir-con-lo-tuyo` (rumbo: la terminal integrada como no-objetivo) y `docs-en-el-sitio` (§11: inglés como lengua fuente de la documentación de producto, método en español); ambas quedan aplicadas y marcadas pendientes hasta la firma.
 7. ⬜ ~~Designar el segundo custodio de claves y publicar la clave minisign en el árbol~~ **Sustituido el 2026-10-23 por `release-con-el-push`**: la firma manual se retira y no hay clave que publicar ni custodiar. Lo que queda del mantenedor: ~~borrar el borrador v0.1.1~~ (borrado el 2026-10-23), ~~apagar GitHub Pages en este repositorio y borrar su entorno `github-pages`~~ (apagado y borrado el 2026-10-26; tarea 7.3 cerrada), ~~adoptar el repositorio del IDE en `github.tf` de meltemi-web~~ (aplicado el 2026-10-23, con `GH_ADMIN_TOKEN` como credencial del aviso por decisión del mantenedor) y designar quién sucede el control del repositorio y de la organización (`sucesion-y-custodia`, re-acotada).
+8. ⬜ **La release que prueba un desarrollador** (`release-para-un-desarrollador`, abierta el 2026-10-28): cuando la tanda aterrice, escribir la versión con `cargo run -p meltemi-release -- set-version` (recomendación del design: 0.3.0; el push a `main` publica) y correr `docs/prueba-de-uno.md` en la máquina de desarrollo con los agentes propios, dejando el informe en `docs/qa/`. La ratificación 1c sigue siendo lo que deja a `lanzador-conversacional` fuera del `CHANGELOG.md` mientras no llegue.
