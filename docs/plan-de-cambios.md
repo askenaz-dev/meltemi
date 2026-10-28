@@ -398,6 +398,12 @@ deshizo ese archivo sin commitear, se reinició el daemon y se rehízo. Los
 anteriores no arrastraron nada porque sus deltas no tenían sección tras un
 ADDED.
 
+**3º `antes-de-anunciar`, cerrada el 2026-10-28** (7/7, verify 6/6): plantillas
+de error y de pregunta sin issue en blanco, insignias en los dos README,
+`meltemi-release changelog` y un `CHANGELOG.md` que nace con la 0.1.0 y la
+0.2.0, la regla y la cadencia en `docs/release.md`, el quickstart desde los
+instaladores y `docs/faq.md`. Encender Discussions queda del mantenedor.
+
 No son gate, y el guion los declara como desviación conocida:
 `codex-reanudar-y-mcp` (Codex no se reanuda), `extension-acp-usage` (Claude
 Code y Codex no reportan uso), los certificados de firma de plataforma y la

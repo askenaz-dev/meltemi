@@ -73,5 +73,10 @@ es del mantenedor y no es tarea de esta change.
 
 ## 4. Cierre
 
-- [ ] 4.1 `meltemi validate antes-de-anunciar` limpio y `meltemi verify` con los
+- [x] 4.1 `meltemi validate antes-de-anunciar` limpio y `meltemi verify` con los
   seis escenarios enlazados; entrada en `docs/plan-de-cambios.md`
+  <!-- 2026-10-28: `validate` limpio y `verify` 6/6 enlazados. Encender
+  Discussions sigue siendo del mantenedor; mientras tanto la plantilla de
+  pregunta abre un issue. El anuncio, no esta change, espera la página de
+  privacidad de meltemi-web, que ya está publicada (`ide-privacy-statements`,
+  2026-10-24). -->
