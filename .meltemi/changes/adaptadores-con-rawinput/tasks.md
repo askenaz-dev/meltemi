@@ -49,11 +49,26 @@ Vía rápida. Un commit atómico por tarea, con referencia
 
 ## 3. De punta a punta y cierre
 
-- [ ] 3.1 e2e con el adaptador de Claude real y el proveedor simulado: una
+- [x] 3.1 e2e con el adaptador de Claude real y el proveedor simulado: una
   regla `allow` de `execute` con prefijo de comando decide sin escalar —
-  escenario «La petición lleva la entrada y la ruta»; gates: el e2e
-- [ ] 3.2 `docs/agentes.md` dice que las reglas por comando y por ruta gobiernan
+  escenario «La petición lleva la entrada y la ruta» y «Lo encadenado tras el
+  prefijo escala al humano»; gates: el e2e
+  <!-- 2026-10-28: `core/meltemid/tests/e2e_reglas_por_comando.rs`, binario
+  propio porque el guion del proveedor se elige por variable de entorno. Con la
+  regla `allow` de `execute` y prefijo `echo`, la petición de `echo hola` la
+  decide la regla (el registro dice `decidedBy: rule` y el prefijo) y la de
+  `echo hola && rm -rf ~` llega al humano, que la ve con su `rawInput.command`.
+  Con la guarda de 2.1 quitada solo en local, el e2e falla: nadie es
+  preguntado y la regla permite el `rm`. -->
+- [x] 3.2 `docs/agentes.md` dice que las reglas por comando y por ruta gobiernan
   a los dos; `meltemi validate adaptadores-con-rawinput` limpio y `meltemi
   verify` con los seis escenarios enlazados; fmt, clippy `-D warnings` y las
   suites de `meltemi-adapters`, `meltemid` (permisos y e2e de adaptadores) y
   `tui` (aprobador)
+  <!-- 2026-10-28: `docs/agentes.md` gana una viñeta en cada adaptador y una
+  nota bajo la tabla de la corrida del 2026-09-26 (la tabla conserva lo que esa
+  corrida midió); `agents_guide` verde en los dos crates. `validate` limpio y
+  `verify` 6/6 enlazados, con daemon aislado. `fmt --check` y clippy `-D
+  warnings` de `meltemid`, `meltemi` y `meltemi-adapters` limpios; suites
+  completas de `meltemid` y `meltemi`: 936 pasan, 0 fallan, 1 ignorado; de
+  `meltemi-adapters`, 159 + integración. -->
