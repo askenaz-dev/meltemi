@@ -1901,7 +1901,8 @@ mod tests {
         );
     }
 
-    // Scenario: El modo se elige y se lee desde el terminal
+    // Scenario: El terminal declara el modo de la sesión
+    // (requirement: El modo se elige y se lee desde el terminal)
     #[test]
     fn the_terminal_declares_the_mode_with_symbol_and_word() {
         use meltemi_proto::AutonomyMode;

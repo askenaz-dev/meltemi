@@ -646,6 +646,26 @@ fn the_captures_the_site_copies_are_well_formed_svg() {
 }
 
 #[test]
+fn the_terminal_capture_carries_the_brands_colours() {
+    // Scenario: La captura muestra los colores
+    //
+    // The capture is generated with a 24-bit terminal (capture_svg), so what
+    // the TUI emphasises is a block in the brand's blue with bold text, written
+    // as attributes the site renders without a stylesheet of its own. The well
+    // formedness half of the scenario is the test above, over every capture.
+    let svg = read(&repo_root(), "docs/media/tui-sessions.svg");
+    let accent_blocks = svg.matches("<rect fill=\"#2563eb\"").count();
+    assert!(
+        accent_blocks > 0,
+        "the emphasised runs are blocks in the brand's blue (#2563eb)"
+    );
+    assert!(
+        svg.contains("font-weight=\"700\""),
+        "and their text is bold"
+    );
+}
+
+#[test]
 fn internal_doc_links_resolve() {
     // Docs lint: internal markdown links point at files that exist.
     let root = repo_root();
