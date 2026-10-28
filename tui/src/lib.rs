@@ -180,7 +180,8 @@ pub async fn dispatch_with(
             // A result is not always a success: `validate` findings exit `14`
             // (its `clean` field is the stable signal), and any answer that
             // declares an empty turn exits `15` (see [`conclude`]).
-            let is_validate = matches!(command, Command::Validate { .. });
+            // `doctor` answers the same way: `clean: false` when a row fails.
+            let is_validate = matches!(command, Command::Validate { .. } | Command::Doctor);
             let result = run::execute_with(command, endpoint, painting, approver.clone()).await;
             // No read is left in raw mode, whatever the command came to.
             approver.settle().await;

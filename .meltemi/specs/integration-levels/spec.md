@@ -118,3 +118,62 @@ pendiente junto a lo verificado en forma, y MUST NOT presentarse como aprobada.
 - **WHERE** la pierna no se ha corrido contra un modelo local vivo
 - **THEN** SHALL figurar como pendiente con lo verificado en forma
 - **AND** MUST NOT presentarse como aprobada
+
+### Requirement: El nivel verificado de un adaptador propio se re-otorga al re-anclar
+
+WHEN se re-ancla el esquema vendorizado de un adaptador propio a una versión
+nueva del CLI, la corrida de conformidad manual contra el binario real SHALL
+repetirse, y el nivel verificado SHALL otorgarse solo con las comprobaciones
+de su nivel medidas contra esa versión. El registro de la corrida SHALL
+nombrar la versión del CLI, la fecha, la plataforma, la compuerta efectiva
+observada y, para cada comprobación fallida, las palabras del proveedor.
+
+#### Scenario: El re-anclaje exige la corrida real
+- **WHEN** se re-ancla el volcado de un adaptador propio
+- **THEN** la corrida de conformidad manual SHALL repetirse contra la versión anclada
+- **AND** el nivel verificado SHALL constar solo si sus comprobaciones pasaron
+
+#### Scenario: Una comprobación fallida se registra con las palabras del proveedor
+- **WHEN** una comprobación de la corrida real falla
+- **THEN** el registro SHALL citar el motivo que dio el proveedor
+
+### Requirement: El nivel verificado dice contra qué versión se midió
+
+El catálogo SHALL reportar, junto al nivel verificado y su fecha, la versión
+del agente contra la que se midió, y las superficies SHALL mostrarla junto al
+nivel.
+
+#### Scenario: El catálogo nombra la versión medida
+- **WHEN** un cliente consulta el catálogo de un agente con corrida de conformidad persistida
+- **THEN** la entrada SHALL incluir la versión del agente contra la que se midió
+- **AND** las vistas de flota de la TUI y la GUI SHALL mostrarla junto al nivel verificado
+
+### Requirement: Corrida integrada reproducible contra los CLIs reales
+El repositorio SHALL ofrecer una corrida integrada contra los CLIs reales
+instalados, manual y por opt-in, que levante un daemon aislado —su endpoint,
+sus datos y su configuración propios, con el arranque pedido expresamente en
+ese endpoint— sin leer ni tocar jamás los del usuario; que ejerza sobre un
+repositorio fixture temporal la misma matriz de verbos por cada agente listo
+(sesión de lectura, escritura sin regla, escritura con regla, propuesta,
+despacho en worktree, dirección y cancelación); que mida lo que el producto
+registra, sin estimar nada; y que escriba su informe con fecha y versiones en
+`docs/qa/`. Los agentes del catálogo que no estén instalados SHALL declararse
+como no medidos. La corrida MUST NOT ejecutarse en CI.
+
+#### Scenario: La corrida no toca el daemon del usuario
+- **WHEN** se corre la corrida integrada
+- **THEN** SHALL usar un endpoint, un directorio de datos y uno de configuración propios, y pedir expresamente el arranque en ese endpoint
+- **AND** NO SHALL leer ni escribir los del usuario
+
+#### Scenario: Cada agente listo pasa por la misma matriz
+- **WHEN** la corrida encuentra agentes listos
+- **THEN** cada uno SHALL ejercer los siete verbos de la matriz sobre el fixture
+- **AND** el informe SHALL registrar por verbo su resultado, su duración y los permisos decididos
+
+#### Scenario: Lo no instalado se declara
+- **WHEN** un agente del catálogo no está instalado
+- **THEN** el informe de la corrida SHALL listarlo como no medido
+
+#### Scenario: La corrida no corre en CI
+- **WHEN** se revisan los workflows del repositorio
+- **THEN** ninguno SHALL ejecutar la corrida integrada

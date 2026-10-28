@@ -42,6 +42,13 @@
 #                   install command: its remedy is to reinstall or repair
 #                   Meltemi. Only a binary this project builds may be bundled;
 #                   the provider's own CLI never is (§2).
+#   launch-env      variables the agent is launched with, as a table of
+#                   name = value: what makes it behave as Meltemi governs it
+#                   (opencode-que-pregunta D1). Applied to every resolution of
+#                   the id — by id, by profile, as the project's agent — and
+#                   never to a literal `agent.command`. A variable the user
+#                   already has, in their environment or their profile, wins.
+#                   Never a secret: this file is public.
 #
 # For level-2 entries, `bin` names the ACP adapter binary — the entry point
 # meltemid can actually pilot today; the official CLI itself and the finer
@@ -57,7 +64,7 @@
 # registry). No dead route survives this revision, because no third-party route
 # survives it.
 
-version = "2026-08-08"
+version = "2026-10-28"
 
 [[agents]]
 id = "gemini-cli"
@@ -100,6 +107,12 @@ bin = "kilo"
 acp-args = ["acp"]
 candidate-paths = []
 
+# OpenCode edits, runs commands and goes to the network without asking unless
+# its configuration says `ask`, and what it does not ask never reaches the
+# permission proxy. Its launch carries the inline configuration that makes it
+# ask for exactly those; reading inside the project still does not ask
+# (opencode-que-pregunta D4). A variable of the same name that the user already
+# set, in their environment or their profile, wins over this one (D3).
 [[agents]]
 id = "opencode"
 name = "OpenCode"
@@ -107,6 +120,7 @@ level = 1
 bin = "opencode"
 acp-args = ["acp"]
 candidate-paths = ["~/.opencode/bin/opencode"]
+launch-env = { OPENCODE_CONFIG_CONTENT = '{"permission":{"edit":"ask","bash":"ask","webfetch":"ask","websearch":"ask","task":"ask","external_directory":"ask"}}' }
 
 # Level 2: piloted through an ACP adapter. `bin` is what detection probes and
 # the launcher runs (the adapter); `cli-bin` names the provider's own official

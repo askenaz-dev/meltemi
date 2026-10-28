@@ -62,6 +62,10 @@ All six criteria pass; the report states five deviations, two of them product
 defects with their own change. It was run after `v0.1.0` was published, which
 the report does not hide.
 
+The milestone's manual run became a guide anyone can follow from a published
+release: [the one-developer test](prueba-de-uno.md), whose report a tested
+release links from its notes.
+
 The report records, per criterion (C1–C6):
 
 - the result (pass/fail) of the automated run (the CI job and commit SHA);

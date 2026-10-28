@@ -67,6 +67,19 @@ pub struct UiState {
     /// tree takes the rest.
     #[serde(default)]
     pub nav_split: Option<u32>,
+
+    /// Whether the composer already acknowledged the detected fleet once
+    /// (primer-arranque-del-home D3). Absent means not yet. Without this field
+    /// every save dropped it, and the greeting came back with every window —
+    /// what the smoke on the binary found (primer-arranque-del-home 3.2).
+    #[serde(default)]
+    pub fleet_greeted: bool,
+
+    /// Whether OS notices are on (avisos-de-escritorio D1). Absent means on, so
+    /// it stays absent until the user decides: a `false` default here would
+    /// turn notices off for every profile written before the field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notices_enabled: Option<bool>,
 }
 
 /// The command the user configured for a language, if any.
@@ -126,6 +139,67 @@ pub fn geometry_is_visible(monitors: &[(i32, i32, u32, u32)], state: &WindowStat
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn every_field_the_surface_persists_survives_a_save() {
+        // The surface sends its whole state and the host writes back only
+        // the fields it declares: a field missing here is silently dropped on
+        // every save. Two were — the fleet greeting and the notices switch —
+        // until the smoke on the binary saw the greeting come back.
+        let ts = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/src/lib/ui-state.ts"),
+        )
+        .expect("the surface's state module is beside the host");
+        let body = ts
+            .split("export interface UiState {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("the surface declares its state");
+        let declared: Vec<&str> = body
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with('/') && !line.starts_with('*'))
+            .filter_map(|line| line.split_once(':').map(|(name, _)| name.trim()))
+            .filter(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric()))
+            .collect();
+        assert!(declared.contains(&"fleetGreeted"), "{declared:?}");
+        let kept = serde_json::to_value(super::UiState {
+            notices_enabled: Some(true),
+            window: Some(super::WindowState {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                maximized: false,
+            }),
+            ..super::UiState::default()
+        })
+        .expect("serializes");
+        for name in declared {
+            assert!(
+                kept.get(name).is_some(),
+                "the surface persists `{name}`, and the host drops it on save"
+            );
+        }
+    }
+
+    #[test]
+    fn the_greeting_and_the_notices_switch_round_trip() {
+        let raw = r#"{"fleetGreeted": true, "noticesEnabled": false, "locale": "es"}"#;
+        let state: super::UiState = serde_json::from_str(raw).expect("parses");
+        assert!(state.fleet_greeted);
+        assert_eq!(state.notices_enabled, Some(false));
+        let saved = serde_json::to_value(&state).expect("serializes");
+        assert_eq!(saved["fleetGreeted"], true);
+        assert_eq!(saved["noticesEnabled"], false);
+
+        // A profile written before either field existed: not greeted, and the
+        // notices switch stays absent so the surface's own default (on) holds.
+        let old: super::UiState = serde_json::from_str(r#"{"locale": "es"}"#).expect("parses");
+        assert!(!old.fleet_greeted);
+        let saved = serde_json::to_value(&old).expect("serializes");
+        assert!(saved.get("noticesEnabled").is_none(), "{saved}");
+    }
+
     use super::*;
 
     const MONITOR: (i32, i32, u32, u32) = (0, 0, 1920, 1080);

@@ -125,6 +125,16 @@ pub const ENTRIES: &[Entry] = &[
         desc_en: "talk to another machine: `machine <name>`",
     },
     Entry {
+        // Composed in the client over methods other entries already home
+        // (`status`, `fleet/list`), so it adds nothing to the parity union
+        // (meltemi-doctor design D1).
+        name: "doctor",
+        reserved: false,
+        methods: &[],
+        desc_es: "qué hay instalado, qué responde y qué falta, con qué hacer",
+        desc_en: "what is installed, what answers and what is missing, with what to do",
+    },
+    Entry {
         // No contract method: the notice is the client's own doing and the daemon
         // takes no part in it, so this entry contributes nothing to the parity
         // union (aviso-de-espera-opt-in design D2).

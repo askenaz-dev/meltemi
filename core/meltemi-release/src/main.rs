@@ -7,6 +7,7 @@
 //! meltemi-release set-version <x.y.z> [--root <dir>]
 //! meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]
 //! meltemi-release notes <x.y.z> [--root <dir>]
+//! meltemi-release changelog <x.y.z> [--until <yyyy-mm-dd>] [--report <path>] [--root <dir>]
 //! ```
 //!
 //! `version` prints the version every carrier agrees on. `set-version` is the
@@ -25,6 +26,14 @@
 //! `notes` prints the section of `CHANGELOG.md` for a version, which becomes
 //! the release's notes (release-con-el-push D4).
 //!
+//! `changelog` writes that section: every change of `.meltemi/changes/archive/`
+//! that no other section lists yet — with `--until`, only those archived up to
+//! that date, which becomes the section's date (antes-de-anunciar D3). It is
+//! the maintainer's step before `set-version`; it changes no version. With
+//! `--report`, the section opens with the link to the test report of a release
+//! one developer tried end to end, and rewriting it keeps that link
+//! (release-para-un-desarrollador D3).
+//!
 //! Exit codes: 0 done, 1 refused or failed, 2 usage, 3 no notes for that
 //! version (the pipeline then generates them).
 
@@ -32,11 +41,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use meltemi_release::{
-    CARRIERS, Version, agreed_version, changelog_section, gate, lock_moved_only_the_workspace,
-    read_from_tree, set_version,
+    CARRIERS, Version, agreed_version, archived_changes, changelog_section, gate, is_date,
+    lock_moved_only_the_workspace, read_from_tree, set_version, with_report, write_changelog,
 };
 
-const USAGE: &str = "usage: meltemi-release version [--root <dir>]\n       meltemi-release set-version <x.y.z> [--root <dir>]\n       meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]\n       meltemi-release notes <x.y.z> [--root <dir>]";
+const USAGE: &str = "usage: meltemi-release version [--root <dir>]\n       meltemi-release set-version <x.y.z> [--root <dir>]\n       meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]\n       meltemi-release notes <x.y.z> [--root <dir>]\n       meltemi-release changelog <x.y.z> [--until <yyyy-mm-dd>] [--report <path>] [--root <dir>]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -58,6 +67,30 @@ fn main() -> ExitCode {
             Some(version) => return notes(&root, version),
             None => return usage(&format!("`{version}` is not a version of the form x.y.z")),
         },
+        ["changelog", version, flags @ ..] => {
+            let Some(version) = Version::parse(version) else {
+                return usage(&format!("`{version}` is not a version of the form x.y.z"));
+            };
+            let (mut until, mut report) = (None, None);
+            let mut flags = flags.iter();
+            while let Some(flag) = flags.next() {
+                let slot = match *flag {
+                    "--until" => &mut until,
+                    "--report" => &mut report,
+                    other => return usage(&format!("unknown flag `{other}`")),
+                };
+                match flags.next() {
+                    Some(value) => *slot = Some(*value),
+                    None => return usage(&format!("`{flag}` needs a value")),
+                }
+            }
+            if let Some(date) = until
+                && !is_date(date)
+            {
+                return usage(&format!("`{date}` is not a date of the form yyyy-mm-dd"));
+            }
+            changelog(&root, version, until, report)
+        }
         _ => return usage("unknown command"),
     };
     match outcome {
@@ -106,6 +139,40 @@ fn notes(root: &Path, version: Version) -> ExitCode {
             ExitCode::from(3)
         }
     }
+}
+
+/// Writes the changelog section of `version` from the archive, opened by the
+/// link to the test report when one is named. A report that is not in the
+/// repository is refused before anything is written.
+fn changelog(
+    root: &Path,
+    version: Version,
+    until: Option<&str>,
+    report: Option<&str>,
+) -> Result<(), String> {
+    let path = root.join("CHANGELOG.md");
+    if let Some(report) = report
+        && !root.join(report).is_file()
+    {
+        return Err(format!(
+            "the report `{report}` is not in the repository; write it before linking it"
+        ));
+    }
+    let before = std::fs::read_to_string(&path).unwrap_or_default();
+    let archived = archived_changes(root)?;
+    let mut after = write_changelog(&before, version, until, &archived);
+    if let Some(report) = report {
+        after = with_report(&after, version, report)
+            .ok_or_else(|| format!("CHANGELOG.md has no section for {version}"))?;
+    }
+    std::fs::write(&path, &after).map_err(|e| format!("{}: {e}", path.display()))?;
+    let section = changelog_section(&after, version).unwrap_or_default();
+    let count = section
+        .lines()
+        .filter(|line| line.starts_with("- "))
+        .count();
+    println!("CHANGELOG.md: section {version} lists {count} archived change(s)");
+    Ok(())
 }
 
 /// Prints the gate's decision as `key=value` lines.

@@ -214,6 +214,10 @@ SUBCOMMANDS:
                         metre of remote access (`ssh <pc> meltemi bridge` is a
                         complete channel, named pipes included)
     stop                request an orderly daemon shutdown
+    doctor              what is installed, what answers and what is missing,
+                        each with what to do; never starts a daemon and never
+                        runs an agent. Exits 14 when a row fails. Nothing is
+                        sent anywhere: copy what you choose
     version             print the client version
     help                print this help
 
@@ -474,6 +478,9 @@ pub enum Command {
     Bridge,
     /// Request an orderly daemon shutdown.
     Stop,
+    /// Diagnose this installation (meltemi-doctor). Local first: it asks the
+    /// daemon without ever starting one.
+    Doctor,
     /// A reserved subcommand recognized by the grammar but not yet implemented.
     Reserved(String),
 }
@@ -1296,6 +1303,8 @@ fn plan_subcommand(subcommand: &str, rest: &[&str], local: Local) -> Action {
             }),
             _ => Action::Usage("`tunnel` takes at most a `user@host` target".into()),
         },
+        "doctor" if rest.is_empty() => Action::Run(Command::Doctor),
+        "doctor" => Action::Usage("`doctor` takes no arguments".into()),
         "bridge" if rest.is_empty() => Action::Run(Command::Bridge),
         "bridge" => Action::Usage("`bridge` takes no arguments".into()),
         "stop" if rest.is_empty() => Action::Run(Command::Stop),

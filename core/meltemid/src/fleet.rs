@@ -97,6 +97,10 @@ pub struct RegistryAgent {
     /// The levers this entry's agent takes as launch flags — the complete set
     /// — when the entry declares them (modelo-por-opcion-anunciada D2).
     pub levers: Option<Vec<SessionLever>>,
+    /// The environment the agent is launched with, as data
+    /// (opencode-que-pregunta D1). Applied on every resolution of this entry,
+    /// under whatever the user set with the same names.
+    pub launch_env: Vec<(String, String)>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -162,6 +166,9 @@ struct RawRegistryAgent {
     /// outside the scale.
     #[serde(default)]
     levers: Option<Vec<SessionLever>>,
+    /// The environment the agent is launched with (opencode-que-pregunta D1).
+    #[serde(default)]
+    launch_env: std::collections::BTreeMap<String, String>,
 }
 
 /// The binary name of an entry: one for every OS, or a per-OS table.
@@ -287,6 +294,7 @@ pub fn parse_registry(text: &str) -> Result<Registry, String> {
             legal_status: agent.legal_status,
             legal_note: agent.legal_note,
             levers: agent.levers,
+            launch_env: agent.launch_env.into_iter().collect(),
         });
     }
     Ok(Registry {
@@ -518,6 +526,9 @@ pub struct CatalogEntry {
     /// The levers taken as launch flags, when the registry declares them. A
     /// custom entry declares none: its levers are whatever it announces.
     pub levers: Option<Vec<SessionLever>>,
+    /// The environment the agent is launched with, from the registry; a
+    /// custom entry declares none (opencode-que-pregunta D1).
+    pub launch_env: Vec<(String, String)>,
 }
 
 impl Default for CatalogEntry {
@@ -547,6 +558,7 @@ impl Default for CatalogEntry {
             legal_status: None,
             legal_note: None,
             levers: None,
+            launch_env: Vec::new(),
         }
     }
 }
@@ -593,6 +605,7 @@ pub fn build_catalog(config: &Config) -> Catalog {
             legal_status: agent.legal_status,
             legal_note: agent.legal_note,
             levers: agent.levers,
+            launch_env: agent.launch_env,
         })
         .collect();
     for custom in &config.fleet_custom {
@@ -1256,6 +1269,39 @@ mod tests {
         assert_eq!(compose_state(&layers, true).0, FleetInstallState::Ready);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_registry_entry_declares_the_environment_it_launches_with() {
+        // opencode-que-pregunta D1: data, like its ACP arguments.
+        let registry = parse_registry(
+            r#"
+version = "test"
+
+[[agents]]
+id = "asks"
+name = "Asks"
+level = 1
+bin = "asks"
+acp-args = ["acp"]
+launch-env = { ASKS_CONFIG = '{"permission":"ask"}' }
+
+[[agents]]
+id = "plain"
+name = "Plain"
+level = 1
+bin = "plain"
+"#,
+        )
+        .expect("parses");
+        assert_eq!(
+            registry.agents[0].launch_env,
+            vec![(
+                "ASKS_CONFIG".to_string(),
+                r#"{"permission":"ask"}"#.to_string()
+            )]
+        );
+        assert!(registry.agents[1].launch_env.is_empty(), "absent is empty");
     }
 
     #[test]

@@ -418,6 +418,285 @@ pub fn changelog_section(changelog: &str, version: Version) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+/// One change in the archive, as the changelog lists it (antes-de-anunciar D3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Archived {
+    /// The date its folder carries, `YYYY-MM-DD`.
+    pub date: String,
+    /// The change's name.
+    pub name: String,
+    /// Its folder under `.meltemi/changes/archive/`.
+    pub folder: String,
+    /// The line its proposal opens with: what it changed.
+    pub summary: String,
+}
+
+/// The changes of `<root>/.meltemi/changes/archive/`, oldest first. A folder
+/// whose name does not start with a date is not an archived change and is
+/// skipped.
+///
+/// # Errors
+///
+/// The archive cannot be read.
+pub fn archived_changes(root: &Path) -> Result<Vec<Archived>, String> {
+    let dir = root.join(".meltemi").join("changes").join("archive");
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut found = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let folder = entry.file_name().to_string_lossy().into_owned();
+        let Some((date, name)) = dated(&folder) else {
+            continue;
+        };
+        let proposal =
+            std::fs::read_to_string(entry.path().join("proposal.md")).unwrap_or_default();
+        found.push(Archived {
+            date: date.to_string(),
+            name: name.to_string(),
+            folder: folder.clone(),
+            summary: summary_of(&proposal),
+        });
+    }
+    found.sort_by(|a, b| (&a.date, &a.name).cmp(&(&b.date, &b.name)));
+    Ok(found)
+}
+
+/// Splits `YYYY-MM-DD-name` into its date and its name.
+fn dated(folder: &str) -> Option<(&str, &str)> {
+    let (date, name) = (folder.get(..10)?, folder.get(11..)?);
+    is_date(date)
+        .then_some((date, name))
+        .filter(|_| folder.as_bytes().get(10) == Some(&b'-') && !name.is_empty())
+}
+
+/// Whether `text` is a date of the form `YYYY-MM-DD`.
+#[must_use]
+pub fn is_date(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(at, byte)| at == 4 || at == 7 || byte.is_ascii_digit())
+}
+
+/// The line a proposal opens its changes with: the bold lead of the first
+/// bullet of «What Changes», or that bullet's first sentence, or else the first
+/// sentence of «Why». Empty when the proposal says none of them.
+#[must_use]
+pub fn summary_of(proposal: &str) -> String {
+    // A heading on the very first line is a heading too.
+    let proposal = format!("\n{proposal}");
+    let section = |title: &str| -> Option<String> {
+        let start = proposal.find(&format!("\n## {title}"))?;
+        let body = &proposal[start + 1..];
+        let body = &body[body.find('\n').map_or(body.len(), |at| at + 1)..];
+        let end = body.find("\n## ").unwrap_or(body.len());
+        Some(body[..end].to_string())
+    };
+    let first_sentence = |text: &str| -> String {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let cut = flat
+            .char_indices()
+            .find(|(at, c)| {
+                matches!(c, '.' | '!' | '?') && flat[at + c.len_utf8()..].starts_with(' ')
+            })
+            .map_or(flat.len(), |(at, c)| at + c.len_utf8());
+        flat[..cut].to_string()
+    };
+    let tidy = |text: &str| -> String {
+        let text = text.trim().trim_end_matches([':', ' ']).trim();
+        let mut out: String = text.chars().take(240).collect();
+        if text.chars().count() > 240 {
+            out.push('…');
+        }
+        out
+    };
+    if let Some(changes) = section("What Changes") {
+        let mut bullet = String::new();
+        for line in changes.lines() {
+            let line = line.trim_end();
+            if let Some(item) = line.strip_prefix("- ") {
+                if !bullet.is_empty() {
+                    break;
+                }
+                bullet.push_str(item);
+            } else if !bullet.is_empty() {
+                if line.trim().is_empty() {
+                    break;
+                }
+                bullet.push(' ');
+                bullet.push_str(line.trim());
+            }
+        }
+        let bullet = bullet.trim();
+        if let Some(rest) = bullet.strip_prefix("**")
+            && let Some(end) = rest.find("**")
+        {
+            return tidy(&rest[..end]);
+        }
+        if !bullet.is_empty() {
+            return tidy(&first_sentence(bullet));
+        }
+    }
+    if let Some(why) = section("Why") {
+        let paragraph = why.trim().split("\n\n").next().unwrap_or("").to_string();
+        return tidy(&first_sentence(&paragraph));
+    }
+    String::new()
+}
+
+/// What a changelog says before its first section, when it has none yet.
+const CHANGELOG_HEADER: &str = "# Changelog\n\nEvery release lists the changes it archives: a change enters the first\nrelease written after it was archived, and its entry links its proposal in\n`.meltemi/changes/archive/`. Each line is the one its proposal opens its\nchanges with, in Spanish, the language of the method (constitution §11).\nWritten by `cargo run -p meltemi-release -- changelog <version>`; the section\nof a version is the release's notes (`meltemi-release notes <version>`).\n";
+
+/// The changelog with the section of `version` written (antes-de-anunciar D3).
+///
+/// The section lists every archived change that no other section lists yet —
+/// with `until`, only those archived up to that date, which becomes the
+/// section's date. A section for `version` already present is replaced, so
+/// writing the same version twice gives the same changelog. Sections are kept
+/// newest version first.
+#[must_use]
+pub fn write_changelog(
+    changelog: &str,
+    version: Version,
+    until: Option<&str>,
+    archived: &[Archived],
+) -> String {
+    let (header, sections) = changelog_sections(changelog);
+    // The report a section already links survives its rewrite: the link must
+    // not depend on remembering a flag (release-para-un-desarrollador D3).
+    let kept_report: Option<String> = sections
+        .iter()
+        .find(|(heading, _)| *heading == Some(version))
+        .and_then(|(_, text)| {
+            text.lines()
+                .find(|line| line.starts_with(REPORT_MARK))
+                .map(str::to_string)
+        });
+    let mut sections: Vec<(Option<Version>, String)> = sections
+        .into_iter()
+        .filter(|(heading, _)| *heading != Some(version))
+        .collect();
+    let listed: String = sections.iter().map(|(_, text)| text.as_str()).collect();
+    let entries: Vec<&Archived> = archived
+        .iter()
+        .filter(|change| !listed.contains(&entry_key(change)))
+        .filter(|change| until.is_none_or(|until| change.date.as_str() <= until))
+        .collect();
+
+    let mut section = match until {
+        Some(date) => format!("## {version} — {date}\n\n"),
+        None => format!("## {version}\n\n"),
+    };
+    if let Some(report) = kept_report {
+        section.push_str(&report);
+        section.push_str("\n\n");
+    }
+    if entries.is_empty() {
+        section.push_str("No change was archived for this release.\n");
+    } else {
+        for change in entries {
+            section.push_str(&entry_key(change));
+            section.push_str(&format!(
+                "(.meltemi/changes/archive/{}/proposal.md)",
+                change.folder
+            ));
+            if !change.summary.is_empty() {
+                section.push_str(&format!(" — {}", change.summary));
+            }
+            section.push('\n');
+        }
+    }
+    sections.push((Some(version), section));
+    sections.sort_by_key(|section| std::cmp::Reverse(section.0));
+
+    let header = if header.trim().is_empty() {
+        CHANGELOG_HEADER.to_string()
+    } else {
+        header
+    };
+    let mut out = header.trim_end().to_string();
+    out.push('\n');
+    for (_, text) in sections {
+        out.push('\n');
+        out.push_str(text.trim_end());
+        out.push('\n');
+    }
+    out
+}
+
+/// How the line that links a release's test report starts: the first line of
+/// its section, so it is the first thing the release notes say.
+pub const REPORT_MARK: &str = "**Tested by one developer**: ";
+
+/// Opens the section of `version` with the link to `report`, replacing the one
+/// it linked before; the rest of the section is left as it was. `None` when the
+/// changelog has no section for that version — write it first
+/// (release-para-un-desarrollador D3).
+#[must_use]
+pub fn with_report(changelog: &str, version: Version, report: &str) -> Option<String> {
+    let (header, sections) = changelog_sections(changelog);
+    if !sections
+        .iter()
+        .any(|(heading, _)| *heading == Some(version))
+    {
+        return None;
+    }
+    let link = format!("{REPORT_MARK}[{report}]({report})");
+    let mut out = header;
+    for (heading, text) in sections {
+        if heading != Some(version) {
+            out.push_str(&text);
+            continue;
+        }
+        let mut lines = text.lines();
+        let title = lines.next().unwrap_or_default();
+        let rest: Vec<&str> = lines
+            .filter(|line| !line.starts_with(REPORT_MARK))
+            .collect();
+        let body = rest.join("\n");
+        out.push_str(&format!(
+            "{title}\n\n{link}\n\n{}\n",
+            body.trim_matches('\n')
+        ));
+        out.push('\n');
+    }
+    Some(format!("{}\n", out.trim_end()))
+}
+
+/// How an archived change is named in a changelog entry, and what tells that
+/// it is already listed.
+fn entry_key(change: &Archived) -> String {
+    format!("- [`{}`]", change.name)
+}
+
+/// A changelog's text before its first `## ` heading, and each section with the
+/// version its heading names, if it names one.
+fn changelog_sections(changelog: &str) -> (String, Vec<(Option<Version>, String)>) {
+    let mut header = String::new();
+    let mut sections: Vec<(Option<Version>, String)> = Vec::new();
+    for line in changelog.lines() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            let first = heading.split_whitespace().next().unwrap_or("");
+            let version = Version::parse(first.strip_prefix('v').unwrap_or(first));
+            sections.push((version, format!("{line}\n")));
+        } else if let Some((_, text)) = sections.last_mut() {
+            text.push_str(line);
+            text.push('\n');
+        } else {
+            header.push_str(line);
+            header.push('\n');
+        }
+    }
+    (header, sections)
+}
+
 /// One `[[package]]` entry of a `Cargo.lock`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct LockEntry {

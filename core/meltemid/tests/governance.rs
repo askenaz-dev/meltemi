@@ -45,7 +45,24 @@ fn requirements() -> Vec<(&'static str, Vec<&'static str>)> {
             ".github/PULL_REQUEST_TEMPLATE.md",
             vec!["Quality checklist", "co-authorship"],
         ),
-        (".github/ISSUE_TEMPLATE/change-proposal.md", vec!["Why"]),
+        (
+            ".github/ISSUE_TEMPLATE/change-proposal.md",
+            vec!["## Why", "proposal → design → specs → tasks"],
+        ),
+        (
+            ".github/ISSUE_TEMPLATE/bug.md",
+            vec![
+                "## What happened",
+                "## What you expected",
+                "## Steps to reproduce",
+                "## Environment",
+                "SECURITY.md",
+            ],
+        ),
+        (
+            ".github/ISSUE_TEMPLATE/question.md",
+            vec!["## Question", "## What you tried", "## Environment"],
+        ),
     ]
 }
 
@@ -78,6 +95,7 @@ fn workspace_root() -> PathBuf {
 #[test]
 fn governance_documents_are_present_and_complete() {
     // Scenario: Gobernanza refleja la realidad; Lint de presencia y secciones.
+    // Scenario: Cada tipo tiene su plantilla con sus secciones
     let problems = lint_governance(&workspace_root());
     assert!(
         problems.is_empty(),
@@ -104,4 +122,22 @@ fn the_lint_fails_when_a_document_is_missing() {
         "every required document is reported missing on an empty tree"
     );
     let _ = std::fs::remove_dir_all(&empty);
+}
+
+#[test]
+fn an_issue_starts_from_a_template_and_security_goes_private() {
+    // Scenario: La seguridad no va a un issue público
+    let config =
+        std::fs::read_to_string(workspace_root().join(".github/ISSUE_TEMPLATE/config.yml"))
+            .expect("the issue templates' configuration exists");
+    assert!(
+        config
+            .lines()
+            .any(|line| line.trim() == "blank_issues_enabled: false"),
+        "no blank issue: every issue starts from a template"
+    );
+    assert!(
+        config.contains("/security/advisories/new"),
+        "and a vulnerability is pointed at the private report"
+    );
 }

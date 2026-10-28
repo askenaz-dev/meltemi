@@ -197,6 +197,10 @@ pub async fn execute(
             "`bridge` is dispatched with the process writer, not through `execute`",
         )),
         Command::Stop => stop(endpoint).await,
+        // `doctor` asks the daemon without the start-on-demand every other
+        // verb goes through: a diagnosis that starts a daemon changes what it
+        // diagnoses (meltemi-doctor design D2).
+        Command::Doctor => doctor(endpoint, painting).await,
         // The streams write each record to the process's own stdout as it
         // arrives, so the dispatcher runs them where that writer lives.
         Command::Watch { .. } | Command::Log { .. } => Err(CliError::internal(
@@ -1556,6 +1560,25 @@ async fn validate(change: Option<String>, endpoint: &str) -> Result<Outcome, Cli
     Ok(Outcome {
         human: render_validate(&result),
         json: value,
+    })
+}
+
+/// `doctor`: the report of `meltemi_client::doctor`, in English. Its JSON
+/// carries `clean`, so a failing row exits `14` like a validation with
+/// findings (meltemi-doctor design D7).
+async fn doctor(endpoint: &str, painting: bool) -> Result<Outcome, CliError> {
+    use meltemi_client::doctor;
+    let at = endpoint.to_string();
+    let local = tokio::task::spawn_blocking(move || doctor::Local::gather_for(&at))
+        .await
+        .map_err(CliError::internal)?;
+    let daemon = doctor::ask_daemon(endpoint).await;
+    let report = doctor::compose(&local, &daemon);
+    let mut json = report.json();
+    json["clean"] = serde_json::Value::Bool(!report.has_failures());
+    Ok(Outcome {
+        human: report.text(doctor::Lang::En, painting),
+        json,
     })
 }
 

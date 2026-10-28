@@ -1,6 +1,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Meltemi
 
+[![CI](https://github.com/askenaz-dev/meltemi/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/askenaz-dev/meltemi/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/askenaz-dev/meltemi)](https://github.com/askenaz-dev/meltemi/releases/latest)
+
 **El plano de control spec-driven para el desarrollo agéntico.** Open source
 (Apache-2.0), gratuito, de la comunidad. Meltemi orquesta los agentes de
 codificación que ya usas —mediante estándares abiertos— bajo una disciplina
@@ -186,6 +190,8 @@ en cada release. Ver [`docs/plan-de-cambios.md`](docs/plan-de-cambios.md).
   [Paridad de núcleo](docs/paridad-nucleo.md),
   [Accesibilidad](docs/accesibilidad.md), [Plataformas](docs/plataformas.md),
   [Releases](docs/release.md).
+- [Preguntas y resolución de problemas](docs/faq.md) — lo que se pregunta primero (en inglés)
+- [La prueba de un desarrollador](docs/prueba-de-uno.md) — una tarde con tus agentes, de la release al informe
 - [Contribuir](CONTRIBUTING.md) · [Gobernanza](GOVERNANCE.md) · [Seguridad](SECURITY.md)
 
 ## Licencia

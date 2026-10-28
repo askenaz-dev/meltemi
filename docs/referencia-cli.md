@@ -167,6 +167,10 @@ SUBCOMMANDS:
                         metre of remote access (`ssh <pc> meltemi bridge` is a
                         complete channel, named pipes included)
     stop                request an orderly daemon shutdown
+    doctor              what is installed, what answers and what is missing,
+                        each with what to do; never starts a daemon and never
+                        runs an agent. Exits 14 when a row fails. Nothing is
+                        sent anywhere: copy what you choose
     version             print the client version
     help                print this help
 

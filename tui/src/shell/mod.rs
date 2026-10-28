@@ -248,6 +248,9 @@ fn handle_action(
         Some(Effect::Machines) => {
             let _ = commands.send(Command::Machines);
         }
+        Some(Effect::Doctor) => {
+            let _ = commands.send(Command::Doctor);
+        }
         Some(Effect::SwitchMachine { name }) => {
             let _ = commands.send(Command::SwitchMachine { name });
         }

@@ -2461,7 +2461,9 @@ async fn handle_session_direct(
             // session that does not accept direction (implement / dispatch drive
             // their own turn loop) — refuse honestly, with a distinct message, so
             // a running session is never misreported as ended-and-not-resumable.
-            if state.sessions.contains(&params.session_id).await {
+            // A dispatch that finished stays registered as ended: that one is
+            // over, and resumes like any other (registro-de-la-sesion-de-calle D4).
+            if state.sessions.is_running(&params.session_id).await {
                 return Err(RpcError::application(
                     error_codes::SESSION_NOT_FOUND,
                     "session does not accept direction",
@@ -2509,7 +2511,7 @@ fn find_session_record(
     session_id: &str,
 ) -> Option<crate::session_index::SessionRecord> {
     let keys = match project_root {
-        Some(root) => vec![crate::paths::project_key(std::path::Path::new(root))],
+        Some(root) => vec![crate::worktrees::log_key(std::path::Path::new(root))],
         None => crate::session_index::all_project_keys(data_dir),
     };
     for key in keys {
@@ -2549,8 +2551,13 @@ async fn resume_with_instruction(
 
     let project_root = std::path::PathBuf::from(&record.project_root);
     let agent_command = record.agent_command.clone();
-    let project_key = crate::paths::project_key(&project_root);
-    crate::projects::touch(&state.data_dir, &project_root);
+    // A resumed lane still runs in its lane, and is still listed with it as its
+    // root; it is logged beside the session it resumes, under its project, and
+    // the project it uses is that one, never the lane
+    // (registro-de-la-sesion-de-calle D2).
+    let project_key = crate::worktrees::log_key(&project_root);
+    let owner = crate::worktrees::owning_project(&project_root);
+    crate::projects::touch(&state.data_dir, owner.as_deref().unwrap_or(&project_root));
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let reg = state
@@ -2882,7 +2889,9 @@ async fn handle_session_log(params: Value, state: &Arc<DaemonState>) -> Result<V
     if !is_safe_session_id(&params.session_id) {
         return Err(RpcError::invalid_params("session/log: invalid session id"));
     }
-    let key = crate::paths::project_key(std::path::Path::new(&params.project_root));
+    // A lane's session is listed with the lane as its root and logged under its
+    // project's key; this reads it either way (registro-de-la-sesion-de-calle).
+    let key = crate::worktrees::log_key(std::path::Path::new(&params.project_root));
     let path = crate::session_index::sessions_dir(&state.data_dir, &key)
         .join(format!("{}.jsonl", params.session_id));
 

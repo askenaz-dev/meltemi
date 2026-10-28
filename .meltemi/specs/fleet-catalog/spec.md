@@ -290,8 +290,6 @@ declarado, de modo que el usuario decida informado antes de instalar nada.
 - **THEN** la superficie SHALL mostrar la advertencia junto al remedio de esa capa
 - **AND** SHALL indicar el camino seguro declarado
 
-## MODIFIED Requirements
-
 ### Requirement: Guía de perfiles multi-suscripción
 La guía de agentes SHALL documentar los perfiles de lanzamiento como suscripciones
 con nombre, con el ejemplo canónico de dos cuentas del mismo proveedor conviviendo
@@ -381,8 +379,6 @@ quien la recomienda.
 - **WHEN** un cliente consulta el catálogo
 - **THEN** la capa adaptador de una entrada con adaptador propio SHALL declararse empaquetada
 - **AND** SHALL NOT ofrecer comando de instalación de terceros para esa capa
-
-## MODIFIED Requirements
 
 ### Requirement: El vínculo de suscripción de primera clase
 
@@ -499,9 +495,13 @@ vinculado MUST rehusar con remedio.
 
 ### Requirement: El perfil declara su modelo y su esfuerzo
 
-Un perfil de lanzamiento SHALL poder declarar modelo y esfuerzo por defecto.
-Lo declarado explícitamente en la sesión SHALL prevalecer sobre el default del
-perfil, y un perfil que no declare nada NO SHALL imponer nada.
+Un perfil de lanzamiento SHALL poder declarar modelo y esfuerzo por defecto, y
+lo declarado SHALL aplicarse en todo verbo que arranque un agente con ese perfil
+—la sesión libre, `propose`, los verbos de autoría, `dispatch` e `implement`—
+por la misma vía, con la misma confirmación y el mismo registro que una palanca
+declarada en la sesión. Lo declarado explícitamente en la sesión SHALL prevalecer
+sobre el default del perfil, y un perfil que no declare nada NO SHALL imponer
+nada.
 
 #### Scenario: La sesión pisa el default del perfil
 
@@ -513,3 +513,57 @@ perfil, y un perfil que no declare nada NO SHALL imponer nada.
 
 - **WHERE** un perfil no declara modelo ni esfuerzo
 - **THEN** la sesión SHALL correr como si el perfil no existiera en ese punto
+
+#### Scenario: El modelo del perfil rige en todo verbo que arranca un agente
+
+- **WHERE** un perfil declara un modelo
+- **WHEN** `propose`, un verbo de autoría, `dispatch` o `implement` arrancan un agente con ese perfil
+- **THEN** el modelo SHALL llegar al agente por su vía
+- **AND** SHALL quedar en el registro de la sesión
+
+### Requirement: El registro declara las palancas de lanzamiento
+Una entrada del registro MAY declarar las palancas —modelo, esfuerzo— que su
+agente toma por bandera de lanzamiento, y la declaración SHALL ser el conjunto
+completo de esa entrada. Una entrada sin declaración SHALL remitir toda palanca
+a lo que su agente anuncie. Ninguna decisión sobre palancas SHALL derivarse del
+nombre del binario, y un comando literal NO SHALL heredar la declaración de
+entrada alguna. Un nombre de palanca desconocido o repetido SHALL invalidar el
+documento del registro que lo trae.
+
+#### Scenario: Una entrada declara sus palancas de lanzamiento
+- **WHERE** una entrada declara el modelo como palanca de lanzamiento
+- **WHEN** una sesión con ese agente declara un modelo
+- **THEN** el modelo SHALL viajar por la bandera de lanzamiento
+
+#### Scenario: Sin declaración la palanca es lo que el agente anuncia
+- **WHERE** una entrada no declara palancas
+- **WHEN** una sesión con ese agente declara un modelo
+- **THEN** el modelo SHALL ir por la opción que el agente anuncie
+
+#### Scenario: El nombre del binario no decide
+- **WHERE** un comando literal lleva un nombre de binario igual al de un agente con palancas declaradas
+- **THEN** NO SHALL heredar esas palancas
+
+### Requirement: Entorno de lanzamiento declarado por el registro
+Una entrada del registro MAY declarar el entorno con que se lanza su agente. El
+daemon SHALL aplicarlo en toda resolución de ese agente —por perfil, por id de
+catálogo y como agente configurado del proyecto— y SHALL NOT aplicarlo a un
+comando literal configurado por el usuario. Una variable del mismo nombre
+presente en el entorno del usuario o en el perfil SHALL prevalecer. La entrada
+de OpenCode SHALL declarar la configuración en línea que hace que pida permiso
+antes de editar, ejecutar comandos, ir a la red, lanzar subagentes y tocar
+rutas fuera del proyecto.
+
+#### Scenario: OpenCode se lanza de modo que pregunte
+- **WHEN** una sesión resuelve OpenCode por su id, por un perfil suyo o como agente del proyecto
+- **THEN** su lanzamiento SHALL llevar la configuración en línea que pone esos permisos en `ask`
+
+#### Scenario: Lo que el usuario fijó manda
+- **WHERE** el usuario ya tiene en su entorno o en su perfil una variable del mismo nombre
+- **WHEN** se resuelve el agente
+- **THEN** el lanzamiento SHALL llevar el valor del usuario y no el del registro
+
+#### Scenario: Un comando literal no hereda el entorno del registro
+- **WHERE** el proyecto configura un comando literal para su agente
+- **WHEN** se resuelve el agente configurado
+- **THEN** el lanzamiento SHALL NOT llevar el entorno de ninguna entrada del registro

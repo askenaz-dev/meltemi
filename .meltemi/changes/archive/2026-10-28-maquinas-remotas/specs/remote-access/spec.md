@@ -93,3 +93,5 @@ capacidad presente.
 - **WHEN** se lee la nota de fase 3
 - **THEN** SHALL decir que lo anotado no existe todavía
 - **AND** NO SHALL presentar como presente lo que es una decisión de design
+- **AND** la identidad y la lista de equipos de la variante de malla SHALL
+  estar descritas como capacidad presente y leída, no creada, por Meltemi

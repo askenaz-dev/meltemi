@@ -644,6 +644,18 @@ impl SessionRegistry {
         self.inner.lock().await.contains_key(session_id)
     }
 
+    /// Whether the session is registered AND still running. The multi-turn
+    /// runners (`sdd/implement`, `worktree/dispatch`) end with
+    /// `set_state(Ended)` and stay registered, so being registered is not being
+    /// live (registro-de-la-sesion-de-calle D4).
+    pub async fn is_running(&self, session_id: &str) -> bool {
+        self.inner
+            .lock()
+            .await
+            .get(session_id)
+            .is_some_and(|entry| entry.state != SessionState::Ended)
+    }
+
     /// Signals cancellation for one session. Returns whether it existed. Sets the
     /// cancellation flag and notifies the in-turn waiter, then marks the queue
     /// cancelled so a directed instruction sitting at the turn boundary is not
@@ -1168,6 +1180,23 @@ mod tests {
 
         registry.deregister("s1").await;
         assert!(registry.is_empty().await);
+    }
+
+    #[tokio::test]
+    async fn an_ended_session_still_registered_is_not_running() {
+        // The multi-turn runners end with `set_state(Ended)` and stay
+        // registered: registered is not running (registro-de-la-sesion-de-calle).
+        let registry = SessionRegistry::default();
+        let _reg = registry
+            .register("lane", vec!["mock-agent".into()], "/repo".into())
+            .await;
+        assert!(registry.is_running("lane").await, "starting is running");
+        registry.set_state("lane", SessionState::Active).await;
+        assert!(registry.is_running("lane").await);
+        registry.set_state("lane", SessionState::Ended).await;
+        assert!(registry.contains("lane").await);
+        assert!(!registry.is_running("lane").await, "ended is over");
+        assert!(!registry.is_running("never").await);
     }
 
     #[tokio::test]

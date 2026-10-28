@@ -39,18 +39,47 @@ fn specs_dir(repo_root: &Path) -> PathBuf {
     repo_root.join(".meltemi").join("specs")
 }
 
+/// Whether a line is one of a delta's section headings. They separate the
+/// operations of a delta and are never part of a requirement
+/// (archivo-sin-cabeceras-arrastradas design D1).
+fn is_delta_section(line: &str) -> bool {
+    matches!(
+        line.trim_end(),
+        "## ADDED Requirements"
+            | "## MODIFIED Requirements"
+            | "## REMOVED Requirements"
+            | "## RENAMED Requirements"
+    )
+}
+
 /// Splits a spec's markdown into its preamble (everything before the first
 /// `### Requirement:`) and its requirement blocks, keyed by name in order.
+///
+/// A delta's section heading closes the block in progress, and it and what
+/// follows it up to the next requirement belong to no block: otherwise the
+/// last requirement of one section would carry the next section's heading
+/// into the living truth. The same rule drops such a heading if the living
+/// spec already carries one, so the next fold of that capability clears it.
 fn split_requirements(md: &str) -> (String, Vec<(String, String)>) {
     let mut preamble = String::new();
     let mut blocks: Vec<(String, String)> = Vec::new();
     let mut current: Option<(String, String)> = None;
+    let mut between_sections = false;
     for line in md.lines() {
         if let Some(name) = line.strip_prefix("### Requirement:") {
             if let Some((n, body)) = current.take() {
                 blocks.push((n, body));
             }
+            between_sections = false;
             current = Some((name.trim().to_string(), format!("{line}\n")));
+        } else if is_delta_section(line) && (current.is_some() || between_sections) {
+            if let Some((n, body)) = current.take() {
+                blocks.push((n, body));
+            }
+            between_sections = true;
+        } else if between_sections {
+            // Between a section heading and the next requirement: framing, not
+            // anybody's text.
         } else if let Some((_, body)) = current.as_mut() {
             body.push_str(line);
             body.push('\n');
@@ -319,6 +348,51 @@ mod tests {
             1,
             "no dup"
         );
+    }
+
+    #[test]
+    fn an_added_requirement_before_another_section_does_not_drag_its_heading() {
+        // Scenario: Un requisito añadido antes de otra sección no arrastra su cabecera
+        let living = "# cap Specification\n\n## Requirements\n### Requirement: Keep me\nProse.\n\n#### Scenario: A\n- **WHEN** x\n- **THEN** y\n\n### Requirement: Change me\nOld.\n\n#### Scenario: C\n- **WHEN** c\n- **THEN** d\n";
+        let delta = "## ADDED Requirements\n\n### Requirement: New thing\nNew prose.\n\n#### Scenario: B\n- **WHEN** a\n- **THEN** b\n\n## MODIFIED Requirements\n\n### Requirement: Change me\nNew.\n\n#### Scenario: C\n- **WHEN** c\n- **THEN** e\n\n## REMOVED Requirements\n\n### Requirement: Keep me\n**Reason**: gone\n**Migration**: none\n";
+        let ops = parse_delta("cap", delta, "d.md").operations;
+        let folded = fold_text(living, delta, &ops);
+        for heading in ["## MODIFIED Requirements", "## REMOVED Requirements"] {
+            assert!(!folded.contains(heading), "{heading} dragged: {folded}");
+        }
+        assert!(folded.contains("### Requirement: New thing"));
+        assert!(folded.contains("### Requirement: Change me\nNew."));
+        assert!(!folded.contains("### Requirement: Keep me"));
+        // And the engine reads every requirement it kept as present: no delta
+        // section is left for it to read them as added, modified or removed.
+        let parsed = parse_spec("cap", &folded, "spec.md");
+        assert!(parsed.deltas.is_empty(), "{:?}", parsed.deltas);
+        let names: Vec<&str> = parsed
+            .requirements
+            .iter()
+            .map(|requirement| requirement.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["Change me", "New thing"], "{folded}");
+    }
+
+    #[test]
+    fn a_heading_already_dragged_is_cleared_by_the_next_fold() {
+        // Scenario: Una cabecera arrastrada antes se retira al fundir
+        let living = "# cap Specification\n\n## Requirements\n### Requirement: Keep me\nProse.\n\n#### Scenario: A\n- **WHEN** x\n- **THEN** y\n## MODIFIED Requirements\n\n### Requirement: Also me\nMore.\n\n#### Scenario: D\n- **WHEN** p\n- **THEN** q\n";
+        let delta = "## ADDED Requirements\n\n### Requirement: New thing\nNew prose.\n\n#### Scenario: B\n- **WHEN** a\n- **THEN** b\n";
+        let ops = parse_delta("cap", delta, "d.md").operations;
+        let folded = fold_text(living, delta, &ops);
+        assert!(
+            !folded.contains("## MODIFIED Requirements"),
+            "the stray heading is gone: {folded}"
+        );
+        for name in ["Keep me", "Also me", "New thing"] {
+            assert!(
+                folded.contains(&format!("### Requirement: {name}")),
+                "{name} kept: {folded}"
+            );
+        }
+        assert!(folded.contains("More."), "the text after it is kept");
     }
 
     #[test]

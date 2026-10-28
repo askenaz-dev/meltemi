@@ -1,0 +1,74 @@
+# Tasks — adaptadores-con-rawinput
+
+Vía rápida. Un commit atómico por tarea, con referencia
+`(adaptadores-con-rawinput N.M)` y sin trailers de co-autoría.
+
+## 1. Los adaptadores
+
+- [x] 1.1 Claude: `request_for` lleva `rawInput` y `locations` (design D1) —
+  escenario «La petición lleva la entrada y la ruta»; gates: tests del adaptador
+  <!-- 2026-10-28: `the_request_carries_the_input_and_the_path_the_rules_read`
+  pinea `rawInput` sin editar, la ruta de `Write` en `locations`, el comando de
+  `Bash` en `rawInput.command` y la forma serializada que lee `RequestFacts`.
+  `path_in` de `mapping.rs` pasa a `pub(crate)`: la petición y la llamada sacan
+  la ruta de la misma función. Suite de `meltemi-adapters` verde (155 + los de
+  integración). -->
+- [x] 1.2 Codex: el `Mapper` recuerda los hechos de cada ítem y `request_for` los
+  lleva cuando la aprobación concede lo que el ítem es (design D2, D3) —
+  escenarios «La aprobación de un comando lleva el comando del ítem», «Lo que
+  concede otra cosa no hereda el comando» y «Un cambio de varios archivos no
+  presenta una sola ruta»; gates: tests del adaptador
+  <!-- 2026-10-28: `ItemFacts` en el `Mapper` (título, comando, ruta de un
+  cambio de un solo archivo), leído por el bucle del turno y prestado a
+  `request_for` solo cuando la aprobación no concede otra cosa. Tests: la
+  aprobación de comando lleva `rawInput.command`; la de red y la de entrada a
+  un terminal, con un ítem que tiene comando, no lo llevan; un cambio de un
+  archivo lleva `rawInput.path` y `locations`, uno de varios ninguna ruta; y de
+  punta a punta en el bucle, `item/started` y luego la aprobación por id llegan
+  al proxy con el comando. `relay_approval` recibe la pregunta como un valor
+  (`Asked`) en vez de ocho argumentos, por clippy. Suite de `meltemi-adapters`
+  159/159; clippy `-D warnings` limpio. -->
+
+## 2. El motor de reglas
+
+- [x] 2.1 Un prefijo `allow` no casa con lo encadenado; `deny` sí (design D4) —
+  escenarios «Lo encadenado tras el prefijo escala al humano» y «Deny sigue
+  alcanzando lo encadenado»; gates: tests de `permissions.rs`, del aprobador
+  del CLI y `docs/sesion-libre.md`
+  <!-- 2026-10-28: `chains_another` en `permissions.rs`, solo para `allow`:
+  `;`, `&`, `|`, acento grave, `$(`, `>`, `<` y saltos de línea en lo que sigue
+  al prefijo. Tres tests: diez formas de encadenar escalan y el comando con sus
+  argumentos no; `deny rm` alcanza `rm -rf build; ls`; lo que el prefijo mismo
+  dice (`cargo test 2>&1 | tail`) es elección de quien lo escribió. El
+  aprobador del CLI describe la regla `allow` por comando como «commands
+  starting with `X` that chain no other after it», con su test; la de `deny`
+  sigue diciendo solo «starting with». La gate nombraba
+  `docs/referencia-cli.md`, que no describe reglas: la frase va en
+  `docs/sesion-libre.md`, junto a la tecla `r`, que es donde se escribe una.
+  Permisos del daemon 22/22, aprobador 34/34. -->
+
+## 3. De punta a punta y cierre
+
+- [x] 3.1 e2e con el adaptador de Claude real y el proveedor simulado: una
+  regla `allow` de `execute` con prefijo de comando decide sin escalar —
+  escenario «La petición lleva la entrada y la ruta» y «Lo encadenado tras el
+  prefijo escala al humano»; gates: el e2e
+  <!-- 2026-10-28: `core/meltemid/tests/e2e_reglas_por_comando.rs`, binario
+  propio porque el guion del proveedor se elige por variable de entorno. Con la
+  regla `allow` de `execute` y prefijo `echo`, la petición de `echo hola` la
+  decide la regla (el registro dice `decidedBy: rule` y el prefijo) y la de
+  `echo hola && rm -rf ~` llega al humano, que la ve con su `rawInput.command`.
+  Con la guarda de 2.1 quitada solo en local, el e2e falla: nadie es
+  preguntado y la regla permite el `rm`. -->
+- [x] 3.2 `docs/agentes.md` dice que las reglas por comando y por ruta gobiernan
+  a los dos; `meltemi validate adaptadores-con-rawinput` limpio y `meltemi
+  verify` con los seis escenarios enlazados; fmt, clippy `-D warnings` y las
+  suites de `meltemi-adapters`, `meltemid` (permisos y e2e de adaptadores) y
+  `tui` (aprobador)
+  <!-- 2026-10-28: `docs/agentes.md` gana una viñeta en cada adaptador y una
+  nota bajo la tabla de la corrida del 2026-09-26 (la tabla conserva lo que esa
+  corrida midió); `agents_guide` verde en los dos crates. `validate` limpio y
+  `verify` 6/6 enlazados, con daemon aislado. `fmt --check` y clippy `-D
+  warnings` de `meltemid`, `meltemi` y `meltemi-adapters` limpios; suites
+  completas de `meltemid` y `meltemi`: 936 pasan, 0 fallan, 1 ignorado; de
+  `meltemi-adapters`, 159 + integración. -->

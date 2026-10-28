@@ -28,6 +28,9 @@ use agent_client_protocol::schema::v1::{
     ToolCallUpdateFields, ToolKind,
 };
 
+use serde_json::json;
+
+use super::mapping;
 use super::wire::{self, ApprovalDecision};
 
 /// Allow this one operation.
@@ -151,11 +154,21 @@ pub fn announcement(method: &str, params: &wire::ApprovalParams) -> ToolCall {
 /// terminal, a root to write under for the session — the title, the content,
 /// the kind and the location say what is really granted, so the human and the
 /// rules decide on that.
+///
+/// The approval names its item and repeats nothing of it, so what the item was
+/// — its title, its command, its single file — comes from `item`, as the
+/// session was shown it, and travels as `rawInput` and `locations` where the
+/// proxy's rules read them (adaptadores-con-rawinput design D2). Only when the
+/// approval grants what the item is: a network access, input to a running
+/// terminal or a root for the rest of the session is something else, and
+/// lending it the item's command would let a rule about the command allow that
+/// (design D3).
 #[must_use]
 pub fn request_for(
     session_id: &SessionId,
     method: &str,
     params: &wire::ApprovalParams,
+    item: Option<&mapping::ItemFacts>,
 ) -> RequestPermissionRequest {
     let grant = grant(method, params);
     let kind = match &grant {
@@ -175,6 +188,20 @@ pub fn request_for(
         fields = fields.title(grant.title);
         if let Some(root) = grant.location {
             fields = fields.locations(vec![ToolCallLocation::new(root)]);
+        }
+    } else if let Some(item) = item {
+        fields = fields.title(item.title.clone());
+        if method == wire::COMMAND_EXECUTION_APPROVAL
+            && let Some(command) = &item.command
+        {
+            fields = fields.raw_input(json!({ "command": command }));
+        }
+        if method == wire::FILE_CHANGE_APPROVAL
+            && let Some(path) = &item.path
+        {
+            fields = fields
+                .raw_input(json!({ "path": path }))
+                .locations(vec![ToolCallLocation::new(path.clone())]);
         }
     }
     if !content.is_empty() {
@@ -257,6 +284,12 @@ mod tests {
             &SessionId::new("s-1"),
             wire::COMMAND_EXECUTION_APPROVAL,
             &network,
+            Some(&cargo_item()),
+        );
+        // Scenario: Lo que concede otra cosa no hereda el comando
+        assert!(
+            request.tool_call.fields.raw_input.is_none(),
+            "a grant that is not the command does not carry the command"
         );
         let text = shown(&request);
         assert!(
@@ -291,6 +324,12 @@ mod tests {
             &SessionId::new("s-1"),
             wire::COMMAND_EXECUTION_APPROVAL,
             &stdin,
+            Some(&cargo_item()),
+        );
+        // Scenario: Lo que concede otra cosa no hereda el comando
+        assert!(
+            request.tool_call.fields.raw_input.is_none(),
+            "a grant that is not the command does not carry the command"
         );
         let text = shown(&request);
         assert!(
@@ -306,6 +345,7 @@ mod tests {
             &SessionId::new("s-1"),
             wire::COMMAND_EXECUTION_APPROVAL,
             &command,
+            None,
         );
         assert_eq!(request.tool_call.fields.title, None);
         assert_eq!(request.tool_call.fields.kind, Some(ToolKind::Execute));
@@ -318,7 +358,12 @@ mod tests {
             grant_root: Some("/home/dev/elsewhere".into()),
             ..params()
         };
-        let request = request_for(&SessionId::new("s-1"), wire::FILE_CHANGE_APPROVAL, &rooted);
+        let request = request_for(
+            &SessionId::new("s-1"),
+            wire::FILE_CHANGE_APPROVAL,
+            &rooted,
+            None,
+        );
         let text = shown(&request);
         assert!(
             text.contains("/home/dev/elsewhere") && text.contains("rest of this session"),
@@ -344,6 +389,7 @@ mod tests {
             &SessionId::new("s-1"),
             wire::FILE_CHANGE_APPROVAL,
             &params(),
+            None,
         );
         assert_eq!(request.session_id.0.as_ref(), "s-1");
         assert_eq!(
@@ -372,6 +418,7 @@ mod tests {
             &SessionId::new("s-1"),
             wire::COMMAND_EXECUTION_APPROVAL,
             &params(),
+            None,
         );
         assert_eq!(command.tool_call.fields.kind, Some(ToolKind::Execute));
     }
@@ -423,7 +470,12 @@ mod tests {
         // The provider has no "reject always", so none is offered: an option
         // that could not be kept would be a promise made in somebody else's
         // name.
-        let request = request_for(&SessionId::new("s"), wire::FILE_CHANGE_APPROVAL, &params());
+        let request = request_for(
+            &SessionId::new("s"),
+            wire::FILE_CHANGE_APPROVAL,
+            &params(),
+            None,
+        );
         assert!(
             !request
                 .options
@@ -438,5 +490,89 @@ mod tests {
                 "every offered option maps to a decision the provider accepts"
             );
         }
+    }
+
+    fn cargo_item() -> mapping::ItemFacts {
+        mapping::ItemFacts {
+            title: "cargo test".to_string(),
+            command: Some("cargo test".to_string()),
+            path: None,
+        }
+    }
+
+    #[test]
+    fn a_command_approval_carries_the_items_command() {
+        // Scenario: La aprobación de un comando lleva el comando del ítem
+        let request = request_for(
+            &SessionId::new("s-1"),
+            wire::COMMAND_EXECUTION_APPROVAL,
+            &params(),
+            Some(&cargo_item()),
+        );
+        assert_eq!(
+            request.tool_call.fields.title.as_deref(),
+            Some("cargo test")
+        );
+        let wire = serde_json::to_value(&request.tool_call).expect("serialise");
+        assert_eq!(
+            wire["rawInput"]["command"], "cargo test",
+            "where the proxy reads the command"
+        );
+        assert_eq!(wire["kind"], "execute");
+    }
+
+    #[test]
+    fn a_change_of_one_file_carries_its_path_and_one_of_several_none() {
+        // Scenario: Un cambio de varios archivos no presenta una sola ruta
+        let one = mapping::ItemFacts {
+            title: "/repo/src/a.rs".to_string(),
+            command: None,
+            path: Some("/repo/src/a.rs".to_string()),
+        };
+        let request = request_for(
+            &SessionId::new("s-1"),
+            wire::FILE_CHANGE_APPROVAL,
+            &params(),
+            Some(&one),
+        );
+        let wire = serde_json::to_value(&request.tool_call).expect("serialise");
+        assert_eq!(wire["rawInput"]["path"], "/repo/src/a.rs");
+        assert_eq!(wire["locations"][0]["path"], "/repo/src/a.rs");
+
+        let several = mapping::ItemFacts {
+            title: "/repo/src/a.rs and 1 more".to_string(),
+            command: None,
+            path: None,
+        };
+        let request = request_for(
+            &SessionId::new("s-1"),
+            wire::FILE_CHANGE_APPROVAL,
+            &params(),
+            Some(&several),
+        );
+        assert!(request.tool_call.fields.raw_input.is_none());
+        assert!(
+            request.tool_call.fields.locations.is_none(),
+            "no single path for a change of several, so no rule by path decides it"
+        );
+        assert_eq!(
+            request.tool_call.fields.title.as_deref(),
+            Some("/repo/src/a.rs and 1 more"),
+            "the title still says it touches more than one"
+        );
+    }
+
+    #[test]
+    fn a_command_does_not_lend_itself_to_a_file_change_nor_the_reverse() {
+        // An approval of one method borrows only the facts that method is
+        // about: a command item never gives a change a path, nor a change a
+        // command.
+        let change = request_for(
+            &SessionId::new("s-1"),
+            wire::FILE_CHANGE_APPROVAL,
+            &params(),
+            Some(&cargo_item()),
+        );
+        assert!(change.tool_call.fields.raw_input.is_none());
     }
 }

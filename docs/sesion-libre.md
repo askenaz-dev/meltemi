@@ -189,7 +189,10 @@ permission requested by session 3f2c9a
   when the request names both, never for anything under `.meltemi/` (where the
   rules live), and never from `implement` or `dispatch`, whose sessions work in a
   task worktree. `y` confirms it, and it governs from the next session opened
-  without `--mode`.
+  without `--mode`. A rule by command allows that command and its
+  own arguments, never another one chained, piped, redirected or substituted
+  after it (`;`, `&&`, `|`, `>`, `$(…)`…): those still ask. A deny rule reaches
+  them all.
 - **Ctrl+C** cancels the session — the log records the request as interrupted —
   and the command exits `13`.
 

@@ -253,6 +253,39 @@ resultado por criterio y los tiempos medidos —hasta el primer fragmento y el
 turno completo—. Un criterio que no se pudo ejercer no se escribe, y no se
 escribe como aprobado.
 
+## Pierna de permisos — OpenCode lanzado de modo que pregunte
+
+**Estado: pendiente.** Desde `opencode-que-pregunta` (2026-10-28), Meltemi lanza
+OpenCode con `OPENCODE_CONFIG_CONTENT` en el entorno, con una configuración en
+línea que pone en `ask` `edit`, `bash`, `webfetch`, `websearch`, `task` y
+`external_directory`. Los tests de CI prueban que la resolución lleva la
+variable, con su precedencia y sin tocar un comando literal; no pueden probar
+que OpenCode, lanzado así, mande sus preguntas por ACP, porque CI no corre
+agentes reales. Eso lo confirma esta pierna. Quien la corra reemplaza este
+párrafo por su resultado; hasta entonces la pierna no está aprobada.
+
+Es una pierna de **nivel 1**, a mano y por opt-in como todo lo de esta página,
+en un repositorio fixture, nunca este. Necesita OpenCode 1.18.32 o posterior,
+con un modelo que ya funcione (la receta local de
+[`docs/local-models.md`](local-models.md) sirve y no gasta la cuenta de nadie),
+y **sin** `OPENCODE_CONFIG_CONTENT` en el entorno de quien la corre: si la
+variable ya está, gana la del usuario y la pierna mide otra cosa.
+
+| Criterio | Cómo se ejerce | Pasa si |
+| --- | --- | --- |
+| editar pregunta | `meltemi session "crea NOTAS.md con una línea" --agent opencode`, en un terminal | el aprobador pregunta antes de que exista `NOTAS.md`, y la decisión queda en el log (`permission_decided`) |
+| denegar detiene | la misma sesión, respondiendo que no | `NOTAS.md` no existe al cerrar, y el turno cierra sin error de protocolo |
+| un comando pregunta | `meltemi session "ejecuta git status y dime qué ves" --agent opencode` | el aprobador pregunta por el comando, con el comando en la petición |
+| leer no pregunta | `meltemi session "resume el README" --agent opencode` | la sesión cierra con `session_ended` sin ninguna petición de permiso |
+| el usuario manda | la sesión de editar con `OPENCODE_CONFIG_CONTENT='{"permission":{"edit":"allow"}}'` en el entorno del daemon | OpenCode edita sin preguntar: el valor del usuario ganó, que es lo que el diseño promete |
+
+**Qué se registra**, en lugar del estado de arriba: la fecha, `opencode
+--version`, el sistema, el modelo, el resultado por criterio y, si un criterio
+falla, lo que se vio en el log de la sesión. Si OpenCode no relevara `ask` por
+ACP, la sesión de editar esperaría una respuesta que no llega: eso es una falla
+de la pierna, cerrada (no edita), y se escribe como tal. Un criterio que no se
+pudo ejercer no se escribe, y no se escribe como aprobado.
+
 ## Cómo se registra en el método
 
 Los escenarios que **solo** un CLI real ejerce se marcan con nota, fuente y

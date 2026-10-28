@@ -2521,6 +2521,22 @@ fn the_first_arrival_says_what_the_fleet_has_before_a_send_refuses() {
             && home.contains("home.agent.none"),
         "an empty fleet is said on the chip's face"
     );
+    // In the warning tone, not only in words: the smoke on the binary found
+    // the label said it while the chip looked like every other one.
+    assert!(
+        home.contains("tone={refusal || noFleet ? \"warn\" : \"plain\"}"),
+        "the empty fleet warns in tone as well as in words"
+    );
+    let chip = read("desktop/ui/src/lib/components/Chip.svelte");
+    let warn_rule = chip
+        .split(".face.warn {")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .unwrap_or_default();
+    assert!(
+        warn_rule.contains("max-width: none"),
+        "and a warning is never cut to its first words: {warn_rule}"
+    );
     // And the unresolvable default stops being offered as a choice.
     assert!(
         home.contains("{:else if !noFleet}"),
@@ -2547,6 +2563,34 @@ fn the_first_arrival_says_what_the_fleet_has_before_a_send_refuses() {
     assert!(
         state.contains("fleetGreeted: boolean") && state.contains("fleetGreeted: false"),
         "and it is remembered, so the next window does not repeat it"
+    );
+}
+
+// Scenario: El compositor abierto no muestra su id
+#[test]
+fn the_composer_tab_is_named_in_words_everywhere() {
+    // The smoke on the binary read «Registro de la sesión · __new__» in the
+    // breadcrumb and «__new__» in the open list: both cut the tab's id to eight
+    // characters without knowing the composer's marker.
+    let app = read("desktop/ui/src/App.svelte");
+    assert!(
+        app.contains("if (inSession && activeSession === NEW_SESSION_TAB) {\n      return [root, $t(\"nav.open.newSession\")];")
+            && app.contains("if (inSession && activeSession === NEW_SESSION_TAB) return $t(\"nav.open.newSession\");"),
+        "the breadcrumb and the title name the composer, not a transcript"
+    );
+    let bar = read("desktop/ui/src/lib/components/Sidebar.svelte");
+    assert!(
+        bar.contains("sessionId === NEW_SESSION_TAB\n            ? $t(\"nav.open.newSession\")"),
+        "the open list names the composer as the strip does"
+    );
+    assert!(
+        !bar.contains("row.sessionId.slice(0, 8)"),
+        "no row composes its own fallback: the label is decided once"
+    );
+    let strip = read("desktop/ui/src/lib/components/SessionTabs.svelte");
+    assert!(
+        strip.contains("$t(\"nav.open.newSession\")"),
+        "the same words as the strip"
     );
 }
 
@@ -6091,7 +6135,7 @@ fn the_bar_governs_the_open_tabs_without_becoming_a_second_truth() {
         "the bar lists the open tabs in a section of its own, with the count"
     );
     assert!(
-        sidebar.contains("openSessions.map((sessionId) => ({"),
+        sidebar.contains("openSessions.map((sessionId) => {"),
         "driven by the open ids, so a tab whose session the listing has not          caught up with still has a row"
     );
     // Selecting goes through the ONE opener, which is what makes it focus an
@@ -6705,4 +6749,46 @@ fn the_conversation_says_the_refused_lever_what_was_asked_and_why() {
             && detail.contains("governed.model || governed.effort"),
         "the chip shows what the agent confirmed, not only what the record says"
     );
+}
+
+// Scenario: Ajustes muestra el diagnóstico y lo copia
+#[test]
+fn settings_shows_the_diagnosis_and_copies_it() {
+    let host = read("desktop/src/lib.rs");
+    assert!(
+        host.contains("async fn doctor_report(") && host.contains("doctor::compose("),
+        "the host composes the same report as the command line"
+    );
+    assert!(
+        host.contains("doctor::ask_daemon(")
+            && !host.contains("connect_or_start(&endpoint).await;\n    let report"),
+        "asked on a connection of its own, which never starts a daemon"
+    );
+    assert!(
+        host.contains("doctor_report,"),
+        "and it is reachable from the surface"
+    );
+
+    let settings = read("desktop/ui/src/lib/views/Settings.svelte");
+    assert!(settings.contains(r#"invoke<DoctorView>("doctor_report")"#));
+    assert!(
+        settings.contains("$locale === \"es\" ? row.es : row.en"),
+        "each row in the surface's language"
+    );
+    assert!(
+        settings.contains("doctorGlyph[row.status]")
+            && settings.contains("$t(doctorWord[row.status])"),
+        "a symbol and a word for every state"
+    );
+    assert!(settings.contains("words.remedy"), "and the remedy under it");
+    assert!(
+        settings.contains("navigator.clipboard.writeText(doctor.text)"),
+        "copying puts the report on the clipboard"
+    );
+    for forbidden in ["fetch(", "XMLHttpRequest", "sendBeacon"] {
+        assert!(
+            !settings.contains(forbidden),
+            "and nothing is sent anywhere: `{forbidden}` in Settings"
+        );
+    }
 }

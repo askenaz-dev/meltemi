@@ -62,6 +62,60 @@
     }
   };
 
+  /**
+   * The diagnosis (meltemi-doctor): the same report as `meltemi doctor`,
+   * composed by the client host and shown here in this surface's language.
+   * Copying gives the English text, which is what an issue wants. Nothing is
+   * sent anywhere.
+   */
+  type DoctorStatus = "ok" | "warn" | "fail" | "unchecked";
+  type DoctorWords = { title: string; found: string; remedy?: string };
+  type DoctorRow = {
+    id: string;
+    status: DoctorStatus;
+    facts: Record<string, string>;
+    en: DoctorWords;
+    es: DoctorWords;
+  };
+  type DoctorView = { report: { rows: DoctorRow[] }; text: string; failing: boolean };
+  let doctor: DoctorView | null = $state(null);
+  let doctorRunning = $state(false);
+  // A symbol AND a word, never one alone: the word is in the template.
+  const doctorGlyph: Record<DoctorStatus, string> = {
+    ok: "✓",
+    warn: "!",
+    fail: "✕",
+    unchecked: "○",
+  };
+  const doctorWord = {
+    ok: "settings.doctor.status.ok",
+    warn: "settings.doctor.status.warn",
+    fail: "settings.doctor.status.fail",
+    unchecked: "settings.doctor.status.unchecked",
+  } as const;
+
+  const runDoctor = async () => {
+    doctorRunning = true;
+    try {
+      doctor = await invoke<DoctorView>("doctor_report");
+    } catch {
+      doctor = null;
+      pushNotice($t("settings.doctor.failed"), "danger");
+    } finally {
+      doctorRunning = false;
+    }
+  };
+
+  const copyDoctor = async () => {
+    if (!doctor) return;
+    try {
+      await navigator.clipboard.writeText(doctor.text);
+      pushNotice($t("settings.doctor.copied"), "info");
+    } catch {
+      pushNotice($t("banner.copyFailed"), "danger");
+    }
+  };
+
   const testNotice = async () => {
     noticeResult = null;
     try {
@@ -457,6 +511,35 @@
     {/if}
   </section>
 
+  <section aria-labelledby="diagnosis">
+    <h2 id="diagnosis">{$t("settings.doctor")}</h2>
+    <p class="hint">{$t("settings.doctor.hint")}</p>
+    <div class="row">
+      <button onclick={runDoctor} disabled={doctorRunning}>
+        {doctorRunning ? $t("settings.doctor.running") : $t("settings.doctor.run")}
+      </button>
+      <button class="ghost" onclick={copyDoctor} disabled={!doctor}>
+        <Icon name="copy" size={14} />
+        {$t("settings.doctor.copy")}
+      </button>
+    </div>
+    {#if doctor}
+      <ul class="doctor">
+        {#each doctor.report.rows as row (row.id)}
+          {@const words = $locale === "es" ? row.es : row.en}
+          <li class={row.status}>
+            <span class="glyph" aria-hidden="true">{doctorGlyph[row.status]}</span>
+            <span class="word">{$t(doctorWord[row.status])}</span>
+            <span class="what">{words.title}: {words.found}</span>
+            {#if words.remedy}
+              <span class="remedy mono">{words.remedy}</span>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </section>
+
   <section aria-labelledby="privacy">
     <h2 id="privacy">{$t("settings.privacy")}</h2>
     <ul class="privacy">
@@ -497,6 +580,35 @@
     align-items: center;
     gap: var(--sp-3);
     flex-wrap: wrap;
+  }
+  .doctor {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--sp-1);
+    font-size: var(--fs-dense);
+  }
+  .doctor li {
+    display: grid;
+    grid-template-columns: 1.2em 7em 1fr;
+    gap: var(--sp-2);
+    align-items: baseline;
+  }
+  .doctor .remedy {
+    grid-column: 3;
+    color: var(--text-muted);
+  }
+  .doctor .fail .glyph,
+  .doctor .fail .word {
+    color: var(--danger);
+  }
+  .doctor .warn .glyph,
+  .doctor .warn .word {
+    color: var(--warn);
+  }
+  .doctor .what {
+    overflow-wrap: anywhere;
   }
   .label {
     min-width: 120px;

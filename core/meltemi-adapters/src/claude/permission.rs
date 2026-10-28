@@ -36,7 +36,7 @@
 
 use agent_client_protocol::schema::v1::{
     ContentBlock, PermissionOption, PermissionOptionKind, RequestPermissionRequest, SessionId,
-    TextContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
+    TextContent, ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
 };
 use serde_json::{Value, json};
 
@@ -94,6 +94,13 @@ pub fn shim_server(exe: &std::path::Path, channel: &std::path::Path) -> (String,
 /// call it already displayed instead of against an anonymous prompt. The
 /// arguments travel with it: at the moment of deciding, what the tool would
 /// actually do is the thing the human needs.
+///
+/// They travel twice, for two readers (adaptadores-con-rawinput design D1): as
+/// text, which is what the surfaces show, and as `rawInput`, unedited, which is
+/// where the proxy's rules and the terminal approver read the command. The path
+/// goes in `locations`, as the call showed it, because the provider names it
+/// `file_path` and the proxy reads a path from there rather than from a key
+/// this adapter would have to rename.
 #[must_use]
 pub fn request_for(
     session_id: &SessionId,
@@ -106,9 +113,14 @@ pub fn request_for(
         .status(ToolCallStatus::Pending)
         .title(mapping::title_for(tool, input));
     if !input.is_null() {
-        fields = fields.content(vec![
-            ContentBlock::Text(TextContent::new(input.to_string())).into(),
-        ]);
+        fields = fields
+            .content(vec![
+                ContentBlock::Text(TextContent::new(input.to_string())).into(),
+            ])
+            .raw_input(input.clone());
+    }
+    if let Some(path) = mapping::path_in(input) {
+        fields = fields.locations(vec![ToolCallLocation::new(path)]);
     }
     RequestPermissionRequest::new(
         session_id.clone(),
@@ -411,6 +423,52 @@ mod tests {
             "Bash",
             "a call the CLI did not name is still about something"
         );
+    }
+
+    #[test]
+    fn the_request_carries_the_input_and_the_path_the_rules_read() {
+        // Scenario: La petición lleva la entrada y la ruta
+        let input = json!({"file_path": "/repo/NOTES.md", "content": "hola"});
+        let write = request_for(&SessionId::new("s-1"), "Write", Some("toolu_1"), &input);
+        assert_eq!(
+            write.tool_call.fields.raw_input.as_ref(),
+            Some(&input),
+            "the input, unedited, where the rules and the approver read it"
+        );
+        let paths: Vec<String> = write
+            .tool_call
+            .fields
+            .locations
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|location| location.path.display().to_string())
+            .collect();
+        assert_eq!(paths, vec!["/repo/NOTES.md".to_string()]);
+
+        let command = json!({"command": "git status"});
+        let bash = request_for(&SessionId::new("s-1"), "Bash", Some("toolu_2"), &command);
+        assert_eq!(
+            bash.tool_call
+                .fields
+                .raw_input
+                .as_ref()
+                .and_then(|raw| raw.get("command")),
+            Some(&json!("git status")),
+            "the command is rawInput.command, as the proxy reads it"
+        );
+        assert!(
+            bash.tool_call.fields.locations.is_none(),
+            "a command names no path, and none is invented"
+        );
+
+        // Serialised, it is the shape the daemon's RequestFacts reads.
+        let wire = serde_json::to_value(&write.tool_call).expect("serialise");
+        assert_eq!(wire["rawInput"]["file_path"], "/repo/NOTES.md");
+        assert_eq!(wire["locations"][0]["path"], "/repo/NOTES.md");
+
+        let nothing = request_for(&SessionId::new("s-1"), "Bash", None, &Value::Null);
+        assert!(nothing.tool_call.fields.raw_input.is_none());
     }
 
     #[test]

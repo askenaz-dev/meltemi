@@ -113,8 +113,6 @@ ningún material de autenticación (constitución §2).
 - **THEN** el listado SHALL omitir el nombre de perfil
 - **AND** SHALL NOT presentar una suscripción que no existió
 
-## MODIFIED Requirements
-
 ### Requirement: Evento local de uso en ejecuciones headless
 WHERE una ejecución de nivel 3 emite contadores de uso en su salida estructurada
 oficial, el daemon SHALL persistirlos en el log JSONL de la sesión como un evento
@@ -122,8 +120,9 @@ de uso propio, con el origen del dato y el modelo cuando la salida lo declare,
 sin alterar los eventos ya existentes ni la versión del envelope. Los contadores
 que la salida no declara MUST quedar ausentes del evento — nunca en cero — y el
 evento MUST NOT contener credenciales, cabeceras, cookies ni identificadores de
-la cuenta del proveedor. WHERE la sesión corre sobre ACP, cuyo protocolo no
-transporta uso, ningún evento de uso SHALL fabricarse.
+la cuenta del proveedor. WHERE la sesión corre sobre ACP, ningún evento de uso
+SHALL fabricarse: lo que el agente reporte por el protocolo —contexto y costo—
+queda en el log como la actualización que es, y la contabilidad lo lee de ahí.
 
 #### Scenario: Contadores de uso persistidos desde la salida oficial
 - **WHEN** una ejecución de nivel 3 emite en su salida estructurada la línea con contadores de uso
@@ -138,7 +137,7 @@ transporta uso, ningún evento de uso SHALL fabricarse.
 #### Scenario: Sesión ACP no fabrica evento de uso
 - **WHERE** la sesión corre sobre ACP
 - **THEN** el log SHALL quedar sin evento de uso
-- **AND** la contabilidad SHALL leerlo como no reportado por el protocolo
+- **AND** la contabilidad SHALL leer lo que el agente reportó por el protocolo, o no reportado si no reportó nada
 
 #### Scenario: El evento de uso no transporta identidad de la cuenta
 - **WHEN** se registra un evento de uso
@@ -168,3 +167,21 @@ registrado.
 - **WHEN** el listado se reconstruye desde los logs
 - **THEN** la procedencia SHALL recuperarse del evento de resolución de la
   sesión
+
+### Requirement: El registro de una sesión de calle se lee por su calle
+Una sesión que corrió en un worktree gestionado —una calle— SHALL poder leerse
+por `session/log` con la raíz que el listado da para ella, la del worktree, y
+también con la del proyecto. Reanudarla SHALL dejar el registro de la sesión
+nueva junto al de la original, de modo que el listado del proyecto la muestre y
+su registro se lea por la misma calle. La raíz que el índice guarda para la
+calle SHALL seguir siendo el worktree.
+
+#### Scenario: El registro de un despacho se lee por su calle
+- **WHEN** un cliente pide `session/log` de una sesión de `worktree/dispatch` con la raíz que el listado le dio
+- **THEN** la respuesta SHALL traer el registro de esa sesión, no una página vacía
+- **AND** pedirlo con la raíz del proyecto SHALL traer el mismo registro
+
+#### Scenario: Reanudar una calle deja el registro con su proyecto
+- **WHEN** se reanuda una sesión de calle
+- **THEN** el listado del proyecto SHALL mostrar la sesión nueva con la calle como raíz
+- **AND** su registro SHALL leerse por esa calle

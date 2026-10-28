@@ -525,7 +525,18 @@ pub fn describe_rule(rule: &PermissionRule) -> String {
         matchers.push(format!("tool {}", clean(tool)));
     }
     if let Some(prefix) = &rule.command_prefix {
-        matchers.push(format!("commands starting with `{}`", clean(prefix)));
+        // An allow by prefix does not reach a command chained after it, and the
+        // sentence says so, because "starting with" alone would promise more
+        // than the daemon grants (adaptadores-con-rawinput design D4).
+        matchers.push(match rule.effect {
+            PermissionRuleEffect::Allow => format!(
+                "commands starting with `{}` that chain no other after it",
+                clean(prefix)
+            ),
+            PermissionRuleEffect::Deny => {
+                format!("commands starting with `{}`", clean(prefix))
+            }
+        });
     }
     if let Some(prefix) = &rule.path_prefix {
         matchers.push(format!("paths starting with {}", clean(prefix)));
@@ -1078,10 +1089,37 @@ mod tests {
     }
 
     #[test]
+    fn an_allow_by_command_says_it_does_not_reach_what_is_chained() {
+        // Scenario: Lo encadenado tras el prefijo escala al humano
+        let allow = PermissionRule {
+            effect: PermissionRuleEffect::Allow,
+            tool: Some("execute".into()),
+            command_prefix: Some("git status".into()),
+            path_prefix: None,
+            scope: PermissionRuleScope::Project,
+        };
+        assert!(
+            describe_rule(&allow).contains("that chain no other after it"),
+            "{}",
+            describe_rule(&allow)
+        );
+        let deny = PermissionRule {
+            effect: PermissionRuleEffect::Deny,
+            ..allow
+        };
+        assert!(
+            !describe_rule(&deny).contains("chain"),
+            "{}",
+            describe_rule(&deny)
+        );
+    }
+
+    #[test]
     fn without_a_command_or_a_path_no_rule_is_offered() {
         // Scenario: Sin comando ni ruta no se ofrece regla
         //
-        // What Claude and Codex send today: a kind and a title, no rawInput. A
+        // What an agent sends when it names neither: a kind and a title, no
+        // rawInput (Claude and Codex did, until adaptadores-con-rawinput). A
         // rule on `execute` alone would allow every command. A suggestion that
         // is only the tool is no more specific, and is refused too.
         let asked = question(json!({ "kind": "execute", "title": "Bash: ls" }));

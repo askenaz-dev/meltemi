@@ -156,3 +156,51 @@ código no resuelva MUST fallar el pipeline.
 - **WHEN** corre la verificación de la guía de plataformas en una de las tres plataformas
 - **THEN** las carpetas que el código resuelve en ella SHALL ser las que la guía nombra para esa plataforma
 - **AND** la verificación SHALL fallar si difieren
+
+### Requirement: La guía de agentes declara la versión verificada de cada adaptador propio con rango
+
+La guía de agentes SHALL declarar, para cada entrada pilotada por un adaptador
+propio que declara un rango soportado, la versión mínima del CLI oficial que el
+adaptador soporta, el remedio cuando el CLI instalado es más viejo o más nuevo
+que la versión verificada, la compuerta que el adaptador configura en el CLI y
+lo que esa compuerta no cubre, y el nombre con que el adaptador se presenta
+ante el CLI. Una verificación del pipeline MUST fallar cuando la versión mínima
+de la guía difiera de la que el adaptador declara.
+
+#### Scenario: La guía y el adaptador declaran la misma versión mínima
+- **WHEN** corre la verificación de la guía de agentes
+- **THEN** la versión mínima de cada entrada con rango SHALL coincidir con el piso que declara su adaptador
+- **AND** una divergencia SHALL fallar la verificación
+
+### Requirement: Quickstart desde los instaladores
+El quickstart SHALL empezar en los assets de la release publicada —instalador
+o archivo del núcleo, con su verificación— y llevar a una sesión gobernada con
+el agente que el usuario ya tiene, en terminal y en el escritorio, antes del
+ciclo de specs; SHALL NOT pedir compilar ni escribir a mano la configuración
+del agente. Compilar desde la fuente SHALL documentarse en el README y en la
+guía de contribución.
+
+#### Scenario: El quickstart no pide compilar
+- **WHEN** corre la verificación de la documentación
+- **THEN** SHALL fallar si el quickstart pide `cargo build` o un `config.toml` escrito a mano
+- **AND** SHALL fallar si no enlaza los assets de la release y su verificación
+
+### Requirement: Preguntas frecuentes y resolución de problemas
+La documentación SHALL tener una página de preguntas frecuentes y resolución de
+problemas que responda, enlazando la guía que lo desarrolla: un agente que la
+flota no puede lanzar, el CLI que deniega sin terminal, el túnel hacia un
+named pipe, el turno que termina sin decir nada, un agente que edita sin
+preguntar, el aviso del instalador sin firma de plataforma y dónde están los
+datos y los registros. El README y el quickstart SHALL enlazarla.
+
+#### Scenario: Cada pregunta tiene su respuesta
+- **WHEN** corre la verificación de la documentación
+- **THEN** SHALL fallar si falta una de las preguntas declaradas o el enlace desde el README
+
+### Requirement: La FAQ empieza por el diagnóstico
+La primera respuesta de las preguntas frecuentes SHALL mandar a `meltemi doctor`,
+y la plantilla de error SHALL pedir su salida.
+
+#### Scenario: Lo primero que pide la FAQ es el diagnóstico
+- **WHEN** corre la verificación de la documentación
+- **THEN** SHALL fallar si la primera respuesta de la FAQ o la plantilla de error no nombran `meltemi doctor`

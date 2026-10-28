@@ -1,6 +1,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Meltemi
 
+[![CI](https://github.com/askenaz-dev/meltemi/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/askenaz-dev/meltemi/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/askenaz-dev/meltemi)](https://github.com/askenaz-dev/meltemi/releases/latest)
+
 **The spec-driven control plane for agentic development.** Open source
 (Apache-2.0), free, community-built. Meltemi orchestrates the coding agents you
 already use — through open standards — under a discipline where no line of code
@@ -292,6 +296,8 @@ application and the terminal surface are in core parity, verified by CI. See
 ## Documentation
 
 - [Quickstart](docs/quickstart.md) — zero to your first reviewed proposal
+- [Questions and troubleshooting](docs/faq.md) — what people ask first
+- [The one-developer test](docs/prueba-de-uno.md) — an afternoon with your own agents, from the release to its report (in Spanish)
 - [Agents guide](docs/agentes.md) — install, detect and configure your agents
 - [The harness](docs/harness.md) — say your conventions once, adjust them per agent and per project
 - [Architecture](docs/arquitectura.md)

@@ -93,6 +93,48 @@ pub fn workspace_names(change: &str, branch: Option<&str>) -> (PathBuf, String) 
     (rel, branch_name)
 }
 
+/// The project a managed worktree belongs to, read from the path's shape:
+/// `<root>/.meltemi/worktrees/<change>/<lane>` answers `<root>`, anything else
+/// answers nothing (registro-de-la-sesion-de-calle D1). By shape, not by the
+/// registry of managed worktrees: a lane that was cleaned up leaves that
+/// registry, while its session stays in the index and its log on disk.
+#[must_use]
+pub fn owning_project(path: &Path) -> Option<PathBuf> {
+    let mut parts = path.components().rev();
+    let (Some(lane), Some(change), Some(worktrees), Some(meltemi)) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    fn named(part: std::path::Component<'_>) -> Option<&std::ffi::OsStr> {
+        match part {
+            std::path::Component::Normal(name) => Some(name),
+            _ => None,
+        }
+    }
+    named(lane)?;
+    named(change)?;
+    if named(worktrees)? != "worktrees" || named(meltemi)? != ".meltemi" {
+        return None;
+    }
+    // The ancestor, not the components collected again: rebuilding a path from
+    // its components respells its separators on Windows (`/work\repo` comes
+    // back as `\work\repo`), and the project key hashes the path as spelled
+    // whenever it cannot be canonicalized.
+    let root = path.ancestors().nth(4)?;
+    (!root.as_os_str().is_empty()).then(|| root.to_path_buf())
+}
+
+/// The key a session's log and index record live under: the owning project's
+/// for a lane, the root's own otherwise (registro-de-la-sesion-de-calle D2).
+/// Every lookup of a session by a root a client supplies goes through this, so
+/// the root the listing gives for a lane finds what the lane wrote.
+#[must_use]
+pub fn log_key(root: &Path) -> String {
+    let owner = owning_project(root);
+    crate::paths::project_key(owner.as_deref().unwrap_or(root))
+}
+
 fn registry_path(repo_root: &Path) -> PathBuf {
     repo_root
         .join(".meltemi")
@@ -173,6 +215,10 @@ pub fn create(
         base_rev: base_rev.to_string(),
     };
     record(repo_root, &wt).map_err(|e| e.to_string())?;
+    // A task's lane is as much inside the managed root as a workshop, and a
+    // project that never opened a workshop would otherwise see every lane as
+    // an embedded repository (registro-de-la-sesion-de-calle D3).
+    ensure_excluded(repo_root)?;
     Ok(wt)
 }
 
@@ -631,6 +677,53 @@ pub fn assignment_plan(tasks: &[TaskFiles]) -> Vec<Batch> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lane_belongs_to_the_project_above_its_managed_root() {
+        let root = Path::new("/work").join("repo");
+        let lane = root
+            .join(".meltemi")
+            .join("worktrees")
+            .join("dark-mode")
+            .join("1-1-lane");
+        assert_eq!(owning_project(&lane), Some(root.clone()));
+        // Spelled exactly as the lane spells it: the project key hashes the path
+        // as written when it cannot be canonicalized, and on Windows a path
+        // rebuilt from its components comes back with other separators.
+        assert_eq!(
+            owning_project(&lane).unwrap().as_os_str(),
+            root.as_os_str(),
+            "the owner is the lane's own prefix, byte for byte"
+        );
+        // A workshop has the same shape, and the same owner.
+        let (workshop, _) = workspace_names("dark-mode", None);
+        assert_eq!(owning_project(&root.join(workshop)), Some(root.clone()));
+        // Anything else is its own project.
+        assert_eq!(owning_project(&root), None);
+        assert_eq!(
+            owning_project(&root.join(".meltemi/worktrees/registry.jsonl")),
+            None,
+            "one level short is not a lane"
+        );
+        assert_eq!(
+            owning_project(&lane.join("src")),
+            None,
+            "a directory inside a lane is not a lane"
+        );
+        assert_eq!(
+            owning_project(&root.join("meltemi/worktrees/dark-mode/1-1-lane")),
+            None,
+            "the managed root is named exactly"
+        );
+        assert_eq!(
+            owning_project(Path::new(".meltemi/worktrees/dark-mode/1-1-lane")),
+            None,
+            "a shape with nothing above it names no project"
+        );
+        // The key a lane's log lives under is its project's.
+        assert_eq!(log_key(&lane), crate::paths::project_key(&root));
+        assert_eq!(log_key(&root), crate::paths::project_key(&root));
+    }
 
     #[test]
     fn names_are_stable_and_slugged() {

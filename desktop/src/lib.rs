@@ -157,6 +157,42 @@ async fn machine_probe(name: String) -> Result<ProbeResult, BridgeError> {
     })
 }
 
+/// What the diagnosis section shows: the rows, each with its words in both
+/// languages, and the report as English text, which is what "Copy" copies.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DoctorView {
+    report: meltemi_client::doctor::Report,
+    text: String,
+    failing: bool,
+}
+
+/// The diagnosis of this installation, for the machine the client talks to
+/// (meltemi-doctor). The same composition as `meltemi doctor`: it asks the
+/// daemon on a connection of its own that never starts one, and sends nothing
+/// anywhere — the surface shows it, and copies it when the person asks.
+#[tauri::command]
+async fn doctor_report(active: tauri::State<'_, ActiveMachine>) -> Result<DoctorView, BridgeError> {
+    use meltemi_client::doctor;
+    let endpoint = active.0.lock().map(|at| at.clone()).unwrap_or_default();
+    let endpoint = if endpoint.is_empty() {
+        meltemi_client::paths::endpoint()
+    } else {
+        endpoint
+    };
+    let at = endpoint.clone();
+    let local = tauri::async_runtime::spawn_blocking(move || doctor::Local::gather_for(&at))
+        .await
+        .map_err(|error| BridgeError::unreachable(error.to_string()))?;
+    let daemon = doctor::ask_daemon(&endpoint).await;
+    let report = doctor::compose(&local, &daemon);
+    Ok(DoctorView {
+        text: report.text(doctor::Lang::En, true),
+        failing: report.has_failures(),
+        report,
+    })
+}
+
 /// Talks to another machine from now on.
 ///
 /// The webview asks for this only after its own unsaved-work guard has run —
@@ -457,6 +493,7 @@ pub fn run() {
             machines_list,
             machine_probe,
             machine_switch,
+            doctor_report,
             window_state_store,
             close_confirmed,
             uistate::ui_state_load,

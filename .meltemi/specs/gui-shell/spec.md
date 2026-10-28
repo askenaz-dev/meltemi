@@ -855,15 +855,17 @@ excedente SHALL seguir desplazándose.
 ### Requirement: Varias sesiones abiertas a la vez en pestañas
 
 La vista de sesiones SHALL permitir varias sesiones abiertas simultáneamente en
-una tira de pestañas cuya primera pestaña es la lista y NO SHALL ser cerrable.
-Abrir una sesión ya abierta SHALL enfocar su pestaña sin crear otra. Una
-pestaña que no está en pantalla SHALL conservar su transcript, su lectura y su
-borrador sin enviar, y SHALL declarar cuántos eventos llegaron sin leer. Cada
-pestaña SHALL declarar el estado de su sesión con símbolo y palabra, nunca con
-color solo. La tira SHALL recorrerse entera con el teclado. Alcanzado el tope de
-pestañas, la superficie SHALL rehusar abrir otra sin cerrar ninguna y SHALL
-nombrar el remedio. Cada sesión abierta SHALL declarar su interés por su propia
-sesión y NO SHALL mostrar los eventos de otra.
+una tira de pestañas que contiene únicamente sesiones abiertas y, cuando se
+pide una sesión nueva, su compositor: la lista es la vista Sesiones, no una
+pestaña, y SHALL estar en pantalla cuando ninguna pestaña está al frente. Abrir una sesión ya abierta SHALL enfocar su pestaña
+sin crear otra. Una pestaña que no está en pantalla SHALL conservar su
+transcript, su lectura y su borrador sin enviar, y SHALL declarar cuántos
+eventos llegaron sin leer. Cada pestaña SHALL declarar el estado de su sesión
+con símbolo y palabra, nunca con color solo. La tira SHALL recorrerse entera
+con el teclado. Alcanzado el tope de pestañas, la superficie SHALL rehusar
+abrir otra sin cerrar ninguna y SHALL nombrar el remedio. Cada sesión abierta
+SHALL declarar su interés por su propia sesión y NO SHALL mostrar los eventos
+de otra.
 
 #### Scenario: Abrir una segunda sesión no reemplaza la primera
 
@@ -879,12 +881,13 @@ sesión y NO SHALL mostrar los eventos de otra.
 - **AND** NO SHALL crearse una segunda
 - **AND** su contador de eventos sin leer SHALL volver a cero
 
-#### Scenario: La lista es la primera pestaña y nunca se cierra
+#### Scenario: La lista es la vista, no una pestaña
 
 - **WHEN** hay al menos una sesión abierta
-- **THEN** la tira SHALL presentar la lista como primera pestaña sin control de
-  cierre
-- **AND** seleccionarla SHALL devolver la tabla completa con su filtro
+- **THEN** la tira SHALL contener solo pestañas de sesión, sin una pestaña de
+  lista
+- **AND** la entrada Sesiones de la barra SHALL devolver la tabla completa con
+  su filtro dejando las pestañas abiertas
 
 #### Scenario: Una pestaña de fondo conserva su lectura y su borrador
 
@@ -930,8 +933,8 @@ sesión y NO SHALL mostrar los eventos de otra.
 
 - **WHEN** se navega a otra vista de primer nivel y se vuelve a Sesiones
 - **THEN** las pestañas SHALL seguir abiertas
-- **AND** tras reiniciar la superficie SHALL arrancar sin pestañas de sesión y
-  con la lista en pantalla
+- **AND** tras reiniciar la superficie SHALL arrancar sin pestañas de sesión,
+  con la lista en pantalla si la vista recordada era Sesiones
 
 #### Scenario: Cada sesión abierta lee su propio registro y su propio flujo
 
@@ -1096,9 +1099,10 @@ visible.
 
 El lanzador SHALL permitir elegir modelo y esfuerzo antes de arrancar, con
 búsqueda y admitiendo entrada libre, y la sesión SHALL mostrar los valores
-efectivos. La ficha de un modelo SHALL mostrar únicamente lo que Meltemi
-conoce —lo anunciado por el agente, lo declarado en perfiles y el consumo
-medido localmente— y NO SHALL mostrar precios ni créditos.
+efectivos y, cuando una palanca se rehusó al abrir, la palanca, lo pedido y el
+motivo, en español y en inglés. La ficha de un modelo SHALL mostrar únicamente
+lo que Meltemi conoce —lo anunciado por el agente, lo declarado en perfiles y el
+consumo medido localmente— y NO SHALL mostrar precios ni créditos.
 
 WHERE se ofrezca cambiar el modelo con la sesión en marcha, SHALL advertirse
 que el cambio reinicia la caché del proveedor y puede aumentar el costo.
@@ -1119,6 +1123,11 @@ que el cambio reinicia la caché del proveedor y puede aumentar el costo.
 - **WHERE** la sesión está en marcha
 - **WHEN** se ofrece cambiar el modelo
 - **THEN** SHALL advertirse el efecto sobre la caché y el costo
+
+#### Scenario: La conversación dice la palanca rehusada
+
+- **WHEN** una sesión termina rehusando una palanca al abrir
+- **THEN** su conversación SHALL decir la palanca, lo pedido y el motivo
 
 ### Requirement: El título del schema declara la ligadura del formulario
 La generación de formularios tipados de la paleta SHALL ligar cada método al
@@ -1190,3 +1199,834 @@ onboarding NO SHALL mencionar ni exigir la identidad.
 - **THEN** la declaración «sin cuentas» SHALL seguir presente sin cambios
 - **AND** la sección de identidad SHALL decir que la identidad es de la malla
   del usuario y que Meltemi la lee, no la guarda
+
+### Requirement: La barra de estado dice sobre qué se trabaja
+
+La barra de estado SHALL nombrar el proyecto activo y, cuando el proyecto lleva
+el método, la change que reclama una decisión junto al artefacto que la espera;
+si ninguna la reclama, SHALL decir cuántas hay activas. El recuento de sesiones
+SHALL distinguir las que trabajan de las que esperan una decisión del usuario,
+porque significan cosas distintas para quien lee. La espera de una compuerta
+SHALL presentarse como propiedad de la change y NO como un estado de sesión.
+
+#### Scenario: La barra nombra el proyecto y la compuerta que espera
+
+- **WHEN** el proyecto activo lleva el método y una change espera una decisión
+- **THEN** la barra SHALL nombrar el proyecto y esa change con su artefacto
+
+#### Scenario: Sin compuerta pendiente, la barra dice cuántas changes hay
+
+- **WHEN** ninguna change reclama una decisión
+- **THEN** la barra SHALL decir cuántas están activas
+
+#### Scenario: Las sesiones que trabajan se distinguen de las que esperan
+
+- **WHEN** hay sesiones activas y sesiones esperando una decisión
+- **THEN** la barra SHALL contarlas por separado
+
+### Requirement: El consumo se dice medido o no se dice
+
+La barra SHALL mostrar el consumo medido del proyecto en el día. Cuando el
+consumo no está medido NO SHALL mostrar un cero: SHALL callar o declarar que no
+fue reportado, con el motivo estable que la analítica entrega. Ningún valor
+SHALL estimarse.
+
+#### Scenario: El consumo medido se muestra
+
+- **WHEN** la analítica reporta consumo medido para el proyecto en el día
+- **THEN** la barra SHALL mostrarlo
+
+#### Scenario: Sin medición no se inventa un cero
+
+- **WHEN** la analítica no reporta consumo para el periodo
+- **THEN** la barra NO SHALL mostrar un cero
+- **AND** SHALL callar o decir que no fue reportado
+
+### Requirement: Los segmentos llevan a su vista y ceden en orden declarado
+
+Cada segmento que nombra algo con vista propia SHALL llevar a ella al activarse,
+con nombre accesible y alcanzable por teclado. Cuando el ancho no alcanza, los
+segmentos SHALL cederlo en un orden declarado; el estado de la conexión y las
+decisiones pendientes NO SHALL cederlo nunca.
+
+#### Scenario: Un segmento lleva a su vista
+
+- **WHEN** el usuario activa el segmento del proyecto, la change, las sesiones,
+  los permisos o el consumo
+- **THEN** la superficie SHALL mostrar la vista correspondiente
+
+#### Scenario: Al estrecharse, lo último que se cae
+
+- **WHEN** el ancho disponible no alcanza para todos los segmentos
+- **THEN** SHALL cederse primero el endpoint y después la versión
+- **AND** la conexión y las decisiones pendientes SHALL permanecer
+
+### Requirement: El compositor dice que se trabaja
+
+Mientras un agente trabaja, el compositor de la superficie SHALL mostrarlo con
+un indicador ambiental en su propio marco, de modo que la señal esté donde el
+usuario va a escribir lo siguiente. El indicador SHALL animar únicamente
+transform u opacidad y NO SHALL animar disposición alguna. SHALL apagarse
+cuando la sesión espera una decisión del usuario: esperar no es trabajar, y un
+indicador en marcha mientras el agente está detenido mentiría sobre quién debe
+actuar. SHALL existir un solo indicador ambiental por vista.
+
+#### Scenario: El compositor se enciende mientras el agente trabaja
+
+- **WHEN** una sesión está iniciándose o activa
+- **THEN** el compositor SHALL mostrar su indicador de trabajo
+- **AND** el indicador NO SHALL animar la disposición de nada
+
+#### Scenario: La luz se apaga cuando la sesión espera una decisión
+
+- **WHILE** una sesión espera una decisión de permiso
+- **THEN** el compositor NO SHALL mostrar el indicador de trabajo
+
+#### Scenario: Sin movimiento, el estado se sigue diciendo
+
+- **WHEN** el usuario ha pedido movimiento reducido
+- **THEN** el indicador SHALL retirarse por completo, sin quedar detenido a la
+  vista
+- **AND** el estado SHALL seguir dicho por el marco y por el texto de la fila
+  del compositor
+
+### Requirement: Detener está al alcance de donde se escribe
+
+Mientras una sesión está viva, el compositor SHALL ofrecer detenerla junto al
+envío. La acción SHALL pedir la misma confirmación explícita que el acceso del
+encabezado y SHALL ejecutar el mismo verbo; el acceso del encabezado SHALL
+conservarse. Detener SHALL ofrecerse también mientras la sesión espera una
+decisión.
+
+#### Scenario: Detener desde el compositor
+
+- **WHEN** una sesión está viva
+- **THEN** el compositor SHALL ofrecer detenerla junto al envío
+- **AND** activarlo SHALL pedir confirmación explícita antes de detenerla
+
+#### Scenario: Un verbo, dos accesos
+
+- **WHEN** se detiene desde el compositor y desde el encabezado
+- **THEN** ambos SHALL ejecutar el mismo verbo con la misma confirmación
+
+### Requirement: El modo de la sesión es visible y elegible
+
+El lanzador SHALL permitir elegir el modo antes de arrancar, y la sesión SHALL
+mostrar el modo vigente junto al compositor. WHERE la sesión corre sobre el árbol
+del usuario sin worktree, el modo semi NO SHALL presentarse como contención: la
+superficie SHALL nombrar el ámbito real.
+
+#### Scenario: El modo se elige al lanzar y se ve en la sesión
+
+- **WHEN** se lanza una sesión eligiendo modo
+- **THEN** la sesión SHALL mostrar ese modo junto al compositor
+
+#### Scenario: Semi sin worktree dice cuál es su ámbito real
+
+- **WHERE** la sesión corre sobre el árbol del usuario sin worktree
+- **THEN** la superficie NO SHALL presentar semi como contención al worktree
+
+### Requirement: El pensamiento del turno se ve mientras ocurre
+
+Mientras un turno está en vuelo, el pensamiento que el agente emite SHALL
+mostrarse desplegado, sin exigir un gesto por turno; al cerrarse el turno SHALL
+plegarse. El usuario SHALL poder plegarlo o desplegarlo en cualquier momento, y
+plegarlo mientras el turno sigue en vuelo NO SHALL deshacerse solo. Cuando un
+turno no emite pensamiento NO SHALL mostrarse sección alguna en su lugar.
+
+#### Scenario: El pensamiento se ve mientras el turno corre
+
+- **WHEN** un turno en vuelo emite pensamiento
+- **THEN** SHALL mostrarse desplegado
+- **AND** al cerrarse el turno SHALL quedar plegado
+
+#### Scenario: Plegarlo a mano no se deshace solo
+
+- **WHILE** un turno sigue en vuelo
+- **WHEN** el usuario pliega su pensamiento
+- **THEN** SHALL permanecer plegado aunque sigan llegando fragmentos
+
+#### Scenario: Sin pensamiento no hay sección
+
+- **WHEN** un turno no emite pensamiento
+- **THEN** NO SHALL mostrarse encabezado ni marcador alguno en su lugar
+
+### Requirement: La tira de pestañas se lee como la de un navegador
+
+La tira de sesiones SHALL presentarse como una capa propia sobre la que
+descansan las pestañas: la pestaña activa SHALL tomar la superficie del panel
+que gobierna y unirse a él, y las inactivas SHALL recostarse sobre la capa de
+la tira sin dibujar cada una su propia caja. La distinción de la pestaña activa
+SHALL sostenerse por forma y superficie, no por un color de acento, y SHALL
+seguir siendo perceptible cuando el sistema sustituye los colores del fondo. El
+anillo de foco de la superficie SHALL conservarse sin cambios, y el estado
+seleccionado SHALL seguir anunciándose al lector de pantalla.
+
+#### Scenario: La activa se distingue por su forma
+
+- **WHEN** una pestaña está activa
+- **THEN** SHALL tomar la superficie del panel y unirse a él
+- **AND** NO SHALL marcarse con un color de acento en su borde
+
+#### Scenario: La selección sobrevive a la sustitución de colores
+
+- **WHILE** el sistema fuerza sus propios colores
+- **THEN** la pestaña activa SHALL conservar una marca perceptible que no
+  dependa de su fondo
+
+#### Scenario: Las inactivas comparten silueta
+
+- **WHEN** la tira muestra dos o más pestañas inactivas contiguas
+- **THEN** SHALL separarlas una línea de un píxel
+- **AND** esa línea SHALL ocultarse junto a la pestaña activa y junto a la
+  pestaña bajo el puntero
+- **AND** ocultarla NO SHALL desplazar ninguna pestaña
+
+### Requirement: La tira responde al puntero y revela el cierre sin perder el teclado
+
+Una pestaña inactiva bajo el puntero SHALL responder con un cambio de
+superficie. El control de cierre SHALL revelarse cuando la pestaña está bajo el
+puntero o contiene el foco, y SHALL permanecer visible en la pestaña activa;
+su espacio SHALL reservarse siempre, de modo que revelarlo no altere el ancho
+del rótulo ni la posición de las demás. Ningún gesto de la tira SHALL quedar
+disponible únicamente mediante puntero.
+
+#### Scenario: La inactiva responde al puntero
+
+- **WHEN** el puntero se sitúa sobre una pestaña inactiva
+- **THEN** su superficie SHALL cambiar de forma perceptible
+
+#### Scenario: El cierre se revela sin perder el camino de teclado
+
+- **WHEN** una pestaña recibe el foco de teclado
+- **THEN** su control de cierre SHALL revelarse
+- **AND** la tecla de cierre del patrón vigente SHALL seguir cerrándola
+- **AND** revelar el control NO SHALL mover las pestañas vecinas
+
+### Requirement: La pestaña gasta su ancho en el rótulo
+
+El estado de una sesión SHALL representarse dentro de la pestaña por su glifo,
+y su palabra SHALL viajar en el nombre accesible y en el texto emergente de la
+pestaña. La pertenencia a un grupo SHALL verse en cada pestaña miembro
+mediante una franja del color del grupo, sin que el color sea el único
+portador: el nombre del grupo SHALL seguir viajando en el nombre accesible de
+cada pestaña.
+
+#### Scenario: El estado no gasta ancho en repetirse
+
+- **WHEN** una pestaña muestra el estado de su sesión
+- **THEN** dentro de la pestaña SHALL mostrarse su glifo
+- **AND** la palabra del estado SHALL estar en el nombre accesible de la pestaña
+
+#### Scenario: La pertenencia se ve en la pestaña, no solo en la etiqueta
+
+- **WHEN** una pestaña pertenece a un grupo
+- **THEN** SHALL mostrar una franja del color del grupo
+- **AND** el nombre del grupo SHALL seguir presente en su nombre accesible
+
+### Requirement: Las medidas de la tira tienen un solo dueño
+
+Las medidas que gobiernan la tira de pestañas —ancho mínimo y máximo de una
+pestaña, paso de desplazamiento y las medidas de su piel— SHALL declararse una
+sola vez en el módulo que las publica, y la hoja de estilo SHALL consumirlas
+desde allí. NO SHALL existir en la hoja de estilo una copia literal de una
+medida que el módulo ya declara.
+
+#### Scenario: La hoja de estilo no repite lo que el módulo declara
+
+- **WHEN** se inspecciona la hoja de estilo de la tira
+- **THEN** las medidas que el módulo declara SHALL consumirse como propiedades
+  personalizadas
+- **AND** NO SHALL aparecer su valor literal duplicado
+
+### Requirement: La pregunta se contesta donde se escribe
+
+Mientras una sesión espera una decisión, la zona del compositor SHALL presentar
+la petición y sus opciones como un listado recorrible con teclado y activable
+con Enter, con el rótulo de cada opción tal como el agente lo envió. SHALL
+decidir por el mismo verbo que la bandeja, y NO SHALL constituir una segunda
+cola. La tarjeta del transcript SHALL conservarse: el registro es la verdad.
+
+La aparición NO SHALL animar el layout: nada se mueve bajo el cursor mientras se
+decide. WHERE las opciones no caben, el listado SHALL desplazarse dentro de sí
+mismo y NO SHALL desplazar el panel.
+
+La última opción SHALL ser una salida de texto libre, y su rótulo SHALL decir
+qué hará realmente: interrumpir el turno y relevarlo con el texto. NO SHALL
+presentarse como una respuesta a la pregunta mientras el protocolo de permisos
+no transporte texto.
+
+#### Scenario: La pregunta aparece en el compositor y se contesta con teclado
+
+- **WHILE** una sesión espera una decisión
+- **THEN** el compositor SHALL presentar sus opciones recorribles con teclado
+- **AND** activar una SHALL decidir por el mismo verbo que la bandeja
+
+#### Scenario: La pregunta aparece sin mover nada
+
+- **WHEN** la petición llega
+- **THEN** NO SHALL animarse el layout
+- **AND** ningún control SHALL desplazarse bajo el cursor
+
+#### Scenario: Muchas opciones se desplazan dentro del listado
+
+- **WHERE** las opciones exceden el alto disponible
+- **THEN** el listado SHALL desplazarse dentro de sí mismo
+- **AND** el panel NO SHALL desplazarse
+
+#### Scenario: La salida de texto libre dice lo que hará
+
+- **WHEN** se ofrece la salida de texto libre
+- **THEN** su rótulo SHALL decir que interrumpe el turno y lo releva con el texto
+- **AND** NO SHALL presentarse como una respuesta a la pregunta
+
+### Requirement: Interrumpir y enviar desde el compositor
+
+Con la sesión trabajando y texto escrito, el compositor SHALL ofrecer
+interrumpir el turno y enviar la instrucción como su relevo, junto al envío que
+la encola. Sin texto NO SHALL ofrecerse: no hay nada con lo que relevar. La
+acción SHALL distinguirse de detener la sesión, que conserva su confirmación.
+
+#### Scenario: Interrumpir y enviar se ofrece con texto y sesión trabajando
+
+- **WHEN** la sesión trabaja y hay texto en el compositor
+- **THEN** SHALL ofrecerse interrumpir y enviar, junto al envío que encola
+
+#### Scenario: Sin texto no hay nada que relevar
+
+- **WHEN** el compositor está vacío
+- **THEN** NO SHALL ofrecerse interrumpir y enviar
+
+### Requirement: La conversación sigue viva tras el turno
+
+Terminado un turno sin que la sesión termine, la superficie SHALL declarar la
+sesión en espera con símbolo y palabra —nunca con color solo— y SHALL mantener
+el compositor utilizable, sin rótulo de reanudación. El indicador de trabajo NO
+SHALL animarse en espera: esperar no es trabajar.
+
+Toda superficie que declare el estado de una sesión SHALL declarar también el
+estado de espera; ninguna SHALL representarlo como terminada ni omitirlo.
+
+#### Scenario: El compositor no muere al terminar el turno
+
+- **WHEN** un turno termina y la sesión queda esperando
+- **THEN** el compositor SHALL seguir aceptando la siguiente instrucción
+- **AND** NO SHALL ofrecer reanudar
+
+#### Scenario: Esperar no enciende el indicador de trabajo
+
+- **WHILE** una sesión espera instrucciones
+- **THEN** el indicador de trabajo NO SHALL animarse
+
+#### Scenario: Ninguna superficie omite el estado de espera
+
+- **WHEN** se recorre cada superficie que declara estado de sesión
+- **THEN** todas SHALL tener símbolo y palabra para la espera
+- **AND** ninguna SHALL pintarla como terminada
+
+### Requirement: Las pestañas y listas nombran el trabajo
+
+Donde la superficie nombra una sesión —pestañas, lista de sesiones, encabezado
+del detalle, árbol y recientes— SHALL mostrar su título cuando lo tenga, con la
+identidad del agente conservada como marca visual. El identificador de la
+sesión NO SHALL desaparecer: SHALL permanecer accesible junto al título o en el
+texto emergente, que además SHALL seguir diciendo el proyecto al que pertenece.
+Una sesión sin título SHALL nombrarse como antes de esta capacidad, sin
+sustituto inventado.
+
+#### Scenario: La pestaña dice de qué trata la sesión
+
+- **WHEN** una sesión con título está abierta en una pestaña
+- **THEN** el rótulo de la pestaña SHALL ser su título
+- **AND** el identificador completo y el proyecto SHALL seguir en su texto
+  emergente
+
+#### Scenario: Una sesión sin título se nombra como antes
+
+- **WHEN** una sesión carece de título
+- **THEN** SHALL nombrarse con su agente y su identificador corto
+
+### Requirement: El proyecto se antepone solo cuando hace falta
+
+Cuando las pestañas abiertas pertenecen a más de un proyecto, el rótulo de cada
+una SHALL anteponer el nombre de su proyecto. Cuando todas pertenecen al mismo,
+NO SHALL anteponerlo.
+
+#### Scenario: El proyecto se antepone ante ambigüedad
+
+- **WHEN** las pestañas abiertas cruzan más de un proyecto
+- **THEN** cada rótulo SHALL anteponer el nombre de su proyecto
+
+#### Scenario: Con un solo proyecto el rótulo no lo repite
+
+- **WHEN** todas las pestañas abiertas pertenecen al mismo proyecto
+- **THEN** ningún rótulo SHALL anteponer el nombre del proyecto
+
+### Requirement: El harness efectivo se ve desde la Flota
+
+La superficie de escritorio SHALL ofrecer, desde la Flota, la lectura del
+harness que aplica a un agente, mostrando por cada pieza su capa de origen y su
+ruta, y mostrando también lo pisado y lo inválido con su motivo.
+
+La vista SHALL ser de solo lectura: la autoría de las piezas vive en archivos.
+
+#### Scenario: La ficha de un agente muestra su harness con el origen
+
+- **WHEN** se abre el harness de un agente desde la Flota
+- **THEN** SHALL verse cada pieza con la capa de la que viene
+- **AND** SHALL verse lo que no aplica, con el motivo por el que no aplica
+
+### Requirement: Las sesiones de cada proyecto se agrupan por lo que piden
+
+Dentro de cada nodo de proyecto del árbol de la barra lateral, las sesiones
+SHALL agruparse en cubetas por estado, en orden de señal: las que esperan una
+decisión (`waiting_permission`), las que esperan una instrucción
+(`waiting_instruction`), las que trabajan (`active`, `starting`) y las
+detenidas (`ended`, `interrupted`). Cada cubeta SHALL llevar glifo, palabra y
+cuenta; una cubeta vacía NO SHALL dibujarse. Cada fila SHALL mostrar el
+avatar del agente y el título de la sesión —o el agente y el identificador
+corto cuando no hay título—, SHALL conservar el nombre de su suscripción como
+pastilla y la palabra canónica del estado como nombre accesible, y SHALL
+marcar con forma y palabra si la sesión está abierta en una pestaña. La cubeta de detenidas SHALL acotarse a las más
+recientes y ofrecer «Ver las {n}» hacia la vista Sesiones. Un cambio de estado
+SHALL mover la fila a su cubeta sin animar el layout: nada se mueve bajo el
+cursor mientras se decide un permiso.
+
+#### Scenario: Cuatro estados, cuatro cubetas en orden de señal
+
+- **WHEN** un proyecto tiene sesiones en `waiting_permission`, `active`,
+  `waiting_instruction` y `ended`
+- **THEN** su nodo SHALL listarlas en cuatro cubetas en este orden: esperan tu
+  decisión, listas para tu instrucción, trabajando, detenidas
+- **AND** cada cabecera SHALL decir el estado con glifo y palabra y la cuenta
+  de la cubeta
+
+#### Scenario: Una cubeta vacía no ocupa sitio
+
+- **WHEN** ninguna sesión del proyecto está en uno de los cuatro estados
+- **THEN** la cabecera de esa cubeta NO SHALL dibujarse
+
+#### Scenario: La fila dice el título y si está abierta
+
+- **WHEN** una sesión con título y suscripción está abierta en una pestaña
+- **THEN** su fila SHALL mostrar el avatar, el título y la pastilla de
+  suscripción
+- **AND** SHALL marcar que está abierta con forma y palabra, no con color solo
+- **AND** activarla SHALL enfocar su pestaña sin crear otra
+
+#### Scenario: Las detenidas no desbordan la barra
+
+- **WHEN** un proyecto tiene más sesiones detenidas que el tope de la cubeta
+- **THEN** la cubeta SHALL mostrar solo las más recientes
+- **AND** SHALL ofrecer «Ver las {n}» que lleva a la vista Sesiones con el
+  proyecto conmutado
+
+#### Scenario: Un cambio de estado salta de cubeta sin animarse
+
+- **WHEN** una sesión que trabaja pasa a esperar un permiso
+- **THEN** su fila SHALL aparecer en la cubeta de decisión en el siguiente
+  refresco
+- **AND** ningún elemento de la barra SHALL animar su posición
+
+### Requirement: Las pestañas abiertas se gobiernan desde la barra
+
+La barra lateral SHALL listar las pestañas de sesión abiertas en una sección
+propia, con la cuenta, en el mismo orden que la tira. Activar una fila SHALL
+traer su pestaña al frente; cada fila SHALL ofrecer un control de cierre con
+nombre accesible, y `Delete` sobre una fila enfocada SHALL cerrarla. Cerrar
+desde la barra SHALL comportarse como cerrar desde la tira: el foco cae en la
+vecina y, sin ninguna, queda la lista. La fila de la pestaña que está al frente
+SHALL marcarse por forma y palabra. Cerrar una pestaña NO SHALL terminar la
+sesión: sigue en su cubeta. Con la barra plegada a riel la sección NO SHALL
+dibujarse y la tira SHALL seguir siendo el camino a cada pestaña.
+
+#### Scenario: Seleccionar en la barra trae la pestaña al frente
+
+- **WHEN** hay dos pestañas abiertas y se activa en la barra la que no está al
+  frente
+- **THEN** esa pestaña SHALL pasar al frente en la tira
+- **AND** su fila SHALL quedar marcada como la actual
+
+#### Scenario: Cerrar desde la barra cae en la vecina
+
+- **WHEN** se cierra desde la barra la pestaña que está al frente
+- **THEN** el foco SHALL pasar a la vecina de la izquierda, o a la última si no
+  la hay
+- **AND** si no queda ninguna SHALL quedar la lista en pantalla
+
+#### Scenario: Cerrar no es olvidar
+
+- **WHEN** se cierra desde la barra la pestaña de una sesión que trabaja
+- **THEN** la sesión SHALL seguir en su cubeta con su estado
+- **AND** activarla SHALL volver a abrir su pestaña con su lectura
+
+#### Scenario: Plegada, la tira sigue siendo el camino
+
+- **WHEN** la barra está plegada a riel
+- **THEN** la sección de pestañas abiertas NO SHALL dibujarse
+- **AND** cada pestaña SHALL seguir alcanzable desde la tira con el teclado
+
+### Requirement: Nueva sesión nace como pestaña con el cursor dentro
+
+Pedir una sesión nueva —desde la acción primaria, la entrada de la barra, la
+acción rápida de un proyecto o su atajo— SHALL abrir en la tira una pestaña
+«Nueva sesión» con el compositor, traerla al frente y poner el foco en el
+campo. Pedirla de nuevo mientras existe SHALL enfocarla, no duplicarla. Enviar
+SHALL convertir esa pestaña en la pestaña de la sesión creada, en el mismo
+sitio y sin abrir otra, y su rótulo SHALL pasar a ser el título derivado. La
+vista de llegada SHALL ser esa pestaña al frente con el foco en el campo. La
+pestaña nueva SHALL contar contra el tope de pestañas. Cerrarla con borrador
+escrito SHALL pedir decisión; vacía, NO SHALL preguntar.
+
+#### Scenario: Pedir una sesión nueva abre su pestaña y da el foco
+
+- **WHEN** se pide una sesión nueva desde cualquiera de sus puertas
+- **THEN** la tira SHALL mostrar una pestaña «Nueva sesión» al frente
+- **AND** el foco SHALL estar en el campo del compositor sin ningún clic más
+
+#### Scenario: Pedirla de nuevo enfoca, no duplica
+
+- **WHEN** ya hay una pestaña «Nueva sesión» abierta y se vuelve a pedir
+- **THEN** esa pestaña SHALL pasar al frente con el foco en el campo
+- **AND** NO SHALL crearse una segunda
+
+#### Scenario: Enviar convierte la pestaña en la sesión
+
+- **WHEN** se envía la primera instrucción desde la pestaña «Nueva sesión»
+- **THEN** la misma pestaña SHALL pasar a representar la sesión creada
+- **AND** su rótulo SHALL ser el título derivado de la instrucción
+- **AND** NO SHALL abrirse otra pestaña
+
+#### Scenario: Llegar es llegar a la pestaña nueva
+
+- **WHEN** la superficie arranca sin última vista recordada
+- **THEN** SHALL mostrar el compositor como pestaña «Nueva sesión» al frente,
+  con el foco en el campo
+
+#### Scenario: Cerrar con borrador pide decisión
+
+- **WHEN** se cierra la pestaña «Nueva sesión» con texto escrito
+- **THEN** la superficie SHALL pedir decisión antes de descartarlo
+- **AND** sin texto SHALL cerrarla sin preguntar
+
+### Requirement: Dos acordes en el compositor: despachar ahora y encolar
+
+Todo compositor SHALL atender `Ctrl+Enter` (`Cmd+Enter` en macOS) como
+*despachar ahora* y `Ctrl+Shift+Enter` como *encolar*; `Enter` a secas SHALL
+insertar un salto de línea. Cuando la sesión espera una instrucción, despachar
+ahora SHALL enviarla como siguiente turno. Cuando un turno está en vuelo,
+despachar ahora SHALL **relevar** —interrumpir el turno y enviar la instrucción
+como su relevo— y encolar SHALL dejarla detrás del turno sin interrumpir nada;
+en ese estado el botón primario SHALL llamarse «Interrumpir y enviar» y
+«Encolar» SHALL estar a la vista, cada uno con su atajo en la afordancia
+`kbd`, y con el compositor vacío NO SHALL ofrecerse ninguno de los dos. Los
+manejadores que atienden `Ctrl+Enter` SHALL comprobar que `Shift` no está
+pulsado, de modo que los dos acordes nunca disparen la misma acción.
+
+#### Scenario: Ctrl+Enter despacha cuando la sesión espera
+
+- **WHEN** la sesión espera una instrucción y se pulsa `Ctrl+Enter` con texto
+- **THEN** el texto SHALL enviarse como siguiente turno
+- **AND** el campo SHALL quedar vacío y con el foco
+
+#### Scenario: Ctrl+Shift+Enter encola y nunca interrumpe
+
+- **WHEN** un turno está en vuelo y se pulsa `Ctrl+Shift+Enter` con texto
+- **THEN** la instrucción SHALL quedar encolada detrás del turno con su
+  posición declarada
+- **AND** el turno en vuelo NO SHALL interrumpirse
+
+#### Scenario: Ctrl+Enter mientras trabaja avisa antes y releva
+
+- **WHEN** un turno está en vuelo y hay texto en el compositor
+- **THEN** el botón primario SHALL leerse «Interrumpir y enviar» con su atajo
+  y «Encolar» SHALL estar a la vista con el suyo
+- **AND** pulsar `Ctrl+Enter` SHALL interrumpir el turno y enviar el texto como
+  el siguiente
+
+#### Scenario: Con el compositor vacío no hay nada que relevar
+
+- **WHEN** un turno está en vuelo y el compositor está vacío
+- **THEN** NO SHALL ofrecerse interrumpir y enviar
+- **AND** ningún acorde SHALL despachar ni encolar nada
+
+#### Scenario: Los acordes viejos no se pisan
+
+- **WHEN** se pulsa `Ctrl+Shift+Enter` en la paleta, en el compositor de
+  llegada o en el de una sesión
+- **THEN** NO SHALL dispararse la acción de `Ctrl+Enter`
+
+#### Scenario: Enter sigue siendo salto de línea
+
+- **WHEN** se pulsa `Enter` sin modificadores en un compositor
+- **THEN** SHALL insertarse un salto de línea
+- **AND** nada SHALL enviarse
+
+### Requirement: El turno vacío se dice con glifo, palabra y remedio
+WHEN el log de una sesión registra un turno vacío, la conversación de esa
+sesión SHALL mostrarlo en su lugar como un estado propio, con glifo y palabra,
+nunca solo con color, y con el remedio en condicional: probar el agente por su
+cuenta y revisar su proveedor y sus credenciales. El log de operador SHALL darle
+glifo y tono propios. El texto SHALL existir en español y en inglés.
+
+#### Scenario: El turno vacío se lee en la conversación
+- **WHEN** la conversación pliega un log con un `turn_empty`
+- **THEN** SHALL mostrar un aviso de turno vacío con glifo, la palabra y el remedio
+- **AND** el aviso NO SHALL presentarse como una línea de sistema neutra
+
+#### Scenario: Un turno con salida no muestra el aviso
+- **WHEN** la conversación pliega un turno con mensajes o herramientas
+- **THEN** NO SHALL mostrar el aviso de turno vacío
+
+### Requirement: Los indicadores de la GUI se alimentan del estado vivo
+
+Todo indicador de la GUI que afirme que una sesión está trabajando, esperando
+o terminada —el contador de la barra de estado, las cubetas de la barra
+lateral y del árbol, el glifo de la pestaña y el anillo del detalle— SHALL
+derivar del estado que el daemon notifica, y NO SHALL depender de haber vuelto
+a consultar la lista de sesiones. WHERE la GUI consulte esa lista, SHALL ser
+para reconciliarse al conectar, al cambiar de proyecto o tras haberse
+rezagado, nunca como fuente de la que un indicador dependa para ser cierto.
+
+Una sesión abierta desde otro cliente SHALL aparecer y avanzar en la GUI con
+la misma fidelidad que una abierta en ella.
+
+#### Scenario: El contador de la barra cuenta una sesión de otro cliente
+
+- **WHEN** otro cliente abre una sesión y su agente empieza a trabajar
+- **THEN** el contador de la barra de estado de la GUI la cuenta como trabajando sin que el usuario haga nada
+- **AND** la cubeta de la barra lateral y el anillo del detalle afirman lo mismo
+
+#### Scenario: El sondeo solo reconcilia
+
+- **WHEN** la GUI reconecta al daemon o cambia de proyecto
+- **THEN** consulta la lista de sesiones una vez para reconciliarse
+- **AND** entre reconciliaciones los indicadores se mueven solo con las notificaciones
+
+### Requirement: La GUI dice cuándo no está hablando con su propia máquina
+
+WHERE la GUI hable con el daemon a través de un comando, su cromo SHALL
+mostrarlo de forma legible, con el comando abreviado. Una superficie que
+callara la diferencia haría que una acción sobre la máquina equivocada
+pareciera una acción sobre la propia.
+
+#### Scenario: El cromo nombra la vía
+
+- **WHEN** la GUI está conectada a través de un comando
+- **THEN** su barra de estado muestra que habla por esa vía, con el comando abreviado
+
+### Requirement: La GUI configura y prueba el aviso de espera
+
+La GUI SHALL mostrar en sus ajustes si el aviso de espera está configurado y
+SHALL ofrecer enviar un aviso de prueba que recorra exactamente el mismo camino
+que el aviso real. El comando SHALL ejecutarse desde el proceso nativo de la
+aplicación y NO SHALL ejecutarse desde la vista web.
+
+#### Scenario: La prueba usa el mismo camino que el aviso real
+
+- **WHEN** el usuario envía un aviso de prueba desde los ajustes
+- **THEN** se ejecuta el mismo comando con la clase de espera de prueba
+- **AND** el resultado —enviado o fallido— se muestra donde se pidió
+
+### Requirement: Las máquinas se eligen donde se eligen los ajustes
+
+La superficie de escritorio SHALL mostrar en Ajustes una sección de máquinas
+con las que el usuario configuró —nombre, endpoint y, a pedido, la presencia
+que la malla conoce—, SHALL ofrecer probar la conexión de cada una informando
+versión y latencia, y SHALL permitir hacer activa a otra, reconectando sin
+reiniciar la aplicación y advirtiendo del trabajo sin guardar con la misma
+guarda del cambio de proyecto. La barra de estado SHALL decir en qué máquina
+está. Sin máquinas configuradas, el cromo NO SHALL cambiar.
+
+#### Scenario: Ajustes lista las máquinas con su endpoint
+
+- **WHEN** hay máquinas configuradas y se abre Ajustes
+- **THEN** la sección SHALL mostrar cada una con su nombre y su endpoint
+- **AND** SHALL marcar cuál es la activa
+
+#### Scenario: Probar una máquina dice si respondió y cuánto tardó
+
+- **WHEN** el usuario prueba una máquina
+- **THEN** SHALL informarse la versión del daemon y la latencia, o el
+  diagnóstico de por qué no respondió
+- **AND** la máquina activa NO SHALL cambiar por probar
+
+#### Scenario: Cambiar de máquina avisa del trabajo sin guardar
+
+- **WHERE** hay trabajo sin guardar y el usuario elige otra máquina
+- **THEN** SHALL advertirse con la misma guarda que el cambio de proyecto
+- **AND** al confirmar, la aplicación SHALL reconectar contra la nueva sin
+  reiniciarse
+
+#### Scenario: Sin máquinas configuradas el cromo no cambia
+
+- **WHERE** no hay máquinas en la configuración de usuario
+- **THEN** la barra de estado NO SHALL ganar nada
+- **AND** Ajustes SHALL decir cómo se configuran, sin pedir nada
+
+### Requirement: Vocabulario de movimiento acotado
+La GUI SHALL animar solo con las clases del vocabulario de movimiento de
+`docs/ux/design-system.md`, cada una con su lugar, su token de duración
+(`--dur-1`, `--dur-2`, `--dur-pulse`, `--dur-ambient`, `--dur-mark`, con
+`--ease-out`) y su
+equivalente sin movimiento. Las animaciones con nombre SHALL ser exactamente las
+de una lista cerrada —`composer-wind`, `arrive`, `skeleton-pulse` y
+`mark-draw`— y SHALL animar solo opacidad o transform, con la única excepción
+del trazo de la marca, que dibuja su contorno. Ninguna SHALL animar altura,
+posición ni color de fondo; la bandeja de permisos, las tarjetas de permiso,
+los avisos y la barra lateral MUST NOT animarse; y todo archivo que anima SHALL
+retirar su animación bajo `prefers-reduced-motion`.
+
+#### Scenario: Una animación fuera de la lista rompe la suite
+- **WHEN** un archivo de la interfaz declara una animación con nombre que no está en la lista cerrada
+- **THEN** la suite SHALL fallar nombrando el archivo y la animación
+
+#### Scenario: Toda animación se retira con movimiento reducido
+- **WHEN** un archivo de la interfaz declara una animación
+- **THEN** el mismo archivo SHALL declarar la rama de `prefers-reduced-motion` que la retira
+
+#### Scenario: Las duraciones salen de los tokens
+- **WHEN** una animación de la interfaz declara su duración
+- **THEN** SHALL tomarla de un token del vocabulario y no de un literal
+
+#### Scenario: Las superficies de decisión no se mueven
+- **WHEN** se recorre la fuente de la bandeja de permisos, de la tarjeta de permiso del transcript, de los avisos y de la barra lateral
+- **THEN** ninguna SHALL declarar animación ni transición
+
+#### Scenario: La marca se dibuja una vez en la bienvenida
+- **WHEN** se abre la bienvenida
+- **THEN** el contorno de la marca SHALL dibujarse una vez, en 600 ms
+- **AND** bajo movimiento reducido SHALL aparecer ya dibujado
+
+### Requirement: Estados de carga con esqueleto y umbral
+Una vista que espera datos del daemon SHALL mostrar un esqueleto en lugar de la
+palabra de carga: filas de 32 px con barras de anchos fijos, marcadas
+`aria-busy="true"` y con el texto de carga del catálogo para lectores de
+pantalla. El esqueleto SHALL aparecer solo cuando la espera supera 150 ms,
+SHALL latir con un pulso de opacidad y MUST NOT llevar un gradiente en barrido.
+Bajo movimiento reducido las barras SHALL quedar quietas y el texto de carga
+SHALL verse. Un botón cuya etiqueta cambia mientras espera SHALL conservar su
+ancho.
+
+#### Scenario: Una carga rápida no parpadea
+- **WHEN** los datos llegan antes de 150 ms
+- **THEN** la vista SHALL NOT haber mostrado el esqueleto
+
+#### Scenario: Una carga lenta muestra el esqueleto
+- **WHEN** la espera supera 150 ms
+- **THEN** la vista SHALL mostrar el esqueleto con `aria-busy` y el texto de carga accesible
+- **AND** SHALL retirarlo cuando llegan los datos
+
+#### Scenario: El esqueleto se queda quieto con movimiento reducido
+- **WHERE** el sistema declara preferencia de movimiento reducido
+- **THEN** las barras SHALL quedar quietas y el texto de carga SHALL verse
+
+#### Scenario: Ninguna vista espera con una palabra suelta
+- **WHEN** se recorre la fuente de Project, Review, Fleet, Settings y Usage
+- **THEN** ninguna espera de bloque SHALL ser solo la palabra de carga
+- **AND** los botones que la usan como etiqueta SHALL conservar su ancho
+
+### Requirement: Señal de vida del turno
+Mientras el agente de una sesión trabaja, el transcript SHALL decir que el
+turno está en curso: antes del primer fragmento, una línea «trabajando…» con el
+tiempo del turno en `m:ss`, que avanza cada segundo; con fragmentos, un cursor
+fijo tras el último, que MUST NOT parpadear. La señal SHALL retirarse cuando el
+agente deja de trabajar —turno cerrado, sesión que espera una decisión o una
+instrucción, sesión terminada— y un turno cerrado sin partes SHALL seguir
+diciendo «sin salida». El tiempo de la sesión en la cabecera SHALL avanzar cada
+segundo mientras la sesión vive, en cifras tabulares, y quedar fijo en su
+duración final cuando termina.
+
+#### Scenario: Antes del primer fragmento se dice que trabaja
+- **WHEN** el agente trabaja y el turno aún no tiene fragmentos
+- **THEN** el transcript SHALL mostrar «trabajando…» con el tiempo transcurrido desde la instrucción, y no «sin salida»
+
+#### Scenario: El cursor sigue al último fragmento sin parpadear
+- **WHEN** el turno en curso tiene fragmentos
+- **THEN** un cursor fijo SHALL seguir al último fragmento
+- **AND** SHALL desaparecer cuando el turno se cierra
+
+#### Scenario: Esperar una decisión no es trabajar
+- **WHEN** la sesión espera una decisión de permiso o una instrucción
+- **THEN** el transcript SHALL NOT mostrar la señal de vida
+
+#### Scenario: El tiempo de la sesión corre mientras vive
+- **WHEN** la sesión vive
+- **THEN** su tiempo en la cabecera SHALL avanzar cada segundo en cifras tabulares
+- **AND** cuando termina SHALL quedar fijo en su duración final
+
+### Requirement: Ventana visible tras el primer frame
+La ventana principal SHALL crearse oculta, recibir la geometría restaurada
+mientras está oculta y mostrarse cuando la interfaz montó su primer árbol, o a
+los 500 ms si la interfaz no lo señala, lo que ocurra antes, y una sola vez.
+Desde antes de mostrarse SHALL llevar el fondo del tema de la interfaz —el
+elegido o, sin elección, el del sistema—, de modo que ningún instante enseñe
+el fondo propio del webview.
+
+#### Scenario: La ventana nace oculta y con su geometría
+- **WHEN** arranca la aplicación
+- **THEN** la ventana SHALL crearse oculta
+- **AND** la geometría restaurada SHALL aplicarse antes de mostrarla
+
+#### Scenario: La interfaz lista muestra la ventana
+- **WHEN** la interfaz monta su primer árbol
+- **THEN** SHALL pedir al anfitrión que muestre la ventana
+
+#### Scenario: Una interfaz muda no deja la ventana invisible
+- **WHEN** la interfaz no lo señala en 500 ms
+- **THEN** el anfitrión SHALL mostrar la ventana igualmente
+- **AND** una señal tardía SHALL NOT volver a mostrarla
+
+#### Scenario: La ventana nunca enseña un fondo ajeno al tema
+- **WHEN** la ventana se muestra antes de que la interfaz haya pintado
+- **THEN** lo visible SHALL ser el fondo del tema de la interfaz, claro u oscuro según la elección o el sistema
+
+### Requirement: Diagnóstico en Ajustes
+Ajustes SHALL tener una sección de diagnóstico que muestre el mismo informe que
+`doctor`, fila por fila con su estado en palabra y símbolo y su remedio, en el
+idioma de la interfaz, y un botón que lo copie al portapapeles. La sección NO
+SHALL mandar el informe a ningún sitio.
+
+#### Scenario: Ajustes muestra el diagnóstico y lo copia
+- **WHEN** el usuario abre el diagnóstico en Ajustes
+- **THEN** SHALL ver cada fila con su estado y su remedio
+- **AND** copiarlo SHALL dejar el informe en el portapapeles y nada más
+
+### Requirement: Primer arranque del compositor
+
+Cuando la flota ha respondido y no hay ningún agente lanzable, el selector de
+agente del compositor SHALL decirlo en su cara con tono de advertencia, antes
+de que un envío sea rehusado, y NO SHALL ofrecer como elegible el agente por
+defecto del proyecto. Su menú SHALL permitir abrir la vista de flota, no solo
+nombrarla. En la primera llegada con agentes lanzables, el selector SHALL
+reconocer cuántos hay una sola vez, y ese reconocimiento NO SHALL repetirse en
+arranques posteriores.
+
+#### Scenario: La flota vacía se dice antes de fallar
+
+- **WHEN** la flota ha respondido y ningún agente es lanzable
+- **THEN** el selector de agente SHALL decirlo en su cara con tono de
+  advertencia
+- **AND** NO SHALL ofrecer el agente por defecto como elegible
+
+#### Scenario: El menú vacío abre la flota
+
+- **WHEN** el menú del selector no ofrece ningún agente
+- **THEN** SHALL permitir abrir la vista de flota desde él
+
+#### Scenario: El reconocimiento se dice una vez
+
+- **WHEN** el compositor llega por primera vez con agentes lanzables
+- **THEN** SHALL mostrar cuántos hay
+- **AND** NO SHALL volver a mostrarlo en arranques posteriores
+
+### Requirement: La pestaña del compositor se nombra con palabras
+La pestaña del compositor de una sesión nueva SHALL nombrarse «Nueva sesión»
+—en el idioma de la superficie— en la tira de pestañas, en la miga y en la
+sección de abiertas de la barra, y su id interno MUST NOT mostrarse en ninguna
+de ellas.
+
+#### Scenario: El compositor abierto no muestra su id
+- **WHEN** el compositor de una sesión nueva está abierto
+- **THEN** la miga y la sección de abiertas SHALL nombrarlo «Nueva sesión»
+- **AND** ninguna superficie SHALL mostrar su id interno

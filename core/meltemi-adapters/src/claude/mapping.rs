@@ -329,8 +329,9 @@ pub fn title_for(name: &str, input: &Value) -> String {
     }
 }
 
-/// The file a tool call is about, when it names one.
-fn path_in(input: &Value) -> Option<String> {
+/// The file a tool call is about, when it names one. The permission relay
+/// reads it too, so a rule by path sees the same path the call showed.
+pub(crate) fn path_in(input: &Value) -> Option<String> {
     ["file_path", "path", "notebook_path"]
         .iter()
         .find_map(|field| input.get(*field).and_then(Value::as_str))

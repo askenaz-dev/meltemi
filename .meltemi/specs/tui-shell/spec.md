@@ -480,13 +480,20 @@ remedio — SHALL quedar visible en los avisos del shell.
 
 La TUI SHALL mostrar el modelo y el esfuerzo efectivos de una sesión donde
 muestra su estado, y SHALL omitirlos cuando la sesión no declaró ninguno en vez
-de mostrar un valor inventado.
+de mostrar un valor inventado. Cuando una palanca se rehusó al abrir, la
+transcripción SHALL decir la palanca, lo pedido y el motivo, en español y en
+inglés, y el modelo rehusado NO SHALL mostrarse como el que rigió.
 
 #### Scenario: El terminal muestra el modelo efectivo
 
 - **WHEN** una sesión corre con modelo declarado
 - **THEN** la TUI SHALL mostrarlo
 - **AND** una sesión sin modelo declarado NO SHALL mostrar uno
+
+#### Scenario: El terminal dice la palanca rehusada
+
+- **WHEN** una sesión termina rehusando una palanca al abrir
+- **THEN** la transcripción SHALL decir la palanca, lo pedido y el motivo
 
 ### Requirement: La identidad y las máquinas se leen desde el terminal
 
@@ -509,3 +516,287 @@ vacío sin daemon NO SHALL mencionar la identidad.
 - **WHERE** el daemon rehúsa por no haber cliente de malla
 - **THEN** el terminal SHALL mostrar el diagnóstico y el remedio tal cual
 - **AND** SHALL seguir en la misma vista
+
+### Requirement: El chrome del terminal dice la change y su compuerta
+
+El chrome persistente SHALL mostrar, cuando el proyecto lleva el método, la
+change que reclama una decisión junto al artefacto que la espera. La señal
+SHALL respetar la prioridad vigente al reducirse el tamaño: SHALL cederse antes
+que la conexión y que las decisiones pendientes.
+
+#### Scenario: El chrome nombra la compuerta que espera
+
+- **WHEN** una change reclama una decisión
+- **THEN** el chrome SHALL nombrarla junto al artefacto que la espera
+
+#### Scenario: La compuerta cede antes que la conexión
+
+- **WHEN** el ancho disponible obliga a reducir el chrome
+- **THEN** la señal de la compuerta SHALL cederse antes que la conexión y que
+  las decisiones pendientes
+
+### Requirement: El modo se elige y se lee desde el terminal
+
+La TUI SHALL permitir elegir el modo al arrancar una sesión y SHALL declararlo
+con símbolo y palabra donde muestra el estado de la sesión.
+
+#### Scenario: El terminal declara el modo de la sesión
+
+- **WHEN** una sesión corre con modo declarado
+- **THEN** la TUI SHALL mostrarlo con símbolo y palabra
+
+### Requirement: El drill-in de sesión lee como conversación
+
+El transcript del shell SHALL mostrar lo que los eventos dicen y no solo el
+nombre de su tipo: la prosa del agente, su pensamiento y las llamadas a
+herramienta con su estado. El pensamiento SHALL distinguirse de la prosa por
+palabra y no únicamente por color, con su gemelo ASCII. Los eventos que no
+llevan contenido SHALL conservar su línea de tipo, que es lo que son. Sin
+pensamiento emitido NO SHALL mostrarse marcador alguno en su lugar.
+
+#### Scenario: El transcript dice lo que el agente dijo
+
+- **WHEN** el transcript recibe prosa del agente
+- **THEN** SHALL mostrar su texto y no solo el nombre del tipo de evento
+
+#### Scenario: El pensamiento se distingue de la prosa
+
+- **WHEN** el transcript recibe pensamiento del agente
+- **THEN** SHALL marcarlo con una palabra que lo distinga de la prosa
+- **AND** la distinción NO SHALL depender únicamente del color
+
+#### Scenario: Un evento sin contenido sigue diciendo su tipo
+
+- **WHEN** el transcript recibe un evento que no lleva contenido
+- **THEN** SHALL mostrar su tipo como hasta ahora
+
+### Requirement: Interrumpir y enviar desde la conversación
+
+El shell SHALL permitir dirigir una sesión pidiendo interrumpir el turno en
+vuelo, y SHALL decir cuál de los dos desenlaces ocurrió: la instrucción quedó
+encolada, o relevó al turno interrumpido.
+
+#### Scenario: El shell dice si encoló o relevó
+
+- **WHEN** se dirige una sesión pidiendo interrumpir
+- **THEN** el shell SHALL decir si la instrucción quedó encolada o relevó al
+  turno
+
+### Requirement: La sesión que espera se dirige desde el terminal
+
+La TUI SHALL declarar la sesión en espera con símbolo y palabra, y su flujo de
+dirección SHALL ofrecerse sobre ella como sobre una sesión activa, sin rótulo de
+reanudación y sin refuerzo del daemon.
+
+#### Scenario: El shell dice que la sesión espera
+
+- **WHEN** una sesión queda esperando instrucciones
+- **THEN** el listado SHALL declararla con símbolo y palabra
+- **AND** dirigirla SHALL ofrecerse como sobre una sesión activa
+
+### Requirement: La lista de sesiones muestra el título
+
+La lista de sesiones del shell SHALL mostrar el título de cada sesión que lo
+tenga, junto al identificador y al agente que ya muestra, recortándolo al ancho
+disponible sin desplazar las demás columnas. Una sesión sin título SHALL
+mostrarse como antes de esta capacidad.
+
+#### Scenario: La lista de sesiones muestra el título
+
+- **WHEN** la lista muestra una sesión con título
+- **THEN** SHALL mostrar su título junto al identificador y al agente
+- **AND** SHALL recortarlo al ancho disponible sin desplazar las demás columnas
+
+### Requirement: El terminal también lee el harness efectivo
+
+La superficie de terminal SHALL ofrecer la misma lectura del harness efectivo
+que las demás superficies, con la capa de origen de cada pieza y con lo pisado
+y lo inválido incluidos.
+
+#### Scenario: El terminal muestra el harness con su origen
+
+- **WHEN** se consulta el harness desde el terminal
+- **THEN** SHALL mostrarse cada pieza con su capa de origen
+
+### Requirement: Dentro de cada proyecto, las sesiones se ordenan por lo que piden
+
+En la vista Sesiones del terminal, dentro de cada grupo de proyecto, las filas
+SHALL ordenarse por cubeta de estado en orden de señal —esperan tu decisión,
+listas para tu instrucción, trabajando, detenidas— con una cabecera por cubeta
+que diga el estado con glifo y palabra y la cuenta; una cubeta vacía NO SHALL
+dibujarse. La tabla de cubetas SHALL coincidir estado a estado y en orden con
+la de la superficie de escritorio. El cursor SHALL seguir moviéndose fila a
+fila, saltando las cabeceras sin detenerse en ellas y sin cambiar de modelo.
+Los gestos de enviar y encolar SHALL seguir siendo los del terminal (`Enter` envía, `Tab` alterna el relevo) y el pie de
+página SHALL nombrarlos; NO SHALL depender de combinaciones con Ctrl.
+
+#### Scenario: Cubetas dentro del proyecto en el terminal
+
+- **WHEN** un proyecto tiene sesiones en más de un estado
+- **THEN** la vista SHALL mostrarlas bajo cabeceras de cubeta en orden de señal
+- **AND** cada cabecera SHALL llevar glifo con gemelo ASCII, palabra y cuenta
+
+#### Scenario: El cursor no se entera de las cubetas
+
+- **WHEN** se recorre la lista con las flechas
+- **THEN** el cursor SHALL pasar de una fila a la siguiente cruzando cabeceras
+- **AND** la sesión seleccionada SHALL ser la misma que sin cubetas
+
+#### Scenario: Enviar y encolar con las teclas del terminal
+
+- **WHEN** se dirige una sesión que trabaja
+- **THEN** `Enter` SHALL encolar y `Tab` seguido de `Enter` SHALL relevar
+- **AND** el pie de página SHALL decirlo antes de pulsar nada
+
+### Requirement: El turno vacío se dice en el transcript
+WHEN el transcript en vivo de una sesión recibe un turno vacío, o el detalle de
+una sesión finalizada lee uno de su log, la TUI SHALL mostrarlo con palabras,
+en el idioma de la interfaz, junto al remedio en condicional, y NO SHALL
+reducirlo al nombre crudo del evento.
+
+#### Scenario: El transcript nombra el turno vacío
+- **WHEN** llega un evento `turn_empty` de una sesión en vivo
+- **THEN** la línea del transcript SHALL decir «turno vacío» en español, o su equivalente en inglés, con el remedio
+
+#### Scenario: El detalle histórico nombra el turno vacío
+- **WHEN** el detalle de una sesión finalizada lee una línea `turn_empty` de su log
+- **THEN** la línea SHALL decir «turno vacío» con el remedio, no el nombre crudo del evento
+
+### Requirement: La TUI deja de sondear el estado de las sesiones
+
+La fila de una sesión en la TUI SHALL reflejar el estado que el daemon notifica,
+y la TUI NO SHALL depender de su reloj periódico para que ese estado sea
+cierto. El reloj periódico SHALL seguir existiendo para lo que mide tiempo
+—relojes y duraciones— y para reconciliar la lista al reconectar, nunca como
+fuente del estado.
+
+#### Scenario: La fila cambia al llegar la transición
+
+- **WHEN** una sesión transita de estado mientras la TUI está abierta
+- **THEN** su fila pasa a ese estado sin esperar el siguiente tic del reloj
+- **AND** una sesión abierta desde otro cliente aparece y avanza igual que una abierta en la TUI
+
+#### Scenario: El reloj sigue moviendo los relojes
+
+- **WHEN** pasa un tic del reloj periódico sin que ninguna sesión transite
+- **THEN** las duraciones mostradas avanzan
+- **AND** no se consulta la lista de sesiones para saber en qué estado están
+
+### Requirement: La TUI dice cuándo no está hablando con su propia máquina
+
+WHERE la TUI hable con el daemon a través de un comando, su cromo SHALL
+mostrarlo de forma legible, con el comando abreviado, por la misma razón que
+la GUI.
+
+#### Scenario: El cromo de la TUI nombra la vía
+
+- **WHEN** la TUI está conectada a través de un comando
+- **THEN** su cromo muestra que habla por esa vía, con el comando abreviado
+
+### Requirement: La TUI emite y prueba el aviso de espera
+
+La TUI SHALL emitir el aviso configurado cuando algo empiece a esperar, con el
+mismo contrato de contenido que la GUI, y SHALL ofrecer enviar un aviso de
+prueba desde su paleta.
+
+#### Scenario: La paleta de la TUI envía un aviso de prueba
+
+- **WHEN** el usuario pide el aviso de prueba desde la paleta
+- **THEN** se ejecuta el comando configurado con la clase de espera de prueba
+- **AND** si no hay comando configurado, se dice sin fingir que se envió algo
+
+### Requirement: Las máquinas se eligen desde el terminal
+
+La paleta del terminal SHALL ofrecer listar las máquinas configuradas y hacer
+activa a otra, con descripción en ambos idiomas, y SHALL decir en su cabecera
+en qué máquina está. Cambiar de máquina SHALL reconectar sin reiniciar el
+proceso. Un nombre que no está en la lista SHALL rehusarse nombrando los que sí
+están.
+
+#### Scenario: Máquinas desde la paleta
+
+- **WHEN** se invoca el verbo de máquinas desde la paleta
+- **THEN** el terminal SHALL mostrar cada máquina con su endpoint y cuál es la
+  activa
+
+#### Scenario: Cambiar de máquina desde la paleta reconecta
+
+- **WHEN** se nombra otra máquina de la lista
+- **THEN** el terminal SHALL reconectar contra su endpoint sin reiniciarse
+- **AND** un nombre que no está SHALL rehusarse nombrando los que sí están
+
+### Requirement: Spinner y cronómetro con gemelo ASCII, sin costo en reposo
+Mientras alguna sesión trabaja, la cabecera del shell SHALL mostrar un spinner
+braille (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) junto al número de sesiones que trabajan y una palabra,
+y el detalle de una sesión que trabaja SHALL mostrar el tiempo de la sesión en
+`mm:ss`. El spinner SHALL tener gemelo ASCII (`-\|/`) con su propio ciclo bajo
+la política de presentación ASCII. El tic que los anima SHALL armarse solo
+mientras alguna sesión trabaja: en reposo el pulso MUST NOT añadir redibujos.
+Un tiempo que el shell no puede mantener al día MUST NOT mostrarse.
+
+#### Scenario: La cabecera late mientras una sesión trabaja
+- **WHEN** al menos una sesión trabaja
+- **THEN** la cabecera SHALL mostrar el spinner con el número de sesiones que trabajan y la palabra
+- **AND** SHALL retirarlo cuando ninguna trabaja
+
+#### Scenario: El spinner ASCII usa su propio ciclo
+- **WHERE** la presentación es ASCII
+- **THEN** el spinner SHALL recorrer `-\|/` sin ningún carácter braille
+
+#### Scenario: El detalle cuenta el tiempo de la sesión que trabaja
+- **WHEN** el detalle muestra una sesión que trabaja
+- **THEN** su línea SHALL mostrar el tiempo de la sesión en `mm:ss`
+- **AND** una sesión terminada SHALL mostrar su duración final, y una viva que no trabaja SHALL NOT mostrar tiempo
+
+#### Scenario: En reposo no hay tic
+- **WHEN** ninguna sesión trabaja
+- **THEN** el shell SHALL NOT armar el tic del pulso
+
+### Requirement: Énfasis con el color de la marca
+
+Cuando el color está permitido, el shell SHALL pintar lo que destaca como
+bloque —el banner, los contadores de la cabecera, el título del panel
+enfocado y la fila seleccionada— con el azul Egeo de la marca de fondo y
+texto blanco en negrita, y SHALL pintar los títulos de vista y las cabeceras
+de grupo en negrita con ese azul sobre el fondo del terminal, sin bloque. El
+azul SHALL ser el exacto (`#2563eb`) cuando el terminal anuncia color de 24
+bits (`COLORTERM=truecolor` o `24bit`) y el más cercano de la paleta de 256
+colores en otro caso. Sin color, ambos estilos SHALL ser el vídeo inverso, sin
+pintar fondo. El significado MUST seguir en glifo, etiqueta y disposición.
+
+#### Scenario: Énfasis con color
+
+- **WHERE** el color está permitido
+- **WHEN** se renderiza la vista de sesiones con una petición pendiente y una fila seleccionada
+- **THEN** el banner y la fila seleccionada SHALL llevar el acento de fondo y texto blanco en negrita
+- **AND** la cabecera de cada proyecto SHALL llevar el acento como color de texto, sin fondo
+
+#### Scenario: El acento según el terminal
+
+- **WHEN** `COLORTERM` vale `truecolor` o `24bit`
+- **THEN** el acento SHALL ser `#2563eb` exacto
+- **WHEN** `COLORTERM` no está o vale otra cosa
+- **THEN** el acento SHALL ser el índice 27 de la paleta de 256 colores
+
+#### Scenario: Monocromo conserva el inverso
+
+- **WHERE** `NO_COLOR` está definida con valor no vacío
+- **WHEN** se renderiza cualquier vista
+- **THEN** ninguna celda SHALL llevar color de texto ni de fondo
+- **AND** el énfasis SHALL ser vídeo inverso
+
+#### Scenario: La captura muestra los colores
+
+- **WHEN** se genera `docs/media/tui-sessions.svg` con `capture_svg`
+- **THEN** la captura SHALL ser SVG bien formado
+- **AND** SHALL llevar el acento de la marca como `fill` de los tramos en bloque
+
+### Requirement: Diagnóstico desde la paleta
+La paleta SHALL ofrecer `doctor` (y `diagnostico`), que muestre el mismo informe
+que el subcomando, con estado en símbolo y palabra, también cuando el daemon no
+responde.
+
+#### Scenario: La paleta muestra el diagnóstico, también sin daemon
+- **WHEN** el usuario escribe `doctor` en la paleta
+- **THEN** la TUI SHALL mostrar el informe
+- **AND** con el daemon caído SHALL mostrarlo igual, con esa fila en falla
