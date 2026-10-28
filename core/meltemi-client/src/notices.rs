@@ -615,12 +615,22 @@ echo \"$MELTEMI_WAITING $MELTEMI_SESSION $MELTEMI_COUNT $MELTEMI_MACHINE\" > '{}
     #[test]
     fn past_the_floor_the_next_wait_is_told_again() {
         let (dir, seen) = recording_dir("past-floor");
-        let mut emitter = Emitter::with_floor(dir.clone(), Duration::from_millis(200));
+        let floor = Duration::from_millis(200);
+        let mut emitter = Emitter::with_floor(dir.clone(), floor);
 
+        // Inside the floor is asked right away. The floor starts when the
+        // notice is sent, not when the recorder has written it, and a slow
+        // runner can take longer than the floor to start a shell.
         assert!(emitter.waiting(Waiting::Permission, "s-1", 1));
-        assert_eq!(wait_for(&seen, 1), 1);
         assert!(!emitter.waiting(Waiting::Permission, "s-1", 2), "inside");
-        std::thread::sleep(Duration::from_millis(350));
+        assert_eq!(wait_for(&seen, 1), 1);
+
+        // Past it is measured from when the notice went out, not assumed.
+        let sent = emitter.last_sent().expect("the first notice went out");
+        let past = sent + floor + Duration::from_millis(50);
+        if let Some(left) = past.checked_duration_since(std::time::Instant::now()) {
+            std::thread::sleep(left);
+        }
         assert!(
             emitter.waiting(Waiting::Gate, "s-1", 3),
             "past the floor it is told again"

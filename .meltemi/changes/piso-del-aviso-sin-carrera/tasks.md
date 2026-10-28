@@ -5,7 +5,7 @@ Vía rápida, sin deltas. Un commit atómico por tarea, con referencia
 
 ## 1. El test
 
-- [ ] 1.1 `past_the_floor_the_next_wait_is_told_again`: «dentro» antes de
+- [x] 1.1 `past_the_floor_the_next_wait_is_told_again`: «dentro» antes de
   esperar al grabador (design D1) y «fuera» medido desde `last_sent` (design
   D2) — gates: el test rojo con un grabador de 300 ms y el de antes, verde con
   el nuevo; `cargo test -p meltemi-client` y `cargo fmt --check`
