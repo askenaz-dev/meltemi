@@ -120,8 +120,9 @@ de uso propio, con el origen del dato y el modelo cuando la salida lo declare,
 sin alterar los eventos ya existentes ni la versión del envelope. Los contadores
 que la salida no declara MUST quedar ausentes del evento — nunca en cero — y el
 evento MUST NOT contener credenciales, cabeceras, cookies ni identificadores de
-la cuenta del proveedor. WHERE la sesión corre sobre ACP, cuyo protocolo no
-transporta uso, ningún evento de uso SHALL fabricarse.
+la cuenta del proveedor. WHERE la sesión corre sobre ACP, ningún evento de uso
+SHALL fabricarse: lo que el agente reporte por el protocolo —contexto y costo—
+queda en el log como la actualización que es, y la contabilidad lo lee de ahí.
 
 #### Scenario: Contadores de uso persistidos desde la salida oficial
 - **WHEN** una ejecución de nivel 3 emite en su salida estructurada la línea con contadores de uso
@@ -136,7 +137,7 @@ transporta uso, ningún evento de uso SHALL fabricarse.
 #### Scenario: Sesión ACP no fabrica evento de uso
 - **WHERE** la sesión corre sobre ACP
 - **THEN** el log SHALL quedar sin evento de uso
-- **AND** la contabilidad SHALL leerlo como no reportado por el protocolo
+- **AND** la contabilidad SHALL leer lo que el agente reportó por el protocolo, o no reportado si no reportó nada
 
 #### Scenario: El evento de uso no transporta identidad de la cuenta
 - **WHEN** se registra un evento de uso
