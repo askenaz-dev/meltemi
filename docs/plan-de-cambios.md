@@ -423,6 +423,17 @@ en su perfil. La entrada de OpenCode lanza con `OPENCODE_CONFIG_CONTENT` en
 guía lo dice con el valor, y que OpenCode así mande sus preguntas por ACP es una
 pierna manual pendiente de `docs/conformidad-manual.md`.
 
+**6º `registro-de-la-sesion-de-calle`, cerrada el 2026-10-28** (3/3, verify
+3/3): el daemon sabe por la forma de la ruta a qué proyecto pertenece una calle
+(`<raíz>/.meltemi/worktrees/<change>/<calle>`), y `session/log`, la búsqueda
+de una sesión por raíz y la reanudación leen y escriben bajo la clave de ese
+proyecto; la calle sigue siendo la raíz que el índice guarda. El primer
+worktree de tarea excluye la raíz gestionada en `.git/info/exclude`, como ya
+hacía el taller. El e2e encontró un tercer hueco de la misma historia: un
+despacho termina sin salir del registro vivo, y `session/direct` lo rehusaba
+como «activa pero no dirigible» mientras el daemon viviera; ahora solo rehúsa
+una sesión que sigue corriendo.
+
 No son gate, y el guion los declara como desviación conocida:
 `codex-reanudar-y-mcp` (Codex no se reanuda), `extension-acp-usage` (Claude
 Code y Codex no reportan uso), los certificados de firma de plataforma y la

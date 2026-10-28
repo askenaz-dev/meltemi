@@ -23,5 +23,7 @@ Vía rápida. Un commit atómico por tarea, con referencia
 
 ## 2. Cierre
 
-- [ ] 2.1 `meltemi validate` y `verify` con los tres escenarios; entrada en
+- [x] 2.1 `meltemi validate` y `verify` con los tres escenarios; entrada en
   `docs/plan-de-cambios.md`
+  <!-- 2026-10-28: validate limpio, verify 3/3 enlazados; la suite entera del
+  daemon en verde; entrada «6º» en el avance de la tanda. -->
