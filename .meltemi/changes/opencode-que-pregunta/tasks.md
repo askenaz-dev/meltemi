@@ -1,0 +1,22 @@
+# Tasks — opencode-que-pregunta
+
+Vía rápida. Un commit atómico por tarea, con referencia
+`(opencode-que-pregunta N.M)` y sin trailers de co-autoría.
+
+## 1. El entorno de lanzamiento
+
+- [ ] 1.1 `launch-env` en el registro, hasta la entrada del catálogo (design
+  D1) — gate: tests de `fleet.rs`
+- [ ] 1.2 Las cuatro resoluciones lo aplican con su precedencia, y el comando
+  literal no (design D2, D3) — escenarios «Lo que el usuario fijó manda» y «Un
+  comando literal no hereda el entorno del registro»; gates: tests de
+  `levels.rs`
+- [ ] 1.3 La entrada de OpenCode lo declara (design D4); la guía de agentes y
+  la pierna manual de `docs/conformidad-manual.md` (design D5) — escenario
+  «OpenCode se lanza de modo que pregunte»; gates: tests de la guía y de la
+  resolución contra la instantánea real del registro
+
+## 2. Cierre
+
+- [ ] 2.1 `meltemi validate` y `verify` con los tres escenarios; entrada en
+  `docs/plan-de-cambios.md`
