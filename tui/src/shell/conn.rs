@@ -53,6 +53,10 @@ pub enum Command {
     Identity,
     /// List the machines this user configured (maquinas-remotas design D6).
     Machines,
+    /// Compose the diagnosis (meltemi-doctor): this machine's facts and the
+    /// daemon's answers, asked on a connection of its own that never starts a
+    /// daemon. Works connected or not.
+    Doctor,
     /// Talk to another machine from now on.
     SwitchMachine { name: String },
     /// Ask for the linking gesture. The terminal prints it and never runs it.
@@ -127,7 +131,7 @@ pub async fn connection_actor(
                 let _ = updates.send(Update::Conn(ConnState::Unreachable {
                     detail: error.to_string(),
                 }));
-                match backoff_or_stop(&mut commands, backoff, &updates, lang).await {
+                match backoff_or_stop(&mut commands, backoff, &updates, lang, &endpoint).await {
                     Waited::UiGone => return,
                     // The machine chosen during a wait starts its own attempt at
                     // once: the new one inherits nothing from the old one's bad
@@ -337,6 +341,7 @@ async fn serve_connection(
                 }
                 Some(Command::Identity) => read_identity(&peer, updates).await,
                 Some(Command::Machines) => send_machines(updates, Some(endpoint)),
+                Some(Command::Doctor) => send_doctor(updates, endpoint),
                 Some(Command::SwitchMachine { name }) => {
                     if let Some(endpoint) = resolve_machine(&name, updates, lang) {
                         // Dropped, not drained: what is in flight belongs to the
@@ -530,6 +535,7 @@ async fn backoff_or_stop(
     backoff: Duration,
     updates: &UnboundedSender<Update>,
     lang: Lang,
+    endpoint: &str,
 ) -> Waited {
     let sleep = tokio::time::sleep(backoff);
     tokio::pin!(sleep);
@@ -542,6 +548,9 @@ async fn backoff_or_stop(
                 // somebody most wants it: the list is configuration, not an
                 // answer from a daemon.
                 Some(Command::Machines) => send_machines(updates, None),
+                // The diagnosis too: a daemon that does not answer is exactly
+                // when somebody asks for it.
+                Some(Command::Doctor) => send_doctor(updates, endpoint),
                 Some(Command::SwitchMachine { name }) => {
                     if let Some(endpoint) = resolve_machine(&name, updates, lang) {
                         return Waited::Switch(endpoint);
@@ -551,6 +560,24 @@ async fn backoff_or_stop(
             },
         }
     }
+}
+
+/// Composes the diagnosis off the loop and sends it when it is ready. Its own
+/// task, because gathering it can take seconds (meltemi-doctor design D4) and
+/// the loop must keep answering meanwhile.
+fn send_doctor(updates: &UnboundedSender<Update>, endpoint: &str) {
+    use meltemi_client::doctor;
+    let updates = updates.clone();
+    let endpoint = endpoint.to_string();
+    tokio::spawn(async move {
+        let at = endpoint.clone();
+        let Ok(local) = tokio::task::spawn_blocking(move || doctor::Local::gather_for(&at)).await
+        else {
+            return;
+        };
+        let daemon = doctor::ask_daemon(&endpoint).await;
+        let _ = updates.send(Update::Doctor(doctor::compose(&local, &daemon)));
+    });
 }
 
 /// Sends the configured machines, marking `active` when there is one.

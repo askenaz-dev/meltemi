@@ -394,12 +394,17 @@ fn verified_label(row: &crate::shell::live::FleetRow, lang: Lang) -> String {
 /// — together with the BYO-agent hint: content, never a mute screen.
 fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) {
     let Some(fleet) = &live.fleet else {
-        let text = format!(
+        let mut lines = vec![Line::from(format!(
             "{} {}",
             glyphs::PENDING.text(&ctx.present),
             ctx.msg(Msg::FleetLoading)
-        );
-        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
+        ))];
+        // What needs no daemon still reads without one: the machines are this
+        // user's configuration, and the diagnosis is most wanted exactly when
+        // the daemon does not answer (meltemi-doctor).
+        append_machines(&mut lines, live, ctx);
+        append_doctor(&mut lines, live, ctx);
+        render_lines(frame, area, lines);
         return;
     };
 
@@ -548,7 +553,26 @@ fn render_fleet(frame: &mut Frame, area: Rect, live: &LiveData, ctx: &ShellCtx) 
     append_identity(&mut lines, live, ctx);
     // And the machines of this user, on the same terms: asked for, not polled.
     append_machines(&mut lines, live, ctx);
+    // And the diagnosis, on the same terms: asked for, never polled.
+    append_doctor(&mut lines, live, ctx);
     render_lines(frame, area, lines);
+}
+
+/// Appends the diagnosis: each row with its symbol AND its word, what it found
+/// and, under it, what to do (meltemi-doctor).
+fn append_doctor(lines: &mut Vec<Line<'static>>, live: &LiveData, ctx: &ShellCtx) {
+    let Some(report) = &live.doctor else {
+        return;
+    };
+    let lang = match ctx.lang {
+        Lang::Es => meltemi_client::doctor::Lang::Es,
+        Lang::En => meltemi_client::doctor::Lang::En,
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(ctx.msg(Msg::DoctorTitle)));
+    for line in report.text(lang, ctx.present.unicode).lines() {
+        lines.push(Line::from(format!("  {line}")));
+    }
 }
 
 /// Appends the machines this user configured, marking the one in use.
@@ -2025,6 +2049,48 @@ mod tests {
         // And the daemon's own facts are still there: the via is added, not
         // substituted.
         assert!(shown.contains("daemon 0.1.1"), "{shown}");
+    }
+
+    // Scenario: La paleta muestra el diagnóstico, también sin daemon
+    #[test]
+    fn the_diagnosis_reads_under_the_catalog_even_with_no_daemon() {
+        use meltemi_client::doctor::{self, ConfigState, DirState, Local, ToolState};
+        let local = Local {
+            client_version: "0.2.0".into(),
+            endpoint: "/run/meltemid.sock".into(),
+            data_dir: ("/d".into(), DirState::Writable),
+            config_dir: ("/c".into(), DirState::Absent),
+            config: ConfigState::Absent,
+            git: ToolState::Found("git version 2.45.0".into()),
+            ssh: ToolState::Missing,
+            sshd: None,
+            daemon_log: None,
+        };
+        let unreachable = doctor::Daemon {
+            reached: false,
+            detail: Some("connection refused".into()),
+            ..doctor::Daemon::default()
+        };
+        let mut state = ShellState::new();
+        state.reduce(crate::shell::keymap::Action::SwitchView(4));
+        let mut live = LiveData::new();
+        live.apply(Update::Doctor(doctor::compose(&local, &unreachable)));
+        for (unicode, failing) in [(true, "✕ falla"), (false, "x falla")] {
+            let ctx = ctx(Presentation {
+                unicode,
+                ..default_present()
+            });
+            let shown = draw(&state, &live, &ctx, 160, 48);
+            assert!(shown.contains("Diagnóstico"), "{shown}");
+            assert!(
+                shown.contains(failing) && shown.contains("nada responde en"),
+                "the daemon row fails with its symbol and its word, in the surface's language: {shown}"
+            );
+            assert!(
+                shown.contains("meltemi status"),
+                "and says what to do: {shown}"
+            );
+        }
     }
 
     fn draw(state: &ShellState, live: &LiveData, ctx: &ShellCtx, w: u16, h: u16) -> String {

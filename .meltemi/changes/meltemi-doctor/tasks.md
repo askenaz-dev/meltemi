@@ -41,10 +41,20 @@ y sin trailers de co-autoría. Cero dependencias nuevas; cero RPC.
 
 ## 2. Las superficies
 
-- [ ] 2.1 TUI: `doctor`/`diagnostico` en la paleta, compuesto en el bucle de
+- [x] 2.1 TUI: `doctor`/`diagnostico` en la paleta, compuesto en el bucle de
   conexión también desconectado, y pintado bajo la flota — escenario «La paleta
   muestra el diagnóstico, también sin daemon»; gates: tests del reductor y del
   render
+  <!-- 2026-10-28: `doctor`, `diagnostico` y `diagnóstico` en la paleta llevan a
+  la flota con `Effect::Doctor`; el bucle de conexión lo compone en una tarea
+  propia (la recogida bloqueante en un hilo aparte), conectado o en la espera
+  entre reintentos, y lo manda como `Update::Doctor`; la flota lo pinta con
+  las palabras del idioma de la superficie y el glifo o su gemelo. Al escribir
+  el test apareció que la flota sin catálogo —el caso sin daemon— no pintaba
+  nada más que «cargando», tampoco las máquinas que su propio comentario dice
+  que se leen sin conexión: ahora pinta las máquinas y el diagnóstico debajo.
+  Tests del reductor (tres palabras) y del render (Unicode y ASCII, sin daemon);
+  suite de `meltemi` 349/349, clippy limpio. -->
 - [ ] 2.2 GUI: comando de Tauri que compone con las respuestas que la vista pide
   al daemon, sección en Ajustes con las filas en es/en y «Copiar» —
   escenario «Ajustes muestra el diagnóstico y lo copia»; gates: `npm run

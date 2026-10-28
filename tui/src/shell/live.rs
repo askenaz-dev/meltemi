@@ -282,6 +282,8 @@ pub enum Update {
     Identity(meltemi_proto::IdentityStatusResult),
     /// The machines this user configured, and which one is active.
     Machines(MachinesSnapshot),
+    /// The diagnosis, composed in the client (meltemi-doctor).
+    Doctor(meltemi_client::doctor::Report),
     /// The known-project registry was (re)queried.
     Projects(Vec<ProjectRow>),
     /// The lanes of a race were (re)read for the board.
@@ -334,6 +336,8 @@ pub struct LiveData {
     /// The machines, absent until asked for. The active one survives the list
     /// being closed, because the header names it.
     pub machines: Option<MachinesSnapshot>,
+    /// The diagnosis, absent until asked for.
+    pub doctor: Option<meltemi_client::doctor::Report>,
     /// The race board currently open, when the shell is drilled into one.
     pub race: Option<RaceBoard>,
     pub selected: usize,
@@ -383,6 +387,7 @@ impl LiveData {
             harness: None,
             identity: None,
             machines: None,
+            doctor: None,
             race: None,
             selected: 0,
             permission_queue: Vec::new(),
@@ -451,6 +456,7 @@ impl LiveData {
             Update::Harness(snapshot) => self.harness = Some(snapshot),
             Update::Identity(answer) => self.identity = Some(answer),
             Update::Machines(snapshot) => self.machines = Some(snapshot),
+            Update::Doctor(report) => self.doctor = Some(report),
             Update::Race(board) => {
                 // Selection survives a re-read as long as the lane still exists;
                 // a lane that vanished clamps rather than pointing past the end.

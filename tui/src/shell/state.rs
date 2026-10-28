@@ -111,6 +111,8 @@ pub enum Effect {
     IdentityStatus,
     /// List the machines this user configured (maquinas-remotas design D6).
     Machines,
+    /// Compose the diagnosis (meltemi-doctor).
+    Doctor,
     /// Talk to another machine from now on.
     SwitchMachine {
         name: String,
@@ -468,6 +470,12 @@ impl ShellState {
                     }
                     "status" | "refresh" => Some(Effect::RefreshStatus),
                     "notice-test" | "aviso-prueba" => Some(Effect::TestNotice),
+                    // Under the catalog too: a fact about this installation.
+                    "doctor" | "diagnostico" | "diagnóstico" => {
+                        self.view = View::Fleet;
+                        self.drill = None;
+                        Some(Effect::Doctor)
+                    }
                     // Identity reads under the catalog, on demand, for the same
                     // reason the harness does: it is a fact ABOUT this machine
                     // and its peers, not a fifth place to navigate to — and the
@@ -1097,6 +1105,20 @@ mod tests {
             hint.contains("Tab") && hint.contains("Enter"),
             "the footer names both keys: {hint}"
         );
+    }
+
+    // Scenario: La paleta muestra el diagnóstico, también sin daemon
+    #[test]
+    fn palette_doctor_reads_in_the_catalog_view_in_both_languages() {
+        for command in ["doctor", "diagnostico", "diagnóstico"] {
+            let mut s = ShellState::new();
+            press(&mut s, Key::Char(':'));
+            for c in command.chars() {
+                press(&mut s, Key::Char(c));
+            }
+            assert_eq!(press(&mut s, Key::Enter), Some(Effect::Doctor), "{command}");
+            assert_eq!(s.view(), View::Fleet, "{command}");
+        }
     }
 
     // Scenario: Máquinas desde la paleta
