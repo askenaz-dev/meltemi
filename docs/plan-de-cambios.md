@@ -446,6 +446,12 @@ test que falla si el host deja caer un campo que la superficie persiste.
 `pestana-nueva-con-nombre`: la miga y la sección «Abiertas» muestran el id
 interno `__new__` de la pestaña del compositor.
 
+**`pestana-nueva-con-nombre`, cerrada el 2026-10-28** (vía rápida, verify
+1/1): nombrada por el smoke de 7º y hecha en la misma tanda, porque es lo
+primero que ve quien abre la app. La miga, el título y la sección «Abiertas»
+nombran la pestaña del compositor «Nueva sesión», como ya hacía la tira, en vez
+de mostrar su id interno `__new__`.
+
 No son gate, y el guion los declara como desviación conocida:
 `codex-reanudar-y-mcp` (Codex no se reanuda), `extension-acp-usage` (Claude
 Code y Codex no reportan uso), los certificados de firma de plataforma y la

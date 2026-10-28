@@ -15,4 +15,5 @@ Vía rápida. Un commit atómico por tarea, con referencia
 
 ## 2. Cierre
 
-- [ ] 2.1 `meltemi validate` y `verify`; entrada en `docs/plan-de-cambios.md`
+- [x] 2.1 `meltemi validate` y `verify`; entrada en `docs/plan-de-cambios.md`
+  <!-- 2026-10-28: validate limpio, verify 1/1. -->
