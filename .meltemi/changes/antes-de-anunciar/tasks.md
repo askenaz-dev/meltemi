@@ -25,9 +25,17 @@ es del mantenedor y no es tarea de esta change.
 
 ## 2. El changelog
 
-- [ ] 2.1 `meltemi-release changelog <x.y.z> [--until <fecha>]` (design D3) —
+- [x] 2.1 `meltemi-release changelog <x.y.z> [--until <fecha>]` (design D3) —
   escenarios «Cada release lista las changes que archiva» y «Las notas de la
   release salen de esa sección»; gates: tests de `meltemi-release`
+  <!-- 2026-10-28: `archived_changes`, `summary_of` y `write_changelog` en la
+  biblioteca y el subcomando en el binario, que no toca versión alguna. Tests
+  en `tests/changelog.rs`: dos secciones escritas sobre un archivo de tres
+  changes, sin repetir y en orden; reescribir da el mismo archivo; las notas
+  las lee el binario real (`notes`), no una copia de su regla; el resumen sale
+  del inicio en negrita de la primera viñeta, de su primera frase o de la de
+  «Why»; una fecha mal formada es error de uso y no escribe nada. Suite de
+  `meltemi-release` verde; clippy `-D warnings` limpio. -->
 - [ ] 2.2 `CHANGELOG.md` con la 0.1.0 y la 0.2.0 escritas por la herramienta, y
   la regla y la cadencia en `docs/release.md` (design D4) — gate:
   `meltemi-release notes 0.2.0`

@@ -7,6 +7,7 @@
 //! meltemi-release set-version <x.y.z> [--root <dir>]
 //! meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]
 //! meltemi-release notes <x.y.z> [--root <dir>]
+//! meltemi-release changelog <x.y.z> [--until <yyyy-mm-dd>] [--root <dir>]
 //! ```
 //!
 //! `version` prints the version every carrier agrees on. `set-version` is the
@@ -25,6 +26,11 @@
 //! `notes` prints the section of `CHANGELOG.md` for a version, which becomes
 //! the release's notes (release-con-el-push D4).
 //!
+//! `changelog` writes that section: every change of `.meltemi/changes/archive/`
+//! that no other section lists yet — with `--until`, only those archived up to
+//! that date, which becomes the section's date (antes-de-anunciar D3). It is
+//! the maintainer's step before `set-version`; it changes no version.
+//!
 //! Exit codes: 0 done, 1 refused or failed, 2 usage, 3 no notes for that
 //! version (the pipeline then generates them).
 
@@ -32,11 +38,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use meltemi_release::{
-    CARRIERS, Version, agreed_version, changelog_section, gate, lock_moved_only_the_workspace,
-    read_from_tree, set_version,
+    CARRIERS, Version, agreed_version, archived_changes, changelog_section, gate, is_date,
+    lock_moved_only_the_workspace, read_from_tree, set_version, write_changelog,
 };
 
-const USAGE: &str = "usage: meltemi-release version [--root <dir>]\n       meltemi-release set-version <x.y.z> [--root <dir>]\n       meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]\n       meltemi-release notes <x.y.z> [--root <dir>]";
+const USAGE: &str = "usage: meltemi-release version [--root <dir>]\n       meltemi-release set-version <x.y.z> [--root <dir>]\n       meltemi-release gate --commit <sha> [--main <ref>] [--root <dir>]\n       meltemi-release notes <x.y.z> [--root <dir>]\n       meltemi-release changelog <x.y.z> [--until <yyyy-mm-dd>] [--root <dir>]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -58,6 +64,18 @@ fn main() -> ExitCode {
             Some(version) => return notes(&root, version),
             None => return usage(&format!("`{version}` is not a version of the form x.y.z")),
         },
+        ["changelog", version] | ["changelog", version, "--until", _] => {
+            let Some(version) = Version::parse(version) else {
+                return usage(&format!("`{version}` is not a version of the form x.y.z"));
+            };
+            let until = rest.get(3).copied();
+            if let Some(date) = until
+                && !is_date(date)
+            {
+                return usage(&format!("`{date}` is not a date of the form yyyy-mm-dd"));
+            }
+            changelog(&root, version, until)
+        }
         _ => return usage("unknown command"),
     };
     match outcome {
@@ -106,6 +124,22 @@ fn notes(root: &Path, version: Version) -> ExitCode {
             ExitCode::from(3)
         }
     }
+}
+
+/// Writes the changelog section of `version` from the archive.
+fn changelog(root: &Path, version: Version, until: Option<&str>) -> Result<(), String> {
+    let path = root.join("CHANGELOG.md");
+    let before = std::fs::read_to_string(&path).unwrap_or_default();
+    let archived = archived_changes(root)?;
+    let after = write_changelog(&before, version, until, &archived);
+    std::fs::write(&path, &after).map_err(|e| format!("{}: {e}", path.display()))?;
+    let section = changelog_section(&after, version).unwrap_or_default();
+    let count = section
+        .lines()
+        .filter(|line| line.starts_with("- "))
+        .count();
+    println!("CHANGELOG.md: section {version} lists {count} archived change(s)");
+    Ok(())
 }
 
 /// Prints the gate's decision as `key=value` lines.
