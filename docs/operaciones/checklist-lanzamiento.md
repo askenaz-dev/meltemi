@@ -15,30 +15,38 @@ publica sitio alguno: `site/` y su job de Pages salieron con
 `release-con-el-push`, y las capturas que la web usa se escriben en
 `docs/media/`.
 
-Queda una acción del mantenedor, **después** de publicar la 0.2.0: apagar GitHub
-Pages en este repositorio (Settings → Pages, o `gh api -X DELETE
-repos/askenaz-dev/meltemi/pages`) y borrar su entorno `github-pages`.
+✅ GitHub Pages apagado en este repositorio y su entorno `github-pages` borrado
+el 2026-10-26 (`release-con-el-push` 7.3), después de comprobar que Cloudflare
+sirve `meltemi.dev` y `/ide/`. El único entorno que queda es `release`.
 
-## 2. La primera release por el camino del push
+## 2. La release por el camino del push
 
 Desde `release-con-el-push` nadie firma a mano: la release la publica el
 pipeline, firmada por la atestación de su workflow, cuando un commit trae una
 versión nueva a `main`. Procedimiento completo en
-[`docs/release.md`](../release.md) («Making a release»). Antes de la primera,
-en este orden:
+[`docs/release.md`](../release.md) («Making a release»).
 
-1. El entorno `release` de este repositorio, su secreto `WEB_DISPATCH_TOKEN` y
-   los rulesets aplicados desde el Terraform de meltemi-web.
-2. `cargo run -p meltemi-release -- set-version 0.2.0`, commit y push a `main`.
-3. Con `main` ya en 0.2.0, borrar el borrador v0.1.1 y su tag: mientras ese tag
-   existe, un push con la versión 0.1.1 no puede publicarse solo.
+- ✅ El entorno `release`, su secreto `WEB_DISPATCH_TOKEN` y los rulesets de
+  `main` y de los tags `v*`, aplicados desde el Terraform de meltemi-web
+  (2026-10-23).
+- ✅ **v0.2.0** publicada el 2026-10-23 por el push de `set-version 0.2.0`, con
+  la atestación y su bundle entre los assets; el aviso a la web lanzó el deploy
+  de meltemi-web y `/ide/` y `/es/ide/` la nombran.
+- ✅ El borrador v0.1.1 está borrado. Su tag se queda porque el ruleset de tags
+  no admite borrarlo; no estorba, porque el gate pide una versión mayor que
+  todo tag.
+- ⬜ `WEB_DISPATCH_TOKEN` lleva hoy el token de administración de Terraform de
+  la organización, por decisión del mantenedor del 2026-10-23; queda pendiente
+  sustituirlo por el token estrecho que pide el design (solo `meltemi-web`,
+  permiso Actions de lectura y escritura). Cuando caduque, el aviso falla en
+  rojo con la release ya publicada (`docs/release.md`, «The web notice»).
 
 No existe clave de firma que generar, guardar ni rotar, y no debe crearse una.
 
 ## 3. Namespaces
 
 - ✅ Organización GitHub `askenaz-dev` · ✅ organización npm `askenaz-dev`.
-- ✅ Dominio `meltemi.dev` (pendiente el DNS de arriba).
+- ✅ Dominio `meltemi.dev`, servido por Cloudflare desde el 2026-10-21.
 - ⬜ Crates `meltemi`, `meltemid`, `meltemi-proto`: verificados libres, sin
   reservar. Requiere el token de crates.io del mantenedor; el procedimiento y el
   criterio de qué nombre reclamar primero están en
