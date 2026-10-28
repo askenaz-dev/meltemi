@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change fase-0-fundacion. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Inicialización de `.meltemi/`
 Cuando se invoque `propose` en un repositorio sin `.meltemi/`, `meltemid` SHALL crear la estructura mínima (`.meltemi/changes/`) sin sobrescribir ningún archivo existente.
 
@@ -53,3 +54,11 @@ normalizarse al separador de la plataforma.
 - **THEN** la palabra de estado SHALL emitirse en minúsculas estables (p. ej. `completed`)
 - **AND** la ruta del artefacto SHALL usar un separador uniforme de la plataforma
 
+### Requirement: La propuesta dice si el turno del agente fue vacío
+WHEN el turno del agente que redacta la propuesta se declara vacío, el
+resultado de `propose` SHALL traer `emptyTurn` en `true` junto a su estado, y
+SHALL omitir el campo cuando el turno llevó trabajo.
+
+#### Scenario: Propuesta con un turno vacío
+- **WHEN** el agente cierra el turno de la propuesta sin decir ni hacer nada
+- **THEN** el resultado de `propose` SHALL traer `emptyTurn` en `true`

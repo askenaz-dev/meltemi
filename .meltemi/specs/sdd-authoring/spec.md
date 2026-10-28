@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change ciclo-sdd-autoria. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Ciclo de autoría con gates humanos
 El daemon SHALL conducir la autoría de una change como secuencia de artefactos
 (proposal, specs EARS, design, tasks) donde cada artefacto es redactado por el
@@ -96,7 +97,6 @@ explícitos, nunca quedando a la espera interactiva sin TTY.
 - **THEN** la invocación SHALL terminar reportando el gate pendiente y cómo decidirlo
 - **AND** SHALL NOT quedar a la espera de entrada
 
-
 ### Requirement: Cierre de sesión de los turnos de autoría
 Todo turno de autoría del ciclo (explore, constitution, propose, plan y las
 reelaboraciones de gate) SHALL finalizar su sesión por el finalizador
@@ -115,3 +115,17 @@ razón de error, sin inventar un estatus final.
 #### Scenario: Fallo del turno también cierra
 - **WHEN** el turno ACP de un verbo del ciclo falla al arrancar o ejecutar
 - **THEN** la sesión SHALL cerrarse con la razón de error y sin estatus final inventado
+
+### Requirement: Los verbos de autoría dicen si algún turno fue vacío
+WHEN algún turno de autoría que corre una llamada a `sdd/explore`,
+`sdd/propose`, `sdd/plan`, `sdd/constitution` o `sdd/gate` se declara vacío, su
+resultado SHALL traer `emptyTurn` en `true`, y SHALL omitir el campo cuando
+todos sus turnos llevaron trabajo o la llamada no corrió ninguno.
+
+#### Scenario: Un gate cuyo turno de autoría fue vacío lo declara
+- **WHEN** un `sdd/gate` corre el turno de autoría del siguiente artefacto y ese turno se declara vacío
+- **THEN** el resultado del gate SHALL traer `emptyTurn` en `true`
+
+#### Scenario: La vía rápida declara el vacío de cualquiera de sus turnos
+- **WHEN** un `sdd/propose` en vía rápida corre sus turnos de autoría y uno de ellos se declara vacío
+- **THEN** el resultado SHALL traer `emptyTurn` en `true`
