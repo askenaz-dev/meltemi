@@ -38,6 +38,17 @@ de proyectos es el principal, no la calle.
 `create` llama a `ensure_excluded` después de registrar el worktree, como
 `mount`. Es idempotente: una sola línea en `.git/info/exclude`, nunca dos.
 
+### D4 — Registrado no es vivo
+
+Al escribir el test de la reanudación apareció el segundo hueco de la misma
+historia: `worktree/dispatch` y `sdd/implement` terminan con
+`set_state(Ended)` y su sesión sigue en el registro vivo hasta que el daemon se
+reinicia. `session/direct` rehusaba toda sesión registrada como «activa pero no
+dirigible», así que una calle terminada no se podía reanudar nunca mientras el
+daemon viviera. `SessionRegistry::is_running` es registrada **y** no terminada,
+y es lo que mira `session/direct`. No se cambia cómo terminan los despachos: el
+tablero y las superficies leen ese estado terminado.
+
 ## Risks / Trade-offs
 
 - Un usuario que tenga un repositorio propio bajo una ruta con esa forma

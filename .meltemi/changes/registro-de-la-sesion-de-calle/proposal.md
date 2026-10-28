@@ -35,6 +35,10 @@ embebido.
   (`<raíz>/.meltemi/worktrees/<change>/<calle>`), y `session/log`, la búsqueda
   de una sesión por raíz y la reanudación usan la clave de ese proyecto. La
   raíz que el índice guarda para la calle no cambia: el tablero la sigue usando.
+- **Una calle terminada se puede reanudar.** Un despacho termina marcando su
+  sesión como terminada sin sacarla del registro vivo, y `session/direct` la
+  rehusaba como «activa pero no dirigible» mientras el daemon viviera. Ahora
+  solo rehúsa una sesión que sigue corriendo.
 - **La raíz gestionada queda excluida desde el primer worktree**, sea de tarea
   o de taller, por la misma vía local de siempre: `.git/info/exclude`, nunca el
   `.gitignore` del usuario.
