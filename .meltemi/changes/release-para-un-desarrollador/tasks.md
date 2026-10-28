@@ -30,10 +30,15 @@ no implementa nada que otra change de la tanda posea.
 
 ## 3. El guion
 
-- [ ] 3.1 `docs/prueba-de-uno.md` con sus pasos, lo esperado, dónde queda
+- [x] 3.1 `docs/prueba-de-uno.md` con sus pasos, lo esperado, dónde queda
   registrado, las desviaciones conocidas, las diferencias de macOS y Linux y la
   plantilla del informe (design D1, D4) — escenario «El guion se sigue desde los
   assets»
+  <!-- 2026-10-28: once pasos, de la release a desinstalar; cada uno con qué
+  haces, qué esperas ver, dónde queda y su desviación conocida. Comprobado
+  contra la ayuda del binario y las guías: la regla recordada es por ruta
+  exacta, y la decisión de revisión vive en la vista Proyecto o en la paleta de
+  la TUI, no en la CLI. -->
 - [ ] 3.2 El test de la docs CI sobre el guion (design D2) — escenario «Los
   verbos del guion existen en el binario»; gate: `tui/tests/docs.rs`
 - [ ] 3.3 Enlaces: las filas del índice en `README.md` y `LEEME.md`,
