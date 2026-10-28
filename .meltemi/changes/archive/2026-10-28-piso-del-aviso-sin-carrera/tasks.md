@@ -19,8 +19,15 @@ Vía rápida, sin deltas. Un commit atómico por tarea, con referencia
 
 ## 2. Cierre
 
-- [ ] 2.1 `meltemi validate piso-del-aviso-sin-carrera` limpio; clippy `-D
+- [x] 2.1 `meltemi validate piso-del-aviso-sin-carrera` limpio; clippy `-D
   warnings`; el CI de la PR de la tanda verde en las tres plataformas; entrada
   en `docs/plan-de-cambios.md`; y la change al histórico fechado a mano, porque
   `meltemi archive` rehúsa una change sin deltas (precedente:
   `grabador-de-avisos-sin-carrera` 2.2)
+  <!-- 2026-10-28: `validate` limpio y `verify` 0/0 (sin deltas). Clippy
+  `-D warnings` limpio en el workspace. CI de la PR de la tanda, run
+  40779160260 sobre `3946a8e`: macOS y Linux verdes con la suite entera,
+  `past_the_floor_the_next_wait_is_told_again` incluido; Windows rojo allí por
+  un test de `registro-de-la-sesion-de-calle`, corregido en `52d270b`. El merge
+  espera las tres plataformas en verde. Entrada «0º» en el avance de la tanda;
+  movida a mano al histórico fechado. -->

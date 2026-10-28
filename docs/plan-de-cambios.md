@@ -398,6 +398,13 @@ deshizo ese archivo sin commitear, se reinició el daemon y se rehízo. Los
 anteriores no arrastraron nada porque sus deltas no tenían sección tras un
 ADDED.
 
+**0º `piso-del-aviso-sin-carrera`, cerrada el 2026-10-28** (2/2, sin deltas):
+el test del piso pregunta «dentro» antes de esperar al grabador y mide «fuera»
+desde el último aviso. El CI de la PR de la tanda (run 40779160260, `3946a8e`)
+lo pasó en macOS, donde `main` estaba en rojo, y en Linux. Se archivó a mano,
+como `grabador-de-avisos-sin-carrera`, porque `meltemi archive` rehúsa una
+change sin deltas.
+
 **3º `antes-de-anunciar`, cerrada el 2026-10-28** (7/7, verify 6/6): plantillas
 de error y de pregunta sin issue en blanco, insignias en los dos README,
 `meltemi-release changelog` y un `CHANGELOG.md` que nace con la 0.1.0 y la
