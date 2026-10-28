@@ -36,9 +36,15 @@ es del mantenedor y no es tarea de esta change.
   del inicio en negrita de la primera viñeta, de su primera frase o de la de
   «Why»; una fecha mal formada es error de uso y no escribe nada. Suite de
   `meltemi-release` verde; clippy `-D warnings` limpio. -->
-- [ ] 2.2 `CHANGELOG.md` con la 0.1.0 y la 0.2.0 escritas por la herramienta, y
+- [x] 2.2 `CHANGELOG.md` con la 0.1.0 y la 0.2.0 escritas por la herramienta, y
   la regla y la cadencia en `docs/release.md` (design D4) — gate:
   `meltemi-release notes 0.2.0`
+  <!-- 2026-10-28: `changelog 0.1.0 --until 2026-07-26` lista 42 changes y
+  `changelog 0.2.0 --until 2026-10-23` lista 20; `notes 0.2.0` devuelve su
+  sección. Las archivadas desde el 2026-10-24 quedan para la sección de la
+  release siguiente, que escribe el mantenedor con el mismo comando antes de
+  `set-version`. `docs/release.md` gana la regla, la cadencia, el paso y por
+  qué la 0.1.1 no tiene sección, en inglés y en el resumen en español. -->
 
 ## 3. Docs
 
