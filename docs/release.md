@@ -168,6 +168,24 @@ workspace's entries in `Cargo.lock`, and refuses a version that does not move
 forward. Commit the result and push it to `main`; that push is the release. An
 agent never does this unless the maintainer asks in words (`AGENTS.md`).
 
+**A release that marks a tested milestone links its report.** When a person
+tried the release end to end — the run of
+[the one-developer test](prueba-de-uno.md), with their own agents — its notes
+open with the link to that run's report, beside the changes it archives. The
+order is fixed by what each step needs: run the guide, write
+`docs/qa/<date>-prueba-de-uno.md` from its template, then
+
+```bash
+cargo run -p meltemi-release -- changelog 0.3.0 --report docs/qa/<date>-prueba-de-uno.md
+cargo run -p meltemi-release -- set-version 0.3.0
+```
+
+`--report` refuses a report that is not in the repository, and writing the
+section again without it keeps the link. **0.3.0 is the recommendation** for the
+first such release: what it brings is additive, and it marks the first release a
+person tried end to end, as 0.2.0 marked the first one published by a push. The
+maintainer writes it; the version policy does not change.
+
 The pipeline then runs, in order:
 
 1. **`version`** — `meltemi-release gate` decides whether this commit opens the
@@ -382,7 +400,13 @@ archivos que la portan y rehúsa una versión que no avanza; un agente no lo hac
 salvo que el mantenedor lo pida con palabras. Antes, `meltemi-release changelog X.Y.Z`
 escribe su sección de `CHANGELOG.md`: **cada release lista las changes que
 archiva**, y esa sección son sus notas. Cadencia: una release al cerrar cada
-tanda, y nunca más de un mes sin release mientras `main` se mueva.
+tanda, y nunca más de un mes sin release mientras `main` se mueva. **Una release
+que marca un hito probado enlaza su informe**: tras correr
+[la prueba de un desarrollador](prueba-de-uno.md) y escribir su informe en
+`docs/qa/`, `changelog X.Y.Z --report <informe>` abre la sección con el enlace
+—rehúsa un informe que no existe, y reescribir la sección lo conserva—, y solo
+después `set-version`. La recomendación para la primera es la 0.3.0; la escribe
+el mantenedor.
 
 Cada release publica, por plataforma, el archivo con `meltemi`, `meltemid` y los
 dos adaptadores ACP propios (que se instalan junto al daemon), el instalador de

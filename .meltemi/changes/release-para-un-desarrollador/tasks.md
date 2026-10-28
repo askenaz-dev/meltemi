@@ -23,10 +23,12 @@ no implementa nada que otra change de la tanda posea.
   corren el binario: enlazar, reescribir sin la bandera (mismo archivo), las
   notas con un solo enlace, reemplazar, y la ruta que no existe (sale con 1 y
   no escribe nada). -->
-- [ ] 2.2 La regla en `docs/release.md` (inglés y resumen en español): una
+- [x] 2.2 La regla en `docs/release.md` (inglés y resumen en español): una
   release que marca un hito probado enlaza su informe; el orden corrida →
   informe → `changelog --report` → `set-version`; la recomendación 0.3.0
   (design D5)
+  <!-- 2026-10-28: en «Making a release (maintainer)» y en el resumen en
+  español. -->
 
 ## 3. El guion
 
