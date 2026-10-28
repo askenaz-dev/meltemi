@@ -605,6 +605,47 @@ fn the_cli_reference_is_generated_and_fresh() {
 }
 
 #[test]
+fn the_captures_the_site_copies_are_well_formed_svg() {
+    // meltemi-web copies docs/media/ into the site as is (docs/ux/capturas.md).
+    // XML forbids `--` inside a comment, and a browser renders nothing for an
+    // SVG that is not well-formed, so one stray `--` costs the site its figure.
+    let media = repo_root().join("docs/media");
+    let mut problems = Vec::new();
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&media).expect("docs/media exists") {
+        let path = entry.expect("readable entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("svg") {
+            continue;
+        }
+        checked += 1;
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let svg = std::fs::read_to_string(&path).expect("readable svg");
+        if !svg.trim_start().starts_with("<svg") || !svg.trim_end().ends_with("</svg>") {
+            problems.push(format!("{name}: not a single <svg> root element"));
+        }
+        let mut rest = svg.as_str();
+        while let Some(start) = rest.find("<!--") {
+            let after = &rest[start + 4..];
+            let Some(end) = after.find("-->") else {
+                problems.push(format!("{name}: a comment is never closed"));
+                break;
+            };
+            let body = &after[..end];
+            if body.contains("--") || body.ends_with('-') {
+                problems.push(format!("{name}: `--` inside the comment `{}`", body.trim()));
+            }
+            rest = &after[end + 3..];
+        }
+    }
+    assert!(checked > 0, "docs/media holds no SVG capture to check");
+    assert!(
+        problems.is_empty(),
+        "docs/media captures are not well-formed:\n{}",
+        problems.join("\n")
+    );
+}
+
+#[test]
 fn internal_doc_links_resolve() {
     // Docs lint: internal markdown links point at files that exist.
     let root = repo_root();
