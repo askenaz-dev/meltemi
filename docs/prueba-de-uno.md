@@ -52,6 +52,14 @@ el equipo: el instalador no lleva firma de plataforma porque eso exige
 certificados comprados. *Más información* → *Ejecutar de todas formas*. Es
 esperado y está escrito en la [FAQ](faq.md#the-installer-warns-that-it-is-not-signed).
 
+**Si la release todavía no existe** —la corrida que decide publicarla—, se
+instala el build de integración del commit de `main` que va a ser la release:
+el artefacto `meltemi-unsigned-Windows-<sha>` de su ejecución de *Build*, con
+los mismos archivos y los mismos nombres. No lleva atestación
+(`UNSIGNED-BUILD.txt` lo dice): el hash se comprueba contra el `SHA256SUMS` del
+propio artefacto, `gh attestation verify` no aplica, y el informe lo anota como
+desviación de esa corrida.
+
 ## 2. Lo primero: el diagnóstico
 
 **Qué haces.** Abre una terminal nueva, para que tome el `PATH`, y:
