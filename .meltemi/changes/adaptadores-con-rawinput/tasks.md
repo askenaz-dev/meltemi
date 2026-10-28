@@ -5,8 +5,14 @@ Vía rápida. Un commit atómico por tarea, con referencia
 
 ## 1. Los adaptadores
 
-- [ ] 1.1 Claude: `request_for` lleva `rawInput` y `locations` (design D1) —
+- [x] 1.1 Claude: `request_for` lleva `rawInput` y `locations` (design D1) —
   escenario «La petición lleva la entrada y la ruta»; gates: tests del adaptador
+  <!-- 2026-10-28: `the_request_carries_the_input_and_the_path_the_rules_read`
+  pinea `rawInput` sin editar, la ruta de `Write` en `locations`, el comando de
+  `Bash` en `rawInput.command` y la forma serializada que lee `RequestFacts`.
+  `path_in` de `mapping.rs` pasa a `pub(crate)`: la petición y la llamada sacan
+  la ruta de la misma función. Suite de `meltemi-adapters` verde (155 + los de
+  integración). -->
 - [ ] 1.2 Codex: el `Mapper` recuerda los hechos de cada ítem y `request_for` los
   lleva cuando la aprobación concede lo que el ítem es (design D2, D3) —
   escenarios «La aprobación de un comando lleva el comando del ítem», «Lo que
