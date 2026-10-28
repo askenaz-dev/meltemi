@@ -452,6 +452,15 @@ primero que ve quien abre la app. La miga, el título y la sección «Abiertas»
 nombran la pestaña del compositor «Nueva sesión», como ya hacía la tira, en vez
 de mostrar su id interno `__new__`.
 
+**8º `release-para-un-desarrollador`, lo del agente cerrado el 2026-10-28**
+(verify 4/4; no se archiva: su gate es la corrida del mantenedor). El guion
+`docs/prueba-de-uno.md` —once pasos, de los assets de la release a desinstalar,
+cada uno con qué haces, qué esperas ver, dónde queda y su desviación conocida,
+y la plantilla del informe—, atado al binario por la docs CI. `meltemi-release
+changelog --report` abre las notas con el enlace al informe y lo conserva al
+reescribir; la regla y el orden están en `docs/release.md`. Recomendación de
+versión: **0.3.0**. Lo que queda es del mantenedor (pendiente 8, abajo).
+
 No son gate, y el guion los declara como desviación conocida:
 `codex-reanudar-y-mcp` (Codex no se reanuda), `extension-acp-usage` (Claude
 Code y Codex no reportan uso), los certificados de firma de plataforma y la
@@ -1798,4 +1807,4 @@ del daemon en macOS/Linux, que son otra clase y otro remedio.
 5. ⬜ **Decidir las versiones pineadas de Codex y OpenCode**: la prueba del 2026-09-24 las dejó en 0.156.1 y 1.18.32. Para Codex la decisión ya tiene consecuencia en código: `codex-al-dia` re-ancló el esquema a 0.156.1, que es el piso del adaptador, y la corrida real del 2026-09-25 le dio nivel 2 con esa versión; volver a 0.77.0 ya no abre sesión. Para OpenCode sigue abierta (`npm i -g opencode-ai@1.14.33` para volver).
 6. ⬜ **Ratificar las dos enmiendas** que traen `abrir-con-lo-tuyo` (rumbo: la terminal integrada como no-objetivo) y `docs-en-el-sitio` (§11: inglés como lengua fuente de la documentación de producto, método en español); ambas quedan aplicadas y marcadas pendientes hasta la firma.
 7. ⬜ ~~Designar el segundo custodio de claves y publicar la clave minisign en el árbol~~ **Sustituido el 2026-10-23 por `release-con-el-push`**: la firma manual se retira y no hay clave que publicar ni custodiar. Lo que queda del mantenedor: ~~borrar el borrador v0.1.1~~ (borrado el 2026-10-23), ~~apagar GitHub Pages en este repositorio y borrar su entorno `github-pages`~~ (apagado y borrado el 2026-10-26; tarea 7.3 cerrada), ~~adoptar el repositorio del IDE en `github.tf` de meltemi-web~~ (aplicado el 2026-10-23, con `GH_ADMIN_TOKEN` como credencial del aviso por decisión del mantenedor) y designar quién sucede el control del repositorio y de la organización (`sucesion-y-custodia`, re-acotada).
-8. ⬜ **La release que prueba un desarrollador** (`release-para-un-desarrollador`, abierta el 2026-10-28): cuando la tanda aterrice, escribir la versión con `cargo run -p meltemi-release -- set-version` (recomendación del design: 0.3.0; el push a `main` publica) y correr `docs/prueba-de-uno.md` en la máquina de desarrollo con los agentes propios, dejando el informe en `docs/qa/`. La ratificación 1c sigue siendo lo que deja a `lanzador-conversacional` fuera del `CHANGELOG.md` mientras no llegue.
+8. ⬜ **La release que prueba un desarrollador** (`release-para-un-desarrollador`, abierta el 2026-10-28; la tanda aterrizó el mismo día). En este orden: (a) correr `docs/prueba-de-uno.md` en la máquina de desarrollo con los agentes propios, sobre el build de integración del commit de `main` (artefacto `meltemi-unsigned-Windows-<sha>`), porque la release aún no existe; (b) escribir `docs/qa/<fecha>-prueba-de-uno.md` desde la plantilla del guion; (c) `cargo run -p meltemi-release -- changelog 0.3.0 --report docs/qa/<fecha>-prueba-de-uno.md`; (d) `cargo run -p meltemi-release -- set-version 0.3.0` y push a `main`, que publica; (e) la fila «Cliente de escritorio» de meltemi-web, como change de ese repositorio. La ratificación 1c sigue siendo lo que deja a `lanzador-conversacional` fuera del `CHANGELOG.md` mientras no llegue.

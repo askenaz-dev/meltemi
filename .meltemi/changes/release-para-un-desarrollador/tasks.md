@@ -58,8 +58,11 @@ no implementa nada que otra change de la tanda posea.
 
 ## 4. Cierre del agente
 
-- [ ] 4.1 `meltemi validate` y `verify` con los cuatro escenarios; el pendiente
+- [x] 4.1 `meltemi validate` y `verify` con los cuatro escenarios; el pendiente
   del mantenedor en `docs/plan-de-cambios.md`
+  <!-- 2026-10-28: validate limpio, verify 4/4 enlazados; el pendiente 8 del
+  arquitecto lleva el orden (a)–(e). La change no se archiva: las tareas 5.x
+  son su gate. -->
 
 ## 5. Del mantenedor (gate de archivo)
 
