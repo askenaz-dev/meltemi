@@ -172,7 +172,9 @@ agent never does this unless the maintainer asks in words (`AGENTS.md`).
 tried the release end to end — the run of
 [the one-developer test](prueba-de-uno.md), with their own agents — its notes
 open with the link to that run's report, beside the changes it archives. The
-order is fixed by what each step needs: run the guide, write
+order is fixed by what each step needs: run the guide — on the integration
+build of the `main` commit that will become the release, since the release
+does not exist yet; same files, same names, no attestation — write
 `docs/qa/<date>-prueba-de-uno.md` from its template, then
 
 ```bash
@@ -402,8 +404,9 @@ escribe su sección de `CHANGELOG.md`: **cada release lista las changes que
 archiva**, y esa sección son sus notas. Cadencia: una release al cerrar cada
 tanda, y nunca más de un mes sin release mientras `main` se mueva. **Una release
 que marca un hito probado enlaza su informe**: tras correr
-[la prueba de un desarrollador](prueba-de-uno.md) y escribir su informe en
-`docs/qa/`, `changelog X.Y.Z --report <informe>` abre la sección con el enlace
+[la prueba de un desarrollador](prueba-de-uno.md) —sobre el build de
+integración del commit de `main` que será la release, porque la release aún no
+existe— y escribir su informe en `docs/qa/`, `changelog X.Y.Z --report <informe>` abre la sección con el enlace
 —rehúsa un informe que no existe, y reescribir la sección lo conserva—, y solo
 después `set-version`. La recomendación para la primera es la 0.3.0; la escribe
 el mantenedor.
