@@ -73,3 +73,16 @@ El cliente SHALL declarar la versión del contrato `proto/` al conectar, y `melt
 #### Scenario: Apagado con sesiones activas
 - **WHEN** un cliente invoca `shutdown` mientras existe una sesión de agente activa
 - **THEN** el subproceso del agente recibe terminación ordenada, el registro JSONL de la sesión queda cerrado y completo, y el proceso `meltemid` finaliza sin dejar procesos huérfanos
+
+### Requirement: Un endpoint con forma de comando nunca arranca un daemon
+
+WHERE el endpoint del cliente nombre un comando en lugar de un socket, el
+cliente NO SHALL arrancar un daemon local bajo ninguna circunstancia, ni
+siquiera cuando ese comando falle o no responda. Arrancar uno serviría una
+máquina en el nombre de otra.
+
+#### Scenario: El comando falla y no se arranca nada
+
+- **WHEN** el endpoint nombra un comando y ese comando termina sin hablar el protocolo
+- **THEN** el cliente rehúsa con su diagnóstico
+- **AND** no queda ningún daemon arrancado por ese intento
