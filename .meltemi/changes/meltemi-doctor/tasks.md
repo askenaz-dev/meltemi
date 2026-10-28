@@ -72,6 +72,10 @@ y sin trailers de co-autoría. Cero dependencias nuevas; cero RPC.
 
 ## 3. Docs y cierre
 
-- [ ] 3.1 La FAQ y la plantilla de error mandan a `doctor` — escenario «Lo
+- [x] 3.1 La FAQ y la plantilla de error mandan a `doctor` — escenario «Lo
   primero que pide la FAQ es el diagnóstico»; `meltemi validate` y `verify` con
   los seis escenarios; entrada en `docs/plan-de-cambios.md`
+  <!-- 2026-10-28: la primera respuesta de la FAQ es `meltemi doctor`, con lo
+  que dice, que no arranca nada, el `14`, y dónde está en el escritorio y en la
+  TUI; la plantilla de error pide su salida y dónde copiarla. Prueba de docs
+  nueva (21/21). `validate` limpio y `verify` 6/6 enlazados. -->

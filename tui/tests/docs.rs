@@ -685,6 +685,22 @@ fn both_readmes_carry_the_ci_licence_and_release_badges() {
 }
 
 #[test]
+fn the_faq_starts_with_the_diagnosis() {
+    // Scenario: Lo primero que pide la FAQ es el diagnóstico
+    let faq = read(&repo_root(), "docs/faq.md");
+    let first = faq
+        .split("\n## ")
+        .nth(1)
+        .expect("the FAQ has a first question");
+    assert!(
+        first.contains("meltemi doctor"),
+        "the first answer sends to the diagnosis: {first}"
+    );
+    let bug = read(&repo_root(), ".github/ISSUE_TEMPLATE/bug.md");
+    assert!(bug.contains("meltemi doctor"), "and the bug template asks for it");
+}
+
+#[test]
 fn the_faq_answers_what_is_asked_first() {
     // Scenario: Cada pregunta tiene su respuesta
     let faq = read(&repo_root(), "docs/faq.md");

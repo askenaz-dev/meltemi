@@ -7,13 +7,20 @@ the question template.
 
 ## Where do I start when something is wrong?
 
-With what Meltemi can see:
+With the diagnosis:
 
 ```
-meltemi version      # the client
-meltemi status       # the daemon: version, uptime, sessions
-meltemi fleet        # which agents are ready, and what is missing
+meltemi doctor
 ```
+
+It says what is installed, what answers and what is missing — the client and
+the daemon and whether their versions match, the endpoint, your folders and
+configuration, every agent that is ready or half installed with what to do,
+`git` and `ssh`, and the last errors of the daemon's log — each with what to do
+about it. It never starts a daemon and never runs an agent, and it exits `14`
+when something fails. The desktop app has the same report in **Settings →
+Diagnosis**, and the terminal UI under the palette's `doctor`. Nothing is sent
+anywhere: paste it into an issue only if you choose to, after reading it.
 
 If the client and the daemon report different versions, an old daemon is still
 running: `meltemi stop`, and the next command starts the installed one.

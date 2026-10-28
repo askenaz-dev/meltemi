@@ -30,7 +30,7 @@ A security problem? Do not report it here: see SECURITY.md.
 
 ## Diagnosis
 
-<!-- The output of `meltemi doctor`, if your version has it; otherwise of
-`meltemi status` and `meltemi fleet`. It shows versions and paths you can
-already see on your screen, and nothing else. Remove anything you do not want
-to share. -->
+<!-- Paste the output of `meltemi doctor` (in the desktop app: Settings →
+Diagnosis → Copy). It shows versions, paths and log lines you can already see
+on your screen, and nothing else. Read it first and remove anything you do not
+want to share. -->

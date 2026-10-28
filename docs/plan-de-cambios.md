@@ -404,6 +404,16 @@ de error y de pregunta sin issue en blanco, insignias en los dos README,
 0.2.0, la regla y la cadencia en `docs/release.md`, el quickstart desde los
 instaladores y `docs/faq.md`. Encender Discussions queda del mantenedor.
 
+**4º `meltemi-doctor`, cerrada el 2026-10-28** (6/6, verify 6/6): el
+diagnóstico se compone en `meltemi_client::doctor` y lo ofrecen el CLI
+(`meltemi doctor`, `--json`, sale con `14` si algo falla), la paleta de la TUI y
+Ajustes del escritorio, con las mismas frases en español e inglés; nunca
+arranca un daemon ni ejecuta un agente. La primera corrida real encontró que
+el adaptador propio de Codex, que viaja en toda instalación, hacía fallar la
+fila de un agente que nadie instaló; corregido. De paso, la vista de flota de
+la TUI sin catálogo vuelve a pintar las máquinas, como su comentario
+prometía.
+
 No son gate, y el guion los declara como desviación conocida:
 `codex-reanudar-y-mcp` (Codex no se reanuda), `extension-acp-usage` (Claude
 Code y Codex no reportan uso), los certificados de firma de plataforma y la
