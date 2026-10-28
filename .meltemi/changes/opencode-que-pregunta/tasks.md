@@ -5,8 +5,11 @@ Vía rápida. Un commit atómico por tarea, con referencia
 
 ## 1. El entorno de lanzamiento
 
-- [ ] 1.1 `launch-env` en el registro, hasta la entrada del catálogo (design
+- [x] 1.1 `launch-env` en el registro, hasta la entrada del catálogo (design
   D1) — gate: tests de `fleet.rs`
+  <!-- 2026-10-28: tabla `launch-env` en `RawRegistryAgent`, `Vec` ordenado en
+  `RegistryAgent` y `CatalogEntry`; una entrada personalizada no declara
+  ninguno. Test de parseo con una entrada que lo declara y otra que no. -->
 - [ ] 1.2 Las cuatro resoluciones lo aplican con su precedencia, y el comando
   literal no (design D2, D3) — escenarios «Lo que el usuario fijó manda» y «Un
   comando literal no hereda el entorno del registro»; gates: tests de
