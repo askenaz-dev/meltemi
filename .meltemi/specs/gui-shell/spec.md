@@ -1099,9 +1099,10 @@ visible.
 
 El lanzador SHALL permitir elegir modelo y esfuerzo antes de arrancar, con
 búsqueda y admitiendo entrada libre, y la sesión SHALL mostrar los valores
-efectivos. La ficha de un modelo SHALL mostrar únicamente lo que Meltemi
-conoce —lo anunciado por el agente, lo declarado en perfiles y el consumo
-medido localmente— y NO SHALL mostrar precios ni créditos.
+efectivos y, cuando una palanca se rehusó al abrir, la palanca, lo pedido y el
+motivo, en español y en inglés. La ficha de un modelo SHALL mostrar únicamente
+lo que Meltemi conoce —lo anunciado por el agente, lo declarado en perfiles y el
+consumo medido localmente— y NO SHALL mostrar precios ni créditos.
 
 WHERE se ofrezca cambiar el modelo con la sesión en marcha, SHALL advertirse
 que el cambio reinicia la caché del proveedor y puede aumentar el costo.
@@ -1122,6 +1123,11 @@ que el cambio reinicia la caché del proveedor y puede aumentar el costo.
 - **WHERE** la sesión está en marcha
 - **WHEN** se ofrece cambiar el modelo
 - **THEN** SHALL advertirse el efecto sobre la caché y el costo
+
+#### Scenario: La conversación dice la palanca rehusada
+
+- **WHEN** una sesión termina rehusando una palanca al abrir
+- **THEN** su conversación SHALL decir la palanca, lo pedido y el motivo
 
 ### Requirement: El título del schema declara la ligadura del formulario
 La generación de formularios tipados de la paleta SHALL ligar cada método al
