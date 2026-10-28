@@ -569,6 +569,16 @@ pub fn write_changelog(
     archived: &[Archived],
 ) -> String {
     let (header, sections) = changelog_sections(changelog);
+    // The report a section already links survives its rewrite: the link must
+    // not depend on remembering a flag (release-para-un-desarrollador D3).
+    let kept_report: Option<String> = sections
+        .iter()
+        .find(|(heading, _)| *heading == Some(version))
+        .and_then(|(_, text)| {
+            text.lines()
+                .find(|line| line.starts_with(REPORT_MARK))
+                .map(str::to_string)
+        });
     let mut sections: Vec<(Option<Version>, String)> = sections
         .into_iter()
         .filter(|(heading, _)| *heading != Some(version))
@@ -584,6 +594,10 @@ pub fn write_changelog(
         Some(date) => format!("## {version} — {date}\n\n"),
         None => format!("## {version}\n\n"),
     };
+    if let Some(report) = kept_report {
+        section.push_str(&report);
+        section.push_str("\n\n");
+    }
     if entries.is_empty() {
         section.push_str("No change was archived for this release.\n");
     } else {
@@ -615,6 +629,45 @@ pub fn write_changelog(
         out.push('\n');
     }
     out
+}
+
+/// How the line that links a release's test report starts: the first line of
+/// its section, so it is the first thing the release notes say.
+pub const REPORT_MARK: &str = "**Tested by one developer**: ";
+
+/// Opens the section of `version` with the link to `report`, replacing the one
+/// it linked before; the rest of the section is left as it was. `None` when the
+/// changelog has no section for that version — write it first
+/// (release-para-un-desarrollador D3).
+#[must_use]
+pub fn with_report(changelog: &str, version: Version, report: &str) -> Option<String> {
+    let (header, sections) = changelog_sections(changelog);
+    if !sections
+        .iter()
+        .any(|(heading, _)| *heading == Some(version))
+    {
+        return None;
+    }
+    let link = format!("{REPORT_MARK}[{report}]({report})");
+    let mut out = header;
+    for (heading, text) in sections {
+        if heading != Some(version) {
+            out.push_str(&text);
+            continue;
+        }
+        let mut lines = text.lines();
+        let title = lines.next().unwrap_or_default();
+        let rest: Vec<&str> = lines
+            .filter(|line| !line.starts_with(REPORT_MARK))
+            .collect();
+        let body = rest.join("\n");
+        out.push_str(&format!(
+            "{title}\n\n{link}\n\n{}\n",
+            body.trim_matches('\n')
+        ));
+        out.push('\n');
+    }
+    Some(format!("{}\n", out.trim_end()))
 }
 
 /// How an archived change is named in a changelog entry, and what tells that

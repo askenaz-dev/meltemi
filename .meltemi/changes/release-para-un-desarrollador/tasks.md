@@ -14,10 +14,15 @@ no implementa nada que otra change de la tanda posea.
 
 ## 2. El informe en las notas
 
-- [ ] 2.1 `meltemi-release changelog --report <ruta>`: la línea del informe abre
+- [x] 2.1 `meltemi-release changelog --report <ruta>`: la línea del informe abre
   la sección, se conserva al reescribir y se rehúsa una ruta que no existe
   (design D3) — escenarios «Las notas enlazan el informe» y «Un informe que no
   existe no se enlaza»; gate: tests de `meltemi-release`
+  <!-- 2026-10-28: `with_report` y `REPORT_MARK` en la biblioteca;
+  `write_changelog` conserva la línea al regenerar la sección. Los dos tests
+  corren el binario: enlazar, reescribir sin la bandera (mismo archivo), las
+  notas con un solo enlace, reemplazar, y la ruta que no existe (sale con 1 y
+  no escribe nada). -->
 - [ ] 2.2 La regla en `docs/release.md` (inglés y resumen en español): una
   release que marca un hito probado enlaza su informe; el orden corrida →
   informe → `changelog --report` → `set-version`; la recomendación 0.3.0

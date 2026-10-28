@@ -6,7 +6,10 @@ mod common;
 
 use std::path::Path;
 
-use meltemi_release::{Version, archived_changes, changelog_section, summary_of, write_changelog};
+use meltemi_release::{
+    REPORT_MARK, Version, archived_changes, changelog_section, summary_of, with_report,
+    write_changelog,
+};
 
 fn archive(root: &Path, folder: &str, proposal: &str) {
     let dir = root.join(".meltemi/changes/archive").join(folder);
@@ -109,6 +112,112 @@ fn the_release_notes_come_from_that_section() {
     for name in ["first", "second", "third"] {
         assert!(notes.contains(&format!("[`{name}`]")), "{notes}");
     }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn the_notes_link_the_report_and_a_rewrite_keeps_it() {
+    // Scenario: Las notas enlazan el informe
+    let root = fixture("report");
+    let archived = archived_changes(&root).expect("the archive reads");
+    common::write_carriers(&root, "0.2.0");
+    std::fs::create_dir_all(root.join("docs/qa")).unwrap();
+    let report = "docs/qa/2026-11-02-prueba-de-uno.md";
+    std::fs::write(root.join(report), "# report\n").unwrap();
+    std::fs::write(
+        root.join("CHANGELOG.md"),
+        write_changelog("", v("0.2.0"), Some("2026-07-26"), &archived),
+    )
+    .unwrap();
+
+    // Through the binary the maintainer runs.
+    let bin = env!("CARGO_BIN_EXE_meltemi-release");
+    let out = std::process::Command::new(bin)
+        .args(["changelog", "0.3.0", "--report", report, "--root"])
+        .arg(&root)
+        .output()
+        .expect("run changelog");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let log = std::fs::read_to_string(root.join("CHANGELOG.md")).unwrap();
+    let section = changelog_section(&log, v("0.3.0")).expect("0.3.0");
+    assert_eq!(
+        section.lines().next(),
+        Some(format!("{REPORT_MARK}[{report}]({report})").as_str()),
+        "the report is the first thing the notes say: {section}"
+    );
+    assert!(
+        section.contains("[`third`]"),
+        "and the changes it archives: {section}"
+    );
+    assert!(
+        !changelog_section(&log, v("0.2.0"))
+            .unwrap()
+            .contains(REPORT_MARK),
+        "only the section that was named: {log}"
+    );
+
+    // Rewriting the section without naming the report keeps the link, once.
+    let out = std::process::Command::new(bin)
+        .args(["changelog", "0.3.0", "--root"])
+        .arg(&root)
+        .output()
+        .expect("run changelog again");
+    assert!(out.status.success());
+    let again = std::fs::read_to_string(root.join("CHANGELOG.md")).unwrap();
+    assert_eq!(
+        again, log,
+        "a rewrite gives the same changelog, link included"
+    );
+    let notes = std::process::Command::new(bin)
+        .args(["notes", "0.3.0", "--root"])
+        .arg(&root)
+        .output()
+        .expect("run notes");
+    let notes = String::from_utf8_lossy(&notes.stdout);
+    assert_eq!(notes.matches(REPORT_MARK).count(), 1, "{notes}");
+
+    // Naming another report replaces the link rather than adding a second.
+    let replaced = with_report(&again, v("0.3.0"), "docs/qa/other.md").expect("section");
+    let section = changelog_section(&replaced, v("0.3.0")).unwrap();
+    assert_eq!(section.matches(REPORT_MARK).count(), 1, "{section}");
+    assert!(section.contains("docs/qa/other.md"), "{section}");
+    assert_eq!(
+        with_report(&again, v("9.9.9"), report),
+        None,
+        "a version with no section is not invented"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_report_that_is_not_there_is_not_linked() {
+    // Scenario: Un informe que no existe no se enlaza
+    let root = fixture("no-report");
+    common::write_carriers(&root, "0.2.0");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_meltemi-release"))
+        .args([
+            "changelog",
+            "0.3.0",
+            "--report",
+            "docs/qa/never-written.md",
+            "--root",
+        ])
+        .arg(&root)
+        .output()
+        .expect("run changelog");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("never-written.md"),
+        "the refusal names the report"
+    );
+    assert!(
+        !root.join("CHANGELOG.md").exists(),
+        "nothing is written when the report is refused"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
