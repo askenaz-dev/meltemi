@@ -29,10 +29,18 @@ o no son de un agente; están aquí porque la tanda no se cierra sin ellas.
   <!-- 2026-10-29: la App para el tap y el bucket; winget necesita un token
   propio (su PR va a `microsoft/winget-pkgs`), con la cuenta de máquina como
   recomendación; el cask espera a la notarización. -->
-- [ ] 1.5 *(meltemi-web)* `ide-state-as-it-is`, `ide-state-from-release` e
+- [x] 1.5 *(meltemi-web)* `ide-state-as-it-is`, `ide-state-from-release` e
   `ide-delivery-infra`, validadas con `openspec validate`
-- [ ] 1.6 El inventario de brechas, con su dueño (design D6) — escenario
+  <!-- 2026-10-29: las tres válidas, en `openspec/changes/` de meltemi-web.
+  Los nombres cruzan los dos repositorios: `MELTEMI_APP_ID` y
+  `MELTEMI_APP_PRIVATE_KEY` en `release` y `release-pr`, los secretos de firma
+  en `signing`, los interruptores `MELTEMI_SIGN_*`; y las notas de la tabla son
+  las mismas palabras en `ide-state-as-it-is` D1 y en
+  `estado-que-publica-la-release` D3. -->
+- [x] 1.6 El inventario de brechas, con su dueño (design D6) — escenario
   «Cada brecha con su dueño»
+  <!-- 2026-10-29: la tabla «Las brechas» de la propuesta, y la tanda con las
+  decisiones y el orden en `docs/plan-de-cambios.md`. -->
 
 ## 2. La tanda
 
