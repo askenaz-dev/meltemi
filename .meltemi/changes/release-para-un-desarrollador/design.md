@@ -57,6 +57,12 @@ de punta a punta: **0.3.0**, por el mismo motivo por el que la 0.2.0 marcó la
 primera release por push. La escribe el mantenedor con `set-version`; un agente
 no la escribe (`AGENTS.md`).
 
+**2026-10-29.** La recomendación contradecía `docs/versionado.md`, que antes de
+1.0 sube el patch por lo aditivo: por la política, la tanda era 0.2.1. El
+mantenedor decidió escribir la regla que faltaba —un hito probado de punta a
+punta sube el minor— y la política la dice desde `entrega-sin-huecos` 1.2. La
+0.3.0 queda conforme.
+
 ## Risks / Trade-offs
 
 - El guion envejece con el producto. El test de D2 lo ata a los verbos del

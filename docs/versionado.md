@@ -18,6 +18,15 @@ While the major version is `0`:
 - Every release records its notable changes in the release notes; a change
   classified as breaking is called out explicitly.
 
+## A tested milestone bumps the minor
+
+A release that marks a milestone a person tried end to end — a run of
+[the one-developer test](prueba-de-uno.md) whose report says the release goes
+out — **bumps the minor even when nothing in it is breaking**, and its notes
+open with the link to that report ([releases](release.md)). The maintainer
+decided this on 2026-10-29: a milestone somebody tested is worth a number
+people can name. The first is **0.3.0**.
+
 ## What counts as a breaking change
 
 A change is **breaking** when it alters any of the project's stable contracts:
@@ -31,7 +40,8 @@ A change is **breaking** when it alters any of the project's stable contracts:
    worktree/checkpoint registries) that another version must read.
 
 Additive changes (a new method, a new subcommand, a new optional field, a new
-event kind) are **not** breaking and bump the patch.
+event kind) are **not** breaking and bump the patch, unless the release is a
+tested milestone (above).
 
 ## Release provenance
 
@@ -53,5 +63,8 @@ event kind) are **not** breaking and bump the patch.
 Versionado SemVer pre-1.0 con versión única de workspace; los releases nacen de
 un commit de versión nueva en `main`, y el tag lo crea el pipeline: un tag
 empujado a mano no publica nada. Ruptura (sube minor): contrato `proto/`, gramática CLI o formato de
-artefactos `.meltemi/`. Lo aditivo sube patch. Todo release corre sus gates en
+artefactos `.meltemi/`. Lo aditivo sube patch, salvo que la release marque un
+hito probado de punta a punta —una corrida de `docs/prueba-de-uno.md` cuyo
+informe dice que sale—: entonces sube el minor y sus notas abren con el
+informe (decisión del mantenedor, 2026-10-29; la primera es la 0.3.0). Todo release corre sus gates en
 las tres plataformas antes de publicar; un gate rojo aborta sin publicar nada.
