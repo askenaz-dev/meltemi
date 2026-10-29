@@ -183,10 +183,9 @@ cargo run -p meltemi-release -- set-version 0.3.0
 ```
 
 `--report` refuses a report that is not in the repository, and writing the
-section again without it keeps the link. **0.3.0 is the recommendation** for the
-first such release: what it brings is additive, and it marks the first release a
-person tried end to end, as 0.2.0 marked the first one published by a push. The
-maintainer writes it; the version policy does not change.
+section again without it keeps the link. Such a release **bumps the minor**
+even when nothing in it is breaking, by the milestone rule of the
+[versioning policy](versionado.md): the first is **0.3.0**.
 
 The pipeline then runs, in order:
 
@@ -408,8 +407,8 @@ que marca un hito probado enlaza su informe**: tras correr
 integración del commit de `main` que será la release, porque la release aún no
 existe— y escribir su informe en `docs/qa/`, `changelog X.Y.Z --report <informe>` abre la sección con el enlace
 —rehúsa un informe que no existe, y reescribir la sección lo conserva—, y solo
-después `set-version`. La recomendación para la primera es la 0.3.0; la escribe
-el mantenedor.
+después `set-version`. Una release así sube el minor aunque nada en ella rompa,
+por la regla del hito de la política de versiones: la primera es la 0.3.0.
 
 Cada release publica, por plataforma, el archivo con `meltemi`, `meltemid` y los
 dos adaptadores ACP propios (que se instalan junto al daemon), el instalador de

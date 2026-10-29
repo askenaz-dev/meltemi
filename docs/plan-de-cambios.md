@@ -488,6 +488,61 @@ con su sitio en la tanda de arriba y su propuesta por abrir:
 `piso-del-aviso-sin-carrera`, `archivo-sin-cabeceras-arrastradas`,
 `opencode-que-pregunta` y `registro-de-la-sesion-de-calle`.
 
+#### La entrega sin huecos — propuestas escritas el 2026-10-29
+
+Fuente: `entrega-sin-huecos` (paraguas). Nace de revisar la tabla de estado de
+`/ide/` en meltemi.dev contra el repositorio y la release v0.2.0:
+
+- el compañero móvil figura como «Not yet» y está construido: la change está
+  archivada y el APK mide 10,69 MB, pero ningún workflow lo compila para
+  Android ni lo publica;
+- el escritorio se publica sin firma de plataforma;
+- el SDK no existe, como dice la tabla;
+- la versión y el `CHANGELOG.md` los escribe el mantenedor a mano.
+
+El eje es automatizar: que CI proponga la versión en una PR cuyo merge publica,
+que construya, firme y publique todo lo que el producto tiene, y que el sitio
+pinte el estado desde la release.
+
+**Decisiones del mantenedor (2026-10-29)**:
+
+- todo automatizado hasta el merge de la PR de release;
+- la política de firma se enmienda: firmas de plataforma bajo custodia escrita,
+  en jobs que no construyen;
+- un hito probado sube el minor, ya escrito en `docs/versionado.md`, y la
+  próxima es la **0.3.0**;
+- **1.0.0** la propone CI cuando su lista de preparación está en verde; hoy
+  faltan la firma y la prueba de un desarrollador (`entrega-sin-huecos` D3);
+- una GitHub App, la que el mantenedor ya tiene, para cada token del camino.
+
+Las nueve changes tienen sus cuatro artefactos y validan limpio. Las de
+meltemi-web están en `openspec/changes/` de ese repositorio.
+
+| Orden | Change | Repositorio | Vía | Por qué aquí | Depende de |
+|---|---|---|---|---|---|
+| 0º | `ide-state-as-it-is` | meltemi-web | rápida | el sitio dice algo falso hoy | — |
+| 1º | `ide-delivery-infra` | meltemi-web | completa | los entornos `release-pr` y `signing`, la App y los secretos de firma en Terraform | la App instalada |
+| 2º | `version-que-propone-ci` | IDE | completa | la versión según la política, en una PR de release; el merge publica; el aviso a la web con la App | 1º |
+| 3º | `estado-que-publica-la-release` | IDE | completa | `capabilities.json` atestado en cada release | — |
+| 4º | `ide-state-from-release` | meltemi-web | completa | la tabla del sitio sale de la release, verificada | 3º en una release |
+| 5º | `apk-en-la-release` | IDE | completa | el APK compilado en CI con su techo de 25 MB; publicado solo firmado | — |
+| 6º | `firma-de-plataforma` | IDE | completa | la enmienda; MSI, DMG y APK firmados en jobs aislados y verificados contra identidades fijadas | 1º, 5º, certificados |
+| 7º | `contrato-publicado` | IDE | rápida | los JSON Schemas del contrato como asset de cada release; el índice completo | — |
+| 8º | `distribucion-y-actualizacion` | IDE | completa | Homebrew, Scoop y winget como canal de actualización | 6º para el cask |
+| deseable | `herramientas-a-la-vista` | IDE | completa (ya propuesta) | lo que separa el escritorio de «publicado» | — |
+
+**Del mantenedor**:
+
+- instalar la App en este repositorio (contenido y PRs) y en meltemi-web
+  (Actions), y cargar su id y su clave en el Terraform;
+- el Apple Developer Program, el proveedor de firma de Windows (`firma-de-plataforma`
+  D4) y la clave del APK, generada y respaldada;
+- la decisión del tap y la salida de winget (`distribucion-y-actualizacion` D2,
+  D3);
+- confirmar la lectura de 1.0 (`entrega-sin-huecos` 3.3);
+- correr la prueba de un desarrollador, que es lo que convierte la PR de
+  release en la 0.3.0.
+
 ### `motor-propio-byok` — propuesta activa desde el 2026-07-25
 
 Nace de tres peticiones del mantenedor: una vía para **modelos autohospedados**

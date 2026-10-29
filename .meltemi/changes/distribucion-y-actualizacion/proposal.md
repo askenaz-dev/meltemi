@@ -30,6 +30,19 @@
 >   Crear los repositorios y el token de publicación de manifiestos lo hace
 >   él, no un agente.
 
+> **Nota 2026-10-29**, al entrar a la tanda `entrega-sin-huecos` (8º):
+>
+> - **La credencial es la GitHub App** del mantenedor (`entrega-sin-huecos`
+>   D4), instalada en el tap y en el bucket: reemplaza al «token de
+>   publicación de manifiestos». `winget` es la excepción: su PR va a
+>   `microsoft/winget-pkgs`, donde la App no está instalada, y necesita un
+>   token propio (design D3).
+> - **El cask depende de `firma-de-plataforma`**: Homebrew deja de aceptar
+>   casks que Gatekeeper rechaza, así que el cask sale cuando el DMG está
+>   notarizado. La fórmula del núcleo no espera.
+> - **Los artefactos de esta change** (design, specs, tasks) se escribieron
+>   ese día; la decisión del tap sigue siendo del mantenedor (design D2).
+
 ## Why
 
 Instalar Meltemi es descargar un `.msi`, un `.dmg` o un `.deb` desde la
