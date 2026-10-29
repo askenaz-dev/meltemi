@@ -16,9 +16,14 @@ o no son de un agente; están aquí porque la tanda no se cierra sin ellas.
   D2) — escenario «La política dice qué hace un hito»
   <!-- 2026-10-29: decisión del mantenedor; la 0.3.0 queda conforme a la
   política. -->
-- [ ] 1.3 Las cinco changes nuevas con sus cuatro artefactos, validadas:
+- [x] 1.3 Las cinco changes nuevas con sus cuatro artefactos, validadas:
   `version-que-propone-ci`, `estado-que-publica-la-release`,
   `apk-en-la-release`, `firma-de-plataforma`, `contrato-publicado`
+  <!-- 2026-10-29: las cinco con `meltemi validate` limpio. Escribiéndolas
+  aparecieron dos cosas: la frase de `release-para-un-desarrollador` sobre quién
+  escribe la versión, que ahora admite el merge de la PR de release, y el
+  índice de `proto/README.md`, que nombra 19 de los 34 schemas (lo cierra
+  `contrato-publicado` 1.1). -->
 - [ ] 1.4 Design, specs y tasks de `distribucion-y-actualizacion`, con la App
   como credencial (design D4)
 - [ ] 1.5 *(meltemi-web)* `ide-state-as-it-is`, `ide-state-from-release` e
