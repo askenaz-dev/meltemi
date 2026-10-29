@@ -152,8 +152,9 @@ permissions: contents: read
 concurrency: release-pr (cancel-in-progress)
 job propose — environment: release-pr
   1. actions/create-github-app-token (pineada por commit), con
-     MELTEMI_APP_ID / MELTEMI_APP_KEY del entorno, limitada a este repositorio
-     y a contents:write + pull-requests:write
+     la variable MELTEMI_APP_ID y el secreto MELTEMI_APP_PRIVATE_KEY del
+     entorno, limitada a este repositorio y a contents:write +
+     pull-requests:write
      — sin la clave: ::warning:: y resumen «la App no está configurada
        (entrega-sin-huecos 3.1)», y el job termina en verde
   2. checkout con fetch-depth 0 y tags
@@ -184,6 +185,13 @@ job propose — environment: release-pr
 - **Lo que nunca hace**: empujar a `main`, crear tags, mergear o aprobar. Un
   test estático lo fija leyendo el YAML, como ya se fijan los permisos y los
   pines.
+- **El aviso a la web, con la misma App**: `notify-web` deja de leer
+  `WEB_DISPATCH_TOKEN`. Acuña un token de la App limitado a `meltemi-web` y a
+  `actions: write`, que es exactamente lo que pide el requisito «Aviso a la web
+  al publicar»: lanzar sus workflows y no escribir su contenido. Las
+  credenciales las pone el Terraform de meltemi-web en el entorno `release`
+  (`ide-delivery-infra`), que después borra `WEB_DISPATCH_TOKEN` y, con él, el
+  token de administración que hoy lo sustituye.
 
 ### D8 — Quién escribe la versión
 

@@ -53,11 +53,18 @@ nunca contra este repositorio ni contra la red.
   aprobación (design D7) — escenario «La PR de release no publica sola»; gate:
   la suite de controles estructurales
 
+- [ ] 2.4 `notify-web` con un token de la App limitado a `meltemi-web` y a
+  `actions: write`, desde `MELTEMI_APP_ID` y `MELTEMI_APP_PRIVATE_KEY` del
+  entorno `release`; el test de `core/meltemid/tests/release.rs` que hoy exige
+  `WEB_DISPATCH_TOKEN` pasa a exigir la App y la ausencia del token (design
+  D7); después, `ide-delivery-infra` 4.1 borra el token en meltemi-web — gate:
+  la suite de controles estructurales
+
 ## 3. Los documentos
 
 - [ ] 3.1 `docs/release.md`: el camino por PR como el normal, el manual como
-  respaldo, la App y su entorno, en inglés y en el resumen en español (design
-  D7, D8)
+  respaldo, la App y sus entornos, y «The web notice» con la App en lugar de
+  `WEB_DISPATCH_TOKEN`, en inglés y en el resumen en español (design D7, D8)
 - [ ] 3.2 `docs/versionado.md`: las reglas después de 1.0 y las líneas
   `> **Ruptura**:` y `> **Corrección**:` (design D4) — escenario de la
   política del requisito «Reglas de versión después de 1.0»

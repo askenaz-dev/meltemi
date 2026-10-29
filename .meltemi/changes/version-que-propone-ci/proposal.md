@@ -73,6 +73,9 @@ conversación que se repite.
   `release/next` desde `main` con `prepare` y abre o actualiza la PR
   «Release X.Y.Z». Si nada está pendiente, cierra la que haya. Nunca empuja a
   `main`, nunca crea un tag, nunca mergea.
+- **El aviso a la web con la App**: `notify-web` acuña su token de la App,
+  limitado a `meltemi-web` y a lanzar workflows, en lugar de leer
+  `WEB_DISPATCH_TOKEN`.
 - **Los documentos**: `docs/release.md` (el camino por PR, y el manual como
   respaldo), `docs/versionado.md` (las reglas después de 1.0 y las dos líneas
   de la propuesta) y la frase de `AGENTS.md` sobre quién escribe la versión.
@@ -92,15 +95,18 @@ conversación que se repite.
 ## Impact
 
 - Archivos: `core/meltemi-release/src/{lib.rs,main.rs}` y sus tests,
-  `.github/workflows/release-pr.yml` (nuevo), `docs/release.md`,
+  `.github/workflows/release-pr.yml` (nuevo), el job `notify-web` de
+  `.github/workflows/release.yml`, `core/meltemid/tests/release.rs`,
+  `docs/release.md`,
   `docs/versionado.md`, `AGENTS.md`, `CHANGELOG.md` (lo escribe la
   herramienta, en la rama de la PR).
 - Una dependencia nueva de CI: `actions/create-github-app-token`, pineada por
   commit y justificada en el design (D7). Ningún crate nuevo: los diffs se leen
   con `git show <tag>:<ruta>` y `serde_json`, que ya están.
-- Lo que el mantenedor pone: la App instalada en este repositorio con permisos
-  de contenido y de PRs, y su id y su clave en el entorno `release-pr`, que
-  declara el Terraform de meltemi-web (`ide-delivery-infra`). Hasta entonces el
+- Lo que el mantenedor pone: la App instalada en este repositorio (contenido
+  y PRs) y en meltemi-web (Actions), y su id y su clave en los entornos
+  `release-pr` y `release`, que declara el Terraform de meltemi-web
+  (`ide-delivery-infra`). Hasta entonces el
   workflow lo dice en su resumen y no falla.
 - Riesgo: una PR que propone un número equivocado. Por eso el porqué de cada
   número va en el cuerpo de la PR, cada señal se prueba con fixtures, y el

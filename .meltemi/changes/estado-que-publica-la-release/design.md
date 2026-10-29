@@ -83,14 +83,15 @@ no».
 | id | Estado | Assets | Changes | Nota (en) |
 | --- | --- | --- | --- | --- |
 | `core` | published | los tres archivos del núcleo, `install.sh`, `install.ps1` | — | Releases signed by the workflow that publishes them, with per-platform archives. |
-| `desktop` | in-development | MSI, DMG, deb | `herramientas-a-la-vista`, `firma-de-plataforma`, `distribucion-y-actualizacion` | Installers ship with each release; Windows and macOS warn until they carry platform signatures, and tool calls show only their title. |
+| `desktop` | in-development | MSI, DMG, deb | `herramientas-a-la-vista`, `firma-de-plataforma`, `distribucion-y-actualizacion` | Installers ship with each release; Windows and macOS warn on first run until they carry platform signatures, and tool calls show only their title. |
 | `mobile` | in-development | — (`apk-en-la-release` lo suma) | `apk-en-la-release`, `firma-de-plataforma` | Android, built from source and tested on an emulator; no APK is published yet. |
-| `sdk` | not-yet | — | `plugins-skills-sdk` (solo nombrada) | No packaged SDK; the contract is public as JSON Schemas, and the CLI is scriptable with `--json`. |
+| `sdk` | not-yet | — | `plugins-skills-sdk` (solo nombrada) | There is no packaged SDK yet; the contract is public as JSON Schemas, and the command line is scriptable with `--json`. |
 
-Una change «solo nombrada» (sin directorio) cuenta como no archivada. Las notas
-en español las fija la tarea 2.1, alineadas con las que `ide-state-as-it-is`
-pone a mano en el sitio, para que el paso de una fuente a la otra no cambie
-ninguna palabra.
+Una change «solo nombrada» (sin directorio) cuenta como no archivada. Las notas,
+en inglés y en español, son las que `ide-state-as-it-is` pone a mano en el
+sitio (su design D1), palabra por palabra: `ide-state-from-release` prueba con
+un fixture que pintar desde la release no cambia ninguna. Si una nota cambia
+aquí, cambia allá en la misma tanda.
 
 ### D4 — Lo genera `version`, lo publica `publish`
 

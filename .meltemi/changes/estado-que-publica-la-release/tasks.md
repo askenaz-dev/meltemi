@@ -20,7 +20,8 @@ Vía completa. Un commit atómico por tarea, con referencia
 ## 2. El estado de hoy
 
 - [ ] 2.1 `docs/capacidades.toml` con las cuatro capacidades del design D3, con
-  las notas en español alineadas con las de `ide-state-as-it-is`
+  las notas en los dos idiomas idénticas a las de `ide-state-as-it-is` (design
+  D1 de esa change, en meltemi-web)
 - [ ] 2.2 El test de la suite que corre `--check` sobre el árbol real, para que
   archivar una change o tocar `release.yml` lo ejerza en cada PR (design D2)
 
