@@ -488,6 +488,36 @@ con su sitio en la tanda de arriba y su propuesta por abrir:
 `piso-del-aviso-sin-carrera`, `archivo-sin-cabeceras-arrastradas`,
 `opencode-que-pregunta` y `registro-de-la-sesion-de-calle`.
 
+#### La entrega sin huecos — propuesta abierta el 2026-10-29
+
+Fuente: `entrega-sin-huecos` (paraguas, solo propuesta). Nace de revisar la
+tabla de estado de `/ide/` en meltemi.dev contra el repositorio y la release
+v0.2.0. El compañero móvil figura como «Not yet» y está construido: la change
+está archivada y el APK mide 10,69 MB, pero ningún workflow lo compila para
+Android ni lo publica. El escritorio se publica sin firma de plataforma. El
+SDK no existe, como dice la tabla. La versión y el `CHANGELOG.md` los escribe
+el mantenedor a mano, y la recomendación de 0.3.0 contradice
+`docs/versionado.md`, que para una tanda sin ruptura da 0.2.1. El eje es
+automatizar: que CI proponga la versión en una PR cuyo merge publica, que
+construya y publique todo lo que el producto tiene, y que el sitio pinte el
+estado desde la release.
+
+| Orden | Change | Vía | Por qué aquí | Depende de |
+|---|---|---|---|---|
+| 0º | web: filas al día (meltemi-web) | rápida | el sitio dice algo falso hoy; aprobada por el mantenedor el 2026-10-29 | — |
+| 1º | `version-que-propone-ci` | completa | la versión según la política, en una PR de release; el merge publica | — |
+| 2º | `estado-que-publica-la-release` | completa, con hermana en meltemi-web | `capabilities.json` en cada release; la tabla del sitio sale de ahí | 1º |
+| 3º | `apk-en-la-release` | completa | el APK compilado en CI con su techo de 25 MB; publicado cuando haya firma | — |
+| 4º | `firma-de-plataforma` | completa, gate: decisión del mantenedor | MSI, DMG y APK firmados en un job aislado que no construye | decisión y certificados |
+| 5º | `distribucion-y-actualizacion` | completa (ya propuesta) | los gestores de paquetes como canal de actualización | 4º para el cask |
+| 6º | `contrato-publicado` | rápida | los JSON Schemas del contrato como asset de cada release; el SDK sigue en fase 2 | 1º |
+| deseable | `herramientas-a-la-vista` | completa (ya propuesta) | lo que separa el escritorio de «publicado» | — |
+
+**Del mantenedor**: la decisión de firma y los certificados; la regla de
+versión para hitos (0.2.1 por la política escrita, o una regla nueva que
+permita 0.3.0); el permiso para que Actions abra PRs o una GitHub App
+declarada en Terraform; y, como antes, correr la prueba de un desarrollador.
+
 ### `motor-propio-byok` — propuesta activa desde el 2026-07-25
 
 Nace de tres peticiones del mantenedor: una vía para **modelos autohospedados**
