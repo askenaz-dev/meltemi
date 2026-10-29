@@ -24,8 +24,11 @@ o no son de un agente; están aquí porque la tanda no se cierra sin ellas.
   escribe la versión, que ahora admite el merge de la PR de release, y el
   índice de `proto/README.md`, que nombra 19 de los 34 schemas (lo cierra
   `contrato-publicado` 1.1). -->
-- [ ] 1.4 Design, specs y tasks de `distribucion-y-actualizacion`, con la App
+- [x] 1.4 Design, specs y tasks de `distribucion-y-actualizacion`, con la App
   como credencial (design D4)
+  <!-- 2026-10-29: la App para el tap y el bucket; winget necesita un token
+  propio (su PR va a `microsoft/winget-pkgs`), con la cuenta de máquina como
+  recomendación; el cask espera a la notarización. -->
 - [ ] 1.5 *(meltemi-web)* `ide-state-as-it-is`, `ide-state-from-release` e
   `ide-delivery-infra`, validadas con `openspec validate`
 - [ ] 1.6 El inventario de brechas, con su dueño (design D6) — escenario
