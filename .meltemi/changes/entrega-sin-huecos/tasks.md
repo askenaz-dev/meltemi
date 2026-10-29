@@ -1,0 +1,55 @@
+# Tasks — entrega-sin-huecos
+
+Vía completa, paraguas. Un commit atómico por tarea, con referencia
+`(entrega-sin-huecos N.M)` y sin trailers de co-autoría. Esta change no
+implementa nada que otra change de la tanda posea: sus tareas del grupo 2 se
+marcan cuando la change nombrada se archiva.
+
+Las tareas marcadas *(meltemi-web)* o *(mantenedor)* no son de este repositorio
+o no son de un agente; están aquí porque la tanda no se cierra sin ellas.
+
+## 1. El inventario y las propuestas
+
+- [x] 1.1 La propuesta y la tanda en `docs/plan-de-cambios.md`
+- [x] 1.2 La regla del hito en `docs/versionado.md`, la frase de la 0.3.0 en
+  `docs/release.md` y la nota en `release-para-un-desarrollador` D5 (design
+  D2) — escenario «La política dice qué hace un hito»
+  <!-- 2026-10-29: decisión del mantenedor; la 0.3.0 queda conforme a la
+  política. -->
+- [ ] 1.3 Las cinco changes nuevas con sus cuatro artefactos, validadas:
+  `version-que-propone-ci`, `estado-que-publica-la-release`,
+  `apk-en-la-release`, `firma-de-plataforma`, `contrato-publicado`
+- [ ] 1.4 Design, specs y tasks de `distribucion-y-actualizacion`, con la App
+  como credencial (design D4)
+- [ ] 1.5 *(meltemi-web)* `ide-state-as-it-is`, `ide-state-from-release` e
+  `ide-delivery-infra`, validadas con `openspec validate`
+- [ ] 1.6 El inventario de brechas, con su dueño (design D6) — escenario
+  «Cada brecha con su dueño»
+
+## 2. La tanda
+
+- [ ] 2.1 *(meltemi-web)* `ide-state-as-it-is` archivada
+- [ ] 2.2 *(meltemi-web)* `ide-delivery-infra` archivada
+- [ ] 2.3 `version-que-propone-ci` archivada
+- [ ] 2.4 `estado-que-publica-la-release` archivada
+- [ ] 2.5 *(meltemi-web)* `ide-state-from-release` archivada
+- [ ] 2.6 `apk-en-la-release` archivada
+- [ ] 2.7 `firma-de-plataforma` archivada
+- [ ] 2.8 `contrato-publicado` archivada
+- [ ] 2.9 `distribucion-y-actualizacion` archivada
+
+## 3. Del mantenedor
+
+- [ ] 3.1 *(mantenedor)* La GitHub App instalada en este repositorio y en
+  meltemi-web con los permisos que piden `version-que-propone-ci` e
+  `ide-delivery-infra`; su id y su clave como variables del Terraform
+- [ ] 3.2 *(mantenedor)* Las firmas contratadas y la clave del APK generada y
+  respaldada, como piden `firma-de-plataforma` y `apk-en-la-release`
+- [ ] 3.3 *(mantenedor)* Confirmar la lectura de 1.0 del design D3: los
+  entregables de fase 2 que el texto del Hito v1.0 no nombra, ¿son gate o
+  informativos?
+
+## 4. Cierre
+
+- [ ] 4.1 `meltemi validate` y `verify`; la tanda cerrada en
+  `docs/plan-de-cambios.md`; archivar
