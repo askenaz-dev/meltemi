@@ -1,29 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Release
 
-# A release originates from a push to main that carries a new version
-# (release-con-el-push D1; docs/versionado.md). The `version` job asks
-# `meltemi-release gate` whether this commit opens the release path, and every
-# other job runs only when it says yes. The pipeline creates the tag on that
-# very commit; no tag starts this workflow, so a tag pushed by hand publishes
-# nothing. A red gate aborts the release: no artifact is published
-# (docs/release.md).
-#
-# A dispatch re-runs a publication that failed half-way, and is honoured from
-# main only.
+# Every successful CI push to main publishes its exact source commit.
+# A dispatch is recovery of a validated CI run, never a gate bypass.
 on:
-  push:
-    branches: ["main"]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful CI push-to-main run to recover
+        required: true
+        type: string
 
-# One release at a time: two pushes close together must not race to create the
-# same tag.
+# GitHub retains up to 100 pending runs. Completion order is not source order;
+# deterministic first-parent numbering and the latest guard handle that too.
 concurrency:
   group: release
-  cancel-in-progress: false
+  queue: max
 
-# Read-only by default; the jobs that publish raise their own permissions and
-# no other job may (release-con-el-push D5).
 permissions:
   contents: read
 
@@ -45,70 +42,85 @@ env:
   MELTEMI_ADAPTER_BUDGET_BYTES: "6291456"
 
 jobs:
-  # The release gate (release-con-el-push D1, D5): this commit's version must
-  # agree in every carrier, have no tag, be newer than every version tag, and
-  # the commit must be on main. The answer is the condition of every other job.
-  # Carriers that disagree fail this job, so the run turns red instead of
-  # quietly publishing nothing.
-  version:
-    name: release gate
-    if: github.ref == 'refs/heads/main'
+  authorize:
+    name: validate the CI run
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
-      release: ${{ steps.gate.outputs.release }}
-      version: ${{ steps.gate.outputs.version }}
-      tag: ${{ steps.gate.outputs.tag }}
-      notes: ${{ steps.notes.outputs.notes }}
+      sha: ${{ steps.ci.outputs.sha }}
+      ci_run_id: ${{ steps.ci.outputs.ci_run_id }}
+    steps:
+      # Trusted control-plane code only; no product code is checked out yet.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Validate origin, workflow, event, branch and success through the API
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ inputs.ci_run_id || github.event.workflow_run.id }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node scripts/automatic-release.mjs authorize
+
+  version:
+    name: reserve the source version
+    needs: authorize
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    outputs:
+      release: ${{ steps.reserve.outputs.release }}
+      published: ${{ steps.reserve.outputs.published }}
+      version: ${{ steps.reserve.outputs.version }}
+      tag: ${{ steps.reserve.outputs.tag }}
+      sha: ${{ needs.authorize.outputs.sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          # Every tag and origin/main: the gate compares against all of them.
+          ref: ${{ needs.authorize.outputs.sha }}
           fetch-depth: 0
-      - name: Show toolchain
-        run: rustup show
+          persist-credentials: false
+      - name: Require automation in the approved source
+        shell: bash
+        run: |
+          test -f scripts/automatic-release.mjs || { echo '::error::This CI run predates automatic releases; recover a CI run after the automation merge'; exit 1; }
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - name: Ask the gate
-        id: gate
+      - name: Read the agreed source version without publication credentials
+        id: source
         shell: bash
-        run: |
-          cargo run --quiet --locked -p meltemi-release -- gate --commit "$GITHUB_SHA" --main origin/main > gate.txt
-          cat gate.txt >> "$GITHUB_OUTPUT"
-          {
-            echo '### Release gate'
-            echo
-            echo '```'
-            cat gate.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          cat gate.txt
-      # The release's notes are the version's section of CHANGELOG.md when it
-      # has one, and generated otherwise (release-con-el-push D4). Taken here,
-      # where the toolchain already is, and handed to the publish job.
-      - name: The release notes
-        id: notes
-        if: steps.gate.outputs.release == 'true'
-        shell: bash
+        run: echo "version=$(cargo run --quiet --locked -p meltemi-release -- version)" >> "$GITHUB_OUTPUT"
+      - name: Reserve or reuse the immutable tag
+        id: reserve
         env:
-          VERSION: ${{ steps.gate.outputs.version }}
-        run: |
-          set +e
-          cargo run --quiet --locked -p meltemi-release -- notes "$VERSION" > release-notes.md
-          code=$?
-          set -e
-          if [ "$code" -eq 0 ]; then
-            echo "notes=changelog" >> "$GITHUB_OUTPUT"
-          elif [ "$code" -eq 3 ]; then
-            echo "CHANGELOG.md has no section for $VERSION: the notes will be generated"
-            echo "notes=generated" >> "$GITHUB_OUTPUT"
-          else
-            exit "$code"
-          fi
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.authorize.outputs.sha }}
+          CI_RUN_ID: ${{ needs.authorize.outputs.ci_run_id }}
+          SOURCE_VERSION: ${{ steps.source.outputs.version }}
+        run: node scripts/automatic-release.mjs reserve
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: steps.notes.outputs.notes == 'changelog'
+        if: steps.reserve.outputs.release == 'true'
         with:
+          overwrite: true
+          name: meltemi-release-manifest
+          path: release-manifest.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.reserve.outputs.release == 'true'
+        with:
+          overwrite: true
           name: release-notes
           path: release-notes.md
-          retention-days: 7
           if-no-files-found: error
 
   gates:
@@ -122,6 +134,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Stamp the build version (no commit)
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: node scripts/automatic-release.mjs stamp
       - name: Show toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -199,6 +220,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Stamp the build version (no commit)
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: node scripts/automatic-release.mjs stamp
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check licenses advisories sources bans
@@ -213,6 +243,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Stamp the build version (no commit)
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: node scripts/automatic-release.mjs stamp
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Desktop system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -265,6 +304,7 @@ jobs:
           cat SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          overwrite: true
           name: meltemi-${{ runner.os }}
           path: dist/
 
@@ -278,6 +318,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Stamp the build version (no commit)
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: node scripts/automatic-release.mjs stamp
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Desktop system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -367,6 +416,7 @@ jobs:
           cat SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          overwrite: true
           name: meltemi-gui-${{ runner.os }}
           path: dist-gui/
 
@@ -375,9 +425,9 @@ jobs:
   # SHA256SUMS; the attestation over its entries is the release's signature,
   # and its bundle travels as an asset so a download can be verified offline.
   # Immutable releases accept no asset once published, so everything is
-  # uploaded to a draft first and the draft is published last. A draft does not
-  # create its tag: if this job fails half-way the tag does not exist yet, and a
-  # dispatch, or a re-run, finds the draft and finishes it.
+  # uploaded to a draft first and the draft is published last. The immutable
+  # tag reservation survives failures; retries finish the same draft/version.
+  # Internal run artifacts use overwrite for rerun-all; published assets never do.
   publish:
     name: publish the release
     if: needs.version.outputs.release == 'true'
@@ -399,13 +449,17 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.version.outputs.tag }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           # The packaging jobs' artifacts only: meltemi-<os> and meltemi-gui-<os>.
           pattern: meltemi-*
           path: collected
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        if: needs.version.outputs.notes == 'changelog'
         with:
           name: release-notes
           path: notes
@@ -450,61 +504,8 @@ jobs:
         env:
           BUNDLE: ${{ steps.attest.outputs.bundle-path }}
         run: cp "$BUNDLE" release-assets/attestation.sigstore.json
-      - name: Create or reuse the draft
-        id: draft
-        shell: bash
-        # The tag does not exist yet: the gate refused any version that has one,
-        # and a draft does not create it. The release is created on the commit
-        # that passed the gates; a draft left by a failed run is reused.
-        run: |
-          state="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
-          case "$state" in
-            false)
-              echo "$TAG is already published: nothing to upload"
-              echo "published=true" >> "$GITHUB_OUTPUT"
-              ;;
-            true)
-              echo "a draft of $TAG exists: it is completed"
-              ;;
-            missing)
-              if [ -s notes/release-notes.md ]; then
-                notes=(--notes-file notes/release-notes.md)
-              else
-                notes=(--generate-notes)
-              fi
-              gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Meltemi $TAG" "${notes[@]}"
-              ;;
-            *)
-              echo "::error::unexpected state of $TAG: $state"
-              exit 1
-              ;;
-          esac
-      - name: Upload every asset to the draft
-        if: steps.draft.outputs.published != 'true'
-        shell: bash
-        # --clobber makes a re-run idempotent: an asset a failed upload left
-        # half-written is replaced. Allowed on a draft, refused once published.
-        run: gh release upload "$TAG" release-assets/* --clobber
-      - name: Publish the draft
-        if: steps.draft.outputs.published != 'true'
-        shell: bash
-        run: gh release edit "$TAG" --draft=false --latest
-      - name: Check what was published
-        shell: bash
-        # Nothing may be missing once published: immutable releases would never
-        # accept it afterwards.
-        run: |
-          published="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
-          missing=0
-          for file in release-assets/*; do
-            name="$(basename "$file")"
-            if ! grep -qxF "$name" <<< "$published"; then
-              echo "::error::$TAG was published without $name"
-              missing=1
-            fi
-          done
-          [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "false" ] || { echo "::error::$TAG is still a draft"; exit 1; }
-          exit "$missing"
+      - name: Publish or recover without moving latest backwards
+        run: node scripts/automatic-release.mjs publish
 
   # Tells the web a release is out (release-con-el-push D7). It starts
   # meltemi-web's deploy workflow and carries no data: the site reads the
@@ -516,7 +517,9 @@ jobs:
   notify-web:
     name: tell the web
     needs: [version, publish]
-    if: needs.version.outputs.release == 'true'
+    if: >-
+      always() && needs.version.result == 'success' &&
+      (needs.publish.result == 'success' || needs.version.outputs.published == 'true')
     runs-on: ubuntu-latest
     environment: release
     steps:

@@ -298,86 +298,37 @@ fn the_integration_build_cannot_create_or_sign_a_release() {
 
 #[test]
 fn the_release_path_opens_only_where_the_gate_says_so() {
-    // Scenario: Tag empujado a mano no publica
-    // Nothing listens to tags: the workflow starts on a push to main or on a
-    // dispatch from main, its first job asks the gate, and every job that
-    // builds, packages or publishes runs only when the gate opens the path
-    // (release-con-el-push D1).
+    // Scenario: CI de una PR no publica; Recuperación valida el CI
     let root = repo_root();
-    let release_yml = read(&root, ".github/workflows/release.yml");
-    let on: Vec<&str> = release_yml
-        .lines()
-        .skip_while(|line| line.trim_end() != "on:")
-        .skip(1)
-        .take_while(|line| line.starts_with(' '))
-        .collect();
-    let on = on.join(" ");
-    assert!(
-        !on.contains("tags"),
-        "no tag starts the release workflow: {on}"
-    );
-    assert!(
-        on.contains("branches: [\"main\"]") && on.contains("workflow_dispatch"),
-        "a push to main and a dispatch start it: {on}"
-    );
-
-    let version = job_block(&release_yml, "version");
-    assert!(
-        version.contains("meltemi-release -- gate --commit \"$GITHUB_SHA\" --main origin/main"),
-        "the first job asks the gate about this very commit"
-    );
-    assert!(
-        version.contains("if: github.ref == 'refs/heads/main'"),
-        "a dispatch is honoured from main only"
-    );
-    assert!(
-        version.contains("fetch-depth: 0"),
-        "the gate sees every tag and origin/main"
-    );
-
-    let opened = "if: needs.version.outputs.release == 'true'";
-    for job in ["gates", "deny", "package", "package-gui", "publish"] {
-        let block = job_block(&release_yml, job);
-        assert!(
-            block.contains(opened),
-            "the `{job}` job runs only when the gate opens the path"
-        );
-        assert!(
-            block
-                .lines()
-                .any(|line| line.trim_start().starts_with("needs:") && line.contains("version")),
-            "the `{job}` job waits for the gate's answer"
-        );
+    let wf = read(&root, ".github/workflows/release.yml");
+    let authorize = job_block(&wf, "authorize");
+    assert!(wf.contains("workflow_run:") && wf.contains("workflows: [CI]"));
+    assert!(wf.contains("ci_run_id:") && wf.contains("queue: max"));
+    for guard in [
+        "github.ref == 'refs/heads/main'",
+        "conclusion == 'success'",
+        "event == 'push'",
+        "head_branch == 'main'",
+        "head_repository.full_name == github.repository",
+    ] {
+        assert!(authorize.contains(guard), "authority guard: {guard}");
     }
-
-    // The tag is the pipeline's output, on the commit that passed the gates.
-    let draft = job_block(&release_yml, "publish");
-    assert!(
-        draft.contains("--target \"$GITHUB_SHA\""),
-        "the release creates its tag on the commit that passed the gates"
-    );
-    assert!(
-        !draft.contains("--verify-tag"),
-        "no tag exists before the pipeline creates it"
-    );
-
-    // No second publisher anywhere in .github/workflows.
-    let dir = root.join(".github/workflows");
-    for entry in std::fs::read_dir(&dir).expect("the workflows directory exists") {
-        let path = entry.expect("readable entry").path();
-        if path.extension().is_none_or(|ext| ext != "yml") {
-            continue;
-        }
-        let name = path.file_name().expect("named file").to_string_lossy();
-        if name == "release.yml" {
-            continue;
-        }
-        let text = executable_lines(&std::fs::read_to_string(&path).expect("readable workflow"));
-        assert!(
-            !text.contains("gh release create"),
-            "{name} creates a release; the release workflow is the only one that may"
-        );
+    assert!(authorize.contains("node scripts/automatic-release.mjs authorize"));
+    assert!(authorize.contains("ref: ${{ github.workflow_sha }}"));
+    let version = job_block(&wf, "version");
+    assert!(version.contains("ref: ${{ needs.authorize.outputs.sha }}"));
+    assert!(version.contains("automatic-release.mjs reserve"));
+    for name in ["gates", "deny", "package", "package-gui", "publish"] {
+        let job = job_block(&wf, name);
+        assert!(job.contains("if: needs.version.outputs.release == 'true'"));
+        assert!(job.contains("ref: ${{ needs.version.outputs.sha }}"));
     }
+    let script = read(&root, "scripts/automatic-release.mjs");
+    assert!(
+        script.contains("workflow_id !== workflow.id")
+            && script.contains("run.path !== workflow.path")
+    );
+    assert!(script.contains("ancestor(root, sourceSha, 'origin/main')"));
 }
 
 #[test]
@@ -492,7 +443,7 @@ fn the_release_pipeline_gates_and_budget_abort() {
     // the budget gate exits non-zero.
     let wf = read(&repo_root(), ".github/workflows/release.yml");
     assert!(
-        wf.contains("meltemi-release -- gate"),
+        wf.contains("automatic-release.mjs reserve"),
         "a release originates from the gate's answer, not from a tag"
     );
     for gate in ["cargo fmt", "clippy", "cargo test", "cargo-deny"] {
@@ -626,19 +577,20 @@ fn the_release_is_attested_and_published_with_nothing_attached_afterwards() {
         at("Merge artifacts under one checksum file"),
         at("uses: actions/attest@"),
         at("Keep the attestation bundle as an asset"),
-        at("gh release create \"$TAG\" --draft --target \"$GITHUB_SHA\""),
-        at("gh release upload \"$TAG\" release-assets/* --clobber"),
-        at("gh release edit \"$TAG\" --draft=false"),
+        at("node scripts/automatic-release.mjs publish"),
     ];
     assert!(
         order.windows(2).all(|pair| pair[0] < pair[1]),
         "merge, attest, keep the bundle, create the draft, upload, publish: in that order {order:?}"
     );
-    let after_publish = &publish[at("gh release edit \"$TAG\" --draft=false")..];
-    assert!(
-        !after_publish.contains("gh release upload"),
-        "nothing is uploaded after the release is published"
-    );
+    let script = read(&root, "scripts/automatic-release.mjs");
+    let upload = script
+        .find("remote.upload(plan.tag)")
+        .expect("upload before publish");
+    let finish = script
+        .find("remote.finish(draft.id, promote)")
+        .expect("publication last");
+    assert!(upload < finish);
     for permission in [
         "contents: write",
         "id-token: write",
@@ -660,80 +612,30 @@ fn the_release_is_attested_and_published_with_nothing_attached_afterwards() {
 
 #[test]
 fn a_rerun_finishes_a_half_published_release_instead_of_starting_another() {
-    // Scenario: Re-ejecución tras fallo parcial termina lo que falta
-    // A draft does not create its tag, so after a failure half-way the gate
-    // opens the path again and the publish job finds the draft: it completes
-    // it, and a published release is left alone (release-con-el-push D4).
-    let publish = job_block(
-        &read(&repo_root(), ".github/workflows/release.yml"),
-        "publish",
-    );
-    assert!(
-        publish.contains("gh release view \"$TAG\" --json isDraft"),
-        "the publish job asks what state the release is in before acting"
-    );
-    for (state, deed) in [
-        (
-            "            false)",
-            "is already published: nothing to upload",
-        ),
-        (
-            "            true)",
-            "a draft of $TAG exists: it is completed",
-        ),
-        ("            missing)", "gh release create \"$TAG\" --draft"),
-    ] {
-        let branch = publish
-            .split(state)
-            .nth(1)
-            .unwrap_or_else(|| panic!("the publish job handles the state {state}"));
-        assert!(
-            branch
-                .split(";;")
-                .next()
-                .is_some_and(|body| body.contains(deed)),
-            "state {state} leads to: {deed}"
-        );
-    }
-    assert_eq!(
-        publish.matches("gh release create").count(),
-        1,
-        "one place creates a release, and only when none exists"
-    );
-    for step in ["Upload every asset to the draft", "Publish the draft"] {
-        let header = publish
-            .split(step)
-            .nth(1)
-            .expect("the step exists")
-            .split("run:")
-            .next()
-            .expect("its header");
-        assert!(
-            header.contains("if: steps.draft.outputs.published != 'true'"),
-            "`{step}` is skipped for a release already published"
-        );
-    }
+    // Scenario: Reintento conserva versión
+    let root = repo_root();
+    let ci = read(&root, ".github/workflows/ci.yml");
+    assert!(ci.contains("node --test scripts/automatic-release.test.mjs"));
+    let wf = read(&root, ".github/workflows/release.yml");
+    assert!(job_block(&wf, "version").contains("automatic-release.mjs reserve"));
+    assert!(job_block(&wf, "publish").contains("automatic-release.mjs publish"));
+    let script = read(&root, "scripts/automatic-release.mjs");
+    assert!(script.contains("existing && !existing.draft"));
+    assert!(script.contains("existing ?? remote.create(plan)"));
+    assert!(!script.contains("git/refs/tags/")); // no ref update/force API
 }
 
 #[test]
-fn the_notes_come_from_the_changelog_when_it_has_the_version() {
-    // Scenario: Notas desde el changelog
-    let wf = read(&repo_root(), ".github/workflows/release.yml");
-    let version = job_block(&wf, "version");
-    assert!(
-        version.contains("meltemi-release -- notes \"$VERSION\" > release-notes.md"),
-        "the version job takes the version's section of CHANGELOG.md"
-    );
-    assert!(
-        version.contains("notes=changelog") && version.contains("notes=generated"),
-        "and says whether the notes were found or will be generated"
-    );
-    let publish = job_block(&wf, "publish");
-    assert!(
-        publish.contains("--notes-file notes/release-notes.md")
-            && publish.contains("--generate-notes"),
-        "the release carries the changelog's section, or generated notes when there is none"
-    );
+fn the_notes_come_from_the_reserved_source_range() {
+    // Scenario: Fuente y binario son reproducibles
+    let root = repo_root();
+    let wf = read(&root, ".github/workflows/release.yml");
+    assert!(job_block(&wf, "version").contains("path: release-notes.md"));
+    assert!(job_block(&wf, "version").contains("path: release-manifest.json"));
+    assert!(job_block(&wf, "publish").contains("name: release-notes"));
+    let script = read(&root, "scripts/automatic-release.mjs");
+    assert!(script.contains("--format=- %h %s"));
+    assert!(script.contains("plan.baseTag") && script.contains("plan.sourceSha"));
 }
 
 #[test]
@@ -874,8 +776,8 @@ fn the_limit_of_a_workflow_signature_is_declared_with_its_controls() {
         "pinned by full commit",
         "read-only",
         "`release` environment",
-        "not on `main`",
-        "already has a tag",
+        "successful push-to-main",
+        "immutable reservations",
         "rulesets",
     ] {
         assert!(
@@ -1166,12 +1068,9 @@ fn the_web_is_told_after_the_release_and_only_then() {
         needs.contains("publish"),
         "the notice waits for the publication: {needs}"
     );
-    for override_status in ["always()", "failure()", "cancelled()", "!cancelled()"] {
-        assert!(
-            !notify.contains(override_status),
-            "the notice runs only after a successful publication, never with `{override_status}`"
-        );
-    }
+    assert!(notify.contains("needs.version.result == 'success'"));
+    assert!(notify.contains("needs.publish.result == 'success'"));
+    assert!(notify.contains("needs.version.outputs.published == 'true'"));
     assert!(
         notify.contains("environment: release") && notify.contains("secrets.WEB_DISPATCH_TOKEN"),
         "its credential lives in the release environment"

@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Preserve every main push (and PR run); GitHub's queue limit is 100.
+concurrency:
+  group: ci-${{ github.ref }}
+  queue: max
+
 # Read-only unless a job says otherwise. Nothing here publishes, and a
 # workflow that does not declare its permissions inherits the repository's
 # default, which was write (release-con-el-push D5).
@@ -72,6 +77,9 @@ jobs:
 
       # Pure surface logic (fuzzy matching, entity identity) under Node's own
       # test runner: no test framework dependency.
+      - name: Automatic release behavior tests
+        run: node --test scripts/automatic-release.test.mjs
+
       - name: Desktop frontend tests
         run: npm test --prefix desktop/ui
 
