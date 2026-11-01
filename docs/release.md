@@ -178,7 +178,9 @@ The stamp uses the existing Rust version tool and changes no dependency versions
 **Notes** list actual commit subjects from the reserved ancestor-tag range. A
 version-specific CHANGELOG.md section can add curated notes and a tested milestone
 report; `meltemi-release changelog X.Y.Z --report <path>` remains available for
-that purpose. No generated text claims manual testing took place.
+that purpose. Follow the [one-developer test](prueba-de-uno.md) to exercise an
+installed release end to end and record the milestone's evidence. No generated
+text claims manual testing took place.
 
 **Recovery:** re-run the failed jobs or dispatch from main with the successful
 CI run id:

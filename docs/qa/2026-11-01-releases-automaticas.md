@@ -56,3 +56,13 @@ de la PR y a la primera ejecución después del merge. El CLI instalado no pudo
 ejecutar `meltemi validate/verify` porque no encuentra `meltemid`; la validación
 estructural se realizó con el mismo motor mediante su test dogfood. La change
 permanece activa hasta la validación remota.
+
+## Seguimiento de la PR
+
+La ejecución 41343595843 pasó las 13 pruebas de automatización en Ubuntu y macOS,
+pero ambos jobs fallaron en el control documental de la guía de prueba de un
+desarrollador: la sección renovada de releases había perdido su enlace a
+`prueba-de-uno.md`. Se restauró el enlace manteniendo la prueba manual como
+evidencia de hitos, sin convertirla en gate de cada push. El test existente
+`the_one_developer_guide_starts_at_the_release_and_says_what_to_expect` pasó
+localmente mediante `cargo test --locked -p meltemi --test docs <test> -- --exact`.
