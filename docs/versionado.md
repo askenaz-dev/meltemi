@@ -1,70 +1,68 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Versioning policy
 
-Meltemi versions with **SemVer, pre-1.0**. The workspace carries a **single
-version** (`[workspace.package] version` in the root `Cargo.toml`); every crate
-inherits it, and every release originates from a commit of a new version on
-`main` and its release pipeline, which creates the tag — never a manual
-upload, and never a tag pushed by hand.
+Meltemi uses **SemVer, pre-1.0** and a single workspace version. Since the
+maintainer's decision of 2026-11-01, every successful CI run for a push to main
+publishes that exact source commit automatically. No release PR or manual patch
+bump is required. Tags pushed by hand do not trigger publication.
 
-_Resumen en español al final._
+## Source version and release version
 
-## Pre-1.0 rules
+The manifests declare the source base. Every crate inherits
+`[workspace.package] version`; Tauri and npm carriers agree with it. Release CI
+stamps its assigned version into an isolated checkout and Cargo.lock before
+building. It never commits the stamp to main.
 
-While the major version is `0`:
+A release number is deterministic along the source's **first-parent history**:
 
-- **A breaking change bumps the minor** (`0.x.0`).
-- **A backward-compatible change or fix bumps the patch** (`0.x.y`).
-- Every release records its notable changes in the release notes; a change
-  classified as breaking is called out explicitly.
+1. Compute the declared base plus the number of first-parent commits since that
+   base was introduced. The introducing commit receives the exact base.
+2. Find the closest first-parent release tag. If it is newer than the declared
+   base introduction, use tag plus distance: commits before that historical
+   release are already accounted for. Otherwise use the greater of base plus
+   distance and tag plus distance. A stale declared patch cannot regress.
+3. Reserve that number as an annotated, immutable tag on the approved SHA.
+   A collision with another SHA fails; no tag is moved or deleted.
 
-## A tested milestone bumps the minor
+Descendant tags never affect an older source's number. Out-of-order CI completion
+may leave gaps while earlier builds fail; recovery fills the same number.
+A retry reuses the reservation, version, CI evidence and notes base.
 
-A release that marks a milestone a person tried end to end — a run of
-[the one-developer test](prueba-de-uno.md) whose report says the release goes
-out — **bumps the minor even when nothing in it is breaking**, and its notes
-open with the link to that report ([releases](release.md)). The maintainer
-decided this on 2026-10-29: a milestone somebody tested is worth a number
-people can name. The first is **0.3.0**.
+## Breaking changes and milestones
 
-## What counts as a breaking change
+A breaking change bumps the **minor** before 1.0; afterwards it bumps major.
+Set the declared base deliberately for that change using
+`cargo run -p meltemi-release -- set-version X.Y.Z`. Ordinary additive changes
+and fixes advance patch automatically. The contracts that define breaking are:
 
-A change is **breaking** when it alters any of the project's stable contracts:
+- `proto/`: removed methods or fields, tightened schemas or protocol version.
+- CLI grammar: removed commands or flags, changed arguments or exit codes.
+- artifact format: incompatible on-disk `.meltemi/` specs, changes or registries.
 
-1. **The `proto/` contract** — the JSON Schemas under `proto/schemas/` and the
-   `meltemi-proto` types: a removed or renamed method, a removed field, a
-   tightened schema, or a bump of `PROTOCOL_VERSION`.
-2. **The CLI grammar** — removing or renaming a subcommand, changing a
-   subcommand's arguments, or changing the exit-code taxonomy (`tui::exit`).
-3. **The artifact format** — the on-disk shape of `.meltemi/` (specs, changes,
-   worktree/checkpoint registries) that another version must read.
+A milestone tried end to end may introduce a new minor base (the next planned
+milestone is 0.3.0). Its report is checked in under docs/qa and may be linked by
+`meltemi-release changelog X.Y.Z --report <path>`. Automatic releases do not
+claim that an unperformed manual acceptance test passed.
 
-Additive changes (a new method, a new subcommand, a new optional field, a new
-event kind) are **not** breaking and bump the patch, unless the release is a
-tested milestone (above).
+## Source identity, recovery and latest
 
-## Release provenance
+The source tag retains the declared base; release-manifest.json, included in
+SHA256SUMS and the publication attestation, records sourceSha, sourceVersion,
+version, CI run, tag and allocation anchor. Reproduce by checking out sourceSha
+and running `RELEASE_VERSION=X.Y.Z node scripts/automatic-release.mjs stamp`
+before the normal build. The legacy `meltemi-release gate` remains a local
+inspection command; the workflow no longer uses its manual-bump policy.
 
-- A release originates from a commit on `main` whose version has no release
-  yet. The release pipeline (`.github/workflows/release.yml`) re-runs every
-  gate on the three platforms and only then creates the tag `vX.Y.Z` on that
-  very commit and publishes the release.
-- The tag is the pipeline's output, never its input: a tag pushed by a person
-  starts nothing.
-- The version is written with `cargo run -p meltemi-release -- set-version
-  X.Y.Z`, which keeps every file that carries it in step and refuses a version
-  that does not move forward. Since a version commit on `main` is a
-  publication, it is the maintainer's gesture; an agent makes it only when the
-  maintainer asks in words.
-- A red gate aborts the release; nothing is published.
+A recovery dispatch requires a successful ci.yml push-to-main run id, checked
+against GitHub's API and current main ancestry. Source commits from before this
+automation are refused with an explicit diagnosis. Historical release tags
+without a reservation are never rebuilt or renumbered. Only a greater version
+whose source descends from current latest can replace latest.
 
 ## Summary (español)
 
-Versionado SemVer pre-1.0 con versión única de workspace; los releases nacen de
-un commit de versión nueva en `main`, y el tag lo crea el pipeline: un tag
-empujado a mano no publica nada. Ruptura (sube minor): contrato `proto/`, gramática CLI o formato de
-artefactos `.meltemi/`. Lo aditivo sube patch, salvo que la release marque un
-hito probado de punta a punta —una corrida de `docs/prueba-de-uno.md` cuyo
-informe dice que sale—: entonces sube el minor y sus notas abren con el
-informe (decisión del mantenedor, 2026-10-29; la primera es la 0.3.0). Todo release corre sus gates en
-las tres plataformas antes de publicar; un gate rojo aborta sin publicar nada.
+Cada push a main con CI verde libera su SHA exacto. La versión sale del tag ancestro first-parent más cercano más distancia; una
+base introducida después puede elevarla, nunca bajarla; no depende del orden en que terminen las ejecuciones. Un cambio
+de minor/major se declara en la base. El estampado vive solo en el checkout de
+build. Tag y manifiesto atan la versión a la fuente; reintentar conserva ambos.
+La recuperación exige un CI válido y nunca retrocede latest.

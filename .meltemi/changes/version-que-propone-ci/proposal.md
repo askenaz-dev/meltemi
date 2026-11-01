@@ -1,5 +1,10 @@
 # version-que-propone-ci
 
+> **Actualización 2026-11-01:** `release-automatica-main` sustituye el requisito
+> de PR/merge manual de release por publicación automática tras CI verde del
+> push a main, según instrucción del mantenedor. Las demás capacidades de esta
+> propuesta conservan su alcance; no implementar el gate manual anterior.
+
 > Vía completa (proposal → design → specs → tasks). Es la 2º de la tanda
 > `entrega-sin-huecos`. La versión siguiente la calcula la integración continua
 > a partir de lo archivado sin release, y llega al mantenedor como una PR
