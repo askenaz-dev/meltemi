@@ -3783,8 +3783,14 @@ fn a_wait_is_shown_only_past_its_threshold() {
             "{#if !result && !error}\n    <Skeleton",
         ),
     ] {
+        // Nesting a section in a tab panel changes indentation, not whether
+        // its loading branch owns the skeleton.
         assert!(
-            read(view).contains(branch),
+            read(view)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .contains(&branch.split_whitespace().collect::<Vec<_>>().join(" ")),
             "{view} waits with a skeleton: {branch}"
         );
     }
