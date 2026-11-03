@@ -201,6 +201,13 @@ successful jobs. This does not overwrite published release assets.
 An older recovered source cannot replace latest: promotion requires both a
 higher version and ancestry from the current latest source.
 
+GitHub's tag lookup only returns published releases. Draft recovery therefore
+uses the authenticated, paginated release list and retains the numeric release
+ID for verification before and after publication. A 404 from the tag endpoint
+alone does not mean no draft exists. Multiple entries for the same tag are
+refused rather than selecting a draft to overwrite. See the
+[GitHub release API](https://docs.github.com/en/rest/releases/releases#get-a-release-by-tag-name).
+
 CI and Release use `queue: max`. GitHub retains up to **100 pending runs** per
 concurrency group; excess runs are canceled by the service. Recover a canceled
 publication with its successful CI run id. If CI itself was canceled, rerun it

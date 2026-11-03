@@ -10,3 +10,5 @@
   repetición idempotente; evidencia en docs/qa/2026-11-01-releases-automaticas.md.
 - [ ] 4.2 CI multiplataforma de la PR y primera publicación automática tras merge.
 - [x] 4.3 Incorporar el parche compatible de async-executor retirado del registry antes de activar las publicaciones y verificar cargo-deny.
+- [x] 4.4 Corregir la búsqueda paginada y verificación por ID de borradores; cubrir el comportamiento real de la API y conservar diagnósticos HTTP sin secretos (17 pruebas Node verdes).
+- [ ] 4.5 Verificar y finalizar los borradores existentes sin reconstrucción, repetir sus jobs fallidos y comprobar una publicación automática posterior al arreglo.

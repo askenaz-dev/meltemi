@@ -60,3 +60,21 @@ Antes de integrar la automatización se incorpora únicamente el mismo parche
 compatible 1.14.1 del lockfile (validado en `ajustes-por-pestanas`), sin nuevas
 dependencias ni excepciones a cargo-deny. La rama de release vuelve a pasar CI
 multiplataforma antes del merge autorizado por el propietario.
+
+## D7 — Borradores visibles por listado e identidad numérica
+
+La activación del 3-nov creó el borrador 0.2.27 con once assets correctos, pero
+la verificación consultó `releases/tags/{tag}`: ese endpoint sólo devuelve
+publicaciones. Un 404 por tag no demuestra que no exista un borrador.
+La búsqueda usa primero el endpoint público y, si no encuentra la release,
+revisa el listado paginado autenticado, rechazando borradores duplicados para
+un mismo tag. La verificación antes y después de publicar consulta siempre el
+ID numérico devuelto por creación o recuperación, y comprueba tag, estado y assets.
+Los errores HTTP muestran sólo su status, nunca credenciales ni stderr crudo.
+Referencia: https://docs.github.com/en/rest/releases/releases#get-a-release-by-tag-name
+
+Los borradores anteriores se finalizan explícitamente por ID sólo después de
+verificar fuente/CI/tag, once archivos, hashes y atestación. No se reconstruyen
+ni se reemplazan esos assets. El reintento del workflow original verifica la
+publicación ya existente y avisa a Web. El arreglo vuelve a pasar la CI completa
+y una publicación automática nueva antes de considerar cerrado el incidente.
