@@ -1,5 +1,10 @@
 # Plan maestro de cambios — de cero al MVP (hito v0.1)
 
+> **Directiva 2026-11-01:** `release-automatica-main` automatiza cada push
+> a main con CI verde, sin PR manual de release. Sustituye ese gesto de
+> `version-que-propone-ci`; firmas, Android y preparación para 1.0 siguen
+> teniendo sus propias changes. La versión se estampa solo en el build.
+
 > Backlog ordenado de propuestas de cambio que llevan a Meltemi desde el repositorio vacío hasta el hito v0.1 de Fase 1 (meltemi.md §10). Este documento es el mapa; **cada change escribe sus cuatro artefactos (proposal, design, specs, tasks) inmediatamente antes de implementarse** — nunca durante, y nunca se implementa nada que no esté aquí o en una change aprobada. Producto de la auditoría de planificación del 2026-07-11 (5 lentes, 64 hallazgos).
 >
 > **Cierre del bootstrap (2026-07-18)**: la etapa OpenSpec queda **cerrada**. El motor de specs de fase 1 hospeda la verdad viva del proyecto en `.meltemi/specs/` y el histórico en `.meltemi/changes/archive/` (migrados con verificación del motor, `migracion-openspec-a-meltemi`); el método del proyecto son los comandos de Meltemi sobre `.meltemi/`. El árbol `openspec/` se conserva como histórico consultable hasta el retiro físico confirmado por el mantenedor (D3 de la migración).

@@ -1,5 +1,9 @@
 # Tasks — version-que-propone-ci
 
+> **2026-11-01:** El gate manual de PR de release queda sustituido por
+> `release-automatica-main`, autorizado por el mantenedor. No implementar
+> ese gate. La preparación para 1.0 y otras capacidades siguen pendientes.
+
 Vía completa. Un commit atómico por tarea, con referencia
 `(version-que-propone-ci N.M)` y sin trailers de co-autoría. Los tests de la
 herramienta corren contra repositorios fixture temporales con tags propios,

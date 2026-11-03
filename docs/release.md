@@ -6,10 +6,11 @@ The promise is a **single self-contained binary, installable with one command**
 (foundational document §4.5). See [versioning](versionado.md) for how versions
 are decided.
 
-A release leaves this repository with no hand on it. A commit that carries a new
-version and reaches `main` opens the release path; the pipeline runs every gate
-on three platforms, builds, signs what it built with an attestation, and
-publishes it. Nobody downloads, signs or presses publish (release-con-el-push).
+Every push to main whose CI succeeds automatically publishes its exact source
+SHA. Release validates the CI execution through GitHub's API, reserves an
+immutable version tag, runs all release gates on three platforms, stamps the
+build version in isolated checkouts, packages and attests the artifacts. No
+manual version commit or release PR is needed (release-automatica-main).
 
 _Resumen en español al final._
 
@@ -119,12 +120,14 @@ Two limits, written down so the claim is never read as more than it is:
 
 - **It attests the aggregation, not each build step.** The `publish` job only
   downloads what the six packaging jobs built and merges their checksums. The
-  attestation ties the published set to this workflow and this commit; it does
+  attestation ties the published set to the publication workflow revision. With
+  workflow_run, that revision can differ from the tested source SHA: the attested
+  release-manifest.json records the exact source and its CI run. The attestation does
   not attest the compilation of each artifact in its packaging job. Attesting
   the builders themselves would be a future, stronger claim — this one is
   modest and true.
 - **An account with write access to this repository can publish a release that
-  verifies.** It pushes a version commit to `main`, the pipeline builds it, and
+  verifies.** It pushes a commit to `main`, CI approves it, the pipeline builds it, and
   the attestation faithfully records that commit — which is its job. A signature
   made by hand on a machine GitHub does not control was the one step such an
   account could not complete; the maintainer gave that step up on 2026-10-23,
@@ -148,76 +151,69 @@ data, and it says nothing about who downloads or verifies anything. A project
 that promises no hidden telemetry states this itself rather than leaving it for
 a reader to discover.
 
-## Making a release (maintainer)
+## Automatic publication and recovery
+
+Push the reviewed change to main. The `CI` workflow must complete successfully;
+Release consumes its exact head_sha, not the moving tip of main. A pull request,
+fork, different branch, different workflow or failed CI cannot publish. A
+separate trusted control-plane checkout validates the run before source code is
+checked out. The source must also remain an ancestor of origin/main.
+
+The pipeline has five stages:
+
+1. `authorize`: validate ci.yml id/path, repository identity, push/main and success.
+2. `version`: allocate a deterministic version by first-parent ancestry, reserve
+   an annotated tag and write release-manifest.json and notes from its commit range.
+3. `gates` and `deny`: validate the stamped tree on Linux, macOS and Windows.
+4. `package` and `package-gui`: build the same SHA and stamped version everywhere.
+5. `publish`: merge assets, attest SHA256SUMS, complete a draft, then publish.
+
+The source archive behind the tag deliberately retains its declared version.
+The attested **release-manifest.json** records sourceSha, sourceVersion, delivered
+version, CI run and the numbering anchor. To reproduce, checkout sourceSha and
+run `RELEASE_VERSION=X.Y.Z node scripts/automatic-release.mjs stamp` before the
+normal build (PowerShell: `$env:RELEASE_VERSION = 'X.Y.Z'` then the Node command).
+The stamp uses the existing Rust version tool and changes no dependency versions.
+
+**Notes** list actual commit subjects from the reserved ancestor-tag range. A
+version-specific CHANGELOG.md section can add curated notes and a tested milestone
+report; `meltemi-release changelog X.Y.Z --report <path>` remains available for
+that purpose. Follow the [one-developer test](prueba-de-uno.md) to exercise an
+installed release end to end and record the milestone's evidence. No generated
+text claims manual testing took place.
+
+**Recovery:** re-run the failed jobs or dispatch from main with the successful
+CI run id:
 
 ```bash
-cargo run -p meltemi-release -- changelog 0.3.0
-cargo run -p meltemi-release -- notes 0.3.0      # read what the release will say
-cargo run -p meltemi-release -- set-version 0.3.0
+gh workflow run release.yml --ref main -f ci_run_id=123456789
 ```
 
-**Every release lists the changes it archives.** `changelog` writes the
-version's section of `CHANGELOG.md` with every change of
-`.meltemi/changes/archive/` that no earlier section lists, each linked to its
-proposal with the line it opens its changes with; writing it again gives the
-same file, and it touches no version. **The cadence**: a release when a tanda
-of changes closes, and never more than a month without one while `main` moves.
+The API validation is identical for both entry points. Runs predating this
+automation are refused clearly; historical unreserved tags are not rebuilt.
+The tag is reserved before the release gates and remains if a build or upload
+fails. A retry reuses the same tag/version and completes the draft. An already
+published release is never modified: a retry verifies its required assets,
+manifest and checksums before skipping. An incomplete immutable release fails
+explicitly. A valid retry can still repair the web notice. Internal Actions
+artifacts use overwrite for rerun-all; failed-only keeps artifacts from the
+successful jobs. This does not overwrite published release assets.
+An older recovered source cannot replace latest: promotion requires both a
+higher version and ancestry from the current latest source.
 
-It writes the version into every file that carries it, refreshes the
-workspace's entries in `Cargo.lock`, and refuses a version that does not move
-forward. Commit the result and push it to `main`; that push is the release. An
-agent never does this unless the maintainer asks in words (`AGENTS.md`).
+CI and Release use `queue: max`. GitHub retains up to **100 pending runs** per
+concurrency group; excess runs are canceled by the service. Recover a canceled
+publication with its successful CI run id. If CI itself was canceled, rerun it
+first. FIFO follows queue arrival, not commit order; source-based numbering
+handles completion in either order. See [GitHub concurrency](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency).
 
-**A release that marks a tested milestone links its report.** When a person
-tried the release end to end — the run of
-[the one-developer test](prueba-de-uno.md), with their own agents — its notes
-open with the link to that run's report, beside the changes it archives. The
-order is fixed by what each step needs: run the guide — on the integration
-build of the `main` commit that will become the release, since the release
-does not exist yet; same files, same names, no attestation — write
-`docs/qa/<date>-prueba-de-uno.md` from its template, then
-
-```bash
-cargo run -p meltemi-release -- changelog 0.3.0 --report docs/qa/<date>-prueba-de-uno.md
-cargo run -p meltemi-release -- set-version 0.3.0
-```
-
-`--report` refuses a report that is not in the repository, and writing the
-section again without it keeps the link. Such a release **bumps the minor**
-even when nothing in it is breaking, by the milestone rule of the
-[versioning policy](versionado.md): the first is **0.3.0**.
-
-The pipeline then runs, in order:
-
-1. **`version`** — `meltemi-release gate` decides whether this commit opens the
-   release path: every carrier must say the same version, that version must have
-   no tag and be newer than every version tag, and the commit must be on `main`.
-   Any other push stops here and publishes nothing.
-2. **`gates`** and **`deny`** — the full suite, clippy, fmt, `cargo deny` and the
-   size budgets, on Windows, macOS and Linux.
-3. **`package`** and **`package-gui`** — the archives and the installers, under
-   their stable names.
-4. **`publish`** — one `SHA256SUMS`, the attestation and its bundle, a draft on
-   the commit that passed the gates, every asset uploaded to it, and the draft
-   published last. Releases are immutable once published, so nothing can be
-   attached afterwards; the job checks that nothing is missing.
-5. **`notify-web`** — tells the site a release is out (see below).
-
-The notes are the section of `CHANGELOG.md` headed with the version
-(`## 0.2.0`, with or without a date after it), and notes generated by GitHub
-when there is none — which is how 0.2.0 went out, before the changelog existed.
-Its section and 0.1.0's were written afterwards with `changelog --until <date
-of the release>`; 0.1.1 has none, because its draft was never published.
-
-**If it fails half-way.** A draft does not create its tag, so after a failure
-the version still has no tag: re-run the failed jobs, or dispatch
-`release.yml` from `main`, and the `publish` job finds the draft and finishes
-it. A release already published is never touched again. A failed web notice is
-re-run on its own and repeats only the notice.
+The previous proposal `version-que-propone-ci` is superseded for its manual
+release-PR gate. Its future readiness calculations are separate work, not a
+prerequisite for automatic patch releases.
 
 ## Controls around a release nobody signs by hand
 
-With no person between a version commit and a publication, the doors next to
+With no person between a successful CI push and a publication, the doors next to
 the one written above are closed in code:
 
 - every action the workflows use is **pinned by full commit**, with its version
@@ -226,8 +222,10 @@ the one written above are closed in code:
   permissions;
 - the jobs that publish or hold a publication credential run in the **`release`
   environment**, which admits `main` only;
-- the gate refuses a commit that is **not on `main`**, a version that **already
-  has a tag**, and a version **not newer** than the newest one;
+- authorization refuses CI outside this repository's successful push-to-main
+  workflow; source ancestry and immutable reservations are verified again;
+- existing reservations are reused, historical tags are not rebuilt, and latest
+  is protected by both source ancestry and version;
 - **rulesets** keep `main` from being deleted or rewritten and version tags from
   being moved or deleted; they are declared in the family's Terraform
   (`packages/infra` in [meltemi-web](https://github.com/askenaz-dev/meltemi-web)),
@@ -326,8 +324,8 @@ public entry point for all of the above.
 
 ## Release pipeline and budgets
 
-The release pipeline (`.github/workflows/release.yml`) starts on a push to
-`main` and opens only when the gate finds a new version. It runs on Windows,
+The release pipeline (`.github/workflows/release.yml`) starts after successful
+CI for a push to main and checks out that exact approved source SHA. It runs on Windows,
 macOS, and Linux with **hard gates**: the full test suite, `cargo clippy -- -D
 warnings`, `cargo fmt --check`, `cargo deny`, and the **performance budgets**
 (meltemi.md §12, "Métricas de Éxito") — the TUI binary staying under **25 MB**,
@@ -346,7 +344,7 @@ only one of them produces something installable.
 | | Integration build | Release |
 |---|---|---|
 | Workflow | `.github/workflows/build.yml` | `.github/workflows/release.yml` |
-| Trigger | every push to `main`, or by hand | a push to `main` that carries a new version |
+| Trigger | every push to `main`, or by hand | successful CI for every push to `main` |
 | Output | artifacts of the run, expiring after 7 days | assets of a published release |
 | Signature | none, ever | the attestation its workflow mints |
 | What it is for | trying a build | installing Meltemi |
@@ -393,22 +391,13 @@ safety until the maintainer reserves the names).
 
 ## Summary (español)
 
-Una release sale de este repositorio sin mano humana: un commit que trae una
-versión nueva y llega a `main` abre el camino, y el pipeline corre los gates en
-las tres plataformas, empaqueta, firma y publica. La versión se fija con
-`cargo run -p meltemi-release -- set-version X.Y.Z`, que escribe todos los
-archivos que la portan y rehúsa una versión que no avanza; un agente no lo hace
-salvo que el mantenedor lo pida con palabras. Antes, `meltemi-release changelog X.Y.Z`
-escribe su sección de `CHANGELOG.md`: **cada release lista las changes que
-archiva**, y esa sección son sus notas. Cadencia: una release al cerrar cada
-tanda, y nunca más de un mes sin release mientras `main` se mueva. **Una release
-que marca un hito probado enlaza su informe**: tras correr
-[la prueba de un desarrollador](prueba-de-uno.md) —sobre el build de
-integración del commit de `main` que será la release, porque la release aún no
-existe— y escribir su informe en `docs/qa/`, `changelog X.Y.Z --report <informe>` abre la sección con el enlace
-—rehúsa un informe que no existe, y reescribir la sección lo conserva—, y solo
-después `set-version`. Una release así sube el minor aunque nada en ella rompa,
-por la regla del hito de la política de versiones: la primera es la 0.3.0.
+Cada push a main con CI verde publica su SHA exacto, sin bump ni PR manual.
+La versión se reserva en un tag anotado inmutable y se estampa solo en los
+checkouts de build. El manifiesto atestado declara fuente, versión y CI.
+Reintentar conserva la reserva y completa el borrador; recuperar exige el id de
+un CI push/main válido. La cola conserva hasta 100 pendientes por grupo; un
+reintento antiguo nunca retrocede latest. La prueba manual de un hito sigue
+siendo evidencia aparte y no se inventa en las notas automáticas.
 
 Cada release publica, por plataforma, el archivo con `meltemi`, `meltemid` y los
 dos adaptadores ACP propios (que se instalan junto al daemon), el instalador de
@@ -436,7 +425,7 @@ crates `meltemi`/`meltemid`/`meltemi-proto` reservan el namespace. Hay **dos
 rutas de build y solo una publica**: cada push a `main` deja los mismos archivos
 por plataforma descargables desde la página de la ejecución (`build.yml`, con
 los mismos presupuestos y sin crear release alguna); la release la crea
-únicamente el workflow de release cuando su gate encuentra una versión nueva. Un
+únicamente el workflow de release después de CI verde y validación de su SHA. Un
 artefacto de ejecución no es distribución: caduca, no tiene URL estable y jamás
 aparece en `releases/latest`. No lleva firma ni procedencia y lo declara donde
 se descarga —en el resumen del run y en `UNSIGNED-BUILD.txt` junto a los

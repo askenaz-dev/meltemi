@@ -1,5 +1,10 @@
 # entrega-sin-huecos
 
+> **Actualización 2026-11-01:** `release-automatica-main` sustituye el requisito
+> de PR/merge manual de release por publicación automática tras CI verde del
+> push a main, según instrucción del mantenedor. Las demás capacidades de esta
+> propuesta conservan su alcance; no implementar el gate manual anterior.
+
 > Vía completa (proposal → design → specs → tasks): una change paraguas, como
 > `release-para-un-desarrollador`, que inventaría lo que falta entre «está en
 > el repositorio» y «una persona lo instala desde una release», y ordena las
