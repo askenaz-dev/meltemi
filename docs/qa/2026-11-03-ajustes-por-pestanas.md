@@ -70,3 +70,21 @@ añade una pantalla móvil nueva.
 
 Queda pendiente la CI completa Linux/macOS/Windows antes de merge. No se
 ejecutaron publicaciones ni se cambió la versión del producto.
+
+## Seguimiento de la primera CI remota
+
+El run [41677184875](https://github.com/askenaz-dev/meltemi/actions/runs/41677184875)
+encontró una dependencia heredada retirada del registry: `async-executor`
+1.14.0. Los pasos de frontend y Clippy pasaron en las tres plataformas; sus
+suites Rust continuaban al registrar este seguimiento.
+
+El [registry oficial](https://crates.io/api/v1/crates/async-executor) confirmó
+1.14.0 retirada y 1.14.1 disponible desde 2026-11-02. La actualización dirigida
+`cargo update -p async-executor --precise 1.14.1` sólo cambió su versión y checksum
+en `Cargo.lock`, sin modificar su lista de dependencias ni manifests.
+
+`cargo metadata --locked --no-deps` pasó. La herramienta oficial cargo-deny
+0.20.2 para Windows, descargada desde su release y verificada con el SHA-256
+publicado, dio **advisories ok, bans ok, licenses ok, sources ok** sobre el lock
+corregido. No se añadió ninguna excepción al gate. El parche tiene commit
+separado y volverá a pasar la CI completa antes de merge.

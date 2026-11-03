@@ -23,7 +23,9 @@ las conexiones, la configuración y el diagnóstico.
 ## Impact
 
 Sólo la vista Svelte, sus textos ES/EN y documentación de verificación. Sin
-cambios de protocolo, persistencia, credenciales, dependencias o releases.
+cambios de protocolo, persistencia, credenciales o releases, ni dependencias
+nuevas. Un bloqueo heredado de CI requiere sustituir el parche transitivo
+`async-executor` 1.14.0 retirado del registry por 1.14.1 (design y tarea 3.3).
 El compañero móvil actual no tiene una ruta de Ajustes: no se añade una aquí.
 
 ## Autorización

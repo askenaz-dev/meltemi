@@ -39,3 +39,11 @@ anillo de foco ofrecen respuesta inmediata sin animaciones decorativas.
    de specs y un navegador con puente Tauri simulado sobre un fixture temporal.
    Comprobar teclado, asociación ARIA, borrador, diagnóstico, ES/EN, ambos temas,
    ancho estrecho y capturas; no hace falta arrancar daemon ni agentes reales.
+
+## Bloqueo heredado de CI
+
+La primera CI remota encontró `async-executor` 1.14.0 retirado del registry,
+heredado por las notificaciones nativas. El registry oficial confirma el parche
+compatible 1.14.1 disponible desde el 2 de noviembre. Se autoriza actualizar
+únicamente esa entrada del lockfile para recuperar cargo-deny; no se añade una
+dependencia ni una excepción a las políticas de calidad.
