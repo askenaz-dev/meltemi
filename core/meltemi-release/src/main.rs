@@ -10,15 +10,15 @@
 //! meltemi-release changelog <x.y.z> [--until <yyyy-mm-dd>] [--report <path>] [--root <dir>]
 //! ```
 //!
-//! `version` prints the version every carrier agrees on. `set-version` is the
-//! maintainer's gesture (release-con-el-push D2): it writes the new version
-//! into every carrier, refreshes the workspace's entries in `Cargo.lock`, and
-//! refuses a version that does not move forward. Since this change a commit of
-//! a new version on `main` is a publication, so the tool is run by a person,
-//! deliberately, and never by an agent unless the maintainer says so in words
-//! (AGENTS.md).
+//! `version` prints the version every carrier agrees on. `set-version` writes
+//! every carrier and refreshes the workspace entries in `Cargo.lock`, refusing
+//! a version that does not move forward. Automatic release CI uses it to stamp
+//! isolated build checkouts, never to create bump commits on main. Maintainers
+//! may also use it to introduce a deliberate minor/major source base.
 //!
-//! `gate` is the first job of the release pipeline (release-con-el-push D1):
+//! `gate` preserves the legacy manual-version inspection policy; automatic
+//! release CI validates a successful source CI run and reserves its own version.
+//! For local inspection, `gate`
 //! it prints `release`, `version`, `tag` and `reason` as `key=value` lines,
 //! ready to append to `$GITHUB_OUTPUT`. A "no" exits 0; carriers that disagree
 //! exit 1, so the run turns red instead of quietly publishing nothing.
@@ -224,8 +224,7 @@ fn set(root: &Path, new: Version) -> Result<(), String> {
     }
     println!("  Cargo.lock");
     println!(
-        "version {new} written; commit it on main to publish {}",
-        new.tag()
+        "version {new} written in this checkout; automatic CI publishes approved main sources"
     );
     Ok(())
 }
