@@ -27,6 +27,16 @@
   } from "../ui-state";
   import Icon from "../components/Icon.svelte";
   import Skeleton from "../components/Skeleton.svelte";
+  import TabStrip from "../components/TabStrip.svelte";
+
+  let category = $state("settings-appearance");
+  const categories = $derived([
+    { id: "settings-appearance", label: $t("settings.appearance"), closable: false },
+    { id: "settings-tools", label: $t("settings.tabs.tools"), closable: false },
+    { id: "settings-project", label: $t("settings.tabs.project"), closable: false },
+    { id: "settings-connections", label: $t("settings.tabs.connections"), closable: false },
+    { id: "settings-about", label: $t("settings.tabs.about"), closable: false },
+  ]);
 
   let {
     onEditFile,
@@ -221,8 +231,10 @@
   let config: { file: string; content: string }[] = $state([]);
   let loadingConfig = $state(true);
 
+  // A theme or locale change must not replace an unsaved tool template.
+  const savedTemplate = $derived($uiState.openWithTemplate ?? "");
   $effect(() => {
-    template = $uiState.openWithTemplate ?? "";
+    template = savedTemplate;
   });
 
   $effect(() => {
@@ -277,294 +289,371 @@
 </script>
 
 <div class="settings">
-  <section aria-labelledby="appearance">
-    <h2 id="appearance">{$t("settings.appearance")}</h2>
-    <div class="row">
-      <span class="label">{$t("settings.theme")}</span>
-      <div class="choices" role="group" aria-label={$t("settings.theme")}>
-        {#each THEMES as choice (choice)}
-          <button
-            class:sel={($uiState.theme ?? "system") === choice}
-            aria-pressed={($uiState.theme ?? "system") === choice}
-            onclick={() => setTheme(choice)}
-          >
-            {$t(("settings.theme." + choice) as never)}
-          </button>
-        {/each}
-      </div>
-    </div>
-    <div class="row">
-      <span class="label">{$t("common.language")}</span>
-      <div class="choices" role="group" aria-label={$t("common.language")}>
-        <button aria-pressed={$locale === "es"} class:sel={$locale === "es"} onclick={() => pickLocale("es")}>
-          ES
-        </button>
-        <button aria-pressed={$locale === "en"} class:sel={$locale === "en"} onclick={() => pickLocale("en")}>
-          EN
-        </button>
-      </div>
-    </div>
-  </section>
-
-  <section aria-labelledby="editor">
-    <h2 id="editor">{$t("settings.editor")}</h2>
-    <div class="row">
-      <span class="label">{$t("settings.openWith")}</span>
-      <div class="inline">
-        <input
-          bind:value={template}
-          placeholder={$t("settings.openWith.example")}
-          aria-label={$t("settings.openWith")}
-        />
-        <button onclick={saveTemplate}>{$t("common.save")}</button>
-      </div>
-    </div>
-    <p class="hint">{$t("settings.openWith.hint")}</p>
-  </section>
-
-  <section aria-labelledby="notices">
-    <h2 id="notices">{$t("settings.notices")}</h2>
-    <div class="row">
-      <span class="label">{$t("settings.notices.onWaiting")}</span>
-      <div class="inline">
-        <span class="mono">
-          {noticeConfigured ? $t("settings.notices.on") : $t("settings.notices.off")}
-        </span>
-        <button onclick={testNotice} disabled={!noticeConfigured}>
-          {$t("settings.notices.test")}
-        </button>
-      </div>
-    </div>
-    {#if noticeResult === "sent"}
-      <p class="hint">{$t("settings.notices.sent")}</p>
-    {:else if noticeResult === "none"}
-      <p class="hint warn">{$t("settings.notices.failed")}</p>
-    {/if}
-    <p class="hint">{$t("settings.notices.hint")}</p>
-  </section>
-
-  <section aria-labelledby="project">
-    <h2 id="project">{$t("settings.project")}</h2>
-    {#if !$activeProject}
-      <p class="hint">{$t("settings.project.none")}</p>
-    {:else}
-      <p class="hint mono break">{$activeProject}</p>
-      {#if loadingConfig}
-        <Skeleton rows={3} />
-      {:else}
-        {#each config as entry (entry.file)}
-          <div class="configBlock">
-            <div class="configHead">
-              <code>{entry.file}</code>
-              <button class="ghost" onclick={() => onEditFile(entry.file)}>
-                <Icon name="editor" size={14} />
-                {$t("settings.project.edit")}
-              </button>
-            </div>
-            {#if entry.content.trim() === ""}
-              <p class="hint">{$t("settings.project.missing")}</p>
-            {:else}
-              <pre>{entry.content}</pre>
-            {/if}
-          </div>
-        {/each}
-      {/if}
-      <button onclick={() => void projectContext()}>{$t("settings.project.project")}</button>
-    {/if}
-  </section>
-
-  <section aria-labelledby="machines">
-    <h2 id="machines">{$t("settings.machines")}</h2>
-    <p class="hint">{$t("settings.machines.hint")}</p>
-    {#if $machines.machines.length === 0}
-      <p class="hint">{$t("settings.machines.none")}</p>
-    {:else}
-      <ul class="endpoints">
-        {#each shownMachines as machine (machine.name)}
-          <li>
-            <span class="presence" class:on={machine.active} aria-hidden="true"
-              >{machine.active ? "●" : "○"}</span
+  <div class="settingsNavigation">
+    <TabStrip
+      items={categories}
+      activeId={category}
+      label={$t("settings.tabs.label")}
+      closeLabel={$t("common.close")}
+      scrollLeftLabel={$t("tabs.scrollLeft")}
+      scrollRightLabel={$t("tabs.scrollRight")}
+      onSelect={(id) => (category = id)}
+      onClose={() => {}}
+    />
+  </div>
+  <!-- Keep each panel mounted: changing categories neither saves a draft nor
+       clears a diagnosis, a probe or a panel's scroll position. -->
+  <div
+    class="settingsPanel"
+    role="tabpanel"
+    id="panel-settings-appearance"
+    aria-labelledby="tab-settings-appearance"
+    tabindex="0"
+    hidden={category !== "settings-appearance"}
+  >
+    <section aria-labelledby="appearance">
+      <h2 id="appearance">{$t("settings.appearance")}</h2>
+      <div class="row">
+        <span class="label">{$t("settings.theme")}</span>
+        <div class="choices" role="group" aria-label={$t("settings.theme")}>
+          {#each THEMES as choice (choice)}
+            <button
+              class:sel={($uiState.theme ?? "system") === choice}
+              aria-pressed={($uiState.theme ?? "system") === choice}
+              onclick={() => setTheme(choice)}
             >
-            <span class="name">{machine.name}</span>
-            {#if machine.active}
-              <span class="word">({$t("settings.machines.here")})</span>
-            {/if}
-            <span class="hint mono">{machine.via ?? machine.configured}</span>
-            {#if machine.presence}
-              <!-- The mesh's presence, which is NOT a promise about a daemon:
-                   that is learned by testing or by connecting. -->
-              <span class="hint"
-                >{machine.presence === "online"
-                  ? $t("settings.machines.online")
-                  : $t("settings.machines.offline")}</span
-              >
-            {/if}
-            <span class="grow"></span>
-            <button onclick={() => void testMachine(machine.name)} disabled={probing !== null}>
-              {probing === machine.name
-                ? $t("settings.machines.testing")
-                : $t("settings.machines.test")}
+              {$t(("settings.theme." + choice) as never)}
             </button>
-            {#if !machine.active}
-              <button onclick={() => useMachine(machine.name)}>
-                {$t("settings.machines.use")}
-              </button>
-            {/if}
-          </li>
-          {#if probes[machine.name]}
-            <li class="hint probe">{probes[machine.name]}</li>
-          {/if}
-        {/each}
-      </ul>
-    {/if}
-    {#each $machines.diagnostics as said (said)}
-      <p class="hint mono">{said}</p>
-    {/each}
-  </section>
-
-  <section aria-labelledby="identity">
-    <h2 id="identity">{$t("settings.identity")}</h2>
-    <!-- Whose identity this is, said where it is read: nobody may take this
-         section for a Meltemi account, because there are none (design D7). -->
-    <p class="hint">{$t("settings.identity.whose")}</p>
-    {#if $identity === null}
-      <p class="hint">{$t("settings.identity.notConfigured")}</p>
-    {:else if !$identity.available}
-      <p>
-        {$identity.reason === "client_missing"
-          ? $t("settings.identity.clientMissing")
-          : $identity.reason === "not_linked"
-            ? $t("settings.identity.notLinked")
-            : $t("settings.identity.notConfigured")}
-      </p>
-      {#if $identity.remedy}
-        <p class="hint mono">{$identity.remedy}</p>
-      {/if}
-    {:else}
-      {#if $identity.user}
-        <p class="who">{$identity.user}</p>
-      {/if}
-      {#if $identity.provider}
-        <div class="row">
-          <span class="label">{$t("settings.identity.provider")}</span>
-          <span class="mono">{$identity.provider}</span>
+          {/each}
         </div>
-      {/if}
-      {#if $identity.this}
-        <div class="row">
-          <span class="label">{$t("settings.identity.this")}</span>
-          <span class="mono">{$identity.this}</span>
+      </div>
+      <div class="row">
+        <span class="label">{$t("common.language")}</span>
+        <div class="choices" role="group" aria-label={$t("common.language")}>
+          <button aria-pressed={$locale === "es"} class:sel={$locale === "es"} onclick={() => pickLocale("es")}>
+            ES
+          </button>
+          <button aria-pressed={$locale === "en"} class:sel={$locale === "en"} onclick={() => pickLocale("en")}>
+            EN
+          </button>
         </div>
+      </div>
+    </section>
+  </div>
+  <div
+    class="settingsPanel"
+    role="tabpanel"
+    id="panel-settings-tools"
+    aria-labelledby="tab-settings-tools"
+    tabindex="0"
+    hidden={category !== "settings-tools"}
+  >
+    <section aria-labelledby="editor">
+      <h2 id="editor">{$t("settings.editor")}</h2>
+      <div class="row">
+        <span class="label">{$t("settings.openWith")}</span>
+        <div class="inline">
+          <input
+            bind:value={template}
+            placeholder={$t("settings.openWith.example")}
+            aria-label={$t("settings.openWith")}
+          />
+          <button onclick={saveTemplate}>{$t("common.save")}</button>
+        </div>
+      </div>
+      <p class="hint">{$t("settings.openWith.hint")}</p>
+    </section>
+    <section aria-labelledby="notices">
+      <h2 id="notices">{$t("settings.notices")}</h2>
+      <div class="row">
+        <span class="label">{$t("settings.notices.onWaiting")}</span>
+        <div class="inline">
+          <span class="mono">
+            {noticeConfigured ? $t("settings.notices.on") : $t("settings.notices.off")}
+          </span>
+          <button onclick={testNotice} disabled={!noticeConfigured}>
+            {$t("settings.notices.test")}
+          </button>
+        </div>
+      </div>
+      {#if noticeResult === "sent"}
+        <p class="hint">{$t("settings.notices.sent")}</p>
+      {:else if noticeResult === "none"}
+        <p class="hint warn">{$t("settings.notices.failed")}</p>
       {/if}
-      {#if $identity.machines.length > 0}
-        <h3>{$t("settings.identity.machines")}</h3>
-        <ul class="machines">
-          {#each orderedMachines($identity.machines) as machine (machine.name)}
+      <p class="hint">{$t("settings.notices.hint")}</p>
+    </section>
+  </div>
+  <div
+    class="settingsPanel"
+    role="tabpanel"
+    id="panel-settings-project"
+    aria-labelledby="tab-settings-project"
+    tabindex="0"
+    hidden={category !== "settings-project"}
+  >
+    <section aria-labelledby="project">
+      <h2 id="project">{$t("settings.project")}</h2>
+      {#if !$activeProject}
+        <p class="hint">{$t("settings.project.none")}</p>
+      {:else}
+        <p class="hint mono break">{$activeProject}</p>
+        {#if loadingConfig}
+          <Skeleton rows={3} />
+        {:else}
+          {#each config as entry (entry.file)}
+            <div class="configBlock">
+              <div class="configHead">
+                <code>{entry.file}</code>
+                <button class="ghost" onclick={() => onEditFile(entry.file)}>
+                  <Icon name="editor" size={14} />
+                  {$t("settings.project.edit")}
+                </button>
+              </div>
+              {#if entry.content.trim() === ""}
+                <p class="hint">{$t("settings.project.missing")}</p>
+              {:else}
+                <pre>{entry.content}</pre>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+        <button onclick={() => void projectContext()}>{$t("settings.project.project")}</button>
+      {/if}
+    </section>
+  </div>
+  <div
+    class="settingsPanel"
+    role="tabpanel"
+    id="panel-settings-connections"
+    aria-labelledby="tab-settings-connections"
+    tabindex="0"
+    hidden={category !== "settings-connections"}
+  >
+    <section aria-labelledby="machines">
+      <h2 id="machines">{$t("settings.machines")}</h2>
+      <p class="hint">{$t("settings.machines.hint")}</p>
+      {#if $machines.machines.length === 0}
+        <p class="hint">{$t("settings.machines.none")}</p>
+      {:else}
+        <ul class="endpoints">
+          {#each shownMachines as machine (machine.name)}
             <li>
-              <!-- Symbol AND word, never either alone and never colour alone:
-                   the same rule the terminal follows with its ASCII twin. -->
-              <span
-                class="presence"
-                class:on={machine.presence === "online"}
-                aria-hidden="true">{presenceGlyph(machine.presence)}</span
+              <span class="presence" class:on={machine.active} aria-hidden="true"
+                >{machine.active ? "●" : "○"}</span
               >
               <span class="name">{machine.name}</span>
-              <span class="word"
-                >{machine.presence === "online"
-                  ? $t("settings.identity.online")
-                  : $t("settings.identity.offline")}</span
-              >
-              {#if machine.system}<span class="hint">{machine.system}</span>{/if}
-              {#if machine.lastSeen}
-                <span class="hint">{$t("settings.identity.lastSeen", { at: machine.lastSeen })}</span>
+              {#if machine.active}
+                <span class="word">({$t("settings.machines.here")})</span>
               {/if}
-              {#if machine.thisMachine}
-                <span class="hint">({$t("settings.identity.thisMachine")})</span>
+              <span class="hint mono">{machine.via ?? machine.configured}</span>
+              {#if machine.presence}
+                <!-- The mesh's presence, which is NOT a promise about a daemon:
+                     that is learned by testing or by connecting. -->
+                <span class="hint"
+                  >{machine.presence === "online"
+                    ? $t("settings.machines.online")
+                    : $t("settings.machines.offline")}</span
+                >
+              {/if}
+              <span class="grow"></span>
+              <button onclick={() => void testMachine(machine.name)} disabled={probing !== null}>
+                {probing === machine.name
+                  ? $t("settings.machines.testing")
+                  : $t("settings.machines.test")}
+              </button>
+              {#if !machine.active}
+                <button onclick={() => useMachine(machine.name)}>
+                  {$t("settings.machines.use")}
+                </button>
+              {/if}
+            </li>
+            {#if probes[machine.name]}
+              <li class="hint probe">{probes[machine.name]}</li>
+            {/if}
+          {/each}
+        </ul>
+      {/if}
+      {#each $machines.diagnostics as said (said)}
+        <p class="hint mono">{said}</p>
+      {/each}
+    </section>
+    <section aria-labelledby="identity">
+      <h2 id="identity">{$t("settings.identity")}</h2>
+      <!-- Whose identity this is, said where it is read: nobody may take this
+           section for a Meltemi account, because there are none (design D7). -->
+      <p class="hint">{$t("settings.identity.whose")}</p>
+      {#if $identity === null}
+        <p class="hint">{$t("settings.identity.notConfigured")}</p>
+      {:else if !$identity.available}
+        <p>
+          {$identity.reason === "client_missing"
+            ? $t("settings.identity.clientMissing")
+            : $identity.reason === "not_linked"
+              ? $t("settings.identity.notLinked")
+              : $t("settings.identity.notConfigured")}
+        </p>
+        {#if $identity.remedy}
+          <p class="hint mono">{$identity.remedy}</p>
+        {/if}
+      {:else}
+        {#if $identity.user}
+          <p class="who">{$identity.user}</p>
+        {/if}
+        {#if $identity.provider}
+          <div class="row">
+            <span class="label">{$t("settings.identity.provider")}</span>
+            <span class="mono">{$identity.provider}</span>
+          </div>
+        {/if}
+        {#if $identity.this}
+          <div class="row">
+            <span class="label">{$t("settings.identity.this")}</span>
+            <span class="mono">{$identity.this}</span>
+          </div>
+        {/if}
+        {#if $identity.machines.length > 0}
+          <h3>{$t("settings.identity.machines")}</h3>
+          <ul class="machines">
+            {#each orderedMachines($identity.machines) as machine (machine.name)}
+              <li>
+                <!-- Symbol AND word, never either alone and never colour alone:
+                     the same rule the terminal follows with its ASCII twin. -->
+                <span
+                  class="presence"
+                  class:on={machine.presence === "online"}
+                  aria-hidden="true">{presenceGlyph(machine.presence)}</span
+                >
+                <span class="name">{machine.name}</span>
+                <span class="word"
+                  >{machine.presence === "online"
+                    ? $t("settings.identity.online")
+                    : $t("settings.identity.offline")}</span
+                >
+                {#if machine.system}<span class="hint">{machine.system}</span>{/if}
+                {#if machine.lastSeen}
+                  <span class="hint">{$t("settings.identity.lastSeen", { at: machine.lastSeen })}</span>
+                {/if}
+                {#if machine.thisMachine}
+                  <span class="hint">({$t("settings.identity.thisMachine")})</span>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      {/if}
+      {#if gesture}
+        <h3>{$t("settings.identity.gesture")}</h3>
+        <pre class="gesture">{navigator.userAgent.includes("Windows")
+            ? gesture.powershell
+            : gesture.posix}</pre>
+        <p class="hint">{$t("settings.identity.gesture.hint")}</p>
+        {#if gesture.loginServer}
+          <div class="row">
+            <span class="label">{$t("settings.identity.loginServer")}</span>
+            <span class="mono">{gesture.loginServer}</span>
+          </div>
+        {/if}
+        <div class="actions">
+          <button onclick={() => void copyGesture()}>
+            <Icon name={copied ? "check" : "copy"} size={14} />
+            {$t("settings.identity.copy")}
+          </button>
+          <button onclick={() => void refreshIdentity().then(loadGesture)}>
+            <Icon name="refresh" size={14} />
+            {$t("settings.identity.reread")}
+          </button>
+        </div>
+      {/if}
+    </section>
+  </div>
+  <div
+    class="settingsPanel"
+    role="tabpanel"
+    id="panel-settings-about"
+    aria-labelledby="tab-settings-about"
+    tabindex="0"
+    hidden={category !== "settings-about"}
+  >
+    <section aria-labelledby="diagnosis">
+      <h2 id="diagnosis">{$t("settings.doctor")}</h2>
+      <p class="hint">{$t("settings.doctor.hint")}</p>
+      <div class="row">
+        <button onclick={runDoctor} disabled={doctorRunning}>
+          {doctorRunning ? $t("settings.doctor.running") : $t("settings.doctor.run")}
+        </button>
+        <button class="ghost" onclick={copyDoctor} disabled={!doctor}>
+          <Icon name="copy" size={14} />
+          {$t("settings.doctor.copy")}
+        </button>
+      </div>
+      {#if doctor}
+        <ul class="doctor">
+          {#each doctor.report.rows as row (row.id)}
+            {@const words = $locale === "es" ? row.es : row.en}
+            <li class={row.status}>
+              <span class="glyph" aria-hidden="true">{doctorGlyph[row.status]}</span>
+              <span class="word">{$t(doctorWord[row.status])}</span>
+              <span class="what">{words.title}: {words.found}</span>
+              {#if words.remedy}
+                <span class="remedy mono">{words.remedy}</span>
               {/if}
             </li>
           {/each}
         </ul>
       {/if}
-    {/if}
-    {#if gesture}
-      <h3>{$t("settings.identity.gesture")}</h3>
-      <pre class="gesture">{navigator.userAgent.includes("Windows")
-          ? gesture.powershell
-          : gesture.posix}</pre>
-      <p class="hint">{$t("settings.identity.gesture.hint")}</p>
-      {#if gesture.loginServer}
-        <div class="row">
-          <span class="label">{$t("settings.identity.loginServer")}</span>
-          <span class="mono">{gesture.loginServer}</span>
-        </div>
-      {/if}
-      <div class="actions">
-        <button onclick={() => void copyGesture()}>
-          <Icon name={copied ? "check" : "copy"} size={14} />
-          {$t("settings.identity.copy")}
-        </button>
-        <button onclick={() => void refreshIdentity().then(loadGesture)}>
-          <Icon name="refresh" size={14} />
-          {$t("settings.identity.reread")}
-        </button>
-      </div>
-    {/if}
-  </section>
-
-  <section aria-labelledby="diagnosis">
-    <h2 id="diagnosis">{$t("settings.doctor")}</h2>
-    <p class="hint">{$t("settings.doctor.hint")}</p>
-    <div class="row">
-      <button onclick={runDoctor} disabled={doctorRunning}>
-        {doctorRunning ? $t("settings.doctor.running") : $t("settings.doctor.run")}
-      </button>
-      <button class="ghost" onclick={copyDoctor} disabled={!doctor}>
-        <Icon name="copy" size={14} />
-        {$t("settings.doctor.copy")}
-      </button>
-    </div>
-    {#if doctor}
-      <ul class="doctor">
-        {#each doctor.report.rows as row (row.id)}
-          {@const words = $locale === "es" ? row.es : row.en}
-          <li class={row.status}>
-            <span class="glyph" aria-hidden="true">{doctorGlyph[row.status]}</span>
-            <span class="word">{$t(doctorWord[row.status])}</span>
-            <span class="what">{words.title}: {words.found}</span>
-            {#if words.remedy}
-              <span class="remedy mono">{words.remedy}</span>
-            {/if}
-          </li>
-        {/each}
+    </section>
+    <section aria-labelledby="privacy">
+      <h2 id="privacy">{$t("settings.privacy")}</h2>
+      <ul class="privacy">
+        <li>{$t("settings.privacy.noAccounts")}</li>
+        <li>{$t("settings.privacy.noNetwork")}</li>
+        <li>{$t("settings.privacy.noTelemetry")}</li>
+        <li>{$t("settings.privacy.credentials")}</li>
       </ul>
-    {/if}
-  </section>
-
-  <section aria-labelledby="privacy">
-    <h2 id="privacy">{$t("settings.privacy")}</h2>
-    <ul class="privacy">
-      <li>{$t("settings.privacy.noAccounts")}</li>
-      <li>{$t("settings.privacy.noNetwork")}</li>
-      <li>{$t("settings.privacy.noTelemetry")}</li>
-      <li>{$t("settings.privacy.credentials")}</li>
-    </ul>
-    <p class="hint mono">
-      {$conn.state === "connected"
-        ? $t("settings.about", { version: $conn.version })
-        : $t("settings.about.offline")}
-    </p>
-  </section>
+      <p class="hint mono">
+        {$conn.state === "connected"
+          ? $t("settings.about", { version: $conn.version })
+          : $t("settings.about.offline")}
+      </p>
+    </section>
+  </div>
 </div>
 
 <style>
   .settings {
-    display: grid;
-    gap: var(--sp-6);
-    align-content: start;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
     padding: var(--panel-pad);
-    overflow: auto;
     height: 100%;
-    max-width: 760px;
+    max-width: 880px;
+    min-width: 0;
+    min-height: 0;
+  }
+  .settingsNavigation {
+    flex: none;
+    min-width: 0;
+  }
+  .settingsNavigation :global(.tab) {
+    /* A fixed set of categories can scroll without truncating their names. */
+    flex-shrink: 0;
+    max-width: none;
+  }
+  .settingsPanel {
+    display: grid;
+    align-content: start;
+    gap: var(--sp-6);
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: auto;
+    /* Leave room for a control's focus ring at the scroll boundary. */
+    padding: var(--sp-1);
+    scrollbar-gutter: stable;
+  }
+  .settingsPanel[hidden] {
+    display: none;
   }
   section {
     display: grid;
@@ -627,10 +716,13 @@
     display: flex;
     gap: var(--sp-2);
     flex: 1;
-    min-width: 260px;
+    min-width: min(260px, 100%);
+    max-width: 100%;
+    flex-wrap: wrap;
   }
   .inline input {
     flex: 1;
+    min-width: 0;
     font-family: var(--font-mono);
     font-size: var(--fs-dense);
   }
@@ -652,6 +744,7 @@
     justify-content: space-between;
     align-items: center;
     gap: var(--sp-2);
+    flex-wrap: wrap;
     padding: var(--sp-2) var(--sp-3);
     background: var(--surface-2);
     border-bottom: 1px solid var(--hair);
@@ -673,6 +766,8 @@
     display: flex;
     align-items: baseline;
     gap: var(--sp-2);
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
   }
   .endpoints .grow {
     flex: 1;
@@ -692,6 +787,8 @@
     display: flex;
     align-items: baseline;
     gap: var(--sp-2);
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
     font-size: var(--fs-caption);
   }
   .machines .name {
@@ -723,6 +820,7 @@
   .actions {
     display: flex;
     gap: var(--sp-2);
+    flex-wrap: wrap;
   }
   h3 {
     margin: var(--sp-2) 0 0;
@@ -737,5 +835,21 @@
     gap: var(--sp-1);
     color: var(--text-muted);
     font-size: var(--fs-dense);
+  }
+  @media (max-width: 640px), (pointer: coarse) {
+    .settings :global(button),
+    .settings input {
+      min-height: var(--touch-min);
+    }
+    .settingsNavigation :global(button) {
+      min-width: var(--touch-min);
+    }
+    .doctor li {
+      grid-template-columns: 1.2em 1fr;
+    }
+    .doctor .what,
+    .doctor .remedy {
+      grid-column: 2;
+    }
   }
 </style>

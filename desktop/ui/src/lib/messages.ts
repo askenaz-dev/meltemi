@@ -616,6 +616,11 @@ const es = {
   "editor.noProject": "abre un proyecto para editar",
 
   "settings.appearance": "Apariencia",
+  "settings.tabs.label": "Categorías de ajustes",
+  "settings.tabs.tools": "Herramientas",
+  "settings.tabs.project": "Proyecto",
+  "settings.tabs.connections": "Conexiones",
+  "settings.tabs.about": "Información",
   "settings.theme": "Tema",
   "settings.theme.system": "Sistema",
   "settings.theme.light": "Claro",
@@ -1409,6 +1414,11 @@ const en: Record<MessageKey, string> = {
   "editor.noProject": "open a project to edit",
 
   "settings.appearance": "Appearance",
+  "settings.tabs.label": "Settings categories",
+  "settings.tabs.tools": "Tools",
+  "settings.tabs.project": "Project",
+  "settings.tabs.connections": "Connections",
+  "settings.tabs.about": "About",
   "settings.theme": "Theme",
   "settings.theme.system": "System",
   "settings.theme.light": "Light",

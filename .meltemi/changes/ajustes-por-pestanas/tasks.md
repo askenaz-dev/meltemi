@@ -4,7 +4,7 @@
 
 ## 2. Interfaz
 
-- [ ] 2.1 Agrupar Ajustes con TabStrip, paneles persistentes, textos ES/EN y estilos adaptables.
+- [x] 2.1 Agrupar Ajustes con TabStrip, paneles persistentes, textos ES/EN y estilos adaptables.
 
 ## 3. Verificación
 

@@ -23,6 +23,8 @@ anillo de foco ofrecen respuesta inmediata sin animaciones decorativas.
 2. Ocultar paneles con `hidden`, sin desmontarlos. La plantilla sin guardar, los
    resultados de diagnóstico y los de pruebas de conexión permanecen en memoria;
    cambiar categoría no llama a guardar ni ejecuta acciones.
+   La sincronización de la plantilla observa sólo su valor persistido; actualizar
+   tema o idioma en el mismo store no debe reemplazar una edición pendiente.
 3. Apariencia es la categoría inicial. La categoría seleccionada es estado local
    de la vista; no se amplía el contrato de persistencia. La declaración completa
    de privacidad permanece accesible en Información, en vez de al final de todas
@@ -30,6 +32,9 @@ anillo de foco ofrecen respuesta inmediata sin animaciones decorativas.
 4. La franja no se desplaza verticalmente con el contenido. Cada panel mantiene
    su propio scroll. Controles flexibles y destinos táctiles de 44 px evitan
    desbordamientos en anchos estrechos. Se reutilizan ambos temas y forced-colors.
+   Los nombres de categorías se leen completos al desplazarse. La medición del
+   `TabStrip` se difiere al siguiente frame desde ResizeObserver: mostrar sus
+   botones de scroll no debe redimensionar el elemento durante la notificación.
 5. Verificación: checks y pruebas UI existentes, build de ambas entradas, motor
    de specs y un navegador con puente Tauri simulado sobre un fixture temporal.
    Comprobar teclado, asociación ARIA, borrador, diagnóstico, ES/EN, ambos temas,

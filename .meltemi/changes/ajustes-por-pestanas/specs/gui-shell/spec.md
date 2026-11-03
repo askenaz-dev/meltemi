@@ -41,6 +41,11 @@ MUST NOT descartar entradas sin guardar, resultados ni ejecutar acciones.
 - **THEN** la entrada y el resultado SHALL seguir presentes al volver
 - **AND** cambiar de categoría MUST NOT guardar la plantilla ni repetir el diagnóstico
 
+#### Scenario: Cambiar tema o idioma conserva la plantilla pendiente
+- **WHEN** el usuario deja una plantilla sin guardar y cambia el tema o el idioma en Apariencia
+- **THEN** la plantilla pendiente SHALL conservarse al volver a Herramientas
+- **AND** el valor persistido MUST NOT cambiar hasta que el usuario pulse Guardar
+
 #### Scenario: Navegación en ancho estrecho
 - **WHEN** el ancho disponible no permite mostrar todas las pestañas
 - **THEN** la franja SHALL permitir alcanzar cada categoría mediante scroll y teclado

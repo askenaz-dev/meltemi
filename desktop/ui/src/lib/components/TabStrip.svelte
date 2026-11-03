@@ -95,10 +95,19 @@
     if (!strip) return;
     // Reading the layout during render is how a read/write loop starts, so the
     // observer is what tells us the size changed.
-    const observer = new ResizeObserver(() => measure());
+    // Overflow controls change the observed width themselves. Defer that
+    // feedback to the next frame rather than resizing during notification.
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    });
     observer.observe(strip);
     measure();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
   });
 
   // The list of items changing is the other thing that changes the content
