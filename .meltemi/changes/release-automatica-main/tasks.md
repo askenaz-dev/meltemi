@@ -9,3 +9,4 @@
 - [x] 4.1 Verificación local, incluido checkout real estampado a 0.2.123 y
   repetición idempotente; evidencia en docs/qa/2026-11-01-releases-automaticas.md.
 - [ ] 4.2 CI multiplataforma de la PR y primera publicación automática tras merge.
+- [x] 4.3 Incorporar el parche compatible de async-executor retirado del registry antes de activar las publicaciones y verificar cargo-deny.

@@ -52,3 +52,11 @@ Errores de API distintos de 404 fallan: no se interpretan como ausencia.
 Pruebas Node con repos git temporales y API falsa cubren CI falso, reservas,
 reintentos tras fallos, tags históricos, notas de rango y latest antiguo.
 Los controles Rust mantienen gates y artefactos. No requiere dependencias nuevas.
+
+## D6 — Activación con dependencias válidas
+
+La CI del cambio visual detectó que el registry retiró `async-executor` 1.14.0.
+Antes de integrar la automatización se incorpora únicamente el mismo parche
+compatible 1.14.1 del lockfile (validado en `ajustes-por-pestanas`), sin nuevas
+dependencias ni excepciones a cargo-deny. La rama de release vuelve a pasar CI
+multiplataforma antes del merge autorizado por el propietario.
