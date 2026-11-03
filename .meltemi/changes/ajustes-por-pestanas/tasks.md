@@ -9,5 +9,5 @@
 ## 3. Verificación
 
 - [x] 3.1 Ejecutar checks, pruebas y build UI, validar specs y registrar verificación de navegador con capturas.
-- [ ] 3.2 Revisar CI de las tres plataformas antes de merge.
+- [x] 3.2 Revisar CI de las tres plataformas antes de merge: run 41694858623 sobre a55d646, con la automatización ya integrada; evidencia de entrega en docs/qa/2026-11-03-releases-activacion.md.
 - [x] 3.3 Sustituir el async-executor 1.14.0 retirado del registry por su parche compatible 1.14.1 y verificar cargo-deny, sin relajar controles.

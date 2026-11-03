@@ -31,3 +31,11 @@ jobs MUST usar ese SHA y versión sin escribir commits a main.
 #### Scenario: Pushes rápidos conservados
 - **WHEN** varios pushes esperan CI o publicación
 - **THEN** queue max conserva hasta 100 pendientes y se documenta el límite externo.
+
+#### Scenario: Borrador no visible por tag
+- **WHEN** el endpoint por tag devuelve 404 y existe un borrador en una página del listado autenticado
+- **THEN** la recuperación reutiliza su ID, verifica sus assets por ID y no crea otro borrador.
+
+#### Scenario: Publicación conserva la identidad del borrador
+- **WHEN** se suben los assets y se publica un borrador
+- **THEN** ambas verificaciones usan el mismo ID y comprueban tag, estado y todos los archivos esperados.

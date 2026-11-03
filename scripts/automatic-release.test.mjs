@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import test from 'node:test';
-import { git, inspectTags, mayBecomeLatest, notes, publishRelease, releasePlan, REQUIRED_ASSETS, validateRun, verifyPublished } from './automatic-release.mjs';
+import { api, findRelease, git, inspectTags, mayBecomeLatest, notes, publishRelease, releasePlan, REQUIRED_ASSETS, validateRun, verifyPublished, verifyReleaseById } from './automatic-release.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'meltemi-release-test-'));
@@ -125,7 +125,7 @@ test('upload failure leaves a reusable draft; published retries perform no mutat
     create: () => { creates++; return (draft = { id: 1, draft: true }); },
     upload: () => { if (++uploads === 1) throw new Error('network failure'); },
     finish: (_id, promote) => { assert.equal(promote, true); finishes++; draft.draft = false; },
-    verify: (_tag, expectedDraft) => assert.equal(draft.draft, expectedDraft),
+    verify: (id, _tag, expectedDraft) => { assert.equal(id, draft.id); assert.equal(draft.draft, expectedDraft); },
     verifyExisting: () => assert.equal(draft.draft, false),
   };
   assert.throws(() => publishRelease(f.root, plan, remote), /network failure/);
@@ -133,6 +133,77 @@ test('upload failure leaves a reusable draft; published retries perform no mutat
   assert.equal(publishRelease(f.root, plan, remote).published, true);
   assert.equal(publishRelease(f.root, plan, remote).reused, true);
   assert.deepEqual([creates, uploads, finishes], [1, 2, 1]);
+});
+// Scenario: Borrador no visible por tag
+test('draft lookup includes later pages and rejects duplicate identities', () => {
+  const unrelated = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, tag_name: `v1.0.${i}` }));
+  const draft = { id: 101, tag_name: 'v0.2.1', draft: true };
+  const calls = [];
+  const request = (_repo, _method, endpoint, _body, missing) => {
+    calls.push(endpoint);
+    if (endpoint.startsWith('releases/tags/')) { assert.equal(missing, true); return null; }
+    return endpoint.endsWith('page=1') ? unrelated : [draft];
+  };
+  assert.equal(findRelease('owner/repo', draft.tag_name, request), draft);
+  assert.deepEqual(calls, ['releases/tags/v0.2.1', 'releases?per_page=100&page=1', 'releases?per_page=100&page=2']);
+  unrelated[0] = { ...draft, id: 102 };
+  assert.throws(() => findRelease('owner/repo', draft.tag_name, request), /Multiple releases/);
+  assert.equal(findRelease('owner/repo', draft.tag_name, () => ({ ...draft, draft: false })).draft, false);
+  assert.throws(() => findRelease('owner/repo', draft.tag_name, () => { throw new Error('HTTP 403'); }), /HTTP 403/);
+});
+// Scenario: Publicación conserva la identidad del borrador
+test('the real API draft visibility contract survives interrupted publication', t => {
+  const f = fixture(t); const plan = f.plan(f.commit());
+  let release = null, creates = 0, uploads = 0, finishes = 0;
+  const verifiedStates = [];
+  const request = (_repo, _method, endpoint, _body, missing) => {
+    if (endpoint === `releases/tags/${plan.tag}`) {
+      if (release && !release.draft) return release;
+      if (missing) return null;
+      throw new Error('HTTP 404: draft is not visible by tag');
+    }
+    if (endpoint === 'releases?per_page=100&page=1') return release ? [release] : [];
+    assert.equal(endpoint, 'releases/45');
+    verifiedStates.push(release.draft);
+    return release;
+  };
+  const remote = {
+    release: tag => findRelease('owner/repo', tag, request),
+    latest: () => ({ tag_name: 'v0.2.0' }),
+    create: () => { creates++; return (release = { id: 45, tag_name: plan.tag, draft: true, assets: [] }); },
+    upload: () => { uploads++; release.assets = REQUIRED_ASSETS.map(name => ({ name, size: 10 })); },
+    verify: (id, tag, draft) => verifyReleaseById('owner/repo', id, tag, draft, REQUIRED_ASSETS, request),
+    finish: id => { assert.equal(id, 45); if (++finishes === 1) throw new Error('interrupted before finalization'); release.draft = false; },
+    verifyExisting: existing => assert.equal(existing.draft, false),
+  };
+  assert.throws(() => publishRelease(f.root, plan, remote), /interrupted/);
+  assert.equal(publishRelease(f.root, plan, remote).published, true);
+  assert.equal(publishRelease(f.root, plan, remote).reused, true);
+  assert.deepEqual([creates, uploads, finishes], [1, 2, 2]);
+  assert.deepEqual(verifiedStates, [true, true, false]);
+});
+test('verification by id rejects a different release or incomplete uploads', () => {
+  const release = { id: 45, tag_name: 'v0.2.1', draft: true, assets: [{ name: 'file', size: 10 }] };
+  const verify = value => verifyReleaseById('owner/repo', 45, 'v0.2.1', true, ['file'], (_repo, _method, endpoint) => {
+    assert.equal(endpoint, 'releases/45'); return value;
+  });
+  assert.equal(verify(release), release);
+  for (const patch of [{ id: 46 }, { tag_name: 'v0.2.2' }, { draft: false }, { assets: [] },
+    { assets: [{ name: 'file', size: 0 }] }, { assets: [...release.assets, { name: 'unexpected', size: 10 }] }]) {
+    assert.throws(() => verify({ ...release, ...patch }), /identity, state or uploaded assets/);
+  }
+});
+test('API failures expose only HTTP status and distinguish missing from denied', () => {
+  const fail = status => () => { throw Object.assign(new Error('private payload'), { stderr: `secret-token and signed-url (HTTP ${status})` }); };
+  assert.equal(api('owner/repo', 'GET', 'releases/tags/v0.2.1', null, true, fail(404)), null);
+  for (const status of [403, 404, 500]) {
+    assert.throws(() => api('owner/repo', 'GET', 'releases/45', null, false, fail(status)), error => {
+      assert.match(error.message, new RegExp(`HTTP ${status}`));
+      assert.doesNotMatch(error.message, /secret-token|signed-url|private payload/);
+      return true;
+    });
+  }
+  assert.throws(() => api('owner/repo', 'GET', 'releases/45', null, true, fail(500)), /HTTP 500/);
 });
 test('a published retry fails closed on missing assets, mismatched manifest or digest', () => {
   const manifest = { tag: 'v0.2.1', sourceSha: 'a'.repeat(40) };

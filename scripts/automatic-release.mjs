@@ -152,21 +152,47 @@ export function publishRelease(root, plan, remote) {
   const promote = mayBecomeLatest(root, plan, remote.latest());
   const draft = existing ?? remote.create(plan);
   remote.upload(plan.tag);
-  remote.verify(plan.tag, true);
+  remote.verify(draft.id, plan.tag, true);
   remote.finish(draft.id, promote);
-  remote.verify(plan.tag, false);
+  remote.verify(draft.id, plan.tag, false);
   return { published: true, latest: promote, reused: Boolean(existing) };
 }
-export function api(repository, method, endpoint, body, missing = false) {
+export function findRelease(repository, tag, request = api) {
+  // The tag endpoint only returns published releases, never drafts.
+  const published = request(repository, 'GET', `releases/tags/${tag}`, null, true);
+  if (published) return published;
+  let found = null;
+  for (let page = 1; ; page++) {
+    const releases = request(repository, 'GET', `releases?per_page=100&page=${page}`);
+    if (!Array.isArray(releases)) throw new Error('Expected a GitHub release list');
+    for (const release of releases.filter(value => value.tag_name === tag)) {
+      if (found) throw new Error(`Multiple releases identify ${tag}; refusing to choose a draft`);
+      found = release;
+    }
+    if (releases.length < 100) return found;
+  }
+}
+export function verifyReleaseById(repository, id, tag, draft, assets, request = api) {
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('Invalid release id');
+  const release = request(repository, 'GET', `releases/${id}`);
+  if (release.id !== id || release.tag_name !== tag || release.draft !== draft ||
+      release.assets.length !== assets.length ||
+      assets.some(name => !release.assets.some(asset => asset.name === name && asset.size > 0))) {
+    throw new Error('Release identity, state or uploaded assets are incomplete');
+  }
+  return release;
+}
+export function api(repository, method, endpoint, body, missing = false, execute = execFileSync) {
   try {
     const args = ['api', '--method', method, `repos/${repository}/${endpoint}`];
     if (body) args.push('--input', '-');
-    const raw = execFileSync('gh', args, { encoding: 'utf8', input: body ? JSON.stringify(body) : undefined,
+    const raw = execute('gh', args, { encoding: 'utf8', input: body ? JSON.stringify(body) : undefined,
       stdio: ['pipe', 'pipe', 'pipe'] });
     return raw.trim() ? JSON.parse(raw) : null;
   } catch (error) {
-    if (missing && /\(HTTP 404\)/.test(String(error.stderr))) return null;
-    throw new Error(`GitHub API ${method} ${endpoint} failed (no credentials are logged)`);
+    const status = String(error.stderr).match(/\(HTTP (\d{3})\)/)?.[1];
+    if (missing && status === '404') return null;
+    throw new Error(`GitHub API ${method} ${endpoint} failed${status ? ` (HTTP ${status})` : ''} (no credentials are logged)`);
   }
 }
 function readAsset(repository, asset) {
@@ -216,7 +242,7 @@ export async function main(command) {
       const tag = api(repository, 'POST', 'git/tags', { tag: plan.tag, message: JSON.stringify(manifest), object: sha, type: 'commit' });
       api(repository, 'POST', 'git/refs', { ref: `refs/tags/${plan.tag}`, sha: tag.sha });
     }
-    const release = api(repository, 'GET', `releases/tags/${plan.tag}`, null, true);
+    const release = findRelease(repository, plan.tag);
     if (release && !release.draft) verifyPublished(release, manifest, asset => readAsset(repository, asset));
     writeFileSync('release-manifest.json', JSON.stringify(manifest, null, 2) + '\n');
     writeFileSync('release-notes.md', notes(root, plan));
@@ -232,7 +258,7 @@ export async function main(command) {
         JSON.stringify(reservation.metadata) !== JSON.stringify(plan)) throw new Error('Published manifest must match the immutable reservation');
     const assets = readdirSync('release-assets').map(name => `release-assets/${name}`);
     output(publishRelease(root, plan, {
-      release: tag => api(repository, 'GET', `releases/tags/${tag}`, null, true),
+      release: tag => findRelease(repository, tag),
       verifyExisting: release => verifyPublished(release, plan, asset => readAsset(repository, asset)),
       latest: () => api(repository, 'GET', 'releases/latest', null, true),
       create: value => api(repository, 'POST', 'releases', { tag_name: value.tag,
@@ -240,11 +266,8 @@ export async function main(command) {
         body: readFileSync('notes/release-notes.md', 'utf8') }),
       upload: tag => execFileSync('gh', ['release', 'upload', tag, ...assets, '--clobber', '--repo', repository], { stdio: 'inherit' }),
       finish: (id, promote) => api(repository, 'PATCH', `releases/${id}`, { draft: false, make_latest: promote ? 'true' : 'false' }),
-      verify: (tag, draft) => {
-        const published = api(repository, 'GET', `releases/tags/${tag}`);
-        const expected = assets.map(path => path.split(/[\\/]/).at(-1));
-        if (published.draft !== draft || expected.some(name => !published.assets.some(asset => asset.name === name))) throw new Error('Release state or uploaded assets are incomplete');
-      },
+      verify: (id, tag, draft) => verifyReleaseById(repository, id, tag, draft,
+        assets.map(path => path.split(/[\\/]/).at(-1))),
     }));
   } else throw new Error(`Unknown command: ${command}`);
 }
