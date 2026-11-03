@@ -841,7 +841,7 @@
     .settings input {
       min-height: var(--touch-min);
     }
-    .settingsNavigation :global(button) {
+    .settings :global(button) {
       min-width: var(--touch-min);
     }
     .doctor li {

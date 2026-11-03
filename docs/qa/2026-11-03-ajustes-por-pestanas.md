@@ -30,7 +30,7 @@ una ejecución del binario Tauri completo.
 | La plantilla de Abrir con se configura y persiste | Guardar llama al mecanismo existente con el texto editado. La persistencia nativa no se reimplementó; su conexión sigue cubierta por `scenarios_shell.rs`. No se midió un reinicio nativo aquí. |
 | Ver y editar la configuración efectiva | Proyecto muestra los dos archivos del fixture y Editar recibe `.meltemi/config.toml`. |
 | La promesa de privacidad es visible | Información muestra los cuatro compromisos existentes junto al diagnóstico. |
-| Navegación en ancho estrecho | A 320×640 las cinco categorías son alcanzables, la activa queda visible con nombre completo, tabs de al menos 44 px y ningún panel desborda horizontalmente. |
+| Navegación en ancho estrecho | A 320×640 las cinco categorías son alcanzables, la activa queda visible con nombre completo, botones de al menos 44×44 px y ningún panel desborda horizontalmente. |
 | Conservación de acciones | El cambio de máquina pasa por `onGuarded` antes del callback existente; las pruebas y la edición sólo responden a sus controles. |
 | Temas y acceso | Capturas a 1100×720 en claro/ES y oscuro/EN; a 320×640 en cada categoría. Forced-colors y reduced-motion conservan foco, borde activo y navegación. |
 | Errores de navegador | Ningún `pageerror` ni evento `window.error` en la pasada final. |
@@ -67,6 +67,9 @@ añade una pantalla móvil nueva.
 3. La prueba de skeleton dependía de la indentación exacta del markup. Ahora
    normaliza espacios conservando la aserción de que el skeleton pertenece a
    la rama de carga.
+4. La medición final de todos los botones encontró que ES/EN tenían 44 px de
+   alto pero sólo 40,5/43,6 px de ancho. El mínimo táctil ahora cubre ambos ejes
+   de todos los botones, sin alterar la densidad de escritorio.
 
 Queda pendiente la CI completa Linux/macOS/Windows antes de merge. No se
 ejecutaron publicaciones ni se cambió la versión del producto.
