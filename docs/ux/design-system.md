@@ -96,6 +96,14 @@ strip, which remains the way to every tab when the bar is folded to its rail.
 
 ## Elevation and density
 
+Settings groups the existing controls into **Appearance**, **Tools**,
+**Project**, **Connections** and **About** (`ajustes-por-pestanas`). The shared
+tab strip stays above the scrolling category. Panels remain mounted while
+hidden so an unsaved external-editor template, a connection test or a diagnosis
+survives navigation. About carries the full privacy declaration. Arrow keys,
+Home and End move focus with selection; narrow layouts scroll the category
+labels and keep touch targets at least 44 px high.
+
 Density is the feature — this is a control plane, not a landing page.
 
 | Token | Value | Use |
