@@ -428,12 +428,18 @@ fn an_unsigned_build_says_so_where_it_is_downloaded_and_inside_itself() {
         "and says a run artifact is not distribution"
     );
     assert!(
-        doc.contains("UNSIGNED-BUILD.txt") && doc.contains("permissions: contents: read"),
-        "and states both the notice and the permission that makes publishing impossible"
+        doc.contains("UNSIGNED-BUILD.txt"),
+        "the user guide names the notice in a temporary build"
     );
+    let maintenance = read(&root, "docs/operations/release-pipeline.md");
+    assert!(maintenance.contains("permissions: contents: read"));
+    let spanish = read(&root, "docs/es/release.md")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     assert!(
-        doc.contains("es la ruta") || doc_flat.contains("dos rutas de build y solo una publica"),
-        "the Spanish summary carries the same distinction"
+        spanish.contains("no es una distribución") && spanish.contains("UNSIGNED-BUILD.txt"),
+        "the complete Spanish guide carries the same distribution distinction"
     );
 }
 
@@ -772,6 +778,12 @@ fn the_limit_of_a_workflow_signature_is_declared_with_its_controls() {
         ),
         "the limit is written as a limit"
     );
+    // Detailed CI/IaC controls are maintainer material, linked separately from
+    // the installer's practical origin-verification instructions.
+    let controls = read(&repo_root(), "docs/operations/release-pipeline.md")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     for control in [
         "pinned by full commit",
         "read-only",
@@ -781,12 +793,12 @@ fn the_limit_of_a_workflow_signature_is_declared_with_its_controls() {
         "rulesets",
     ] {
         assert!(
-            flat.contains(control),
-            "docs/release.md names the control `{control}`"
+            controls.contains(control),
+            "the maintainer reference names the control `{control}`"
         );
     }
     assert!(
-        flat.contains("The way back to a human step"),
+        controls.contains("The way back to a human step"),
         "and the way back, should the trade be revisited"
     );
 }

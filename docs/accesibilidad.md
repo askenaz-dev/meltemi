@@ -1,15 +1,16 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Accessibility
 
+[Español](es/accesibilidad.md)
+
 Meltemi's terminal surface is designed to be usable without color, without
-Unicode box-drawing, and without a TTY at all. There is always a guaranteed
-accessible path.
+Unicode box-drawing, and without a TTY at all. The CLI offers plain and structured output;
+choose the form that works best with your terminal or assistive tools.
 
 ## The `--json` path
 
 Every RPC-backed subcommand accepts `--json` and emits machine-readable output
-that never depends on terminal styling. This is the guaranteed path for screen
-readers, scripts, and CI:
+that never depends on terminal styling. Use it with screen readers, scripts, and CI:
 
 ```
 meltemi --json status
@@ -27,9 +28,9 @@ color alone.
 
 ## ASCII fallback
 
-Where the interactive interface uses box-drawing characters, an ASCII-only
-fallback is available for terminals or fonts that cannot render them, so the
-layout stays legible.
+Set `MELTEMI_ASCII=1` when the terminal or font cannot render Unicode symbols. The interactive
+interface uses their ASCII equivalents. Set `MELTEMI_BELL=1` separately if you want the terminal
+bell for events that need attention; whether it makes sound depends on your terminal.
 
 ## Motion
 
@@ -47,8 +48,7 @@ word becomes visible, the brand mark appears already drawn, and the ambient
 ring gives way to an accent frame. Clocks keep counting — a figure that changes
 is not motion — and the time beside a working turn is hidden from the
 transcript's live region, so a screen reader hears "working…" once instead of
-a second every second. The full vocabulary, with where each movement is allowed
-and where it never is, lives in [the design system](ux/design-system.md#motion).
+a second every second. These settings do not change permission decisions or session timeouts.
 
 ## No hangs without a TTY
 
