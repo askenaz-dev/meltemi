@@ -183,6 +183,7 @@ Una tabla `[identity]` dentro del proyecto se ignora con diagnóstico. `meltemi 
 consulta de solo lectura al cliente configurado (`status --json`), con tiempo límite. El daemon
 no ejecuta `up`, `login` ni `logout`. Presencia no es control: un equipo en línea no prueba que
 esté ejecutando `meltemid`; debes conectar o probar su endpoint.
+El camino al daemon sigue siendo tu túnel SSH.
 
 - `not_configured`: agrega la configuración si quieres esta función.
 - `client_missing`: comprueba el binario y la ruta configurada.

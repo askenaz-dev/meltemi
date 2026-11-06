@@ -75,6 +75,32 @@ Evidencia local conservada fuera del repositorio:
 - `C:/meltemi/artifacts/ide-docs-user-audit/clippy-docs.log`, `clippy-release.log` y `fmt.log`.
 - `C:/meltemi/artifacts/docs-user-audit/render-check.json` para el ensamblado del portal.
 
+## Seguimiento de CI: límite SSH explícito (1.4)
+
+La CI inicial del PR #8, run `42263885903` sobre `28c9ed0`, detectó en Windows y Ubuntu una
+regresión documental: `desktop/tests/scenarios_shell.rs:709` exige que el apartado de identidad
+reafirme «sigue siendo tu túnel SSH». El recorrido SSH seguía explicado en la guía, pero esa frase
+del contrato se perdió al resumir. Se añadió una frase equivalente en ambos idiomas dentro del
+apartado de identidad; no se modificaron el test ni el comportamiento.
+
+Validación de esta corrección en Windows:
+
+- `cargo test --offline -p meltemi-desktop --test scenarios_shell --no-fail-fast`: 128/128.
+- `cargo test --offline -p meltemi --test docs --no-fail-fast`: 25/25, incluida paridad EN/ES.
+- `cargo clippy --offline -p meltemi-desktop --test scenarios_shell -- -D warnings`: verde.
+- `cargo fmt --all -- --check` y `git diff --check`: verdes.
+- Predicado literal español, frase inglesa equivalente y los 12 ejemplos remotos exactos: verdes.
+
+El primer intento local de compilar el target de escritorio encontró una caché Tauri con rutas
+absolutas de otro checkout (`C:/forge/agentic-ide`). Regenerar sólo los artefactos locales Tauri
+permitió ejecutar el target completo; no cambió fuente, configuración ni dependencias. Los logs
+`desktop-scenarios-shell-tests.log` y `clippy-desktop-scenarios-shell.log` conservan los resultados
+verdes. `ci-windows-job.log` y `ci-ubuntu-job.log` conservan el fallo inicial.
+
+El total de pruebas focalizadas verificadas durante la auditoría pasa a 197 (69 anteriores más
+128 de escritorio). La CI completa del nuevo HEAD continúa siendo el gate de revisión; no se
+reintenta el run del contenido anterior.
+
 ## Límites de esta auditoría
 
 No se ejecutó una suite local de producto completa ni pruebas nuevas en macOS/Linux; la CI de

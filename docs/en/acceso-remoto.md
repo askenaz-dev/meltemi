@@ -178,6 +178,7 @@ An `[identity]` table in the project is ignored with a diagnostic. `meltemi iden
 read-only query to the configured client (`status --json`), with a timeout. The daemon never runs
 `up`, `login` or `logout`. Presence is not control: an online machine does not prove that it runs
 `meltemid`; connect to or test its endpoint.
+Access to the daemon still uses your SSH tunnel.
 
 - `not_configured`: add the setting if you want this feature.
 - `client_missing`: check the binary and configured path.
