@@ -99,11 +99,11 @@ fn the_rendezvous_pattern_is_documented_with_its_boundary() {
         "the availability cost of the rendezvous is declared"
     );
 
-    // BYO-network with its licences AND its boundary: the mesh is the user's,
-    // never a dependency of the workspace.
+    // The user-facing guide describes the transport boundary; licences and
+    // comparisons of optional mesh products belong to their own documentation.
     assert!(
-        lower.contains("byo-network") && doc.contains("BSD-3") && doc.contains("Apache-2.0"),
-        "the mesh variant names its pieces and their licences"
+        lower.contains("byo-network") && lower.contains("infraestructura del usuario"),
+        "the optional mesh belongs to the user"
     );
     assert!(
         lower.contains("no se empaqueta") || lower.contains("no es dependencia"),
@@ -232,8 +232,8 @@ fn the_rendezvous_pattern_is_documented_with_its_boundary() {
         "and presence is not a promise about a daemon"
     );
     assert!(
-        machines_lower.contains("un agregador es un servicio"),
-        "nothing aggregates sessions across machines, with the reason"
+        machines_lower.contains("no se agregan sesiones de máquinas distintas"),
+        "the guide does not promise an aggregate across machines"
     );
     // The CLI's own limit is written where somebody would look for it, instead
     // of being discovered by trying.
@@ -242,60 +242,26 @@ fn the_rendezvous_pattern_is_documented_with_its_boundary() {
         "the CLI lists and does not switch, and says so"
     );
 
-    // Phase 3 is annotated, never promised — and what has since been BUILT is no
-    // longer in the notes. This half of the test has now been rewritten twice,
-    // by the two changes that built what it used to reserve; each time it pinned
-    // the old semantics and each time that was the point of rewriting it.
-    let phase3 = doc
-        .split("## Notas para el compañero móvil")
+    // Product availability replaces internal phase/design notes. The companion
+    // exists in source, while the release workflow does not distribute an APK.
+    let mobile = doc
+        .split("## El compañero móvil")
         .nth(1)
-        .expect("the phase-3 notes section exists")
-        // Bounded to the section: unbounded it ran to the end of the page and
-        // swallowed the sections after it, so "this is still a note" would be
-        // satisfied by a heading that says the opposite.
-        .split(
-            "
-## ",
-        )
+        .expect("the mobile companion has its own section")
+        .split("\n## ")
         .next()
-        .expect("the section has an end");
+        .unwrap_or_default();
+    let mobile_lower = mobile.to_lowercase();
+    assert!(mobile.contains("Android"), "the current platform is named");
     assert!(
-        phase3.contains("no existe todavía"),
-        "the phase-3 notes say plainly that none of it exists yet"
+        mobile_lower.contains("no distribuye") && mobile.contains("APK"),
+        "source availability is not presented as a published installer"
     );
+    assert!(mobile.contains("No hay distribución iOS publicada"));
+    assert!(mobile_lower.contains("no mantiene el socket"));
     assert!(
-        phase3.contains("Certificados SSH del bastión"),
-        "the one design note left is recorded"
-    );
-    // What is left is a decision for a FUTURE change, and the note says what it
-    // is rather than naming a change that has already happened: `companero-movil`
-    // built the companion, so pointing at it would read as "coming soon" for
-    // something shipped.
-    assert!(
-        phase3.contains("certificados SSH de vida corta"),
-        "the note says what the decision is"
-    );
-    // The notes must not promise what is already built, which is the failure mode
-    // a stale note creates: a reader deciding the feature is years away.
-    let phase3_lower = phase3
-        .to_ascii_lowercase()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    for built in [
-        "byo-identity",
-        "selector que conecta",
-        "aviso de espera",
-        "android primero",
-    ] {
-        assert!(
-            !phase3_lower.contains(built),
-            "`{built}` is built and must not still read as a future thing"
-        );
-    }
-    assert!(
-        phase3_lower.contains("existen ya"),
-        "and the notes point at what already exists instead of restating it"
+        mobile.contains("authorized_keys"),
+        "the public-key setup is actionable"
     );
 }
 
@@ -313,21 +279,12 @@ fn the_remote_access_frontier_is_documented() {
     for verb in ["monitorear", "aprobar", "dirigir"] {
         assert!(doc.contains(verb), "the `{verb}` remote verb is documented");
     }
-    // The absence of push without a connection, explained as a posture with its
-    // why (§3 / no cloud relay), not as a missing feature.
-    assert!(
-        doc.contains("postura de privacidad"),
-        "the no-push stance is framed as a posture"
-    );
-    assert!(
-        doc.contains("§3") && doc.contains("relé"),
-        "the why is grounded in §3 and the no-relay rule"
-    );
-    // A push-without-tunnel proposal is rejected save a foundational amendment.
-    assert!(
-        doc.contains("se rechaza") && doc.contains("enmienda"),
-        "the rejection rule (save amendment) is stated"
-    );
+    // The guide explains the actual boundary rather than the contribution
+    // process for a hypothetical future exception to the constitution.
+    assert!(doc.contains("postura de privacidad"));
+    assert!(doc.contains("daemon sin puertos de red"));
+    assert!(doc.contains("ni ofrece un relé"));
+    assert!(doc.contains("sin conexión no hay control"));
 }
 
 /// A document with its line breaks and runs of spaces folded, lowercased: a
@@ -534,8 +491,9 @@ fn the_remote_access_page_does_not_promise_what_is_not_measured() {
         "the unconditional claim is gone"
     );
     assert!(
-        flat.contains("lo esperado es que funcione todo"),
-        "what is expected"
+        flat.contains("prueba tu recorrido completo")
+            && flat.contains("las pruebas locales no lo sustituyen"),
+        "the guide requires checking the actual route instead of a blanket guarantee"
     );
     assert!(
         doc.contains("(qa/2026-09-25-acceso-por-tunel-smoke.md)"),
@@ -723,6 +681,194 @@ fn the_faq_answers_what_is_asked_first() {
             read(&repo_root(), doc).contains("faq.md"),
             "{doc} does not link the FAQ"
         );
+    }
+}
+
+/// Public product guides only. Contributor notes, QA and research are not translation targets.
+const USER_GUIDES: &[(&str, &str, &str)] = &[
+    (
+        "quickstart.md",
+        "docs/quickstart.md",
+        "docs/es/quickstart.md",
+    ),
+    ("agentes.md", "docs/agentes.md", "docs/es/agentes.md"),
+    (
+        "sesion-libre.md",
+        "docs/sesion-libre.md",
+        "docs/es/sesion-libre.md",
+    ),
+    (
+        "metodo-sdd.md",
+        "docs/metodo-sdd.md",
+        "docs/es/metodo-sdd.md",
+    ),
+    ("harness.md", "docs/harness.md", "docs/es/harness.md"),
+    (
+        "local-models.md",
+        "docs/local-models.md",
+        "docs/es/local-models.md",
+    ),
+    (
+        "acceso-remoto.md",
+        "docs/en/acceso-remoto.md",
+        "docs/acceso-remoto.md",
+    ),
+    (
+        "accesibilidad.md",
+        "docs/accesibilidad.md",
+        "docs/es/accesibilidad.md",
+    ),
+    (
+        "plataformas.md",
+        "docs/plataformas.md",
+        "docs/es/plataformas.md",
+    ),
+    (
+        "referencia-cli.md",
+        "docs/referencia-cli.md",
+        "docs/es/referencia-cli.md",
+    ),
+    ("release.md", "docs/release.md", "docs/es/release.md"),
+    (
+        "versionado.md",
+        "docs/versionado.md",
+        "docs/es/versionado.md",
+    ),
+    ("faq.md", "docs/faq.md", "docs/es/faq.md"),
+];
+
+/// Heading structure outside code, and exact fenced examples including their language labels.
+fn guide_structure(markdown: &str) -> (Vec<usize>, Vec<String>) {
+    let mut headings = Vec::new();
+    let mut blocks = Vec::new();
+    let mut current: Option<String> = None;
+    for line in markdown.lines() {
+        if line.starts_with("```") {
+            if let Some(mut block) = current.take() {
+                block.push_str(line);
+                blocks.push(block);
+            } else {
+                current = Some(format!("{line}\n"));
+            }
+        } else if let Some(block) = current.as_mut() {
+            block.push_str(line);
+            block.push('\n');
+        } else {
+            let level = line.chars().take_while(|c| *c == '#').count();
+            if level > 0 && line.as_bytes().get(level) == Some(&b' ') {
+                headings.push(level);
+            }
+        }
+    }
+    assert!(current.is_none(), "a guide leaves its code fence open");
+    (headings, blocks)
+}
+
+#[test]
+fn public_guides_have_real_english_and_spanish_twins() {
+    // Scenario: Una persona cambia de idioma (docs-user-audit 1.2).
+    let root = repo_root();
+    let en_index = read(&root, "docs/README.md");
+    let es_index = read(&root, "docs/es/README.md");
+    for &(name, en_path, es_path) in USER_GUIDES {
+        let en = norm(&read(&root, en_path));
+        let es = norm(&read(&root, es_path));
+        assert_ne!(en, es, "{name}: the twin must be a translation, not a copy");
+        let (en_headings, en_blocks) = guide_structure(&en);
+        let (es_headings, es_blocks) = guide_structure(&es);
+        assert_eq!(en_headings.first(), Some(&1), "{en_path}: title");
+        assert_eq!(es_headings.first(), Some(&1), "{es_path}: title");
+        assert_eq!(
+            en_headings, es_headings,
+            "{name}: complete section structure"
+        );
+        assert_eq!(
+            en_blocks, es_blocks,
+            "{name}: command/output examples must stay exact"
+        );
+        assert!(
+            es.contains("[English]("),
+            "{es_path}: link to English source"
+        );
+        // The canonical CLI reference is generated; never edit it to add editorial material.
+        if name != "referencia-cli.md" {
+            assert!(
+                en.contains("[Español]("),
+                "{en_path}: link to Spanish source"
+            );
+        }
+        assert!(en_index.contains(name), "English index omits {name}");
+        assert!(es_index.contains(name), "Spanish index omits {name}");
+        for path in [en_path, es_path] {
+            let content = read(&root, path);
+            let base = root.join(path);
+            for target in markdown_link_targets(&content) {
+                if target.starts_with("http") || target.starts_with('#') {
+                    continue;
+                }
+                let file = target.split('#').next().unwrap_or(&target);
+                assert!(
+                    base.parent().unwrap().join(file).exists(),
+                    "{path}: {target}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn every_canonical_user_guide_is_in_the_bilingual_inventory() {
+    let root = repo_root();
+    let internal = [
+        "README.md",
+        "arquitectura.md",
+        "conformidad-manual.md",
+        "e2e-manual.md",
+        "hito-v01.md",
+        "paridad-nucleo.md",
+        "plan-de-cambios.md",
+        "politica-spdx.md",
+        "prueba-de-uno.md",
+        "verificacion-fase-0.md",
+    ];
+    let mut actual = std::collections::BTreeSet::new();
+    for entry in std::fs::read_dir(root.join("docs")).expect("docs exists") {
+        let entry = entry.expect("readable doc entry");
+        if !entry.path().is_file() || entry.path().extension().is_none_or(|e| e != "md") {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !internal.contains(&name.as_str()) {
+            actual.insert(name);
+        }
+    }
+    let expected = USER_GUIDES
+        .iter()
+        .map(|(name, _, _)| name.to_string())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        actual, expected,
+        "a new public guide needs its real language pair and index entry"
+    );
+    for locale in ["en", "es"] {
+        for entry in std::fs::read_dir(root.join("docs").join(locale)).expect("locale folder") {
+            let path = entry.expect("readable locale entry").path();
+            if !path.is_file() || path.extension().is_none_or(|e| e != "md") {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            assert!(
+                relative == "docs/es/README.md"
+                    || USER_GUIDES
+                        .iter()
+                        .any(|(_, en, es)| *en == relative || *es == relative),
+                "unclassified locale guide {relative}"
+            );
+        }
     }
 }
 
@@ -922,7 +1068,7 @@ fn the_one_developer_guide_starts_at_the_release_and_says_what_to_expect() {
         "README.md",
         "LEEME.md",
         "docs/hito-v01.md",
-        "docs/release.md",
+        "docs/operations/release-pipeline.md",
     ] {
         assert!(
             read(&repo_root(), doc).contains("prueba-de-uno.md"),

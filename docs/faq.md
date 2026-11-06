@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Questions and troubleshooting
 
+[Español](es/faq.md)
+
 What people ask first, and what took the longest to find out. Each answer
 links the guide that has the detail. Something not here? Open an issue with
 the question template.
@@ -19,7 +21,7 @@ configuration, every agent that is ready or half installed with what to do,
 `git` and `ssh`, and the last errors of the daemon's log — each with what to do
 about it. It never starts a daemon and never runs an agent, and it exits `14`
 when something fails. The desktop app has the same report in **Settings →
-Diagnosis**, and the terminal UI under the palette's `doctor`. Nothing is sent
+About → Diagnosis**, and the terminal UI under the palette's `doctor`. Nothing is sent
 anywhere: paste it into an issue only if you choose to, after reading it.
 
 If the client and the daemon report different versions, an old daemon is still
@@ -48,7 +50,7 @@ ask, so every request is denied with the agent's own rejection, and stderr
 says so. In a terminal you are asked. To grant without a human, write a rule
 in `.meltemi/permissions.toml` of the project or in your global
 `permissions.toml`; pressing `r` at a question writes the most specific rule
-for you. See [free sessions](sesion-libre.md#terminal).
+for you. See [free sessions](sesion-libre.md#answer-a-permission-request).
 
 ## I keep being asked for the same command
 
@@ -59,10 +61,10 @@ not allow another command chained, piped, redirected or substituted after it
 
 ## The agent edited files without asking me
 
-Meltemi decides only what an agent asks. An agent that edits without asking
-over the protocol is recorded in the session log but not governed. The
-[agents guide](agentes.md) says, per agent, what the last verification run
-measured; the session log shows every tool call either way.
+Meltemi decides only what an agent asks through its permission channel. Tools
+that the agent runs without submitting a request do not pass through that
+decision. The [agents guide](agentes.md) explains each integration's limits.
+Inspect the session log and the agent's own configuration before continuing.
 
 ## The session ended without saying anything
 
@@ -78,13 +80,12 @@ hand, in the same project. The exit codes are listed in the
 The daemon never opens a network port. Remote use rides your own SSH: a tunnel
 to the daemon's local socket, or `meltemi bridge` run over `ssh`, which also
 reaches a Windows daemon, whose named pipe no SSH forward can reach. The
-[remote access guide](acceso-remoto.md) has both, and the commands to approve
+[remote access guide](en/acceso-remoto.md) has both, and the commands to approve
 and follow a session from a phone.
 
 ## The installer warns that it is not signed
 
-The MSI and the DMG carry no platform signature yet: that needs purchased
-certificates. Check the download first —
+The MSI and the DMG carry no platform signature yet. Check the download first —
 `sha256sum --check --ignore-missing SHA256SUMS` and
 `gh attestation verify <file> --repo askenaz-dev/meltemi` (see
 [releases and verification](release.md)) — and then:
@@ -101,11 +102,11 @@ The Debian package and the core archives are not affected.
 In the per-user folders of your operating system: session logs (append-only
 JSONL), the daemon's own logs and the index of projects in the data folder;
 settings and permission rules in the configuration folder. The paths of each
-platform are in the [platform notes](plataformas.md#data-paths). Nothing leaves
-your machine: there is no telemetry.
+platform are in the [platform notes](plataformas.md#data-paths). Meltemi keeps these records
+locally and sends no telemetry; the agents you launch use their own provider connections.
 
 ## What does Meltemi send over the network?
 
 Nothing of its own. The daemon opens no port and makes no request; agents use
-the network their own CLIs use, under the permissions you grant. See the
-privacy section of the [README](../README.md#privacy-and-posture).
+the network their own CLIs use. Their built-in tools and their own MCP servers
+may have permission paths outside Meltemi's proxy; see [agents](agentes.md).

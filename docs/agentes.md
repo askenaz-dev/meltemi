@@ -1,16 +1,16 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Agents: what to install, how detection works, how to configure
 
+[Español](es/agentes.md)
+
 Meltemi does not ship agents and never will: it drives the official binaries
 you already have, with the authentication each of them manages on its own
 (constitution §2, "fair play"). This page tells you, per agent, **what you
 install**, **what Meltemi looks for**, and **what to do when the Fleet view
 says something is missing**.
 
-The facts below (ids, levels, binaries, install commands) come from the
-registry snapshot `core/meltemid/data/fleet-registry.toml` and are verified
-against it by a test — if the registry changes and this page does not, the
-build fails.
+Start with `meltemi fleet`. A `ready` result means the required executable layers were found;
+it does not sign the agent in or prove that its selected model is available.
 
 ## The two layers of a level-2 agent
 
@@ -65,13 +65,13 @@ Composed states you will see:
 
 | Level | Mechanism | What you get |
 |---|---|---|
-| 1 | Native ACP over stdio | Full integration: streaming, diffs, sessions, cancellation, permissions through Meltemi's tray |
-| 2 | ACP adapter | The same integration, through one intermediate piece — Meltemi's own for the catalog entries, or one you declare yourself |
-| 3 | Structured headless mode | Programmatic runs inside mandatory guardrails; no rich permission channel |
+| 1 | Native ACP over stdio | Sessions, events and permission requests that the agent exposes through ACP |
+| 2 | ACP adapter | Agent features exposed through an adapter; see each entry's restrictions |
+| 3 | Structured headless mode | Catalogued, but not launched by this release (`level_not_pilotable`) |
 | 4 | Artifacts only | Context projection: the agent reads your specs from the repository |
 
-A level is *declared* by the registry and *verified* by the conformance suite;
-the surfaces show which of the two you are looking at.
+A level describes the configured integration. It does not guarantee that every tool an agent
+uses asks Meltemi for permission. Read the entry's restrictions and inspect the effective session.
 
 ## The catalog
 
@@ -191,7 +191,7 @@ the surfaces show which of the two you are looking at.
 
 ### aider — Aider
 
-- Level 3 (structured headless).
+- Level 3 (structured headless), not launched by this release (`level_not_pilotable`).
 - Meltemi looks for: `aider`
 
 ### antigravity — Antigravity
@@ -200,35 +200,17 @@ the surfaces show which of the two you are looking at.
   the agent reads it. Nothing is piloted.
 - Meltemi looks for: `agy`
 
-## Measured against the real CLIs
+## Verification limits
 
-What this guide says about an agent is what its registry entry declares. What
-an agent **did**, against its real CLI, is measured by the integrated run
-(`scripts/smoke-agents.ps1`, or `scripts/smoke-agents.sh` on macOS and Linux):
-the same seven verbs for every ready agent, isolated from your daemon, and a
-dated report in `docs/qa/`. The last one:
+The catalog describes the integration Meltemi launches. It is not a live test of the provider's
+current service, account or model. Run the official CLI in the same project when authentication,
+quota or model selection fails, then reopen the Fleet and try a small session.
 
-| Agent | Version | Run | Result |
-| --- | --- | --- | --- |
-| `claude-code` | 2.1.280 | 2026-09-26 | all seven verbs complete; verified level 2 by the conformance run; a path-scoped permission rule cannot match its requests (they carry no path) |
-| `opencode` | 1.18.32 | 2026-09-26 | all seven verbs complete; **it edits without asking for permission**, so the proxy does not govern it in its default configuration |
-| `codex-cli` | 0.156.1 | 2026-09-26 | six of seven: it cannot be resumed with `direct`; a path-scoped rule cannot match its requests either |
-
-The report: [`qa/2026-09-26-corrida-integrada.md`](qa/2026-09-26-corrida-integrada.md).
-Since then the two path-scoped notes no longer hold: both adapters carry the
-command and the path in their requests (adaptadores-con-rawinput, 2026-10-28),
-and OpenCode is launched so that it asks (opencode-que-pregunta, 2026-10-28).
-That OpenCode, launched that way, sends its questions to the proxy is not
-measured yet: it is a pending manual leg of
-[the conformance guide](conformidad-manual.md).
-The table keeps what that run measured until the next run replaces it.
-Agents of the catalog that are not installed on the machine that ran it are
-listed there as not measured, never as passing.
-
-**The rule**: the run is repeated whenever the version of a pinned CLI or of
-one of Meltemi's own adapters changes, and its date is part of what this table
-says. A result older than the version you have is not a result about your
-version.
+Meltemi's tests cover its own adapters and protocol behavior. The recorded real-agent runs are
+historical evidence rather than a guarantee about a newer CLI. OpenCode's permission overlay has
+not yet been checked in a live manual run; verify its effective permission behavior before
+trusting it with changes. An agent that does not submit a permission request cannot be stopped
+by Meltemi's approval proxy at that point.
 
 ## Model and effort per session
 
@@ -306,46 +288,14 @@ as `.ps1`, which **cannot** be launched directly by the OS: Meltemi reports a
 If your agent shows `not_launchable`, reinstall it so its executable shim is
 present (a global npm install normally drops both).
 
-#### What a shim means for ending an agent
+#### Ending an agent
 
-A `.cmd` shim is not the agent. Windows runs it with `cmd.exe`, and the script
-then starts the process that actually speaks the protocol — usually `node`. So
-the thing Meltemi launches and the thing doing the work are two different
-processes, one under the other:
+Meltemi launches agents inside a process scope. Cancelling a session ends the launched agent and
+its child processes. On Windows this includes the `.cmd` shim and the process it launches; a
+failure to establish the process scope refuses the launch.
 
-```text
-meltemid ──launch──> cmd.exe (agent.cmd) ──launch──> node (the agent) ──ACP──> meltemid
-```
-
-Ending a process on Windows ends that process and nothing below it. Ending the
-shim alone therefore used to leave the agent running: holding its worktree,
-holding its files, and invisible to anything that thought the session was over.
-Measured on Windows 11 with a shim whose body was `node -e
-"setTimeout(()=>{},60000)"` — after the shim was terminated, the `node` was
-still alive.
-
-This no longer happens, and not because Meltemi hunts for children. Every agent
-is launched inside a **process scope** (a Job Object), which owns the whole tree
-underneath it. Two consequences, and the second is the one that matters:
-
-- Ending the agent ends the shim and everything it started, at any depth.
-  Meltemi does not need to know what the shim runs, which is good, because the
-  shim's contents belong to whoever generated it.
-- **If the daemon dies without running any shutdown** — a crash, a kill from
-  Task Manager, signing out — the system closes its handles, and the agents go
-  with them. A destructor cannot promise that. The kernel can.
-
-Nothing here reads, signals or inspects another vendor's process: the scope is
-opened before the launch and the agent is placed in it, which is the whole
-mechanism.
-
-If a scope cannot be opened, Meltemi **refuses the launch** and says so, rather
-than starting an agent it would not be able to fully end. That is deliberate: a
-loud failure at the start is worth more than a quiet orphan an hour later.
-
-On macOS and Linux there is no equivalent step, and none is needed: the shims
-there are scripts with a shebang, so the process Meltemi launches *is* the
-interpreter doing the work, and ending it ends the work.
+Use Meltemi's session cancellation control rather than closing an arbitrary child process. A
+lost connection and a cancelled session are different states; inspect the session result and log.
 
 ### macOS and Linux
 
@@ -409,17 +359,18 @@ In `.meltemi/config.toml`:
 [[fleet.profile]]
 name = "claude-personal"
 agent = "claude-code"
-env = { CLAUDE_CONFIG_DIR = "${HOME}/.claude-personal" }
+env = { CLAUDE_CONFIG_DIR = "${CLAUDE_PERSONAL_DIR}" }
 
 [[fleet.profile]]
 name = "claude-work"
 agent = "claude-code"
-env = { CLAUDE_CONFIG_DIR = "${HOME}/.claude-work" }
+env = { CLAUDE_CONFIG_DIR = "${CLAUDE_WORK_DIR}" }
 ```
 
-Values accept `${VAR}` references, resolved from the daemon's environment at
-launch time. A value that looks like a plaintext secret is refused: Meltemi's
-configuration never persists secret material.
+Set `CLAUDE_PERSONAL_DIR` and `CLAUDE_WORK_DIR` to the full paths of the separate agent
+configuration directories before starting the daemon. Values accept **whole-value** `${VAR}`
+references, resolved from the daemon's environment at launch time. A reference embedded in a
+longer path is not expanded. A value that looks like a plaintext secret is refused.
 
 Profiles appear in the Fleet as their own rows (source `profile`, showing the
 agent they launch), and you select one per session — so one project can run

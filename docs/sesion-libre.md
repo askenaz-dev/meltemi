@@ -1,171 +1,98 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# Free sessions: work without a spec, never without government
+# Free sessions and permissions
 
-A **free session** is plain work on a repository: you write an instruction, an
-agent runs it, and there is no change, no task, no specification and no gate in
-the way. It is what a new session is by default in Meltemi.
+[Español](es/sesion-libre.md)
 
-Nothing of the government is relaxed to get there. That sentence is the whole
-point of this page, so it is worth spelling out what "governed" buys you, where
-the work happens, what the restore point is — and, just as important, what it is
-not.
+Start a free session when you want an agent to work on your project without creating a change or
+specification first. Choose the project and agent, send an instruction, and follow the work. The
+session uses the same permission policy and append-only log as the other agent flows.
 
-If you are looking for the reviewed-change flow instead, read
-[the SDD method](metodo-sdd.md); the two live in the same composer and switching
-is one control, not one migration.
+## Start from the desktop or terminal
 
-## What a free session is not
+The desktop home view is a composer. Select the project and agent or launch profile, keep the
+workflow on **Free**, write the instruction and send. The conversation shows the session, agent
+updates and permission requests. Another instruction goes to the same session while it remains
+available; sending an instruction does not cancel the running turn.
 
-- **Not an unsupervised session.** A human is at the composer. Every permission
-  request the rules do not resolve escalates to you.
-- **Not a session outside the record.** It writes the same append-only JSONL log
-  as every other session, and shows up in `meltemi sessions`, in the analytics
-  and in the session index like any other.
-- **Not a session in a worktree.** It runs on the project root. See
-  [Where it runs](#where-it-runs).
-- **Not a way to skip the method.** Proposing and exploring are one chip away in
-  the same composer. The method stopped being a toll; it did not stop being the
-  point.
-
-## What governs it
-
-Every piece below is the same code path any other session takes — there is no
-"free session mode" in the daemon that turns things off.
-
-| Piece | What it means for a free session |
-|---|---|
-| Agent resolution | Resolved from the fleet in the usual order (launch profile → catalog id → the project's configured agent). A name that resolves to an undetected binary **refuses**; it never silently falls back to another vendor. The effective binary and the source of the resolution are written to the session log. |
-| Permission proxy | Deny-by-default. The same rules file, the same queue, the same escalation to the human. With no client connected, requests are denied — constitution §3, and a free session is not an exception to it. |
-| Session log | Append-only JSONL: the prompt, every agent update, every permission decision with who took it, the close of each turn. |
-| Project registry | The project is registered on start, with the root you launched on. |
-| Event stream | The full event set reaches the connection that started the session and any connection watching it, so a surface can render the conversation live. |
-| Edit lock | Editing a tree that has a live session asks for confirmation (`human_edit`), exactly as elsewhere. |
-| Direction | The session is directable while it lives: the next instruction runs as the next turn of the same agent session. |
-
-## Where it runs
-
-**On the project root you chose** — not in an isolated worktree. This is
-deliberate and it is the one real trade of the free session, so here is the
-reasoning rather than the conclusion alone.
-
-Every human-attended path in Meltemi already runs on the root: `propose`, the
-`sdd/*` verbs, and resuming a session by direction. Worktrees are where an agent
-runs **unattended on an assigned task** — that is the case constitution §3 names,
-and it is the case `worktree/dispatch` and `sdd/implement` serve. A free session
-is the opposite situation: you are watching, you see each permission card, and
-you decide.
-
-Making it use a worktree anyway would have cost more than it bought: there is no
-worktree API that does not demand a `(change, task, agent)` triple, so a free
-session would have to invent synthetic values that then leak into
-`worktree/list`, `worktree/diff` and the competitor model — entries competing
-against nobody. It would also demand a git repository with at least one commit,
-so free sessions would refuse to start exactly where `propose` works today.
-
-What protects you on the root, concretely: the permission proxy, the append-only
-log, the soft edit lock, your own git — and the restore point below.
-
-## The restore point
-
-When you start a free session on a repository that has history, the daemon takes
-**one snapshot before the first turn** and tells you its git ref:
-
-```
-$ meltemi session "tidy up the error handling in the parser"
-session 9e1c… [completed]
-claude --acp
-restore point: refs/meltemi/checkpoints/free/9e1c…-claude-code
-```
-
-What it is:
-
-- A real git ref under `refs/meltemi/checkpoints/free/`, listable with
-  `meltemi checkpoints` (it appears under the pseudo-change `free`, which is how
-  it stays apart from the checkpoints of real changes).
-- Taken through a scratch index, so it **moves no branch of yours and does not
-  touch your index**.
-
-What it is **not** — and this is the part to read twice:
-
-- **It is not an offered revert.** Reverting a checkpoint means `git reset
-  --hard` plus `git clean -fd` over the recorded tree. For a free session that
-  tree is *yours*, with your uncommitted work and your untracked files in it. So
-  `checkpoint/revert` **refuses** any checkpoint whose tree is not a worktree
-  Meltemi manages, and no surface offers the control. The refusal carries the
-  remedy:
-
-  ```
-  git restore --source refs/meltemi/checkpoints/free/<session>-<agent> -- <path>
-  ```
-
-  You take back what you want, with the tool that owns your tree. A guided
-  revert of a human tree is a different feature with its own confirmation
-  design; it is not this one.
-
-### When there is no restore point
-
-The session **still starts** — refusing to work because a folder has no history
-would be a worse trade than the one being made. The result says why, and the two
-causes get different remedies because they do not substitute for each other:
-
-| Cause | What you see | Remedy |
-|---|---|---|
-| The root is not a git repository | `no restore point: this root is not a git repository` | `git init` in that directory |
-| It is a repository with no commits yet | `no restore point: this repository has no history yet` | make the first commit |
-
-Telling somebody to `git init` a repository they already have would be worse than
-saying nothing, which is why the daemon distinguishes the two instead of printing
-one string.
-
-## Starting one
-
-### Desktop
-
-The arrival view **is** the composer. Type the instruction, and the chips inside
-it carry the context: project, agent or profile, and mode. The mode chip starts
-on **free**; the method it will dispatch is written next to the send button
-before anything runs. Sending navigates into the conversation — the session's
-identifier reaches the surface before the agent's first token, so you walk into
-the turn instead of watching a dialog close.
-
-Inside the conversation the composer stays: the next instruction goes to that
-same session. It tells you the truth about what happened to it — *queued* with
-its position while a turn is running, *resume* when the session ended and can be
-resumed, and the daemon's diagnostic with its remedy when the session does not
-accept direction. Cancelling is a separate control; sending never interrupts.
-
-### Terminal
-
-```
+```bash
 meltemi session "tidy up the error handling in the parser"
 meltemi session "same, but on another checkout" /path/to/project
 meltemi session "..." --agent codex-cli
 ```
 
-The call blocks until the turn ends, like every other start verb, and prints the
-session id, how the turn ended, the restore point (or its absence with the
-remedy), and a warning if any permission was denied — a denied permission usually
-means the work is incomplete, and silence about it would be a lie.
+The CLI waits for that turn and exits with its outcome. It prints the session id, restore point
+or reason one was unavailable, and any denied-permission warning. Desktop sessions can wait for
+further turns; the one-shot CLI command does not keep that conversation open after its turn.
+
+In the TUI use the `session` command from the palette. `direct` sends another instruction from
+the selected session's detail. You can also use:
+
+```bash
+meltemi direct <session> "add a test for the error case"
+meltemi watch <session>
+meltemi log <session>
+```
+
+A direction can be queued behind a running turn or resume an ended session when that agent
+supports resumption. If it cannot, Meltemi reports why. `watch` follows the log; Ctrl+C stops
+following without cancelling the session. Use `meltemi cancel <session>` to cancel it.
+
+## Where the agent works
+
+A free session runs on your **project root**, including your working changes. It does not
+create an isolated worktree. Use [the SDD task workflow](metodo-sdd.md) when you want tasks run
+in managed worktrees. Review the agent's changes before committing or discarding work.
+
+The session is listed with your other sessions. The log records prompts, reported tool calls,
+permission decisions and turn results. The selected agent's own permission behavior still
+matters: Meltemi can decide only the requests that reach its proxy. Read [agents](agentes.md).
+
+## The restore point
+
+Before the first turn, a Git repository with history receives one snapshot. Meltemi prints its
+reference, under `refs/meltemi/checkpoints/free/`, and lists it with `meltemi checkpoints` under
+the `free` group. Taking the snapshot does not move your branch or change your Git index.
+
+A free-session checkpoint is **not offered as a whole-tree revert**. The ordinary checkpoint
+revert is restricted to worktrees Meltemi manages, so it refuses your project root. To recover a
+particular file, inspect the snapshot and use Git's own path-based restore deliberately:
 
 ```
+git restore --source refs/meltemi/checkpoints/free/<session>-<agent> -- <path>
+```
+
+This replaces the selected path. Preserve any later changes you want before using it.
+
+The session can still start when no snapshot is available:
+
+| Cause | What you see | Next step |
+|---|---|---|
+| The folder is not a Git repository | `no restore point: this root is not a git repository` | Initialize Git if you want version history |
+| The repository has no commits | `no restore point: this repository has no history yet` | Make a first commit when ready |
+
+## Choose the agent, model and effort
+
+Use `--agent <id|profile>` or the agent chip in the desktop composer. Without a selection,
+Meltemi uses the project's configured agent; if none is configured, it reports available
+candidates and asks the surface to offer a choice.
+
+```bash
 meltemi session "..." --agent opencode --model anthropic/claude-haiku-4-5
 meltemi session "..." --agent codex-cli --model <model> --effort high
 ```
 
-`--model` and `--effort` are the provider's own words. Each reaches the agent as
-the launch flag its entry declares, or through the option the agent announces,
-set and confirmed before the first prompt ([how](agentes.md#model-and-effort-per-session)),
-and the output says what governed: `model: … · effort: …`. A lever the agent does
-not take is refused, never dropped in silence: before the session opens when its
-entry declares no place for it (exit `11`, error 2006), or as it opens, with no
-prompt sent, when the agent did not announce it, announced it twice, did not
-confirm it or did not answer in time (exit `11`, error 2007). The refusal names
-the lever, what you asked for, why, and what the agent announced — twenty values
-at most and how many more, with every word of the agent's escaped.
+Model and effort names belong to the provider. Meltemi passes them through the agent's declared
+launch control or the session option it announces. Unsupported values are refused before the
+first prompt rather than silently replaced. See [agent controls](agentes.md#model-and-effort-per-session).
 
-When the terminal is yours — stdin and stderr are a terminal — the permissions
-the agent asks for are asked right there, on stderr, one at a time, with what the
-agent sent about the call:
+The CLI's `--mode manual|semi|autonomous` selects the session's autonomy policy. It is separate
+from choosing Free, Propose or Explore. Explicit deny rules continue to win, and irreversible
+actions require approval; choosing a mode is not a blanket grant of tool access.
+
+## Answer a permission request
+
+With stdin and stderr attached to a terminal, the CLI asks on stderr and keeps stdout available
+for `--json`. It shows the tool, title and input the agent reported, plus that agent's options:
 
 ```
 permission requested by session 3f2c9a
@@ -175,77 +102,34 @@ permission requested by session 3f2c9a
   1 Allow once  (allow once)
   2 Reject  (reject once)
   d deny   Ctrl+C stop the session
-  (no rule to remember: the request names no command or path, and a rule on the tool alone would allow every such request)
 ```
 
-- **A digit** chooses one of the agent's options. There is no default: Enter
-  decides nothing. An option with which the agent stops asking — Codex's «Allow
-  for this session» — asks for `y` first, because after it similar requests
-  never reach Meltemi's proxy.
-- **`d`** (or Esc) denies with the agent's own rejection, or cancels when it
-  offered none.
-- **`r`** approves once and remembers the most specific rule the request allows:
-  its tool with the exact command, or with the exact path. It is offered only
-  when the request names both, never for anything under `.meltemi/` (where the
-  rules live), and never from `implement` or `dispatch`, whose sessions work in a
-  task worktree. `y` confirms it, and it governs from the next session opened
-  without `--mode`. A rule by command allows that command and its
-  own arguments, never another one chained, piped, redirected or substituted
-  after it (`;`, `&&`, `|`, `>`, `$(…)`…): those still ask. A deny rule reaches
-  them all.
-- **Ctrl+C** cancels the session — the log records the request as interrupted —
-  and the command exits `13`.
+- A digit chooses that option. Enter chooses nothing. An option that stops the agent asking for
+  similar requests requires another `y` confirmation.
+- `d` or Esc denies using the agent's rejection, or cancels when no rejection is offered.
+- `r`, when offered, approves once and remembers a rule for the exact tool and command or path.
+  `y` confirms writing it. It applies from the next session started without `--mode`.
+- Ctrl+C cancels the session; the command exits `13`.
 
-A key counts only once the question could be read: keys typed before it
-appeared, and keys arriving together (a paste), answer nothing, and input that
-keeps arriving faster than anyone reads is denied as unattended. A question that
-expires under `[permissions] wait`, or that another surface decides, is withdrawn
-with its reason. The terminal always leaves raw mode before the command ends, and
-stdout stays the channel of `--json`.
+Remembering is not offered for a tool without a usable command or path, for `.meltemi/` changes,
+or from task worktree flows such as `implement` and `dispatch`. A command allow rule does not
+allow another command chained, piped, redirected or substituted after it; those still ask.
 
-Without a terminal — a script, a pipe, CI — every request is denied with the
-agent's own rejection, and stderr says how to grant without a human: a rule in
-`.meltemi/permissions.toml` (or your global `permissions.toml`). No flag grants
-permissions. And a terminal proves a keyboard, not a person: a script driving a
-pseudoterminal passes for one, which is why input faster than reading is refused.
+Keys typed before a readable question, or pasted together, do not answer it. Expired or already
+decided requests are withdrawn. In a script or pipe, unresolved requests are denied rather than
+waiting for input. Configure explicit permission rules in the project's
+`.meltemi/permissions.toml` or your user configuration when unattended work needs them.
 
-In the TUI, the palette has the same verb, and `direct` steers the open session
-from its drill-in with the same honest states as the desktop.
+## Continue with a change
 
-### Choosing the agent
+The desktop composer also offers **Propose** and **Explore**:
 
-Everywhere: `--agent <id|profile>` on the command line, the agent chip in the
-composer, the palette form in the TUI. Profiles are offered by the name of the
-subscription, next to the agent underneath them. Omitting it means the project's
-configured agent — exactly as before this existed.
-
-If nothing is configured and nothing is named, the refusal is not a sentence you
-have to parse: the error carries the **detected candidates** of your fleet with
-their install state and their remedy, so the surface can offer you a choice.
-
-## Switching to the method, from the same composer
-
-The mode chip has three positions, and they dispatch three contract verbs:
-
-| Mode | Verb | What it does |
+| Workflow | CLI command | Result |
 |---|---|---|
-| **Free** (default) | `session/start` | The session this page describes. |
-| Propose | `propose` | Scaffolds a change proposal and delegates its drafting. |
-| Explore | `sdd/explore` | Deliberates without writing anything to the tree. |
+| Free | `meltemi session` | Work on the project root with the session controls above |
+| Propose | `meltemi propose` | Create a change proposal and ask the agent to draft it |
+| Explore | `meltemi explore` | Explore the topic without the method writing into the tree |
 
-Same instruction, same project, same agent — one chip decides which verb takes
-it. From the terminal the same three are `meltemi session`, `meltemi propose` and
-`meltemi explore`, all of them accepting `--agent`.
-
-The order matters more than it looks: you can start free, see what the work
-actually is, and *then* propose it as a change with the understanding you just
-bought. That is the shape Meltemi is arguing for — the reviewed specification as
-the standard it makes easy to sustain, not the toll that keeps you from starting.
-
-## Related
-
-- [The SDD method](metodo-sdd.md) — the reviewed-change cycle
-- [Agents guide](agentes.md) — install, detect and configure the agents a session
-  can resolve
-- [CLI reference](referencia-cli.md) — generated grammar, including `session`
-- [Architecture](arquitectura.md) — the daemon, the proxy and the surfaces
+The workflow choice does not approve a proposal or alter your project's constitution. Use
+[the SDD method](metodo-sdd.md) for reviewed tasks and [the CLI reference](referencia-cli.md)
+for all command arguments and exit codes.

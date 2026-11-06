@@ -1,27 +1,27 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # The SDD method
 
-Spec-driven development is Meltemi's discipline — and how Meltemi builds itself.
-Nothing is implemented without a reviewed change; the scenarios are the
-definition of "done".
+[Español](es/metodo-sdd.md)
 
-That rule governs *this repository* (constitution §1). For your own work the
-method is an offer, not a gate: a new session is a governed
-[free session](sesion-libre.md) by default, and proposing or exploring is one
-control away in the same composer. The discipline below is what Meltemi makes
-easy to sustain — it is not a toll you pay before starting.
+Use a change when you want the requirements, design, implementation tasks and verification to
+stay with your repository. The living specifications are under `.meltemi/specs/`; a change's
+artifacts live under `.meltemi/changes/<name>/` until you archive it.
+
+You can also start a [free session](sesion-libre.md) and choose Propose or Explore in the same
+composer when you need the method. This page describes those existing controls; it does not
+change your project's constitution or approve a proposal for you.
 
 ## A change and its artifacts
 
-A change is a kebab-case directory with four artifacts, in order:
+A change has a kebab-case name and four artifacts:
 
 1. **proposal** — why, and what changes (capabilities added/modified);
 2. **specs** — EARS requirements grouped by capability, each with scenarios;
 3. **design** — the decisions and trade-offs, with any new dependency justified;
 4. **tasks** — atomic tasks, one commit each.
 
-Trivial changes take the fast forward (all artifacts at once); nothing takes the
-null path.
+Review the proposal and its scenarios before starting implementation. For a small change, you
+can prepare the artifacts together while keeping the same review and verification.
 
 ## The cycle (verbs)
 
@@ -30,10 +30,10 @@ null path.
 - `review <change>` — review the spec deltas as a checklist.
 - `verify <change>` — the per-requirement verification checklist; each scenario
   is linked to a test (by the scenario→test naming convention) or marked manual.
-- `implement <change> <agent>` — deploy the agent over `tasks.md`, composing per
+- `implement <change> <agent>` — run the agent over `tasks.md`, composing per
   task: checkpoint → turn in the worktree → per-task commit → tick.
-- `archive <change>` — fold the change's deltas into the living truth atomically,
-  gated by verification, and preserve the change in the dated history.
+- `archive <change> [confirm]` — preview the specification fold; add `confirm` to apply it
+  after verification and preserve the change in dated history.
 
 ## EARS requirements
 
@@ -43,14 +43,15 @@ each scenario's name is the source of its test's name.
 
 ## Traceability
 
-Each task produces an atomic commit carrying `Meltemi-Task: <change>/<task>` and
-one `Meltemi-Req: <capability>/<requirement>` per requirement it implements — so
-every line traces back to what originated it (constitution §8). Commits never
-carry co-authorship trailers.
+Implementation tasks produce commits carrying `Meltemi-Task: <change>/<task>` and
+`Meltemi-Req: <capability>/<requirement>` references. Inspect the task result and diff, then use
+the verification checklist to record which scenarios passed. A checklist is evidence to review,
+not a substitute for running the relevant tests.
 
-## Bootstrap (two stages)
+## Archive a verified change
 
-Meltemi currently develops itself with a borrowed method tool under
-`openspec/changes/`; the constitution and direction already live in `.meltemi/`
-(the destination format). When the phase-1 spec engine is operative, the living
-specs migrate to `.meltemi/specs/` via a dedicated change.
+`meltemi archive <change>` previews the operation. Add the final `confirm` argument to apply
+the specification deltas to the living specifications and preserve the change in dated history. Verification gates can refuse an incomplete change;
+read the reported requirement or scenario and complete its evidence before retrying.
+
+For command syntax and exit codes, see the [CLI reference](referencia-cli.md).

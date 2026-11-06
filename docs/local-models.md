@@ -1,28 +1,18 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Local and self-hosted models
 
-Meltemi keeps no catalog of models and runs no model of its own: its own engine
-is a separate change that does not exist yet. Today, a model of your own
-reaches Meltemi through an agent of your fleet that talks to local and
-self-hosted providers by its own configuration — **OpenCode** (level 1,
-launched as `opencode acp`; see [the agents guide](agentes.md#opencode--opencode)).
-This page has three recipes for it.
+[Español](es/local-models.md)
 
-**Verified: 2026-09-25, with OpenCode 1.18.32, on Windows 11.** Every recipe
-below is verified **in form**: OpenCode accepted the file and listed the model
-with `opencode models <provider>`. None is verified **live** yet — no model
-server was running on the machine that checked them. The live check is the
-local-provider leg of [the manual conformance run](conformidad-manual.md). A
-new OpenCode version means checking again; the date above says when this was
-last true, and nothing on this page is quoted from memory.
+Meltemi runs the model through an agent configured for that provider. This page uses
+**OpenCode**, a native ACP agent launched as `opencode acp`; see [agents](agentes.md#opencode--opencode).
+Install and configure the model server or remote provider separately.
 
-Recipe 1 was also driven through Meltemi the same day, with its profile and no
-model server running. OpenCode announced `ollama/qwen2.5-coder:7b` as its
-current model, among 80 on its list. `--model ollama/qwen2.5-coder:7b` was set
-and confirmed before the first prompt; `--model ollama/no-such-model` was
-refused before any prompt, with the announced list. The turn itself failed after
-about 70 seconds with OpenCode's own «Cannot connect to API», and the session
-ended in error — which is what a missing model server looks like.
+**Verified: 2026-09-25, with OpenCode 1.18.32, on Windows 11.** These recipes were checked
+**in form**: the agent accepted their configuration and listed the model. They were not checked
+**live** against a running model server. Check the installed agent's current documentation before
+using a recipe; listing a model is not proof that it can complete a request or ask permissions.
+
+Start with a small request and inspect its result before relying on the setup for real changes.
 
 ## How a recipe reaches Meltemi
 
@@ -153,8 +143,8 @@ agent = "opencode"
 env = { OPENCODE_CONFIG = "C:/Users/you/.config/opencode/openrouter.json" }
 ```
 
-With the provider declared, `opencode models openrouter` lists the catalog —
-385 models on the day of the check, `openrouter/moonshotai/kimi-k2` among them.
+With the provider declared, `opencode models openrouter` lists the models the installed agent
+recognizes. Use an id your provider currently serves.
 The key, `OPENROUTER_API_KEY`, lives in the daemon's environment, like the one
 above; Meltemi never reads it (constitution §2).
 
@@ -172,4 +162,4 @@ OpenCode reports, if anything.
   refused by every verb (`level_not_pilotable`). If a level-3 runner ever
   exists, the provider prefix its CLI expects is yours to write: the daemon
   translates no provider names.
-- **Meltemi's own engine** is a separate change and does not exist yet.
+- **Direct model invocation by Meltemi** is not available: an external agent provides the model connection.
