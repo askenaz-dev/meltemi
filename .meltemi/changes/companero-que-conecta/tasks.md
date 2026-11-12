@@ -61,7 +61,7 @@
   falta nada más; la malla como opción; la trampa de
   `administrators_authorized_keys` en Windows. `mobile/README.md`: probar con
   `mock-sshd`.
-- [ ] 5.2 Fila en `docs/plan-de-cambios.md` junto a `apk-en-la-release`, como
+- [x] 5.2 Fila en `docs/plan-de-cambios.md` junto a `apk-en-la-release`, como
   su prerrequisito.
 - [ ] 5.3 `meltemi validate` y `verify` en verde; `clippy -D warnings`,
   `fmt --check`, tests y `cargo deny` verdes; PR.
