@@ -2916,6 +2916,7 @@ dependencies = [
  "ssh-key",
  "tauri",
  "tauri-build",
+ "tauri-plugin-meltemi-vault",
  "tokio",
 ]
 
@@ -5376,6 +5377,15 @@ dependencies = [
  "thiserror 2.0.18",
  "toml 1.1.2+spec-1.1.0",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-meltemi-vault"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

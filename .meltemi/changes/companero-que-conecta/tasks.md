@@ -26,7 +26,7 @@
   terminales, `Transport` es transitorio; el `Tunnel` vive en el marcador.
 - [x] 2.3 `mobile/src/store.rs`: huellas de host y destino en archivos del
   directorio de datos de la app, con sus tests.
-- [ ] 2.4 El plugin `meltemi-vault` (Rust + Kotlin): sellar y abrir con
+- [x] 2.4 El plugin `meltemi-vault` (Rust + Kotlin): sellar y abrir con
   AES-GCM del almacén de claves; el `Vault` móvil que lo usa; un sellado que
   falla detiene el flujo.
 

@@ -12,6 +12,7 @@ members = [
     "core/mock-provider",
     "desktop",
     "mobile",
+    "mobile/plugins/vault",
     "proto/meltemi-proto",
     "tui",
 ]
@@ -92,6 +93,10 @@ russh = { version = "=0.63.3", default-features = false, features = ["ring"] }
 ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["ed25519", "getrandom"] }
 tauri = "=2.11.5"
 tauri-build = "=2.6.3"
+# The plugin build helper, already in the tree through the dialog and
+# notification plugins. Declared directly for the companion's own vault plugin
+# (companero-que-conecta D5): same pinned version, nothing new enters the audit.
+tauri-plugin = "=2.6.3"
 # The official Tauri dialog plugin, for the native folder picker of "Open
 # folder…" (lanzador-conversacional design D8). Consumed ONLY by the `desktop`
 # crate and NOT exposed to the webview: the surface reaches it through a bespoke
