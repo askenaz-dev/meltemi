@@ -32,7 +32,7 @@
 
 ## 3. La pantalla que cumple
 
-- [ ] 3.1 `lib/mobile-pair.ts`: los estados de la pantalla (sin destino,
+- [x] 3.1 `lib/mobile-pair.ts`: los estados de la pantalla (sin destino,
   conectando con intento y backoff, rechazada por causa) como funciones puras
   con test.
 - [ ] 3.2 «Sin túnel» con clave, Copiar, destino y Conectar; `refused` con su
