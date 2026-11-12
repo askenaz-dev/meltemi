@@ -24,7 +24,7 @@
 - [ ] 2.2 `mobile/src/dial.rs`: el marcador SSH sobre `ssh::open` con la clave
   de la app y las huellas persistidas; `HostKeyChanged` y `Rejected` son
   terminales, `Transport` es transitorio; el `Tunnel` vive en el marcador.
-- [ ] 2.3 `mobile/src/store.rs`: huellas de host y destino en archivos del
+- [x] 2.3 `mobile/src/store.rs`: huellas de host y destino en archivos del
   directorio de datos de la app, con sus tests.
 - [ ] 2.4 El plugin `meltemi-vault` (Rust + Kotlin): sellar y abrir con
   AES-GCM del almacén de claves; el `Vault` móvil que lo usa; un sellado que
