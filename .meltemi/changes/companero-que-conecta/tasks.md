@@ -37,11 +37,12 @@
   con test.
 - [ ] 3.2 «Sin túnel» con clave, Copiar, destino y Conectar; `refused` con su
   causa y sus acciones; Ajustes alcanzable sin conexión con clave, destino y
-  «Olvidar este host».
-- [ ] 3.3 Mensajes EN/ES `mobile.pair.*` y `mobile.refused.*`;
+  «Olvidar el destino»; la superficie arranca los listeners de estado y de
+  empujes que el escritorio ya arrancaba y el móvil nunca arrancó. Con
+  `scenarios_mobile.rs` y los tests de UI llevando los escenarios nuevos y el
+  MODIFIED; el recuento de campos de texto pasa a dos, cada uno nombrado.
+- [x] 3.3 Mensajes EN/ES `mobile.pair.*` y `mobile.refused.*`;
   `nochannel.how` corregido.
-- [ ] 3.4 `scenarios_mobile.rs` y los tests de UI llevan los escenarios nuevos
-  y el MODIFIED; el recuento de campos de texto pasa a dos, cada uno nombrado.
 
 ## 4. La prueba
 
