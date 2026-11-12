@@ -21,7 +21,7 @@
   `companion_key`, `companion_destination`, `companion_connect`,
   `companion_disconnect`, `companion_forget_host`; el actor vive mientras la
   app está al frente.
-- [ ] 2.2 `mobile/src/dial.rs`: el marcador SSH sobre `ssh::open` con la clave
+- [x] 2.2 `mobile/src/dial.rs`: el marcador SSH sobre `ssh::open` con la clave
   de la app y las huellas persistidas; `HostKeyChanged` y `Rejected` son
   terminales, `Transport` es transitorio; el `Tunnel` vive en el marcador.
 - [x] 2.3 `mobile/src/store.rs`: huellas de host y destino en archivos del
