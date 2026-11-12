@@ -17,10 +17,13 @@
 //!   project key).
 //! - [`machines`]: the machines this user named, read from their own
 //!   configuration and from nowhere else (maquinas-remotas).
+//! - [`bridge`]: the connection actor every graphical surface runs — one
+//!   loop, and a [`bridge::Dialer`] per surface (companero-que-conecta).
 //!
 //! The daemon never opens a network port; neither does this crate.
 
 pub mod bootstrap;
+pub mod bridge;
 pub mod doctor;
 pub mod exec;
 pub mod machines;

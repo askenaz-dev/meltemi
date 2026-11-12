@@ -1368,7 +1368,9 @@ fn the_notice_is_run_by_the_native_process_and_rehearsed_from_settings() {
     // The command runs in the native process, never in the webview: a view that
     // could run commands is a surface nobody needs to open
     // (aviso-de-espera-opt-in design D2).
-    let bridge = read("desktop/src/bridge.rs");
+    // The actor is the shared one (companero-que-conecta D1); the desktop host
+    // is what hands it an emitter, because only the desktop can run a command.
+    let bridge = read("core/meltemi-client/src/bridge.rs");
     assert!(
         bridge.contains("notice_for(notices, &method, &params)"),
         "the bridge decides the notice where it reads the daemon's pushes"
@@ -1378,17 +1380,25 @@ fn the_notice_is_run_by_the_native_process_and_rehearsed_from_settings() {
         "and an emptied queue says nothing, rather than spending the floor"
     );
     // The emitter lives outside the reconnection loop, or a daemon that drops and
-    // comes back would reset the floor and let a burst through.
-    let outside = bridge
+    // comes back would reset the floor and let a burst through: the host
+    // creates it once and the actor owns it as a parameter, across every
+    // iteration of its loop.
+    let desktop = read("desktop/src/bridge.rs");
+    assert!(
+        desktop.contains("notices::Emitter::new(") && desktop.contains("Some(notices)"),
+        "the desktop creates the emitter once and hands it to the actor"
+    );
+    assert!(
+        bridge.contains("mut notices: Option<notices::Emitter>,"),
+        "the actor owns the emitter for as long as it runs"
+    );
+    let inside_loop = bridge
         .split("let mut backoff = MIN_BACKOFF;")
         .nth(1)
-        .expect("the actor's loop")
-        .split("loop {")
-        .next()
-        .expect("before the loop");
+        .expect("the actor's loop");
     assert!(
-        outside.contains("notices::Emitter::new"),
-        "the emitter survives a reconnection"
+        !inside_loop.contains("Emitter::new"),
+        "and never makes a fresh one on reconnection"
     );
 
     let host = read("desktop/src/lib.rs");

@@ -2,7 +2,7 @@
 
 ## 1. Un puente, dos marcadores
 
-- [ ] 1.1 Mover el actor a `core/meltemi-client/src/bridge.rs` con el trait
+- [x] 1.1 Mover el actor a `core/meltemi-client/src/bridge.rs` con el trait
   `Dialer` (marcar, nombre mostrado, cambiar) y `Dial::{Transient, Terminal}`;
   `ConnState` gana `Refused`; los avisos entran como `Option<Emitter>`. El
   escritorio marca con `LocalDialer` desde su anfitrión (`desktop/src/

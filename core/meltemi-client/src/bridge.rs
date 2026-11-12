@@ -1,24 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The daemon bridge (gui-tauri-paridad 1.4, design D1): a background actor
-//! that owns the only connection to `meltemid` — connect-or-start, mandatory
-//! `initialize`, reconnection with backoff — and serves the webview through
-//! two channels: commands in (RPC passthrough) and events out (connection
-//! state, daemon-initiated traffic). The webview never touches a socket.
+//! The daemon bridge (gui-tauri-paridad 1.4, design D1; shared since
+//! companero-que-conecta D1): a background actor that owns the only
+//! connection to `meltemid` — dial, mandatory `initialize`, reconnection with
+//! backoff — and serves a surface through two channels: commands in (RPC
+//! passthrough) and events out (connection state, daemon-initiated traffic).
+//! The surface never touches a socket.
 //!
-//! Shape mirrors the TUI connection actor (`tui/src/shell/conn.rs`) so both
-//! surfaces give the same guarantees: noisy disconnection, backoff, and
+//! One actor, two dialers. The desktop dials the local endpoint — or the
+//! command the user named — through [`LocalDialer`]; the mobile companion
+//! dials its own SSH channel. What differs between them is [`Dialer::dial`]
+//! and nothing else: the loop, the backoff, the held permission pushes and
+//! the contract towards the surface are this one piece of code.
+//!
+//! Shape mirrors the TUI connection actor (`tui/src/shell/conn.rs`) so every
+//! surface gives the same guarantees: noisy disconnection, backoff, and
 //! permission pushes held unanswered (the daemon's timeout denies; the tray
 //! resolves via `permission/decide`).
 
+use std::future::Future;
 use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
-use meltemi_client::bootstrap;
-use meltemi_client::rpc::{Incoming, Peer, RpcError};
+use crate::bootstrap;
+use crate::notices;
+use crate::rpc::{Incoming, Peer, RpcError};
+use crate::transport::Stream;
 use meltemi_proto::{InitializeParams, PROTOCOL_VERSION, PeerInfo, StatusResult, methods};
 
 const MIN_BACKOFF: Duration = Duration::from_millis(200);
@@ -45,6 +55,80 @@ pub enum ConnState {
         detail: String,
         endpoint: String,
     },
+    /// The far side answered and said no, and no amount of waiting changes
+    /// that: the server rejected this client's key, or the host's key is not
+    /// the one remembered. The actor stops on it rather than retrying — a
+    /// screen that showed a changed host key as "retrying in 4 s" would offer
+    /// exactly what the spec forbids (companero-que-conecta D3).
+    #[serde(rename_all = "camelCase")]
+    Refused {
+        kind: Refused,
+        detail: String,
+        endpoint: String,
+    },
+}
+
+/// Why a dial was refused for good, in the words the surface uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Refused {
+    /// The host's key is not the one fixed on first use.
+    HostKeyChanged,
+    /// The server did not accept this client's key.
+    Rejected,
+}
+
+/// How a dial failed.
+#[derive(Debug)]
+pub enum Dial {
+    /// The far side could not be reached; the actor backs off and retries.
+    Transient(String),
+    /// The far side refused; the actor publishes it and stops.
+    Terminal { kind: Refused, detail: String },
+}
+
+/// Whoever opens the stream the actor serves.
+///
+/// The desktop's is [`LocalDialer`]; the mobile companion's opens its SSH
+/// channel. An implementation owns whatever keeps its stream alive — a session
+/// handle, say — and is dropped with the actor.
+pub trait Dialer: Send {
+    /// Opens a fresh stream to the daemon.
+    fn dial(&mut self) -> impl Future<Output = Result<Stream, Dial>> + Send;
+    /// What the state shows as the endpoint: a socket path, or `user@host`.
+    fn shown(&self) -> String;
+    /// `BridgeCommand::Switch` lands here: talk to this target from now on.
+    fn switch(&mut self, to: String);
+}
+
+/// The desktop's dialer: connect-or-start at a local endpoint, or the command
+/// the user named (via-ssh-del-cliente). Never refuses for good — a local
+/// daemon that is not there is one that may be there in a moment.
+#[derive(Debug, Clone)]
+pub struct LocalDialer {
+    endpoint: String,
+}
+
+impl LocalDialer {
+    pub fn new(endpoint: String) -> Self {
+        Self { endpoint }
+    }
+}
+
+impl Dialer for LocalDialer {
+    async fn dial(&mut self) -> Result<Stream, Dial> {
+        bootstrap::connect_or_start(&self.endpoint)
+            .await
+            .map_err(|error| Dial::Transient(error.to_string()))
+    }
+
+    fn shown(&self) -> String {
+        self.endpoint.clone()
+    }
+
+    fn switch(&mut self, to: String) {
+        self.endpoint = to;
+    }
 }
 
 /// Emits the waiting notice when a notification says something started waiting
@@ -54,12 +138,8 @@ pub enum ConnState {
 /// many permissions wait, and the live state says when a session parked. A wait
 /// that has gone away emits nothing, which is what keeps a resolved queue from
 /// spending the floor the next real wait needs.
-fn notice_for(
-    notices: &mut meltemi_client::notices::Emitter,
-    method: &str,
-    params: &serde_json::Value,
-) {
-    use meltemi_client::notices::Waiting;
+fn notice_for(notices: &mut notices::Emitter, method: &str, params: &serde_json::Value) {
+    use notices::Waiting;
 
     let (waiting, session, count) = match method {
         methods::PERMISSION_CHANGED => {
@@ -202,36 +282,50 @@ pub enum BridgeCommand {
     Switch { endpoint: String },
 }
 
-/// Runs the bridge until the host drops its command sender.
-pub async fn bridge_actor(
-    endpoint: String,
+/// Runs the bridge until the host drops its command sender, or until a dial
+/// is refused for good.
+///
+/// `notices` is the waiting-notice emitter when this host has one: the desktop
+/// runs the user's own command; the phone has nothing to run, and the notice
+/// that brings it back comes from the user's infrastructure. The emitter is
+/// owned here, across reconnections, on purpose: the record of when the last
+/// notice went out has to survive a daemon that drops and comes back, or the
+/// floor would reset and let a burst through (aviso-de-espera-opt-in D5).
+/// `client` is the name this surface gives the daemon in `initialize`.
+pub async fn bridge_actor<D: Dialer>(
+    mut dialer: D,
     mut commands: mpsc::UnboundedReceiver<BridgeCommand>,
     events: mpsc::UnboundedSender<BridgeEvent>,
+    mut notices: Option<notices::Emitter>,
+    client: &'static str,
 ) {
-    // A variable, not the constant it used to be: changing machines is
-    // reconnecting, and reconnecting is what this loop already does well.
-    let mut endpoint = endpoint;
     let mut backoff = MIN_BACKOFF;
-    // Outside the loop on purpose: the record of when the last notice went out
-    // has to survive a reconnection, or a daemon that drops and comes back would
-    // reset the floor and let a burst through (aviso-de-espera-opt-in design D5).
-    let mut notices = meltemi_client::notices::Emitter::new(meltemi_client::paths::config_dir());
     loop {
         let _ = events.send(BridgeEvent::State(ConnState::Connecting));
-        let stream = match bootstrap::connect_or_start(&endpoint).await {
+        let stream = match dialer.dial().await {
             Ok(stream) => stream,
-            Err(error) => {
-                let _ = events.send(BridgeEvent::State(ConnState::Unreachable {
-                    detail: error.to_string(),
-                    endpoint: endpoint.clone(),
+            Err(Dial::Terminal { kind, detail }) => {
+                // Published once, and then nothing: what a person does about it
+                // is the surface's to offer, and this loop does not dial past it.
+                let _ = events.send(BridgeEvent::State(ConnState::Refused {
+                    kind,
+                    detail,
+                    endpoint: dialer.shown(),
                 }));
-                match drain_or_stop(&mut commands, backoff, &error.to_string()).await {
+                return;
+            }
+            Err(Dial::Transient(detail)) => {
+                let _ = events.send(BridgeEvent::State(ConnState::Unreachable {
+                    detail: detail.clone(),
+                    endpoint: dialer.shown(),
+                }));
+                match drain_or_stop(&mut commands, backoff, &detail).await {
                     Waited::HostGone => return,
                     // A machine chosen during the backoff starts its own attempt
                     // immediately and from the first delay: the new machine
                     // inherits nothing from the old one's bad luck.
                     Waited::Switch(next) => {
-                        endpoint = next;
+                        dialer.switch(next);
                         backoff = MIN_BACKOFF;
                         continue;
                     }
@@ -243,11 +337,12 @@ pub async fn bridge_actor(
         };
         backoff = MIN_BACKOFF;
 
-        match serve_connection(stream, &mut commands, &events, &endpoint, &mut notices).await {
+        let shown = dialer.shown();
+        match serve_connection(stream, &mut commands, &events, &shown, &mut notices, client).await {
             ConnExit::HostGone => return,
             ConnExit::Disconnected => continue,
             ConnExit::Switch(next) => {
-                endpoint = next;
+                dialer.switch(next);
                 continue;
             }
         }
@@ -272,15 +367,19 @@ enum Waited {
 }
 
 async fn serve_connection(
-    stream: meltemi_client::transport::Stream,
+    stream: Stream,
     commands: &mut mpsc::UnboundedReceiver<BridgeCommand>,
     events: &mpsc::UnboundedSender<BridgeEvent>,
     endpoint: &str,
-    notices: &mut meltemi_client::notices::Emitter,
+    notices: &mut Option<notices::Emitter>,
+    client: &str,
 ) -> ConnExit {
     let (peer, mut incoming) = Peer::start(stream);
 
-    if let Err(error) = peer.request(methods::INITIALIZE, &init_params()).await {
+    if let Err(error) = peer
+        .request(methods::INITIALIZE, &init_params(client))
+        .await
+    {
         let _ = events.send(BridgeEvent::State(ConnState::Unreachable {
             detail: format!("initialize failed: {error}"),
             endpoint: endpoint.to_string(),
@@ -314,8 +413,11 @@ async fn serve_connection(
                     // The waiting notice, decided here and not in the webview: a
                     // view that could run commands would be a surface nobody
                     // needs to open, and this process already talks to the
-                    // operating system (aviso-de-espera-opt-in design D2).
-                    notice_for(notices, &method, &params);
+                    // operating system (aviso-de-espera-opt-in design D2). A
+                    // host without an emitter — the phone — has nothing to run.
+                    if let Some(notices) = notices.as_mut() {
+                        notice_for(notices, &method, &params);
+                    }
                     let _ = events.send(BridgeEvent::Incoming { method, params });
                 }
             },
@@ -397,12 +499,271 @@ async fn push_status(peer: &Peer, events: &mpsc::UnboundedSender<BridgeEvent>, e
     }
 }
 
-fn init_params() -> InitializeParams {
+fn init_params(client: &str) -> InitializeParams {
     InitializeParams {
         protocol_version: PROTOCOL_VERSION,
         client: PeerInfo {
-            name: "meltemi-desktop".into(),
+            name: client.into(),
             version: env!("CARGO_PKG_VERSION").into(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    /// A daemon that answers `initialize` and `status`, and nothing else.
+    fn fake_daemon() -> Stream {
+        let (ours, theirs) = tokio::io::duplex(64 * 1024);
+        tokio::spawn(async move {
+            let (read, mut write) = tokio::io::split(theirs);
+            let mut lines = BufReader::new(read).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let Ok(request) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                let result = match request["method"].as_str() {
+                    Some(method) if method == methods::INITIALIZE => json!({
+                        "protocolVersion": PROTOCOL_VERSION,
+                        "daemon": { "name": "fake", "version": "0" },
+                    }),
+                    Some(method) if method == methods::STATUS => json!({
+                        "daemonVersion": "0.0.0-fake",
+                        "uptimeSeconds": 1,
+                        "sessions": [],
+                    }),
+                    _ => Value::Null,
+                };
+                let reply = json!({ "jsonrpc": "2.0", "id": request["id"], "result": result });
+                if write
+                    .write_all(format!("{reply}\n").as_bytes())
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        Box::new(ours)
+    }
+
+    /// A dialer that follows a script: each entry is one dial's outcome, and
+    /// past the end of the script every dial hands over a fake daemon.
+    struct Scripted {
+        outcomes: VecDeque<Result<(), Dial>>,
+        shown: String,
+        dials: Arc<AtomicUsize>,
+    }
+
+    impl Dialer for Scripted {
+        async fn dial(&mut self) -> Result<Stream, Dial> {
+            self.dials.fetch_add(1, Ordering::SeqCst);
+            match self.outcomes.pop_front() {
+                Some(Ok(())) | None => Ok(fake_daemon()),
+                Some(Err(dial)) => Err(dial),
+            }
+        }
+
+        fn shown(&self) -> String {
+            self.shown.clone()
+        }
+
+        fn switch(&mut self, to: String) {
+            self.shown = to;
+        }
+    }
+
+    type Actor = (
+        mpsc::UnboundedSender<BridgeCommand>,
+        mpsc::UnboundedReceiver<BridgeEvent>,
+        tokio::task::JoinHandle<()>,
+        Arc<AtomicUsize>,
+    );
+
+    fn start(outcomes: Vec<Result<(), Dial>>, shown: &str) -> Actor {
+        let dials = Arc::new(AtomicUsize::new(0));
+        let dialer = Scripted {
+            outcomes: outcomes.into(),
+            shown: shown.into(),
+            dials: Arc::clone(&dials),
+        };
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (event_tx, events) = mpsc::unbounded_channel();
+        let actor = tokio::spawn(bridge_actor(dialer, command_rx, event_tx, None, "test"));
+        (command_tx, events, actor, dials)
+    }
+
+    async fn next_state(events: &mut mpsc::UnboundedReceiver<BridgeEvent>) -> ConnState {
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+                .await
+                .expect("an event in time")
+                .expect("the actor is alive");
+            if let BridgeEvent::State(state) = event {
+                return state;
+            }
+        }
+    }
+
+    // Scenario: Un fallo de transporte reintenta con backoff
+    #[tokio::test]
+    async fn a_transient_failure_backs_off_and_fails_waiting_requests_fast() {
+        let (commands, mut events, actor, dials) =
+            start(vec![Err(Dial::Transient("nobody home".into()))], "local");
+
+        assert!(matches!(
+            next_state(&mut events).await,
+            ConnState::Connecting
+        ));
+        match next_state(&mut events).await {
+            ConnState::Unreachable { detail, endpoint } => {
+                assert_eq!(detail, "nobody home");
+                assert_eq!(endpoint, "local");
+            }
+            other => panic!("expected unreachable, got {other:?}"),
+        }
+
+        // A request during the backoff fails fast, as unreachable — nobody
+        // waits out somebody else's retry.
+        let (reply, response) = oneshot::channel();
+        commands
+            .send(BridgeCommand::Request {
+                method: "status".into(),
+                params: json!({}),
+                reply,
+            })
+            .expect("the actor is listening");
+        let answer = tokio::time::timeout(Duration::from_millis(100), response)
+            .await
+            .expect("fails fast")
+            .expect("replied");
+        assert_eq!(answer.expect_err("unreachable").kind, "unreachable");
+
+        // Then the retry succeeds and the daemon's own status comes through.
+        assert!(matches!(
+            next_state(&mut events).await,
+            ConnState::Connecting
+        ));
+        match next_state(&mut events).await {
+            ConnState::Connected {
+                version, endpoint, ..
+            } => {
+                assert_eq!(version, "0.0.0-fake");
+                assert_eq!(endpoint, "local");
+            }
+            other => panic!("expected connected, got {other:?}"),
+        }
+        assert_eq!(dials.load(Ordering::SeqCst), 2);
+
+        drop(commands);
+        tokio::time::timeout(Duration::from_secs(5), actor)
+            .await
+            .expect("the actor stops when the host is gone")
+            .expect("cleanly");
+    }
+
+    // Scenario: Un rechazo detiene el actor y lo publica
+    #[tokio::test]
+    async fn a_refusal_is_published_once_and_the_actor_stops_dialing() {
+        let (commands, mut events, actor, dials) = start(
+            vec![Err(Dial::Terminal {
+                kind: Refused::HostKeyChanged,
+                detail: "not that machine".into(),
+            })],
+            "ana@mac-studio",
+        );
+
+        assert!(matches!(
+            next_state(&mut events).await,
+            ConnState::Connecting
+        ));
+        match next_state(&mut events).await {
+            ConnState::Refused {
+                kind,
+                detail,
+                endpoint,
+            } => {
+                assert_eq!(kind, Refused::HostKeyChanged);
+                assert_eq!(detail, "not that machine");
+                assert_eq!(endpoint, "ana@mac-studio");
+            }
+            other => panic!("expected refused, got {other:?}"),
+        }
+
+        // The actor is gone on its own — with the host still holding its
+        // sender — and it never dialled past the refusal.
+        tokio::time::timeout(Duration::from_secs(5), actor)
+            .await
+            .expect("stops on its own")
+            .expect("cleanly");
+        assert_eq!(
+            dials.load(Ordering::SeqCst),
+            1,
+            "a refusal is never dialled past"
+        );
+        assert!(
+            events.recv().await.is_none(),
+            "and nothing more is published"
+        );
+        drop(commands);
+    }
+
+    // Scenario: Un fallo de transporte reintenta con backoff
+    #[tokio::test(start_paused = true)]
+    async fn a_switch_during_the_backoff_cuts_the_wait_and_dials_the_new_target() {
+        let (commands, mut events, actor, dials) = start(
+            vec![
+                Err(Dial::Transient("first is down".into())),
+                Err(Dial::Transient("second is down".into())),
+            ],
+            "first",
+        );
+        let began = tokio::time::Instant::now();
+
+        assert!(matches!(
+            next_state(&mut events).await,
+            ConnState::Connecting
+        ));
+        match next_state(&mut events).await {
+            ConnState::Unreachable { endpoint, .. } => assert_eq!(endpoint, "first"),
+            other => panic!("expected unreachable, got {other:?}"),
+        }
+
+        commands
+            .send(BridgeCommand::Switch {
+                endpoint: "second".into(),
+            })
+            .expect("the actor is listening");
+
+        assert!(matches!(
+            next_state(&mut events).await,
+            ConnState::Connecting
+        ));
+        match next_state(&mut events).await {
+            ConnState::Unreachable { detail, endpoint } => {
+                assert_eq!(endpoint, "second");
+                assert_eq!(detail, "second is down");
+            }
+            other => panic!("expected unreachable, got {other:?}"),
+        }
+        // The clock is paused: it only moves when every task is idle. Reaching
+        // the second dial without it moving at all is the proof that the switch
+        // cut the wait, rather than the backoff running out.
+        assert_eq!(dials.load(Ordering::SeqCst), 2);
+        assert!(
+            began.elapsed() < MIN_BACKOFF,
+            "the switch did not wait out the backoff"
+        );
+
+        drop(commands);
+        tokio::time::timeout(Duration::from_secs(60), actor)
+            .await
+            .expect("the actor stops when the host is gone")
+            .expect("cleanly");
     }
 }
