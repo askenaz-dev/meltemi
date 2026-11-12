@@ -17,7 +17,7 @@
 
 ## 2. El anfitrión móvil
 
-- [ ] 2.1 `mobile/src/host.rs`: `daemon_request`, `daemon_notify`,
+- [x] 2.1 `mobile/src/host.rs`: `daemon_request`, `daemon_notify`,
   `companion_key`, `companion_destination`, `companion_connect`,
   `companion_disconnect`, `companion_forget_host`; el actor vive mientras la
   app está al frente.
