@@ -16,7 +16,19 @@ export type ConnState =
       sessions: number;
       endpoint: string;
     }
-  | { state: "unreachable"; detail: string; endpoint: string };
+  | { state: "unreachable"; detail: string; endpoint: string }
+  /**
+   * The far side said no, for good: the actor has stopped and will not dial
+   * again until the host restarts it. Only the mobile companion's dialer
+   * produces it today (companero-que-conecta D3); the desktop's never
+   * refuses, it only waits.
+   */
+  | {
+      state: "refused";
+      kind: "hostKeyChanged" | "rejected";
+      detail: string;
+      endpoint: string;
+    };
 
 /**
  * One fleet agent offered as a way out of a resolution refusal (2000/2001).

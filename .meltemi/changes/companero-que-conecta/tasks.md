@@ -12,7 +12,7 @@
   peticiones en espera fallan rápido; terminal se detiene y no vuelve a
   marcar; `Switch` durante el backoff corta la espera (reloj pausado de
   tokio, `test-util` solo en dev).
-- [ ] 1.2 `daemon.ts` conoce `refused`; ningún consumidor del escritorio
+- [x] 1.2 `daemon.ts` conoce `refused`; ningún consumidor del escritorio
   cambia de comportamiento.
 
 ## 2. El anfitrión móvil
