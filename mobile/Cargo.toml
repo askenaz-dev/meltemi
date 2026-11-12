@@ -35,3 +35,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+# The channel e2e spins an in-process daemon over the real transport, the
+# same harness the desktop's bridge tests and the TUI e2e suite use.
+meltemid.workspace = true

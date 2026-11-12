@@ -49,7 +49,7 @@
 - [x] 4.1 `core/mock-sshd`: servidor `russh` que acepta una clave, ejecuta solo
   `meltemi bridge`, anuncia puerto y huella; `deny.toml` nombra el segundo
   consumidor de `russh`.
-- [ ] 4.2 `mobile/tests/channel.rs`: `ssh::open` → `initialize` y `status`
+- [x] 4.2 `mobile/tests/channel.rs`: `ssh::open` → `initialize` y `status`
   contra un `meltemid` real; comando distinto rehusado; host reinstalado
   rehusado y aceptado tras olvidarlo.
 - [ ] 4.3 Smoke en el emulador contra `mock-sshd` en el host: emparejar, ver
