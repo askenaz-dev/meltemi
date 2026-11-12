@@ -57,7 +57,7 @@
 
 ## 5. Documentación y cierre
 
-- [ ] 5.1 `docs/acceso-remoto.md`: cómo se empareja; en la misma red no hace
+- [x] 5.1 `docs/acceso-remoto.md`: cómo se empareja; en la misma red no hace
   falta nada más; la malla como opción; la trampa de
   `administrators_authorized_keys` en Windows. `mobile/README.md`: probar con
   `mock-sshd`.
