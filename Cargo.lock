@@ -2910,6 +2910,7 @@ version = "0.2.0"
 dependencies = [
  "meltemi-client",
  "meltemi-proto",
+ "meltemid",
  "russh",
  "serde",
  "serde_json",
@@ -3052,6 +3053,16 @@ name = "mock-provider"
 version = "0.2.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "mock-sshd"
+version = "0.2.0"
+dependencies = [
+ "russh",
+ "serde_json",
+ "ssh-key",
+ "tokio",
 ]
 
 [[package]]

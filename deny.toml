@@ -107,10 +107,14 @@ reason = "reachable only under a shell's webview framework — the desktop's, an
 # targets. `aws-lc-rs` stays banned: it drags `aws-lc-sys`, a C library that
 # wants NASM on Windows, and a C crypto stack is the thing this file exists to
 # keep out.
+# `russh` has two consumers since companero-que-conecta D8: the companion's
+# client half in `mobile/`, and the server half in `core/mock-sshd`, the test
+# fixture that proves the channel on loopback. Both reach `ring` only through
+# `russh`, which is what the wrapper rule below keeps true.
 [[bans.deny]]
 crate = "ring"
 wrappers = ["russh"]
-reason = "the SSH client of the mobile companion needs one crypto backend; this one, there, and nowhere else"
+reason = "the SSH client of the mobile companion, and the test server that proves it, need one crypto backend; this one, through russh, and nowhere else"
 
 [[bans.deny]]
 crate = "aws-lc-rs"

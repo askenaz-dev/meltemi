@@ -46,7 +46,7 @@
 
 ## 4. La prueba
 
-- [ ] 4.1 `core/mock-sshd`: servidor `russh` que acepta una clave, ejecuta solo
+- [x] 4.1 `core/mock-sshd`: servidor `russh` que acepta una clave, ejecuta solo
   `meltemi bridge`, anuncia puerto y huella; `deny.toml` nombra el segundo
   consumidor de `russh`.
 - [ ] 4.2 `mobile/tests/channel.rs`: `ssh::open` → `initialize` y `status`

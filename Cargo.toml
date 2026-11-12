@@ -10,6 +10,7 @@ members = [
     "core/mock-agent",
     "core/mock-headless",
     "core/mock-provider",
+    "core/mock-sshd",
     "desktop",
     "mobile",
     "mobile/plugins/vault",
