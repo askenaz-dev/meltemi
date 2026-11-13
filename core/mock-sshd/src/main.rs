@@ -26,7 +26,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use russh::keys::{Algorithm, PrivateKey, PublicKey, PublicKeyBase64};
-use russh::server::{Auth, ChannelOpenHandle, Config, Handler, Msg, Server, Session};
+use russh::server::{
+    Auth, ChannelOpenHandle, Config, Handler, Msg, Server, Session, VerifiedPublicKey,
+};
 use russh::{Channel, ChannelId, MethodKind, MethodSet};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
@@ -118,9 +120,15 @@ impl Handler for Client {
     type Error = russh::Error;
 
     /// Any user name, exactly one key: who the far side says it is, is its
-    /// business; the key is what this server checks.
-    async fn auth_publickey(&mut self, _user: &str, key: &PublicKey) -> Result<Auth, Self::Error> {
-        if key.public_key_base64() == self.shared.authorized.public_key_base64() {
+    /// business; the key is what this server checks. russh hands it over only
+    /// after verifying the signature of the request, so a key here is a key
+    /// the far side holds, not one it merely named.
+    async fn auth_publickey(
+        &mut self,
+        _user: &str,
+        key: VerifiedPublicKey<'_>,
+    ) -> Result<Auth, Self::Error> {
+        if key.public_key.public_key_base64() == self.shared.authorized.public_key_base64() {
             Ok(Auth::Accept)
         } else {
             Ok(Auth::reject())

@@ -85,7 +85,7 @@ sha2 = "=0.11.0"
 # ISC, Rust and assembly with no C toolchain, and allowed in `deny.toml` only as
 # a wrapper of `russh`. Without `rsa` and `flate2` the client speaks ed25519 and
 # no compression, which is all this app needs.
-russh = { version = "=0.63.3", default-features = false, features = ["ring"] }
+russh = { version = "=0.65.1", default-features = false, features = ["ring"] }
 # Already in the tree: `russh` pins exactly this version. Declared here only to
 # turn ON its own `getrandom` feature, which is what exposes the system RNG the
 # key generator needs — `rand_core` 0.10 moved `OsRng` out, and borrowing a

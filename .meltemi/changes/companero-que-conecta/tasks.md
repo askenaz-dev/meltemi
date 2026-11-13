@@ -63,5 +63,5 @@
   `mock-sshd`.
 - [x] 5.2 Fila en `docs/plan-de-cambios.md` junto a `apk-en-la-release`, como
   su prerrequisito.
-- [ ] 5.3 `meltemi validate` y `verify` en verde; `clippy -D warnings`,
+- [x] 5.3 `meltemi validate` y `verify` en verde; `clippy -D warnings`,
   `fmt --check`, tests y `cargo deny` verdes; PR.
