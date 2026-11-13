@@ -363,7 +363,7 @@
           {$t("mobile.pair.connecting", { destination: paired.destination, attempt: paired.attempt })}
         </p>
         {#if paired.detail}
-          <p class="hint">{paired.detail}</p>
+          <p class="hint detail">{paired.detail}</p>
         {/if}
         <div class="actions">
           <button onclick={() => void cancel()}>{$t("mobile.pair.cancel")}</button>
@@ -377,7 +377,7 @@
             ? $t("mobile.refused.hostKeyChanged", { destination: paired.destination })
             : $t("mobile.refused.rejected", { destination: paired.destination })}
         </p>
-        <p class="hint">{paired.detail}</p>
+        <p class="hint detail">{paired.detail}</p>
         {#if actions(paired).includes("copyKey")}
           {@render keyBlock()}
         {/if}
@@ -597,6 +597,12 @@
     display: grid;
     gap: var(--sp-2);
     margin-top: var(--sp-2);
+  }
+  /* The dialer may quote a key in its words, and a key is longer than any
+     phone is wide: without this the page grows past the screen and nothing
+     on it wraps (found by the emulator smoke, companero-que-conecta 4.3). */
+  .detail {
+    overflow-wrap: anywhere;
   }
   /* Selectable as a whole, because copying it by hand is a path that must
      work when the clipboard does not. Broken anywhere, because a key line is

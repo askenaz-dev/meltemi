@@ -52,7 +52,7 @@
 - [x] 4.2 `mobile/tests/channel.rs`: `ssh::open` → `initialize` y `status`
   contra un `meltemid` real; comando distinto rehusado; host reinstalado
   rehusado y aceptado tras olvidarlo.
-- [ ] 4.3 Smoke en el emulador contra `mock-sshd` en el host: emparejar, ver
+- [x] 4.3 Smoke en el emulador contra `mock-sshd` en el host: emparejar, ver
   la flota, aprobar desde el teléfono; informe en `docs/qa/`.
 
 ## 5. Documentación y cierre

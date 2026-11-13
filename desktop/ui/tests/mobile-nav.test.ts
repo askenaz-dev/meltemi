@@ -96,3 +96,30 @@ test("the review screen adopts with confirmation and offers nowhere to type", as
     "and no field anywhere takes a private key",
   );
 });
+
+// What the emulator smoke found (companero-que-conecta 4.3): the dialer quoted
+// the two host keys in its words, the line could not break, and the whole page
+// grew past the screen — after which nothing on it wrapped either. The rule is
+// held against the source because it is about a class and a style, and a
+// style is what quietly goes missing in a refactor.
+test("the dialer's words wrap on a phone, even when they quote a key", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const mobile = await readFile(
+    new URL("../src/Mobile.svelte", import.meta.url),
+    "utf8",
+  );
+  const details = mobile.match(/<p class="[^"]*">\{paired\.detail\}<\/p>/g) ?? [];
+  assert.equal(
+    details.length,
+    2,
+    "the connecting and the refused screens each show the dialer's words",
+  );
+  for (const line of details) {
+    assert.ok(/class="[^"]*\bdetail\b[^"]*"/.test(line), `${line} carries the wrapping class`);
+  }
+  const rule = mobile.slice(mobile.indexOf("\n  .detail {"));
+  assert.ok(
+    rule.slice(0, rule.indexOf("}")).includes("overflow-wrap: anywhere"),
+    "and the class breaks anywhere",
+  );
+});
