@@ -8,7 +8,7 @@ use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
 
 use meltemi_client::transport::Listener;
-use meltemi_desktop::bridge::{BridgeCommand, BridgeEvent, ConnState, bridge_actor};
+use meltemi_desktop::bridge::{BridgeCommand, BridgeEvent, ConnState, run};
 use meltemid::server::{DaemonState, serve_until_shutdown};
 
 /// A fresh, process-unique endpoint for an ephemeral test daemon.
@@ -58,7 +58,7 @@ async fn bridge_connects_initializes_and_serves_a_status_passthrough() {
     let (endpoint, _daemon) = spawn_daemon("bridge-status").await;
     let (command_tx, command_rx) = mpsc::unbounded_channel();
     let (event_tx, mut events) = mpsc::unbounded_channel();
-    let actor = tokio::spawn(bridge_actor(endpoint, command_rx, event_tx));
+    let actor = tokio::spawn(run(endpoint, command_rx, event_tx));
 
     // The passthrough works end to end (connect → initialize → request).
     let status = request(&command_tx, "status", json!({}))
@@ -83,6 +83,11 @@ async fn bridge_connects_initializes_and_serves_a_status_passthrough() {
                 ConnState::Unreachable { detail, .. } => {
                     panic!("unexpected unreachable: {detail}")
                 }
+                // The desktop's dialer never refuses for good: a local daemon
+                // that is not there is one that may be there in a moment.
+                ConnState::Refused { detail, .. } => {
+                    panic!("a local dial is never refused: {detail}")
+                }
             }
         }
     }
@@ -97,7 +102,7 @@ async fn a_contract_error_surfaces_kind_detail_and_remedy() {
     let (endpoint, _daemon) = spawn_daemon("bridge-error").await;
     let (command_tx, command_rx) = mpsc::unbounded_channel();
     let (event_tx, _events) = mpsc::unbounded_channel();
-    let _actor = tokio::spawn(bridge_actor(endpoint, command_rx, event_tx));
+    let _actor = tokio::spawn(run(endpoint, command_rx, event_tx));
 
     // `session/log` on a project without sessions refuses with structured
     // data; the bridge must not flatten it (the CLI's known gap).
@@ -122,7 +127,7 @@ async fn requests_while_unreachable_fail_fast_with_the_endpoint_diagnosed() {
     let endpoint = test_endpoint("bridge-unreachable");
     let (command_tx, command_rx) = mpsc::unbounded_channel();
     let (event_tx, mut events) = mpsc::unbounded_channel();
-    let _actor = tokio::spawn(bridge_actor(endpoint.clone(), command_rx, event_tx));
+    let _actor = tokio::spawn(run(endpoint.clone(), command_rx, event_tx));
 
     let error = request(&command_tx, "status", json!({}))
         .await
@@ -159,7 +164,7 @@ async fn switching_machines_reconnects_against_the_new_one_without_restarting() 
     let (second, _two) = spawn_daemon("switch-second").await;
     let (command_tx, command_rx) = mpsc::unbounded_channel();
     let (event_tx, mut events) = mpsc::unbounded_channel();
-    let _actor = tokio::spawn(bridge_actor(first.clone(), command_rx, event_tx));
+    let _actor = tokio::spawn(run(first.clone(), command_rx, event_tx));
 
     // Talking to the first.
     let status = request(&command_tx, "status", json!({}))
@@ -216,7 +221,7 @@ async fn a_machine_chosen_while_unreachable_is_dialed_without_waiting_out_the_ba
 
     let (command_tx, command_rx) = mpsc::unbounded_channel();
     let (event_tx, _events) = mpsc::unbounded_channel();
-    let _actor = tokio::spawn(bridge_actor(dead, command_rx, event_tx));
+    let _actor = tokio::spawn(run(dead, command_rx, event_tx));
 
     // Let it fail at least once and settle into the wait.
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;

@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "mock-sshd"
+description = "A test SSH server that accepts one key and runs one command, for proving the companion's channel on loopback"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+# The server half of the same pinned crate the companion's client half uses,
+# on the same `ring` backend: the second consumer of `russh` in the workspace,
+# and a fixture, never a product (companero-que-conecta D8).
+russh.workspace = true
+# For the randomness behind the host key made on every start, exactly as
+# `mobile/src/keys.rs` reaches it: one `rand_core`, not two.
+ssh-key.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "process", "io-util"] }

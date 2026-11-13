@@ -45,4 +45,8 @@ meltemi-process.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+# `test-util` is tokio's paused clock, for the bridge's own tests only: it is
+# what proves that a switch during a backoff dials at once, by reaching the
+# next dial without the clock having moved — instead of racing a wall-clock
+# threshold on whatever runner CI hands out. Same pinned crate, dev-only.
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

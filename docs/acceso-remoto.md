@@ -229,14 +229,40 @@ de especificaciones. Existe en el código del producto, pero la release publicad
 un APK. La [guía de compilación](../mobile/README.md) describe el build para desarrolladores.
 No hay distribución iOS publicada.
 
-El teléfono usa su propio cliente SSH hasta `meltemi bridge`. La app genera una clave propia y
-muestra su parte pública para añadirla a `authorized_keys` en el servidor. Revoca el acceso
-retirando esa línea. La clave privada queda cifrada en el almacenamiento de la app; el almacén
-del sistema protege el material usado para cifrarla. Un cambio de clave del host rechaza la
-conexión y se muestra como tal.
+**Cómo se empareja.** La app genera una clave propia la primera vez que arranca y la muestra
+en su pantalla sin túnel, con un control para copiarla. Esa línea va a `~/.ssh/authorized_keys`
+en la máquina que corre `meltemid`; luego escribes `usuario@host[:puerto]` en la app y conectas.
+El destino se recuerda: al volver al frente la app vuelve a marcar sola. Ajustes muestra la misma
+clave y el mismo destino, y permite olvidarlos. Revocas el acceso del teléfono retirando esa
+línea del archivo; no hay nada más que revocar.
+
+**En la misma red no hace falta nada más.** El teléfono necesita llegar a tu `sshd`; en la Wi-Fi
+de tu casa u oficina eso ya ocurre. Desde fuera, el camino hasta tu máquina lo pones tú —tu VPN,
+tu WireGuard, una malla como Tailscale— y Meltemi no participa en él: no tiene relés y no los
+tendrá. La identidad de malla del escritorio es una lectura opcional y no la usa el teléfono.
+
+**Windows, la trampa conocida.** Si el usuario que corre `sshd` pertenece al grupo
+Administradores, OpenSSH para Windows lee `C:\ProgramData\ssh\administrators_authorized_keys`
+y **no** `~/.ssh/authorized_keys`. Una clave en el archivo equivocado se rechaza en silencio y la
+app lo muestra como «la máquina no aceptó la clave de esta app».
+
+El teléfono usa su propio cliente SSH hasta `meltemi bridge`. El canal lo sirve el mismo actor
+de puente que el escritorio (`meltemi-client`): lo único que cambia entre los dos es quién marca.
+La clave privada queda cifrada en el almacenamiento de la app con una clave AES-GCM que vive en
+el almacén de claves de Android y no sale de él; si el almacén se niega a sellarla, la app se
+detiene y lo dice, nunca la escribe en claro. Un cambio de clave del host rechaza la conexión y
+**no reintenta**: la pantalla dice que o reinstalaste esa máquina o no es esa máquina, y
+olvidar el host es una decisión tuya. Una clave rechazada por el servidor tampoco reintenta: la
+app te deja la clave a mano y un botón para volver a intentarlo cuando la hayas añadido.
 
 Al pasar a segundo plano no mantiene el socket. Al volver, reconecta y actualiza el estado antes
 de mostrarlo como actual. No hay un relé de Meltemi ni notificaciones del daemon sin conexión.
+
+**Cómo se prueba sin un `sshd` del sistema.** `core/mock-sshd` es un servidor SSH de prueba que
+acepta exactamente una clave y ejecuta exactamente `meltemi bridge`. Con él, el e2e de
+`mobile/tests/channel.rs` lleva el cliente SSH de la app por el puente hasta un `meltemid` real
+en bucle local, y el smoke del emulador empareja la app de verdad contra `10.0.2.2`. La guía
+del móvil explica cómo levantarlo.
 
 ## El aviso de espera (opt-in)
 

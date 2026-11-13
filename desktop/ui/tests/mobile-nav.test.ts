@@ -72,16 +72,54 @@ test("the review screen adopts with confirmation and offers nowhere to type", as
   );
 
   // Scenario: Propuesta de autoría en el móvil
-  // The only free-text input in the whole companion is the composer, and what it
-  // carries is an instruction for the agent, not content for a file.
+  // Two text fields in the whole companion, and each is named: the composer,
+  // which carries an instruction for the agent, and the destination, which is
+  // a place to go. Neither is content for a file (companero-que-conecta D7).
   const inputs = mobile.match(/<textarea|<input/g) ?? [];
   assert.equal(
     inputs.length,
-    1,
-    `the companion has exactly one text field, the composer: found ${inputs.length}`,
+    2,
+    `the companion has exactly two text fields, the composer and the destination: found ${inputs.length}`,
   );
   assert.ok(
     mobile.includes("mobile.direct.placeholder"),
-    "and that one is the composer",
+    "one is the composer",
+  );
+  assert.ok(
+    mobile.includes("mobile.pair.placeholder"),
+    "and the other is the destination",
+  );
+  // Scenario: La clave se ve y se copia sin conexión
+  // Code shapes, not words: a comment that explains the rule must not trip it.
+  assert.ok(
+    !/type="password"|privateKey|<input[^>]*type="(?!text")/.test(mobile),
+    "and no field anywhere takes a private key",
+  );
+});
+
+// What the emulator smoke found (companero-que-conecta 4.3): the dialer quoted
+// the two host keys in its words, the line could not break, and the whole page
+// grew past the screen — after which nothing on it wrapped either. The rule is
+// held against the source because it is about a class and a style, and a
+// style is what quietly goes missing in a refactor.
+test("the dialer's words wrap on a phone, even when they quote a key", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const mobile = await readFile(
+    new URL("../src/Mobile.svelte", import.meta.url),
+    "utf8",
+  );
+  const details = mobile.match(/<p class="[^"]*">\{paired\.detail\}<\/p>/g) ?? [];
+  assert.equal(
+    details.length,
+    2,
+    "the connecting and the refused screens each show the dialer's words",
+  );
+  for (const line of details) {
+    assert.ok(/class="[^"]*\bdetail\b[^"]*"/.test(line), `${line} carries the wrapping class`);
+  }
+  const rule = mobile.slice(mobile.indexOf("\n  .detail {"));
+  assert.ok(
+    rule.slice(0, rule.indexOf("}")).includes("overflow-wrap: anywhere"),
+    "and the class breaks anywhere",
   );
 });

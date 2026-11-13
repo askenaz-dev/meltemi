@@ -1883,7 +1883,6 @@ version = "1.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "337d46834ee672ab3e48caca2cb0c78cc174fb12b3a68d0d88f99a0519a5e36e"
 dependencies = [
- "generic-array 0.14.7",
  "rustversion",
  "typenum",
 ]
@@ -2910,12 +2909,14 @@ version = "0.2.0"
 dependencies = [
  "meltemi-client",
  "meltemi-proto",
+ "meltemid",
  "russh",
  "serde",
  "serde_json",
  "ssh-key",
  "tauri",
  "tauri-build",
+ "tauri-plugin-meltemi-vault",
  "tokio",
 ]
 
@@ -3051,6 +3052,16 @@ name = "mock-provider"
 version = "0.2.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "mock-sshd"
+version = "0.2.0"
+dependencies = [
+ "russh",
+ "serde_json",
+ "ssh-key",
+ "tokio",
 ]
 
 [[package]]
@@ -4250,9 +4261,9 @@ dependencies = [
 
 [[package]]
 name = "russh"
-version = "0.63.3"
+version = "0.65.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "036204edbd199552a5b3832f63c60dcdf395dc44c7f06b4af1c0e8139cc11bce"
+checksum = "94be3d86c71b9ed220a675c405e35c7a02565a009bf8da2e9cc13a700320a5c5"
 dependencies = [
  "aes",
  "bitflags 2.13.0",
@@ -5379,6 +5390,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-meltemi-vault"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-notification"
 version = "2.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5515,7 +5535,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",

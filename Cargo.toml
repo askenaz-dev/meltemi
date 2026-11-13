@@ -10,8 +10,10 @@ members = [
     "core/mock-agent",
     "core/mock-headless",
     "core/mock-provider",
+    "core/mock-sshd",
     "desktop",
     "mobile",
+    "mobile/plugins/vault",
     "proto/meltemi-proto",
     "tui",
 ]
@@ -83,7 +85,7 @@ sha2 = "=0.11.0"
 # ISC, Rust and assembly with no C toolchain, and allowed in `deny.toml` only as
 # a wrapper of `russh`. Without `rsa` and `flate2` the client speaks ed25519 and
 # no compression, which is all this app needs.
-russh = { version = "=0.63.3", default-features = false, features = ["ring"] }
+russh = { version = "=0.65.1", default-features = false, features = ["ring"] }
 # Already in the tree: `russh` pins exactly this version. Declared here only to
 # turn ON its own `getrandom` feature, which is what exposes the system RNG the
 # key generator needs — `rand_core` 0.10 moved `OsRng` out, and borrowing a
@@ -92,6 +94,10 @@ russh = { version = "=0.63.3", default-features = false, features = ["ring"] }
 ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["ed25519", "getrandom"] }
 tauri = "=2.11.5"
 tauri-build = "=2.6.3"
+# The plugin build helper, already in the tree through the dialog and
+# notification plugins. Declared directly for the companion's own vault plugin
+# (companero-que-conecta D5): same pinned version, nothing new enters the audit.
+tauri-plugin = "=2.6.3"
 # The official Tauri dialog plugin, for the native folder picker of "Open
 # folder…" (lanzador-conversacional design D8). Consumed ONLY by the `desktop`
 # crate and NOT exposed to the webview: the surface reaches it through a bespoke

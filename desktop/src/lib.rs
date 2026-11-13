@@ -418,7 +418,7 @@ pub fn run() {
             let (command_tx, command_rx) = mpsc::unbounded_channel();
             let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
-            tauri::async_runtime::spawn(bridge::bridge_actor(endpoint, command_rx, event_tx));
+            tauri::async_runtime::spawn(bridge::run(endpoint, command_rx, event_tx));
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
