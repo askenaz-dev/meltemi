@@ -2909,12 +2909,14 @@ version = "0.2.0"
 dependencies = [
  "meltemi-client",
  "meltemi-proto",
+ "meltemid",
  "russh",
  "serde",
  "serde_json",
  "ssh-key",
  "tauri",
  "tauri-build",
+ "tauri-plugin-meltemi-vault",
  "tokio",
 ]
 
@@ -3050,6 +3052,16 @@ name = "mock-provider"
 version = "0.2.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "mock-sshd"
+version = "0.2.0"
+dependencies = [
+ "russh",
+ "serde_json",
+ "ssh-key",
+ "tokio",
 ]
 
 [[package]]
@@ -5375,6 +5387,15 @@ dependencies = [
  "thiserror 2.0.18",
  "toml 1.1.2+spec-1.1.0",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-meltemi-vault"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

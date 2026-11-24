@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "tauri-plugin-meltemi-vault"
+description = "Seals the Meltemi companion's key with a key that never leaves Android's keystore"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+# Required by `tauri-plugin`'s build, and load-bearing: it is the name under
+# which the app's own build finds this plugin's Android library
+# (`DEP_TAURI_PLUGIN_MELTEMI_VAULT_ANDROID_LIBRARY_PATH`) and links it into
+# the generated Gradle project.
+links = "tauri-plugin-meltemi-vault"
+
+[build-dependencies]
+# `build` is the half of the helper that runs in a build script: the ACL and
+# Android library wiring. The runtime half is `tauri::plugin` itself.
+tauri-plugin = { workspace = true, features = ["build"] }
+
+[dependencies]
+tauri.workspace = true
+serde.workspace = true

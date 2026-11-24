@@ -530,7 +530,8 @@ meltemi-web están en `openspec/changes/` de ese repositorio.
 | 2º | `version-que-propone-ci` | IDE | completa | la versión según la política, en una PR de release; el merge publica; el aviso a la web con la App | 1º |
 | 3º | `estado-que-publica-la-release` | IDE | completa | `capabilities.json` atestado en cada release | — |
 | 4º | `ide-state-from-release` | meltemi-web | completa | la tabla del sitio sale de la release, verificada | 3º en una release |
-| 5º | `apk-en-la-release` | IDE | completa | el APK compilado en CI con su techo de 25 MB; publicado solo firmado | — |
+| 5º-a | `companero-que-conecta` | IDE | completa | el compañero se empareja desde la app: un actor de puente compartido con un marcador por superficie, estado `refused`, la clave sellada por el almacén de Android, y `core/mock-sshd` para probar el canal contra un daemon real en bucle local y en el emulador · **implementada** (2026-11-12) | — |
+| 5º | `apk-en-la-release` | IDE | completa | el APK compilado en CI con su techo de 25 MB; publicado solo firmado | 5º-a (una app que no conecta no se publica) |
 | 6º | `firma-de-plataforma` | IDE | completa | la enmienda; MSI, DMG y APK firmados en jobs aislados y verificados contra identidades fijadas | 1º, 5º, certificados |
 | 7º | `contrato-publicado` | IDE | rápida | los JSON Schemas del contrato como asset de cada release; el índice completo | — |
 | 8º | `distribucion-y-actualizacion` | IDE | completa | Homebrew, Scoop y winget como canal de actualización | 6º para el cask |

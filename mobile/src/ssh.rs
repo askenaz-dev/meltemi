@@ -299,7 +299,7 @@ pub async fn open(
         )));
     }
 
-    let channel = session
+    let mut channel = session
         .channel_open_session()
         .await
         .map_err(|e| Refusal::Transport(format!("could not open a session channel: {e}")))?;
@@ -307,6 +307,32 @@ pub async fn open(
         .exec(true, destination.command.as_bytes())
         .await
         .map_err(|e| Refusal::Transport(format!("could not run `{}`: {e}", destination.command)))?;
+    // The reply to the request, waited for: a server that refuses to run the
+    // bridge says so here, and the caller hears "could not run" now — not a
+    // stream that ends before `initialize`, read later as a daemon that is
+    // not there. Found by the loopback e2e against a server that runs only
+    // the bridge (companero-que-conecta D8).
+    match channel.wait().await {
+        Some(russh::ChannelMsg::Success) => {}
+        Some(russh::ChannelMsg::Failure) => {
+            return Err(Refusal::Transport(format!(
+                "could not run `{}`: the server refused to run it",
+                destination.command
+            )));
+        }
+        Some(other) => {
+            return Err(Refusal::Transport(format!(
+                "could not run `{}`: unexpected reply {other:?}",
+                destination.command
+            )));
+        }
+        None => {
+            return Err(Refusal::Transport(format!(
+                "could not run `{}`: the channel closed before replying",
+                destination.command
+            )));
+        }
+    }
 
     // The whole point of this crate, in one line: the client's `Stream` is a
     // boxed `AsyncRead + AsyncWrite + Unpin + Send`, and an SSH channel is one.

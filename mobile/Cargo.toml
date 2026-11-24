@@ -28,7 +28,13 @@ ssh-key.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
+# The companion's own vault: the key sealed by Android's keystore, reached
+# through a plugin this repository ships (companero-que-conecta D5).
+tauri-plugin-meltemi-vault = { path = "plugins/vault" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+# The channel e2e spins an in-process daemon over the real transport, the
+# same harness the desktop's bridge tests and the TUI e2e suite use.
+meltemid.workspace = true

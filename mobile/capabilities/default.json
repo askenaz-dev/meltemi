@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "Deny-by-default surface for the companion: the webview may only use core window/event IPC — the connection state and the daemon's pushes it listens to, and the app's own commands. No plugin is exposed to it: the vault is the Rust side's, and so is the SSH channel.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}
