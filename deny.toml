@@ -32,6 +32,16 @@ ignore = [
     "RUSTSEC-2026-0370",
     "RUSTSEC-2026-0371",
     "RUSTSEC-2026-0372",
+    # chrono: unmaintained (chronotope/chrono#1768), with no patched release.
+    # Not a vulnerability, and not under tauri: it is in Cargo.lock because
+    # russh-util 0.52.0, the latest release, takes its clock from chrono under
+    # `cfg(target_arch = "wasm32")`, and russh brings russh-util in for the
+    # mobile companion's SSH client (companero-movil design D2). No target
+    # this workspace builds is wasm32 (`cargo tree -i chrono` prints nothing
+    # for Windows, macOS, Linux or Android), so chrono is locked and never
+    # compiled. cargo-deny audits every target, hence the entry. Revisited on
+    # every russh bump; it goes when russh-util drops chrono.
+    "RUSTSEC-2026-0543",
 ]
 
 [licenses]
